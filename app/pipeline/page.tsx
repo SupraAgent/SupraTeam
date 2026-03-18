@@ -3,9 +3,11 @@
 import * as React from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { KanbanBoard } from "@/components/pipeline/kanban-board";
+import { DealListView } from "@/components/pipeline/deal-list-view";
 import { CreateDealModal } from "@/components/pipeline/create-deal-modal";
 import { DealDetailPanel } from "@/components/pipeline/deal-detail-panel";
 import { Button } from "@/components/ui/button";
+import { LayoutGrid, List } from "lucide-react";
 import type { Deal, PipelineStage, Contact, BoardType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -54,6 +56,7 @@ export default function PipelinePage() {
   const [deals, setDeals] = React.useState<Deal[]>([]);
   const [contacts, setContacts] = React.useState<Contact[]>([]);
   const [board, setBoard] = React.useState<BoardType>("All");
+  const [viewMode, setViewMode] = React.useState<"kanban" | "list">("kanban");
   const [createOpen, setCreateOpen] = React.useState(false);
   const [selectedDeal, setSelectedDeal] = React.useState<Deal | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -169,21 +172,52 @@ export default function PipelinePage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          {/* View toggle */}
+          <div className="flex gap-0.5 rounded-lg border border-white/10 p-0.5">
+            <button
+              onClick={() => setViewMode("kanban")}
+              className={cn(
+                "rounded-md p-1.5 transition-colors",
+                viewMode === "kanban" ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground"
+              )}
+              title="Kanban view"
+            >
+              <LayoutGrid className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onClick={() => setViewMode("list")}
+              className={cn(
+                "rounded-md p-1.5 transition-colors",
+                viewMode === "list" ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground"
+              )}
+              title="List view"
+            >
+              <List className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          {/* Board filter */}
           <div className="flex gap-1">
-            {BOARDS.map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setBoard(tab)}
-                className={cn(
-                  "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
-                  board === tab
-                    ? "bg-white/10 text-foreground"
-                    : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
-                )}
-              >
-                {tab}
-              </button>
-            ))}
+            {BOARDS.map((tab) => {
+              const count = tab === "All" ? deals.length : deals.filter((d) => d.board_type === tab).length;
+              return (
+                <button
+                  key={tab}
+                  onClick={() => setBoard(tab)}
+                  className={cn(
+                    "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                    board === tab
+                      ? "bg-white/10 text-foreground"
+                      : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+                  )}
+                >
+                  {tab}
+                  {count > 0 && !usingSamples && (
+                    <span className="ml-1 text-muted-foreground/60">({count})</span>
+                  )}
+                </button>
+              );
+            })}
           </div>
           <Button size="sm" onClick={() => setCreateOpen(true)}>
             Add Deal
@@ -197,14 +231,24 @@ export default function PipelinePage() {
         </div>
       )}
 
-      <KanbanBoard
-        stages={stages}
-        deals={deals}
-        board={board}
-        onMoveDeal={handleMoveDeal}
-        onDealClick={setSelectedDeal}
-        highlightDealId={highlightDealId}
-      />
+      {viewMode === "kanban" ? (
+        <KanbanBoard
+          stages={stages}
+          deals={deals}
+          board={board}
+          onMoveDeal={handleMoveDeal}
+          onDealClick={setSelectedDeal}
+          highlightDealId={highlightDealId}
+        />
+      ) : (
+        <DealListView
+          deals={deals}
+          stages={stages}
+          board={board}
+          onDealClick={setSelectedDeal}
+          highlightDealId={highlightDealId}
+        />
+      )}
 
       <CreateDealModal
         open={createOpen}

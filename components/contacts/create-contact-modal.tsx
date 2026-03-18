@@ -4,7 +4,9 @@ import * as React from "react";
 import { Modal } from "@/components/ui/modal";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import type { PipelineStage } from "@/lib/types";
 
 type CreateContactModalProps = {
   open: boolean;
@@ -21,6 +23,22 @@ export function CreateContactModal({ open, onClose, onCreated }: CreateContactMo
   const [telegram, setTelegram] = React.useState("");
   const [title, setTitle] = React.useState("");
   const [notes, setNotes] = React.useState("");
+  const [stageId, setStageId] = React.useState("");
+  const [stages, setStages] = React.useState<PipelineStage[]>([]);
+
+  React.useEffect(() => {
+    if (open) {
+      fetch("/api/pipeline")
+        .then((r) => r.json())
+        .then((data) => {
+          setStages(data.stages ?? []);
+          if (data.stages?.length > 0 && !stageId) {
+            setStageId(data.stages[0].id);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [open, stageId]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -39,6 +57,7 @@ export function CreateContactModal({ open, onClose, onCreated }: CreateContactMo
           telegram_username: telegram || null,
           title: title || null,
           notes: notes || null,
+          stage_id: stageId || null,
         }),
       });
 
@@ -50,6 +69,7 @@ export function CreateContactModal({ open, onClose, onCreated }: CreateContactMo
         setTelegram("");
         setTitle("");
         setNotes("");
+        setStageId(stages[0]?.id ?? "");
         onCreated();
         onClose();
       }
@@ -91,6 +111,17 @@ export function CreateContactModal({ open, onClose, onCreated }: CreateContactMo
         <div>
           <label className="text-xs font-medium text-muted-foreground">Telegram Username</label>
           <Input value={telegram} onChange={(e) => setTelegram(e.target.value)} placeholder="username (without @)" className="mt-1" />
+        </div>
+
+        <div>
+          <label className="text-xs font-medium text-muted-foreground">Stage</label>
+          <Select
+            value={stageId}
+            onChange={(e) => setStageId(e.target.value)}
+            options={stages.map((s) => ({ value: s.id, label: s.name }))}
+            placeholder="No stage"
+            className="mt-1"
+          />
         </div>
 
         <div>

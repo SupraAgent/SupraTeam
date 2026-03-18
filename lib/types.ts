@@ -15,9 +15,12 @@ export type Contact = {
   company: string | null;
   title: string | null;
   notes: string | null;
+  stage_id: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  // Joined
+  stage?: PipelineStage | null;
 };
 
 export type Deal = {
