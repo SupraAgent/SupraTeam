@@ -1,1 +1,2 @@
-bot/
+# Only ignore the standalone bot process, not the API routes
+/bot/
