@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import { Button } from "@/components/ui/button";
-import { MessageCircle, Check, X, RefreshCw } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { MessageCircle, Check, X, RefreshCw, Save } from "lucide-react";
 
 type WebhookInfo = {
   url: string;
@@ -21,21 +22,36 @@ type BotInfo = {
   };
 };
 
+type TokenInfo = {
+  exists: boolean;
+  masked?: string;
+};
+
 export default function TelegramSettingsPage() {
   const [webhookInfo, setWebhookInfo] = React.useState<WebhookInfo | null>(null);
   const [botInfo, setBotInfo] = React.useState<BotInfo | null>(null);
+  const [tokenInfo, setTokenInfo] = React.useState<TokenInfo | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [setting, setSetting] = React.useState(false);
+  const [newToken, setNewToken] = React.useState("");
+  const [savingToken, setSavingToken] = React.useState(false);
+  const [tokenMsg, setTokenMsg] = React.useState("");
 
   async function fetchStatus() {
     setLoading(true);
     try {
-      const [webhookRes, statusRes] = await Promise.all([
+      const [webhookRes, statusRes, tokenRes] = await Promise.all([
         fetch("/api/bot/setup").then((r) => r.json()).catch(() => null),
         fetch("/api/bot/status").then((r) => r.json()).catch(() => null),
+        fetch("/api/tokens?provider=telegram_bot").then((r) => r.ok ? r.json() : null).catch(() => null),
       ]);
       if (webhookRes) setWebhookInfo(webhookRes);
       if (statusRes) setBotInfo(statusRes);
+      if (tokenRes?.data) {
+        setTokenInfo({ exists: true, masked: tokenRes.data.masked });
+      } else {
+        setTokenInfo({ exists: false });
+      }
     } finally {
       setLoading(false);
     }
@@ -56,6 +72,30 @@ export default function TelegramSettingsPage() {
       }
     } finally {
       setSetting(false);
+    }
+  }
+
+  async function handleSaveToken() {
+    if (!newToken.trim()) return;
+    setSavingToken(true);
+    setTokenMsg("");
+    try {
+      const res = await fetch("/api/tokens", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: "telegram_bot", token: newToken.trim() }),
+      });
+      if (res.ok) {
+        setTokenMsg("Token saved. Restart the bot to apply.");
+        setNewToken("");
+        setTokenInfo({ exists: true, masked: "••••" + newToken.slice(-4) });
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setTokenMsg(err.error ?? "Failed to save token");
+      }
+    } finally {
+      setSavingToken(false);
+      setTimeout(() => setTokenMsg(""), 5000);
     }
   }
 
@@ -121,6 +161,58 @@ export default function TelegramSettingsPage() {
             Refresh
           </Button>
         </div>
+      </div>
+
+      {/* Bot Token Management */}
+      <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5 space-y-4">
+        <h2 className="text-sm font-medium text-foreground">Bot Token</h2>
+
+        {tokenInfo?.exists && (
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-foreground">Stored token</p>
+              <p className="text-xs text-muted-foreground font-mono">{tokenInfo.masked}</p>
+            </div>
+            <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-400">
+              Encrypted
+            </span>
+          </div>
+        )}
+
+        <div>
+          <label className="block text-xs text-muted-foreground mb-1.5">
+            {tokenInfo?.exists ? "Replace bot token" : "Add bot token"}
+          </label>
+          <div className="flex gap-2">
+            <Input
+              type="password"
+              value={newToken}
+              onChange={(e) => setNewToken(e.target.value)}
+              placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+              className="flex-1 font-mono text-xs"
+            />
+            <Button size="sm" onClick={handleSaveToken} disabled={savingToken || !newToken.trim()}>
+              <Save className="mr-1 h-3.5 w-3.5" />
+              {savingToken ? "Saving..." : "Save"}
+            </Button>
+          </div>
+          {tokenMsg && (
+            <p className="mt-2 text-xs text-primary">{tokenMsg}</p>
+          )}
+        </div>
+
+        <p className="text-xs text-muted-foreground">
+          Get a bot token from{" "}
+          <a
+            href="https://t.me/BotFather"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline"
+          >
+            @BotFather
+          </a>
+          . Tokens are encrypted with AES-256-GCM before storage.
+        </p>
       </div>
 
       {/* Instructions */}
