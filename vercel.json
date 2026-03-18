@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/bot/poll-notifications",
-      "schedule": "* * * * *"
+      "schedule": "0 9 * * *"
     }
   ]
 }
