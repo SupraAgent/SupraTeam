@@ -5,6 +5,7 @@ import { ShellProvider } from "./shell-context";
 import { DesktopSidebar } from "./desktop-sidebar";
 import { MobileHeader } from "./mobile-header";
 import { NotificationCenter } from "@/components/notifications/notification-center";
+import { CommandPalette } from "@/components/search/command-palette";
 import { useAuth } from "@/lib/auth";
 
 function TelegramLoginButton({ size = "sm" }: { size?: "sm" | "md" }) {
@@ -33,11 +34,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <MobileHeader />
         {/* Desktop topbar */}
         <div className="hidden md:flex items-center justify-end gap-2 px-6 pt-4">
+          <button
+            onClick={() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }))}
+            className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-muted-foreground transition hover:bg-white/[0.06] hover:text-foreground"
+          >
+            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            Search
+            <kbd className="ml-1 rounded border border-white/10 bg-white/5 px-1 py-0.5 text-[9px]">⌘K</kbd>
+          </button>
           {!user && <TelegramLoginButton />}
           <NotificationCenter />
         </div>
         <main className="flex-1 p-4 md:p-6">{children}</main>
       </div>
+      <CommandPalette />
     </ShellProvider>
   );
 }

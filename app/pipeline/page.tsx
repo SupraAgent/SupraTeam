@@ -263,6 +263,7 @@ export default function PipelinePage() {
         open={!!selectedDeal}
         onClose={() => setSelectedDeal(null)}
         onDeleted={fetchData}
+        onUpdated={fetchData}
       />
     </div>
   );
