@@ -1,0 +1,110 @@
+"use client";
+
+import * as React from "react";
+import { Modal } from "@/components/ui/modal";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
+
+type CreateContactModalProps = {
+  open: boolean;
+  onClose: () => void;
+  onCreated: () => void;
+};
+
+export function CreateContactModal({ open, onClose, onCreated }: CreateContactModalProps) {
+  const [loading, setLoading] = React.useState(false);
+  const [name, setName] = React.useState("");
+  const [company, setCompany] = React.useState("");
+  const [email, setEmail] = React.useState("");
+  const [phone, setPhone] = React.useState("");
+  const [telegram, setTelegram] = React.useState("");
+  const [title, setTitle] = React.useState("");
+  const [notes, setNotes] = React.useState("");
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name) return;
+    setLoading(true);
+
+    try {
+      const res = await fetch("/api/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          company: company || null,
+          email: email || null,
+          phone: phone || null,
+          telegram_username: telegram || null,
+          title: title || null,
+          notes: notes || null,
+        }),
+      });
+
+      if (res.ok) {
+        setName("");
+        setCompany("");
+        setEmail("");
+        setPhone("");
+        setTelegram("");
+        setTitle("");
+        setNotes("");
+        onCreated();
+        onClose();
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Add Contact">
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <div>
+          <label className="text-xs font-medium text-muted-foreground">Name *</label>
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" className="mt-1" autoFocus />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">Company</label>
+            <Input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Company" className="mt-1" />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">Title</label>
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Job title" className="mt-1" />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">Email</label>
+            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@example.com" className="mt-1" />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">Phone</label>
+            <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1234567890" className="mt-1" />
+          </div>
+        </div>
+
+        <div>
+          <label className="text-xs font-medium text-muted-foreground">Telegram Username</label>
+          <Input value={telegram} onChange={(e) => setTelegram(e.target.value)} placeholder="username (without @)" className="mt-1" />
+        </div>
+
+        <div>
+          <label className="text-xs font-medium text-muted-foreground">Notes</label>
+          <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notes about this contact..." className="mt-1 min-h-[80px]" />
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button type="submit" disabled={loading || !name}>
+            {loading ? "Adding..." : "Add Contact"}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}

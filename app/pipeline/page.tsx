@@ -1,13 +1,87 @@
+"use client";
+
+import * as React from "react";
+import { KanbanBoard } from "@/components/pipeline/kanban-board";
+import { CreateDealModal } from "@/components/pipeline/create-deal-modal";
+import { DealDetailPanel } from "@/components/pipeline/deal-detail-panel";
+import { Button } from "@/components/ui/button";
+import type { Deal, PipelineStage, Contact, BoardType } from "@/lib/types";
+import { cn } from "@/lib/utils";
+
+const BOARDS: BoardType[] = ["All", "BD", "Marketing", "Admin"];
+
 export default function PipelinePage() {
-  const stages = [
-    "Potential Client",
-    "Outreach",
-    "Calendly Sent",
-    "Video Call",
-    "Follow Up",
-    "MOU Signed",
-    "First Check Received",
-  ];
+  const [stages, setStages] = React.useState<PipelineStage[]>([]);
+  const [deals, setDeals] = React.useState<Deal[]>([]);
+  const [contacts, setContacts] = React.useState<Contact[]>([]);
+  const [board, setBoard] = React.useState<BoardType>("All");
+  const [createOpen, setCreateOpen] = React.useState(false);
+  const [selectedDeal, setSelectedDeal] = React.useState<Deal | null>(null);
+  const [loading, setLoading] = React.useState(true);
+
+  const fetchData = React.useCallback(async () => {
+    try {
+      const [stagesRes, dealsRes, contactsRes] = await Promise.all([
+        fetch("/api/pipeline"),
+        fetch("/api/deals"),
+        fetch("/api/contacts"),
+      ]);
+
+      if (stagesRes.ok) {
+        const { stages } = await stagesRes.json();
+        setStages(stages);
+      }
+      if (dealsRes.ok) {
+        const { deals } = await dealsRes.json();
+        setDeals(deals);
+      }
+      if (contactsRes.ok) {
+        const { contacts } = await contactsRes.json();
+        setContacts(contacts);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  async function handleMoveDeal(dealId: string, newStageId: string) {
+    // Optimistic update
+    setDeals((prev) =>
+      prev.map((d) =>
+        d.id === dealId
+          ? { ...d, stage_id: newStageId, stage: stages.find((s) => s.id === newStageId) ?? d.stage }
+          : d
+      )
+    );
+
+    const res = await fetch(`/api/deals/${dealId}/move`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ stage_id: newStageId }),
+    });
+
+    if (!res.ok) {
+      // Revert on failure
+      fetchData();
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <div className="h-8 w-48 rounded-lg bg-white/5 animate-pulse" />
+        <div className="flex gap-3">
+          {Array.from({ length: 7 }).map((_, i) => (
+            <div key={i} className="min-w-[260px] h-[300px] rounded-xl bg-white/[0.02] animate-pulse" />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -18,43 +92,51 @@ export default function PipelinePage() {
             Drag deals between stages. Filter by BD, Marketing, or Admin board.
           </p>
         </div>
-        <div className="flex gap-2">
-          {["All", "BD", "Marketing", "Admin"].map((tab) => (
-            <button
-              key={tab}
-              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                tab === "All"
-                  ? "bg-white/10 text-foreground"
-                  : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
-              }`}
-            >
-              {tab}
-            </button>
-          ))}
+        <div className="flex items-center gap-3">
+          <div className="flex gap-1">
+            {BOARDS.map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setBoard(tab)}
+                className={cn(
+                  "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                  board === tab
+                    ? "bg-white/10 text-foreground"
+                    : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+                )}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+          <Button size="sm" onClick={() => setCreateOpen(true)}>
+            Add Deal
+          </Button>
         </div>
       </div>
 
-      {/* Kanban columns */}
-      <div className="flex gap-3 overflow-x-auto pb-4 thin-scroll">
-        {stages.map((stage) => (
-          <div
-            key={stage}
-            className="min-w-[260px] flex-shrink-0 rounded-xl border border-white/10 bg-white/[0.02]"
-          >
-            <div className="flex items-center justify-between border-b border-white/10 px-3 py-2.5">
-              <span className="text-xs font-medium text-foreground">{stage}</span>
-              <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                0
-              </span>
-            </div>
-            <div className="p-2 min-h-[200px]">
-              <div className="flex items-center justify-center h-full">
-                <p className="text-xs text-muted-foreground/50">No deals</p>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
+      <KanbanBoard
+        stages={stages}
+        deals={deals}
+        board={board}
+        onMoveDeal={handleMoveDeal}
+        onDealClick={setSelectedDeal}
+      />
+
+      <CreateDealModal
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        stages={stages}
+        contacts={contacts}
+        onCreated={fetchData}
+      />
+
+      <DealDetailPanel
+        deal={selectedDeal}
+        open={!!selectedDeal}
+        onClose={() => setSelectedDeal(null)}
+        onDeleted={fetchData}
+      />
     </div>
   );
 }
