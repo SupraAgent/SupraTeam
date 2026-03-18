@@ -21,9 +21,12 @@
   --accent-foreground: 210 40% 98%;
 }
 
-html,
+html {
+  height: 100%;
+}
 body {
   height: 100%;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
 body {

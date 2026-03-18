@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { createSupabaseAdmin } from "@/lib/supabase";
+import { formatStageChangeMessage } from "@/lib/telegram-templates";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
-async function sendTelegramNotification(supabase: ReturnType<typeof createSupabaseAdmin>, dealId: string, fromStageId: string | null, toStageId: string) {
+async function sendTelegramNotification(supabase: ReturnType<typeof createSupabaseAdmin>, dealId: string, fromStageId: string | null, toStageId: string, changedByName?: string) {
   if (!BOT_TOKEN || !supabase) return;
 
   try {
@@ -26,15 +27,12 @@ async function sendTelegramNotification(supabase: ReturnType<typeof createSupaba
     const fromName = fromRes.data?.name ?? "None";
     const toName = toRes.data?.name ?? "None";
 
-    const message =
-      `Deal Update: ${deal.deal_name}\n\n` +
-      `Stage: ${fromName} -> ${toName}\n` +
-      `Board: ${deal.board_type}`;
+    const message = formatStageChangeMessage(deal.deal_name, fromName, toName, deal.board_type, changedByName);
 
     await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: deal.telegram_chat_id, text: message }),
+      body: JSON.stringify({ chat_id: deal.telegram_chat_id, text: message, parse_mode: "HTML" }),
     });
   } catch (err) {
     console.error("[move] TG notification error:", err);
@@ -93,7 +91,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
 
   // Send TG notification inline (non-blocking)
-  sendTelegramNotification(supabase, id, current.stage_id, stage_id);
+  const userName = user.user_metadata?.display_name ?? user.user_metadata?.full_name ?? user.email ?? undefined;
+  sendTelegramNotification(supabase, id, current.stage_id, stage_id, userName);
 
   return NextResponse.json({ deal, ok: true, moved: true });
 }

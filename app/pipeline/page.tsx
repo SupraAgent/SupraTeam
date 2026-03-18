@@ -8,6 +8,7 @@ import { CreateDealModal } from "@/components/pipeline/create-deal-modal";
 import { DealDetailPanel } from "@/components/pipeline/deal-detail-panel";
 import { Button } from "@/components/ui/button";
 import { LayoutGrid, List } from "lucide-react";
+import { toast } from "sonner";
 import type { Deal, PipelineStage, Contact, BoardType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -56,7 +57,9 @@ export default function PipelinePage() {
   const [deals, setDeals] = React.useState<Deal[]>([]);
   const [contacts, setContacts] = React.useState<Contact[]>([]);
   const [board, setBoard] = React.useState<BoardType>("All");
-  const [viewMode, setViewMode] = React.useState<"kanban" | "list">("kanban");
+  const [viewMode, setViewMode] = React.useState<"kanban" | "list">(
+    typeof window !== "undefined" && window.innerWidth < 640 ? "list" : "kanban"
+  );
   const [createOpen, setCreateOpen] = React.useState(false);
   const [selectedDeal, setSelectedDeal] = React.useState<Deal | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -150,7 +153,7 @@ export default function PipelinePage() {
     });
 
     if (!res.ok) {
-      // Revert on failure
+      toast.error("Failed to move deal");
       fetchData();
     }
   }
