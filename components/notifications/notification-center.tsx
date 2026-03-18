@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Bell, Check, CheckCheck, ExternalLink, ArrowRight, MessageCircle, GitBranch, UserPlus, AtSign } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, timeAgo } from "@/lib/utils";
 
 type Notification = {
   id: string;
@@ -39,17 +39,6 @@ const TYPE_CONFIG: Record<string, { icon: React.ElementType; label: string; colo
   deal_assigned: { icon: UserPlus, label: "Assigned", color: "text-yellow-400" },
   mention: { icon: AtSign, label: "Mention", color: "text-pink-400" },
 };
-
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
-}
 
 export function NotificationCenter() {
   const [notifications, setNotifications] = React.useState<Notification[]>([]);
