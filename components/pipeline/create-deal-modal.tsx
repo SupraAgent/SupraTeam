@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import type { PipelineStage, Contact } from "@/lib/types";
+import { toast } from "sonner";
 
 type CustomField = {
   id: string;
@@ -60,11 +61,18 @@ export function CreateDealModal({ open, onClose, stages, contacts, onCreated }: 
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!dealName || !stageId) return;
+    if (!dealName.trim()) { toast.error("Deal name is required"); return; }
+    if (!stageId) { toast.error("Stage is required"); return; }
+
+    // Validate value
+    if (value && Number(value) < 0) { toast.error("Value cannot be negative"); return; }
 
     // Validate required custom fields
     for (const field of activeCustomFields) {
-      if (field.required && !customValues[field.id]) return;
+      if (field.required && !customValues[field.id]) {
+        toast.error(`${field.label} is required`);
+        return;
+      }
     }
 
     setLoading(true);
@@ -74,17 +82,18 @@ export function CreateDealModal({ open, onClose, stages, contacts, onCreated }: 
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          deal_name: dealName,
+          deal_name: dealName.trim(),
           board_type: boardType,
           stage_id: stageId,
           contact_id: contactId || null,
-          value: value ? Number(value) : null,
+          value: value ? Math.max(0, Number(value)) : null,
           telegram_chat_link: tgLink || null,
           custom_fields: customValues,
         }),
       });
 
       if (res.ok) {
+        toast.success("Deal created");
         setDealName("");
         setBoardType("BD");
         setStageId(stages[0]?.id ?? "");
@@ -94,6 +103,8 @@ export function CreateDealModal({ open, onClose, stages, contacts, onCreated }: 
         setCustomValues({});
         onCreated();
         onClose();
+      } else {
+        toast.error("Failed to create deal");
       }
     } finally {
       setLoading(false);

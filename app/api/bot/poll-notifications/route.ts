@@ -72,15 +72,15 @@ export async function GET() {
         await sendTelegramMessage(deal.telegram_chat_id, message);
         processed++;
       }
+      // Mark as notified only on success
+      await supabase
+        .from("crm_deal_stage_history")
+        .update({ notified_at: new Date().toISOString() })
+        .eq("id", change.id);
     } catch (err) {
       console.error(`[poll-notifications] Error processing ${change.id}:`, err);
+      // Don't mark as notified — will retry next poll
     }
-
-    // Mark as notified
-    await supabase
-      .from("crm_deal_stage_history")
-      .update({ notified_at: new Date().toISOString() })
-      .eq("id", change.id);
   }
 
   return NextResponse.json({ processed });
