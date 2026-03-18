@@ -95,8 +95,13 @@ export function DesktopSidebar() {
             )}
             <div className="flex-1 min-w-0">
               <p className="text-xs font-medium text-foreground truncate">
-                {user.user_metadata?.full_name ?? user.email}
+                {user.user_metadata?.display_name ?? user.user_metadata?.full_name ?? user.email}
               </p>
+              {user.user_metadata?.telegram_username && (
+                <p className="text-[10px] text-muted-foreground truncate">
+                  @{user.user_metadata.telegram_username}
+                </p>
+              )}
             </div>
             <button
               onClick={signOut}

@@ -1,46 +1,82 @@
 "use client";
 
 import * as React from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { Button } from "@/components/ui/button";
+
+declare global {
+  interface Window {
+    onTelegramAuth: (user: TelegramUser) => void;
+  }
+}
+
+type TelegramUser = {
+  id: number;
+  first_name: string;
+  last_name?: string;
+  username?: string;
+  photo_url?: string;
+  auth_date: number;
+  hash: string;
+};
 
 export default function LoginPage() {
-  const searchParams = useSearchParams();
+  const router = useRouter();
+  const widgetRef = React.useRef<HTMLDivElement>(null);
+  const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(
-    searchParams.get("error") ? "Authentication failed. Please try again." : null
-  );
 
-  const next = searchParams.get("next") ?? "/";
+  React.useEffect(() => {
+    // Set up the callback before loading the widget
+    window.onTelegramAuth = async (user: TelegramUser) => {
+      setLoading(true);
+      setError(null);
 
-  async function handleLogin() {
-    setLoading(true);
-    setError(null);
+      try {
+        const res = await fetch("/api/auth/telegram", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(user),
+        });
 
-    try {
-      const supabase = createClient();
-      if (!supabase) {
-        setError("Supabase is not configured. Set environment variables first.");
+        const data = await res.json();
+
+        if (!res.ok) {
+          setError(data.error ?? "Authentication failed. Please try again.");
+          setLoading(false);
+          return;
+        }
+
+        // Set the session in the browser Supabase client
+        const supabase = createClient();
+        if (supabase && data.access_token && data.refresh_token) {
+          await supabase.auth.setSession({
+            access_token: data.access_token,
+            refresh_token: data.refresh_token,
+          });
+        }
+
+        router.push("/");
+        router.refresh();
+      } catch {
+        setError("Something went wrong. Please try again.");
         setLoading(false);
-        return;
       }
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: "github",
-        options: {
-          redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
-        },
-      });
+    };
 
-      if (error) {
-        setError(error.message);
-        setLoading(false);
-      }
-    } catch {
-      setError("Something went wrong. Please try again.");
-      setLoading(false);
+    // Load Telegram widget script
+    if (widgetRef.current && !widgetRef.current.querySelector("script")) {
+      const script = document.createElement("script");
+      script.src = "https://telegram.org/js/telegram-widget.js?22";
+      script.async = true;
+      script.setAttribute("data-telegram-login", "SupraAdmin_bot");
+      script.setAttribute("data-size", "large");
+      script.setAttribute("data-radius", "12");
+      script.setAttribute("data-onauth", "onTelegramAuth(user)");
+      script.setAttribute("data-request-access", "write");
+      widgetRef.current.appendChild(script);
     }
-  }
+  }, [router]);
 
   return (
     <div className="flex min-h-dvh items-center justify-center px-4">
@@ -63,20 +99,22 @@ export default function LoginPage() {
           </div>
         )}
 
-        <Button
-          onClick={handleLogin}
-          disabled={loading}
-          className="w-full gap-2"
-        >
-          <svg viewBox="0 0 24 24" width={18} height={18} fill="currentColor">
-            <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
-          </svg>
-          {loading ? "Redirecting..." : "Sign in with GitHub"}
-        </Button>
+        {loading ? (
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground">Signing in...</p>
+          </div>
+        ) : (
+          <div ref={widgetRef} className="flex justify-center py-2" />
+        )}
 
-        <p className="text-xs text-muted-foreground">
-          You'll be redirected to GitHub to authorize access.
-        </p>
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            Sign in with your Telegram account to access the CRM.
+          </p>
+          <p className="text-[11px] text-muted-foreground/60">
+            We only access your name, username, and profile photo. No messages, contacts, or phone number.
+          </p>
+        </div>
       </div>
     </div>
   );
