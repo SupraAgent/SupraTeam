@@ -1,4 +1,4 @@
-import { Bot, webhookCallback } from "grammy";
+import { Bot } from "grammy";
 import { createClient } from "@supabase/supabase-js";
 
 let botInstance: Bot | null = null;
@@ -12,12 +12,6 @@ export function getBot(): Bot | null {
     registerAllHandlers(botInstance);
   }
   return botInstance;
-}
-
-export function getWebhookHandler() {
-  const bot = getBot();
-  if (!bot) return null;
-  return webhookCallback(bot, "std/http");
 }
 
 function getSupabase() {
