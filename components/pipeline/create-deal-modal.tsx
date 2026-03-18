@@ -7,6 +7,17 @@ import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import type { PipelineStage, Contact } from "@/lib/types";
 
+type CustomField = {
+  id: string;
+  field_name: string;
+  label: string;
+  field_type: string;
+  options: string[] | null;
+  required: boolean;
+  board_type: string | null;
+  position: number;
+};
+
 type CreateDealModalProps = {
   open: boolean;
   onClose: () => void;
@@ -22,6 +33,18 @@ export function CreateDealModal({ open, onClose, stages, contacts, onCreated }: 
   const [stageId, setStageId] = React.useState("");
   const [contactId, setContactId] = React.useState("");
   const [value, setValue] = React.useState("");
+  const [customFields, setCustomFields] = React.useState<CustomField[]>([]);
+  const [customValues, setCustomValues] = React.useState<Record<string, string>>({});
+
+  // Fetch custom fields
+  React.useEffect(() => {
+    if (open) {
+      fetch("/api/pipeline/fields")
+        .then((r) => r.json())
+        .then((data) => setCustomFields(data.fields ?? []))
+        .catch(() => {});
+    }
+  }, [open]);
 
   React.useEffect(() => {
     if (open && stages.length > 0 && !stageId) {
@@ -29,9 +52,20 @@ export function CreateDealModal({ open, onClose, stages, contacts, onCreated }: 
     }
   }, [open, stages, stageId]);
 
+  // Filter custom fields by board type
+  const activeCustomFields = customFields.filter(
+    (f) => !f.board_type || f.board_type === boardType
+  );
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!dealName || !stageId) return;
+
+    // Validate required custom fields
+    for (const field of activeCustomFields) {
+      if (field.required && !customValues[field.id]) return;
+    }
+
     setLoading(true);
 
     try {
@@ -44,6 +78,7 @@ export function CreateDealModal({ open, onClose, stages, contacts, onCreated }: 
           stage_id: stageId,
           contact_id: contactId || null,
           value: value ? Number(value) : null,
+          custom_fields: customValues,
         }),
       });
 
@@ -53,6 +88,7 @@ export function CreateDealModal({ open, onClose, stages, contacts, onCreated }: 
         setStageId(stages[0]?.id ?? "");
         setContactId("");
         setValue("");
+        setCustomValues({});
         onCreated();
         onClose();
       }
@@ -61,9 +97,74 @@ export function CreateDealModal({ open, onClose, stages, contacts, onCreated }: 
     }
   }
 
+  function renderCustomField(field: CustomField) {
+    const val = customValues[field.id] ?? "";
+
+    switch (field.field_type) {
+      case "select":
+        return (
+          <Select
+            value={val}
+            onChange={(e) => setCustomValues((prev) => ({ ...prev, [field.id]: e.target.value }))}
+            options={(field.options ?? []).map((o) => ({ value: o, label: o }))}
+            placeholder="Select..."
+            className="mt-1"
+          />
+        );
+      case "number":
+        return (
+          <Input
+            type="number"
+            value={val}
+            onChange={(e) => setCustomValues((prev) => ({ ...prev, [field.id]: e.target.value }))}
+            placeholder="0"
+            className="mt-1"
+          />
+        );
+      case "date":
+        return (
+          <Input
+            type="date"
+            value={val}
+            onChange={(e) => setCustomValues((prev) => ({ ...prev, [field.id]: e.target.value }))}
+            className="mt-1"
+          />
+        );
+      case "url":
+        return (
+          <Input
+            type="url"
+            value={val}
+            onChange={(e) => setCustomValues((prev) => ({ ...prev, [field.id]: e.target.value }))}
+            placeholder="https://..."
+            className="mt-1"
+          />
+        );
+      case "textarea":
+        return (
+          <textarea
+            value={val}
+            onChange={(e) => setCustomValues((prev) => ({ ...prev, [field.id]: e.target.value }))}
+            placeholder={field.label}
+            rows={3}
+            className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-foreground outline-none transition hover:border-white/15 focus:border-primary/40 focus:ring-2 focus:ring-primary/15 resize-none"
+          />
+        );
+      default:
+        return (
+          <Input
+            value={val}
+            onChange={(e) => setCustomValues((prev) => ({ ...prev, [field.id]: e.target.value }))}
+            placeholder={field.label}
+            className="mt-1"
+          />
+        );
+    }
+  }
+
   return (
     <Modal open={open} onClose={onClose} title="Create Deal">
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
         <div>
           <label className="text-xs font-medium text-muted-foreground">Deal Name *</label>
           <Input
@@ -122,6 +223,24 @@ export function CreateDealModal({ open, onClose, stages, contacts, onCreated }: 
             />
           </div>
         </div>
+
+        {/* Dynamic custom fields */}
+        {activeCustomFields.length > 0 && (
+          <div className="border-t border-white/10 pt-4 space-y-3">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              Custom Fields
+            </p>
+            {activeCustomFields.map((field) => (
+              <div key={field.id}>
+                <label className="text-xs font-medium text-muted-foreground">
+                  {field.label}
+                  {field.required && " *"}
+                </label>
+                {renderCustomField(field)}
+              </div>
+            ))}
+          </div>
+        )}
 
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="ghost" onClick={onClose}>

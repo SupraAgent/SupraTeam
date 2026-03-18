@@ -63,7 +63,7 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const { deal_name, board_type, stage_id, contact_id, assigned_to, value, probability, telegram_chat_id, telegram_chat_name, telegram_chat_link } = body;
+  const { deal_name, board_type, stage_id, contact_id, assigned_to, value, probability, telegram_chat_id, telegram_chat_name, telegram_chat_link, custom_fields } = body;
 
   if (!deal_name || !board_type || !stage_id) {
     return NextResponse.json({ error: "deal_name, board_type, and stage_id are required" }, { status: 400 });
@@ -95,6 +95,21 @@ export async function POST(request: Request) {
   if (error) {
     console.error("[api/deals] insert error:", error);
     return NextResponse.json({ error: "Failed to create deal" }, { status: 500 });
+  }
+
+  // Save custom field values
+  if (custom_fields && typeof custom_fields === "object" && deal) {
+    const fieldValues = Object.entries(custom_fields)
+      .filter(([, v]) => v)
+      .map(([fieldId, val]) => ({
+        deal_id: deal.id,
+        field_id: fieldId,
+        value: String(val),
+      }));
+
+    if (fieldValues.length > 0) {
+      await supabase.from("crm_deal_field_values").insert(fieldValues);
+    }
   }
 
   return NextResponse.json({ deal, ok: true });
