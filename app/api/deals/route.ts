@@ -1,12 +1,10 @@
 import { NextResponse } from "next/server";
-import { createSupabaseAdmin } from "@/lib/supabase";
+import { requireAuth } from "@/lib/auth-guard";
 
 export async function GET(request: Request) {
-  // TODO: Switch back to user-scoped createClient() once Telegram login works
-  const supabase = createSupabaseAdmin();
-  if (!supabase) {
-    return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
-  }
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+  const { admin: supabase } = auth;
 
   const { searchParams } = new URL(request.url);
   const board = searchParams.get("board");
@@ -57,10 +55,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const supabase = createSupabaseAdmin();
-  if (!supabase) {
-    return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
-  }
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+  const { user, admin: supabase } = auth;
 
   const body = await request.json();
   const { deal_name, board_type, stage_id, contact_id, assigned_to, value, probability, telegram_chat_id, telegram_chat_name, telegram_chat_link, custom_fields } = body;
@@ -86,7 +83,7 @@ export async function POST(request: Request) {
       telegram_chat_id: telegram_chat_id || null,
       telegram_chat_name: telegram_chat_name || null,
       telegram_chat_link: telegram_chat_link || null,
-      created_by: null,
+      created_by: user.id,
       stage_changed_at: new Date().toISOString(),
     })
     .select()

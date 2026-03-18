@@ -41,11 +41,10 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(new URL("/", request.url));
   }
 
-  // TODO: Re-enable auth redirect once Telegram login is working
   // Unauthenticated users on non-public routes: redirect to login
-  // if (!user && !isPublicRoute && !pathname.startsWith("/api/")) {
-  //   return NextResponse.redirect(new URL("/login", request.url));
-  // }
+  if (!user && !isPublicRoute && !pathname.startsWith("/api/")) {
+    return NextResponse.redirect(new URL("/login", request.url));
+  }
 
   return supabaseResponse;
 }

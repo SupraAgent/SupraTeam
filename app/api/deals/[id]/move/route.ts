@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireAuth } from "@/lib/auth-guard";
 import { createSupabaseAdmin } from "@/lib/supabase";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -42,8 +43,9 @@ async function sendTelegramNotification(supabase: ReturnType<typeof createSupaba
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const supabase = createSupabaseAdmin();
-  if (!supabase) return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+  const { user, admin: supabase } = auth;
 
   const { stage_id } = await request.json();
   if (!stage_id) {
@@ -69,7 +71,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     deal_id: id,
     from_stage_id: current.stage_id,
     to_stage_id: stage_id,
-    changed_by: null,
+    changed_by: user.id,
     notified_at: new Date().toISOString(), // Mark as notified since we send inline
   });
 

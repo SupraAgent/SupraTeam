@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
-import { createSupabaseAdmin } from "@/lib/supabase";
+import { requireAuth } from "@/lib/auth-guard";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const supabase = createSupabaseAdmin();
-  if (!supabase) return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+  const { admin: supabase } = auth;
 
   const { data: notes, error } = await supabase
     .from("crm_deal_notes")
@@ -22,8 +23,9 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const supabase = createSupabaseAdmin();
-  if (!supabase) return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+  const { user, admin: supabase } = auth;
 
   const { text } = await request.json();
   if (!text?.trim()) {
@@ -32,7 +34,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const { data: note, error } = await supabase
     .from("crm_deal_notes")
-    .insert({ deal_id: id, text: text.trim(), created_by: null })
+    .insert({ deal_id: id, text: text.trim(), created_by: user.id })
     .select()
     .single();
 

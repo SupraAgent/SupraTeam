@@ -11,11 +11,12 @@ const NAV_ITEMS = [
   { href: "/", label: "Dashboard", icon: HomeIcon },
   { href: "/pipeline", label: "Pipeline", icon: KanbanIcon },
   { href: "/contacts", label: "Contacts", icon: UsersIcon },
+  { href: "/groups", label: "TG Groups", icon: MessageCircleIcon },
+  { href: "/broadcasts", label: "Broadcasts", icon: MegaphoneIcon },
 ] as const;
 
 const SETTINGS_ITEMS = [
   { href: "/settings", label: "General" },
-  { href: "/settings/integrations", label: "Integrations" },
   { href: "/settings/pipeline", label: "Pipeline" },
   { href: "/settings/team", label: "Team" },
   { href: "/settings/telegram", label: "Telegram" },
