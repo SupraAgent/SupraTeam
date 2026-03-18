@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
+import { formatBroadcastMessage } from "@/lib/telegram-templates";
 
 export async function POST(request: Request) {
   const auth = await requireAuth();
@@ -10,6 +11,9 @@ export async function POST(request: Request) {
   if (!botToken) {
     return NextResponse.json({ error: "Bot token not configured" }, { status: 503 });
   }
+
+  // Get sender name for attribution
+  const senderName = auth.user.user_metadata?.display_name ?? auth.user.user_metadata?.full_name ?? undefined;
 
   const { message, group_ids, slug } = await request.json();
 
@@ -52,7 +56,7 @@ export async function POST(request: Request) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           chat_id: group.telegram_group_id,
-          text: message.trim(),
+          text: formatBroadcastMessage(message.trim(), senderName),
           parse_mode: "HTML",
         }),
       });

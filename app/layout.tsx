@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AppShell } from "@/app/_components/shell/app-shell";
 import { ThemeProvider } from "@/app/_components/shell/theme-provider";
@@ -10,7 +10,14 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "SupraCRM",
-  description: "Telegram-native CRM for BD, Marketing, and Admin teams."
+  description: "Telegram-native CRM for BD, Marketing, and Admin teams.",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#0a0d14",
 };
 
 export default function RootLayout({

@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 import type { PipelineStage } from "@/lib/types";
 
 type CreateContactModalProps = {
@@ -43,7 +44,8 @@ export function CreateContactModal({ open, onClose, onCreated }: CreateContactMo
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!name) return;
+    if (!name.trim()) { toast.error("Name is required"); return; }
+    if (email && !email.includes("@")) { toast.error("Invalid email address"); return; }
     setLoading(true);
 
     try {
@@ -51,7 +53,7 @@ export function CreateContactModal({ open, onClose, onCreated }: CreateContactMo
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name,
+          name: name.trim(),
           company: company || null,
           email: email || null,
           phone: phone || null,
@@ -63,6 +65,7 @@ export function CreateContactModal({ open, onClose, onCreated }: CreateContactMo
       });
 
       if (res.ok) {
+        toast.success("Contact added");
         setName("");
         setCompany("");
         setEmail("");
@@ -73,6 +76,8 @@ export function CreateContactModal({ open, onClose, onCreated }: CreateContactMo
         setStageId(stages[0]?.id ?? "");
         onCreated();
         onClose();
+      } else {
+        toast.error("Failed to add contact");
       }
     } finally {
       setLoading(false);

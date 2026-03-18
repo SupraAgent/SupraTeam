@@ -7,6 +7,7 @@ import {
   MessageCircle, GitBranch, ExternalLink, UserPlus, AtSign, ArrowRight, Bell,
   AlertTriangle, Clock, TrendingUp, Flame, Zap, DollarSign, BarChart3, Pin, Plus, Download, Users,
 } from "lucide-react";
+import { SetupChecklist } from "@/components/onboarding/setup-checklist";
 
 type Stats = {
   totalDeals: number;
@@ -23,6 +24,7 @@ type Stats = {
   conversionRates: { id: string; name: string; color: string; next_stage: string; rate: number | null; total_moves: number }[];
   hotConversations: { name: string; count: number; deal_name: string; deal_id: string }[];
   pinnedDeals: { id: string; deal_name: string; board_type: string; value: number | null; stage_name: string; stage_color: string | null }[];
+  onboarding: { hasBotToken: boolean; hasGroups: boolean; hasDeals: boolean; hasContacts: boolean };
 };
 
 type Notification = {
@@ -75,6 +77,7 @@ export default function HomePage() {
     valueByBoard: { BD: 0, Marketing: 0, Admin: 0 }, staleDeals: [], followUps: [],
     velocity: { movesThisWeek: 0, movesLastWeek: 0, avgDaysPerStage: [] },
     conversionRates: [], hotConversations: [], pinnedDeals: [],
+    onboarding: { hasBotToken: false, hasGroups: false, hasDeals: false, hasContacts: false },
   };
 
   const velocityDelta = s.velocity.movesLastWeek > 0
@@ -89,6 +92,14 @@ export default function HomePage() {
           <p className="mt-1 text-sm text-muted-foreground">Command center for your CRM pipeline.</p>
         </div>
       </div>
+
+      {/* Onboarding checklist (hidden when all complete) */}
+      <SetupChecklist
+        hasBotToken={s.onboarding.hasBotToken}
+        hasGroups={s.onboarding.hasGroups}
+        hasDeals={s.onboarding.hasDeals}
+        hasContacts={s.onboarding.hasContacts}
+      />
 
       {/* Quick actions */}
       <div className="flex items-center gap-2 flex-wrap">
