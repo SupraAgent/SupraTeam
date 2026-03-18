@@ -163,6 +163,7 @@ export default function ContactsPage() {
         open={!!selectedContact}
         onClose={() => setSelectedContact(null)}
         onDeleted={fetchData}
+        onUpdated={fetchData}
       />
     </div>
   );
