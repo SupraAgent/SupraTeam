@@ -3,15 +3,17 @@
 import { Draggable } from "@hello-pangea/dnd";
 import type { Deal } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { MessageCircle } from "lucide-react";
 
 type DealCardProps = {
   deal: Deal;
   index: number;
   onClick: () => void;
   highlight?: boolean;
+  tgHighlight?: boolean;
 };
 
-export function DealCard({ deal, index, onClick, highlight }: DealCardProps) {
+export function DealCard({ deal, index, onClick, highlight, tgHighlight }: DealCardProps) {
   return (
     <Draggable draggableId={deal.id} index={index}>
       {(provided, snapshot) => (
@@ -22,12 +24,19 @@ export function DealCard({ deal, index, onClick, highlight }: DealCardProps) {
           onClick={onClick}
           data-deal-id={deal.id}
           className={cn(
-            "rounded-lg border border-white/10 bg-white/[0.04] p-3 cursor-pointer transition-all hover:bg-white/[0.07]",
+            "rounded-lg border bg-white/[0.04] p-3 cursor-pointer transition-all hover:bg-white/[0.07]",
             snapshot.isDragging && "shadow-lg border-primary/30 bg-white/[0.08]",
-            highlight && "ring-2 ring-primary border-primary/40 bg-primary/10 animate-pulse"
+            highlight && "ring-2 ring-primary border-primary/40 bg-primary/10 animate-pulse",
+            tgHighlight && !highlight && "border-amber-400/40 bg-amber-500/5 ring-1 ring-amber-400/30",
+            !highlight && !tgHighlight && "border-white/10"
           )}
         >
-          <p className="text-sm font-medium text-foreground truncate">{deal.deal_name}</p>
+          <div className="flex items-start justify-between gap-1">
+            <p className="text-sm font-medium text-foreground truncate">{deal.deal_name}</p>
+            {tgHighlight && (
+              <MessageCircle className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
+            )}
+          </div>
 
           {deal.contact && (
             <p className="mt-1 text-xs text-muted-foreground truncate">

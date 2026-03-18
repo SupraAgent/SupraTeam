@@ -11,9 +11,10 @@ type KanbanBoardProps = {
   onMoveDeal: (dealId: string, newStageId: string) => void;
   onDealClick: (deal: Deal) => void;
   highlightDealId?: string | null;
+  highlightedDealIds?: Set<string>;
 };
 
-export function KanbanBoard({ stages, deals, board, onMoveDeal, onDealClick, highlightDealId }: KanbanBoardProps) {
+export function KanbanBoard({ stages, deals, board, onMoveDeal, onDealClick, highlightDealId, highlightedDealIds }: KanbanBoardProps) {
   const filteredDeals = board === "All" ? deals : deals.filter((d) => d.board_type === board);
 
   function handleDragEnd(result: DropResult) {
@@ -36,6 +37,7 @@ export function KanbanBoard({ stages, deals, board, onMoveDeal, onDealClick, hig
               deals={stageDeals}
               onDealClick={onDealClick}
               highlightDealId={highlightDealId}
+              highlightedDealIds={highlightedDealIds}
             />
           );
         })}
