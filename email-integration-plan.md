@@ -84,26 +84,20 @@ CREATE POLICY "Users manage own connections"
 |-------|---------|
 | `GET /api/email/connections` | List user's connected accounts |
 | `POST /api/email/connections/gmail` | Initiate Gmail OAuth flow |
-| `POST /api/email/connections/outlook` | Initiate Outlook OAuth flow |
 | `GET /api/email/callback/gmail` | Gmail OAuth callback — exchange code for tokens |
-| `GET /api/email/callback/outlook` | Outlook OAuth callback |
 | `DELETE /api/email/connections/[id]` | Disconnect an account |
 | `POST /api/email/connections/[id]/refresh` | Force token refresh |
 
 **OAuth setup required:**
 - Google Cloud Console: Create OAuth 2.0 credentials, enable Gmail API
-- Azure Portal: Register app, enable Microsoft Graph `Mail.ReadWrite`, `Mail.Send`
-- Scopes for Gmail: `gmail.readonly`, `gmail.send`, `gmail.modify`, `gmail.labels`
-- Scopes for Outlook: `Mail.ReadWrite`, `Mail.Send`, `User.Read`
+- Scopes: `gmail.readonly`, `gmail.send`, `gmail.modify`, `gmail.labels`
 
 **Environment variables (new):**
 
 ```env
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
-MICROSOFT_CLIENT_ID=
-MICROSOFT_CLIENT_SECRET=
-EMAIL_OAUTH_REDIRECT_URI=http://localhost:3002/api/email/callback
+ANTHROPIC_API_KEY=
 ```
 
 **UI:**
@@ -117,19 +111,14 @@ EMAIL_OAUTH_REDIRECT_URI=http://localhost:3002/api/email/callback
 - `supabase/migrations/008_email_connections.sql` — new
 - `lib/email/types.ts` — MailProvider interface, thread/message types
 - `lib/email/gmail.ts` — Gmail driver (googleapis package)
-- `lib/email/outlook.ts` — Outlook driver (@microsoft/microsoft-graph-client)
-- `lib/email/driver.ts` — Driver factory (provider → concrete driver)
+- `lib/email/driver.ts` — Driver factory (provider → concrete driver, extensible for Outlook in v2)
 - `app/api/email/connections/route.ts` — connections CRUD
 - `app/api/email/connections/gmail/route.ts` — Gmail OAuth initiation
-- `app/api/email/connections/outlook/route.ts` — Outlook OAuth initiation
 - `app/api/email/callback/gmail/route.ts` — Gmail callback
-- `app/api/email/callback/outlook/route.ts` — Outlook callback
 - `app/settings/integrations/page.tsx` — add email connection UI
 
 **New dependencies:**
 - `googleapis` — Gmail API client
-- `@microsoft/microsoft-graph-client` — Outlook API client
-- `@azure/msal-node` — Microsoft auth library
 
 ---
 
@@ -419,10 +408,10 @@ CREATE INDEX idx_thread_links_thread ON crm_email_thread_links(thread_id);
 
 **New dependencies:**
 - `ai` (Vercel AI SDK)
-- `@ai-sdk/openai` or `@ai-sdk/anthropic` (provider)
+- `@ai-sdk/anthropic` (Claude provider)
 
 **New env vars:**
-- `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`
+- `ANTHROPIC_API_KEY`
 
 ---
 
@@ -614,14 +603,12 @@ When viewing a deal, new "Emails" tab alongside existing notes/activity:
 | Package | Purpose | License |
 |---------|---------|---------|
 | `googleapis` | Gmail API | Apache-2.0 |
-| `@microsoft/microsoft-graph-client` | Outlook/Graph API | MIT |
-| `@azure/msal-node` | Microsoft OAuth | MIT |
 | `@tiptap/react` + extensions | Rich text editor | MIT |
 | `sanitize-html` | HTML email sanitization | MIT |
-| `ai` + provider SDK | Vercel AI SDK for AI features | Apache-2.0 |
+| `ai` + `@ai-sdk/anthropic` | Vercel AI SDK + Claude for AI features | Apache-2.0 |
 | `dexie` | Client-side IndexedDB cache (optional) | Apache-2.0 |
 
-All MIT or Apache-2.0. No license conflicts.
+All MIT or Apache-2.0. No license conflicts. Outlook dependencies deferred to v2.
 
 ---
 
@@ -637,11 +624,22 @@ All MIT or Apache-2.0. No license conflicts.
 
 ---
 
-## Open Questions for Jon
+## Decisions (Confirmed)
 
-1. **Gmail only or Gmail + Outlook?** Outlook support adds ~40% more work. Does the team use Outlook?
-2. **AI provider preference?** OpenAI (GPT-4o) vs Anthropic (Claude) for email AI features. Cost vs quality tradeoff.
-3. **Start with E0-E2 (email client) or E0-E3 (email + CRM linking)?** The linking is where the CRM value really kicks in.
-4. **Email sequences (E6) priority?** This is the highest-value BD feature but also the most complex. Build it early or after polish?
-5. **Shared team inbox?** Should multiple team members see the same inbox, or strictly personal email per user?
-6. **Google Workspace app setup** — who has admin access to create OAuth credentials for the Supra Google Workspace?
+| Question | Decision |
+|----------|----------|
+| Email provider | **Gmail only** (v1). Outlook deferred to v2. |
+| AI provider | **Anthropic (Claude)** via `@ai-sdk/anthropic` |
+| Scope | **All phases (E0–E6)** |
+| Inbox type | **Personal inboxes** (v1). Shared inboxes in v2. |
+| Google Workspace admin needed? | **No.** Personal Gmail OAuth uses Google Cloud project OAuth credentials. Any GCP member can set this up. Users authorize their own accounts. |
+
+## Google Cloud Setup (Pre-requisite)
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com)
+2. Create a project (or use existing Supra project)
+3. Enable **Gmail API**
+4. Create **OAuth 2.0 Client ID** (Web application type)
+5. Add authorized redirect URI: `https://your-crm-domain/api/email/callback/gmail`
+6. Copy Client ID + Client Secret → `.env.local`
+7. No Workspace admin needed — each user clicks "Connect Gmail" and authorizes their own account via Google's standard OAuth consent screen
