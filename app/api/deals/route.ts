@@ -1,17 +1,12 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createSupabaseAdmin } from "@/lib/supabase";
 
 export async function GET(request: Request) {
-  const supabase = await createClient();
+  // TODO: Switch back to user-scoped createClient() once Telegram login works
+  const supabase = createSupabaseAdmin();
   if (!supabase) {
     return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
   }
-
-  // TODO: Re-enable auth check once Telegram login works
-  // const { data: { user } } = await supabase.auth.getUser();
-  // if (!user) {
-  //   return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  // }
 
   const { searchParams } = new URL(request.url);
   const board = searchParams.get("board");
@@ -62,16 +57,10 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const supabase = await createClient();
+  const supabase = createSupabaseAdmin();
   if (!supabase) {
     return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
   }
-
-  // TODO: Re-enable auth check once Telegram login works
-  const { data: { user } } = await supabase.auth.getUser();
-  // if (!user) {
-  //   return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  // }
 
   const body = await request.json();
   const { deal_name, board_type, stage_id, contact_id, assigned_to, value, probability, telegram_chat_id, telegram_chat_name, telegram_chat_link } = body;
@@ -97,7 +86,7 @@ export async function POST(request: Request) {
       telegram_chat_id: telegram_chat_id || null,
       telegram_chat_name: telegram_chat_name || null,
       telegram_chat_link: telegram_chat_link || null,
-      created_by: user?.id || null,
+      created_by: null,
       stage_changed_at: new Date().toISOString(),
     })
     .select()

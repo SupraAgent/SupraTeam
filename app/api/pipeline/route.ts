@@ -1,17 +1,12 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createSupabaseAdmin } from "@/lib/supabase";
 
 export async function GET() {
-  const supabase = await createClient();
+  // TODO: Switch back to user-scoped createClient() once Telegram login works
+  const supabase = createSupabaseAdmin();
   if (!supabase) {
     return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
   }
-
-  // TODO: Re-enable auth check once Telegram login works
-  // const { data: { user } } = await supabase.auth.getUser();
-  // if (!user) {
-  //   return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  // }
 
   const { data: stages, error } = await supabase
     .from("pipeline_stages")

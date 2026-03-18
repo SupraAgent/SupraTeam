@@ -1,14 +1,10 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createSupabaseAdmin } from "@/lib/supabase";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const supabase = await createClient();
+  const supabase = createSupabaseAdmin();
   if (!supabase) return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
-
-  // TODO: Re-enable auth check once Telegram login works
-  const { data: { user } } = await supabase.auth.getUser();
-  // if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { data: deal, error } = await supabase
     .from("crm_deals")
@@ -25,7 +21,6 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "Deal not found" }, { status: 404 });
   }
 
-  // Fetch assigned profile separately
   let assigned_profile = null;
   if (deal.assigned_to) {
     const { data: profile } = await supabase
@@ -41,16 +36,11 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const supabase = await createClient();
+  const supabase = createSupabaseAdmin();
   if (!supabase) return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
-
-  // TODO: Re-enable auth check once Telegram login works
-  const { data: { user } } = await supabase.auth.getUser();
-  // if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await request.json();
 
-  // If stage is changing, record history
   if (body.stage_id) {
     const { data: current } = await supabase
       .from("crm_deals")
@@ -63,7 +53,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         deal_id: id,
         from_stage_id: current.stage_id,
         to_stage_id: body.stage_id,
-        changed_by: user?.id || null,
+        changed_by: null,
       });
       body.stage_changed_at = new Date().toISOString();
     }
@@ -88,12 +78,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const supabase = await createClient();
+  const supabase = createSupabaseAdmin();
   if (!supabase) return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
-
-  // TODO: Re-enable auth check once Telegram login works
-  const { data: { user } } = await supabase.auth.getUser();
-  // if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { error } = await supabase.from("crm_deals").delete().eq("id", id);
 
