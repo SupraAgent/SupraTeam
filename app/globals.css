@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --radius: 14px;
+
+  /* SupraCRM dark system (shared with SupraVibe) */
+  --background: 225 35% 4%;
+  --foreground: 210 40% 98%;
+  --card: 225 35% 6%;
+  --card-foreground: 210 40% 98%;
+  --border: 225 18% 14%;
+
+  --muted: 225 22% 10%;
+  --muted-foreground: 215 18% 70%;
+
+  --primary: 158 64% 52%;
+  --primary-foreground: 210 40% 6%;
+  --accent: 226 28% 10%;
+  --accent-foreground: 210 40% 98%;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background:
+    radial-gradient(1200px 800px at 20% 10%, rgba(12, 206, 107, 0.12), transparent 60%),
+    radial-gradient(900px 700px at 80% 25%, rgba(12, 206, 107, 0.06), transparent 55%),
+    hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+/* Thin scrollbar */
+.thin-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}
+.thin-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+.thin-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.thin-scroll::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-radius: 9999px;
+}
+
+@keyframes fade-in {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+@keyframes dropdown-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+.animate-dropdown-in {
+  animation: dropdown-in 120ms ease-out;
+}
+.animate-fade-in {
+  animation: fade-in 150ms ease-out;
+}

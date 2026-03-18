@@ -1,0 +1,70 @@
+"use client";
+
+import * as React from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { cn } from "@/lib/utils";
+import { useShell } from "./shell-context";
+
+const NAV_ITEMS = [
+  { href: "/", label: "Home" },
+  { href: "/pipeline", label: "Pipeline" },
+  { href: "/contacts", label: "Contacts" },
+  { href: "/groups", label: "Groups" },
+  { href: "/settings", label: "Settings" },
+] as const;
+
+export function MobileHeader() {
+  const pathname = usePathname();
+  const { mobileNavOpen, setMobileNavOpen } = useShell();
+
+  return (
+    <div className="md:hidden">
+      {/* Top bar */}
+      <div className="flex h-12 items-center justify-between border-b border-white/10 px-4">
+        <div className="flex items-center gap-2">
+          <div className="h-5 w-5 rounded-md bg-primary/20 flex items-center justify-center">
+            <div className="h-2 w-2 rounded-full bg-primary" />
+          </div>
+          <span className="text-sm font-semibold">SupraCRM</span>
+        </div>
+        <button
+          onClick={() => setMobileNavOpen(!mobileNavOpen)}
+          className="text-muted-foreground hover:text-foreground"
+        >
+          <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+            {mobileNavOpen ? (
+              <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
+            ) : (
+              <path d="M4 6h16M4 12h16M4 18h16" strokeLinecap="round" strokeLinejoin="round" />
+            )}
+          </svg>
+        </button>
+      </div>
+
+      {/* Mobile nav */}
+      {mobileNavOpen && (
+        <nav className="border-b border-white/10 bg-background px-4 py-2 space-y-0.5 animate-fade-in">
+          {NAV_ITEMS.map((item) => {
+            const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={() => setMobileNavOpen(false)}
+                className={cn(
+                  "block rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                  active
+                    ? "bg-white/10 text-foreground"
+                    : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+                )}
+              >
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+      )}
+    </div>
+  );
+}
