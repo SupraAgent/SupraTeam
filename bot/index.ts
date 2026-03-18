@@ -1,6 +1,7 @@
 import { Bot } from "grammy";
 import { registerCommands } from "./handlers/commands.js";
 import { registerGroupHandlers } from "./handlers/groups.js";
+import { registerMessageHandlers } from "./handlers/messages.js";
 import { startNotificationPoller } from "./handlers/notifications.js";
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -14,6 +15,7 @@ const bot = new Bot(token);
 // Register handlers
 registerCommands(bot);
 registerGroupHandlers(bot);
+registerMessageHandlers(bot);
 
 // Start notification poller (stage changes -> TG messages)
 startNotificationPoller(bot);

@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { KanbanBoard } from "@/components/pipeline/kanban-board";
 import { CreateDealModal } from "@/components/pipeline/create-deal-modal";
 import { DealDetailPanel } from "@/components/pipeline/deal-detail-panel";
@@ -57,6 +58,29 @@ export default function PipelinePage() {
   const [selectedDeal, setSelectedDeal] = React.useState<Deal | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [usingSamples, setUsingSamples] = React.useState(false);
+  const [highlightDealId, setHighlightDealId] = React.useState<string | null>(null);
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  // Handle ?highlight=deal-id
+  React.useEffect(() => {
+    const highlight = searchParams.get("highlight");
+    if (highlight) {
+      setHighlightDealId(highlight);
+      // Scroll to the deal card after a short delay
+      setTimeout(() => {
+        const el = document.querySelector(`[data-deal-id="${highlight}"]`);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+        }
+      }, 500);
+      // Clear highlight after 4 seconds
+      setTimeout(() => {
+        setHighlightDealId(null);
+        router.replace("/pipeline", { scroll: false });
+      }, 4000);
+    }
+  }, [searchParams, router]);
 
   const fetchData = React.useCallback(async () => {
     try {
@@ -179,6 +203,7 @@ export default function PipelinePage() {
         board={board}
         onMoveDeal={handleMoveDeal}
         onDealClick={setSelectedDeal}
+        highlightDealId={highlightDealId}
       />
 
       <CreateDealModal

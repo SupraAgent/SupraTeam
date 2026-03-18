@@ -8,9 +8,10 @@ type DealCardProps = {
   deal: Deal;
   index: number;
   onClick: () => void;
+  highlight?: boolean;
 };
 
-export function DealCard({ deal, index, onClick }: DealCardProps) {
+export function DealCard({ deal, index, onClick, highlight }: DealCardProps) {
   return (
     <Draggable draggableId={deal.id} index={index}>
       {(provided, snapshot) => (
@@ -19,9 +20,11 @@ export function DealCard({ deal, index, onClick }: DealCardProps) {
           {...provided.draggableProps}
           {...provided.dragHandleProps}
           onClick={onClick}
+          data-deal-id={deal.id}
           className={cn(
-            "rounded-lg border border-white/10 bg-white/[0.04] p-3 cursor-pointer transition-colors hover:bg-white/[0.07]",
-            snapshot.isDragging && "shadow-lg border-primary/30 bg-white/[0.08]"
+            "rounded-lg border border-white/10 bg-white/[0.04] p-3 cursor-pointer transition-all hover:bg-white/[0.07]",
+            snapshot.isDragging && "shadow-lg border-primary/30 bg-white/[0.08]",
+            highlight && "ring-2 ring-primary border-primary/40 bg-primary/10 animate-pulse"
           )}
         >
           <p className="text-sm font-medium text-foreground truncate">{deal.deal_name}</p>

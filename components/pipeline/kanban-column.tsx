@@ -8,9 +8,10 @@ type KanbanColumnProps = {
   stage: PipelineStage;
   deals: Deal[];
   onDealClick: (deal: Deal) => void;
+  highlightDealId?: string | null;
 };
 
-export function KanbanColumn({ stage, deals, onDealClick }: KanbanColumnProps) {
+export function KanbanColumn({ stage, deals, onDealClick, highlightDealId }: KanbanColumnProps) {
   return (
     <div className="min-w-[260px] w-[260px] flex-shrink-0 rounded-xl border border-white/10 bg-white/[0.02] flex flex-col max-h-[calc(100vh-180px)]">
       <div className="flex items-center justify-between border-b border-white/10 px-3 py-2.5">
@@ -48,6 +49,7 @@ export function KanbanColumn({ stage, deals, onDealClick }: KanbanColumnProps) {
                 deal={deal}
                 index={index}
                 onClick={() => onDealClick(deal)}
+                highlight={deal.id === highlightDealId}
               />
             ))}
             {provided.placeholder}
