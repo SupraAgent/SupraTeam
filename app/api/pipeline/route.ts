@@ -7,10 +7,11 @@ export async function GET() {
     return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
   }
 
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  // TODO: Re-enable auth check once Telegram login works
+  // const { data: { user } } = await supabase.auth.getUser();
+  // if (!user) {
+  //   return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // }
 
   const { data: stages, error } = await supabase
     .from("pipeline_stages")

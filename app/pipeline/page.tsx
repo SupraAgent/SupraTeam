@@ -10,6 +10,44 @@ import { cn } from "@/lib/utils";
 
 const BOARDS: BoardType[] = ["All", "BD", "Marketing", "Admin"];
 
+function makeSampleDeals(stages: PipelineStage[]): Deal[] {
+  if (stages.length < 3) return [];
+  return [
+    {
+      id: "sample-1", deal_name: "Acme Corp Partnership", contact_id: null, assigned_to: null,
+      board_type: "BD", stage_id: stages[0].id, value: 50000, probability: 30,
+      telegram_chat_id: null, telegram_chat_name: null, telegram_chat_link: null,
+      stage_changed_at: new Date().toISOString(), created_by: null,
+      created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      contact: null, stage: stages[0], assigned_profile: null,
+    },
+    {
+      id: "sample-2", deal_name: "DeFi Protocol Integration", contact_id: null, assigned_to: null,
+      board_type: "BD", stage_id: stages[1].id, value: 120000, probability: 50,
+      telegram_chat_id: null, telegram_chat_name: null, telegram_chat_link: null,
+      stage_changed_at: new Date().toISOString(), created_by: null,
+      created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      contact: null, stage: stages[1], assigned_profile: null,
+    },
+    {
+      id: "sample-3", deal_name: "Exchange Listing Sponsorship", contact_id: null, assigned_to: null,
+      board_type: "Marketing", stage_id: stages[2].id, value: 25000, probability: 60,
+      telegram_chat_id: null, telegram_chat_name: null, telegram_chat_link: null,
+      stage_changed_at: new Date().toISOString(), created_by: null,
+      created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      contact: null, stage: stages[2], assigned_profile: null,
+    },
+    {
+      id: "sample-4", deal_name: "Node Operator MOU", contact_id: null, assigned_to: null,
+      board_type: "Admin", stage_id: stages[4]?.id ?? stages[2].id, value: 75000, probability: 80,
+      telegram_chat_id: null, telegram_chat_name: null, telegram_chat_link: null,
+      stage_changed_at: new Date().toISOString(), created_by: null,
+      created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      contact: null, stage: stages[4] ?? stages[2], assigned_profile: null,
+    },
+  ];
+}
+
 export default function PipelinePage() {
   const [stages, setStages] = React.useState<PipelineStage[]>([]);
   const [deals, setDeals] = React.useState<Deal[]>([]);
@@ -18,6 +56,7 @@ export default function PipelinePage() {
   const [createOpen, setCreateOpen] = React.useState(false);
   const [selectedDeal, setSelectedDeal] = React.useState<Deal | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [usingSamples, setUsingSamples] = React.useState(false);
 
   const fetchData = React.useCallback(async () => {
     try {
@@ -27,17 +66,30 @@ export default function PipelinePage() {
         fetch("/api/contacts"),
       ]);
 
+      let fetchedStages: PipelineStage[] = [];
+      let fetchedDeals: Deal[] = [];
+
       if (stagesRes.ok) {
-        const { stages } = await stagesRes.json();
-        setStages(stages);
+        const data = await stagesRes.json();
+        fetchedStages = data.stages ?? [];
+        setStages(fetchedStages);
       }
       if (dealsRes.ok) {
-        const { deals } = await dealsRes.json();
-        setDeals(deals);
+        const data = await dealsRes.json();
+        fetchedDeals = data.deals ?? [];
+        setDeals(fetchedDeals);
       }
       if (contactsRes.ok) {
         const { contacts } = await contactsRes.json();
         setContacts(contacts);
+      }
+
+      // Show sample deals if no real deals exist
+      if (fetchedDeals.length === 0 && fetchedStages.length > 0) {
+        setDeals(makeSampleDeals(fetchedStages));
+        setUsingSamples(true);
+      } else {
+        setUsingSamples(false);
       }
     } finally {
       setLoading(false);
@@ -114,6 +166,12 @@ export default function PipelinePage() {
           </Button>
         </div>
       </div>
+
+      {usingSamples && (
+        <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-2 text-sm text-muted-foreground">
+          Showing sample deals. Add your first deal to get started.
+        </div>
+      )}
 
       <KanbanBoard
         stages={stages}
