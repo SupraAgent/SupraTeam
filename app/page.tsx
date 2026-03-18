@@ -2,44 +2,40 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { timeAgo } from "@/lib/utils";
-import { cn } from "@/lib/utils";
-import { MessageCircle, GitBranch, ExternalLink, UserPlus, AtSign, ArrowRight, Bell } from "lucide-react";
+import { timeAgo, cn } from "@/lib/utils";
+import {
+  MessageCircle, GitBranch, ExternalLink, UserPlus, AtSign, ArrowRight, Bell,
+  AlertTriangle, Clock, TrendingUp, Flame, Zap, DollarSign, BarChart3, Pin, Plus, Download, Users,
+} from "lucide-react";
 
 type Stats = {
   totalDeals: number;
   totalContacts: number;
   byBoard: { BD: number; Marketing: number; Admin: number };
-  stageBreakdown: { id: string; name: string; position: number; count: number }[];
+  stageBreakdown: { id: string; name: string; position: number; color: string; count: number }[];
   recentDeals: { id: string; deal_name: string; board_type: string; stage_name: string; value: number | null; updated_at: string }[];
+  totalPipelineValue: number;
+  weightedPipelineValue: number;
+  valueByBoard: { BD: number; Marketing: number; Admin: number };
+  staleDeals: { id: string; deal_name: string; board_type: string; value: number | null; days_stale: number; stage_name: string }[];
+  followUps: { id: string; deal_name: string; board_type: string; value: number | null; contact_name: string | null; hours_since: number }[];
+  velocity: { movesThisWeek: number; movesLastWeek: number; avgDaysPerStage: { id: string; name: string; color: string; avg_days: number | null }[] };
+  conversionRates: { id: string; name: string; color: string; next_stage: string; rate: number | null; total_moves: number }[];
+  hotConversations: { name: string; count: number; deal_name: string; deal_id: string }[];
+  pinnedDeals: { id: string; deal_name: string; board_type: string; value: number | null; stage_name: string; stage_color: string | null }[];
 };
 
 type Notification = {
-  id: string;
-  type: string;
-  title: string;
-  body: string | null;
-  tg_deep_link: string | null;
-  pipeline_link: string | null;
-  is_read: boolean;
-  created_at: string;
+  id: string; type: string; title: string; body: string | null;
+  tg_deep_link: string | null; pipeline_link: string | null; is_read: boolean; created_at: string;
   deal: { id: string; deal_name: string; board_type: string; stage: { name: string; color: string } | null } | null;
 };
 
 const NOTIF_ICONS: Record<string, React.ElementType> = {
-  tg_message: MessageCircle,
-  stage_change: GitBranch,
-  deal_created: ExternalLink,
-  deal_assigned: UserPlus,
-  mention: AtSign,
+  tg_message: MessageCircle, stage_change: GitBranch, deal_created: ExternalLink, deal_assigned: UserPlus, mention: AtSign,
 };
-
 const NOTIF_COLORS: Record<string, string> = {
-  tg_message: "text-blue-400",
-  stage_change: "text-purple-400",
-  deal_created: "text-green-400",
-  deal_assigned: "text-yellow-400",
-  mention: "text-pink-400",
+  tg_message: "text-blue-400", stage_change: "text-purple-400", deal_created: "text-green-400", deal_assigned: "text-yellow-400", mention: "text-pink-400",
 };
 
 export default function HomePage() {
@@ -50,7 +46,7 @@ export default function HomePage() {
   React.useEffect(() => {
     Promise.all([
       fetch("/api/stats").then((r) => (r.ok ? r.json() : null)),
-      fetch("/api/notifications?limit=15").then((r) => (r.ok ? r.json() : null)),
+      fetch("/api/notifications?limit=10").then((r) => (r.ok ? r.json() : null)),
     ])
       .then(([statsData, notifData]) => {
         if (statsData) setStats(statsData);
@@ -63,213 +59,276 @@ export default function HomePage() {
     return (
       <div className="space-y-6">
         <div className="h-8 w-48 rounded-lg bg-white/5 animate-pulse" />
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="h-24 rounded-2xl bg-white/[0.02] animate-pulse" />
-          ))}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map((i) => <div key={i} className="h-24 rounded-2xl bg-white/[0.02] animate-pulse" />)}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {[1, 2].map((i) => <div key={i} className="h-48 rounded-2xl bg-white/[0.02] animate-pulse" />)}
         </div>
       </div>
     );
   }
 
-  const s = stats ?? { totalDeals: 0, totalContacts: 0, byBoard: { BD: 0, Marketing: 0, Admin: 0 }, stageBreakdown: [], recentDeals: [] };
+  const s = stats ?? {
+    totalDeals: 0, totalContacts: 0, byBoard: { BD: 0, Marketing: 0, Admin: 0 },
+    stageBreakdown: [], recentDeals: [], totalPipelineValue: 0, weightedPipelineValue: 0,
+    valueByBoard: { BD: 0, Marketing: 0, Admin: 0 }, staleDeals: [], followUps: [],
+    velocity: { movesThisWeek: 0, movesLastWeek: 0, avgDaysPerStage: [] },
+    conversionRates: [], hotConversations: [], pinnedDeals: [],
+  };
+
+  const velocityDelta = s.velocity.movesLastWeek > 0
+    ? Math.round(((s.velocity.movesThisWeek - s.velocity.movesLastWeek) / s.velocity.movesLastWeek) * 100)
+    : 0;
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold text-foreground">Dashboard</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Overview of your CRM pipeline, contacts, and deal activity.
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-semibold text-foreground">Dashboard</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Command center for your CRM pipeline.</p>
+        </div>
       </div>
 
-      {/* Stat cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <StatCard label="Open Deals" value={s.totalDeals} sub="Across all boards" />
-        <StatCard label="Contacts" value={s.totalContacts} sub="Total in database" />
-        <StatCard
-          label="By Board"
-          value=""
-          sub={`BD: ${s.byBoard.BD} | Mktg: ${s.byBoard.Marketing} | Admin: ${s.byBoard.Admin}`}
-        />
+      {/* Quick actions */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <Link href="/pipeline" className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2 text-xs font-medium text-foreground transition hover:bg-white/[0.06]">
+          <Plus className="h-3.5 w-3.5 text-primary" /> New Deal
+        </Link>
+        <Link href="/contacts" className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2 text-xs font-medium text-foreground transition hover:bg-white/[0.06]">
+          <Users className="h-3.5 w-3.5 text-blue-400" /> New Contact
+        </Link>
+        <a href="/api/deals/export" className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2 text-xs font-medium text-foreground transition hover:bg-white/[0.06]">
+          <Download className="h-3.5 w-3.5 text-purple-400" /> Export Deals
+        </a>
+        <a href="/api/contacts/export" className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2 text-xs font-medium text-foreground transition hover:bg-white/[0.06]">
+          <Download className="h-3.5 w-3.5 text-orange-400" /> Export Contacts
+        </a>
       </div>
 
-      {/* Pipeline funnel */}
-      {s.stageBreakdown.length > 0 && (
-        <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5">
-          <h2 className="text-sm font-medium text-foreground mb-3">Pipeline Funnel</h2>
-          <div className="space-y-2">
-            {s.stageBreakdown.map((stage) => {
-              const maxCount = Math.max(...s.stageBreakdown.map((st) => st.count), 1);
-              const pct = (stage.count / maxCount) * 100;
-              return (
-                <div key={stage.id} className="flex items-center gap-3">
-                  <span className="text-xs text-muted-foreground w-36 truncate">{stage.name}</span>
-                  <div className="flex-1 h-5 rounded-full bg-white/5 overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-primary/40 transition-all"
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
-                  <span className="text-xs font-medium text-foreground w-6 text-right">{stage.count}</span>
+      {/* Top stat cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard icon={Zap} iconColor="text-primary" label="Open Deals" value={s.totalDeals} sub={`BD: ${s.byBoard.BD} | Mktg: ${s.byBoard.Marketing} | Admin: ${s.byBoard.Admin}`} />
+        <StatCard icon={Users} iconColor="text-blue-400" label="Contacts" value={s.totalContacts} sub="Total in database" />
+        <StatCard icon={DollarSign} iconColor="text-green-400" label="Pipeline Value" value={`$${Math.round(s.totalPipelineValue).toLocaleString()}`} sub={`Weighted: $${Math.round(s.weightedPipelineValue).toLocaleString()}`} />
+        <StatCard icon={TrendingUp} iconColor="text-purple-400" label="Moves This Week" value={s.velocity.movesThisWeek} sub={velocityDelta > 0 ? `+${velocityDelta}% vs last week` : velocityDelta < 0 ? `${velocityDelta}% vs last week` : "Same as last week"} />
+      </div>
+
+      {/* Two-column layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+        {/* Left column */}
+        <div className="space-y-4">
+
+          {/* Stale deals */}
+          <Widget title="Stale Deals" icon={AlertTriangle} iconColor="text-red-400" subtitle="No activity in 7+ days" empty={s.staleDeals.length === 0} emptyText="No stale deals. Pipeline is healthy.">
+            {s.staleDeals.map((d) => (
+              <Link key={d.id} href={`/pipeline?highlight=${d.id}`} className="flex items-center justify-between py-2 px-1 rounded-lg hover:bg-white/[0.03] transition">
+                <div>
+                  <p className="text-sm text-foreground">{d.deal_name}</p>
+                  <p className="text-[10px] text-muted-foreground">{d.stage_name} &middot; {d.days_stale}d stale</p>
                 </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+                <div className="text-right">
+                  <BoardBadge type={d.board_type} />
+                  {d.value != null && d.value > 0 && <p className="text-[10px] text-muted-foreground mt-0.5">${Number(d.value).toLocaleString()}</p>}
+                </div>
+              </Link>
+            ))}
+          </Widget>
 
-      {/* Recent deals */}
-      {s.recentDeals.length > 0 ? (
-        <div className="rounded-2xl border border-white/10 bg-white/[0.035] overflow-hidden">
-          <div className="px-5 py-3 border-b border-white/10">
-            <h2 className="text-sm font-medium text-foreground">Recent Deals</h2>
-          </div>
-          <table className="w-full text-sm">
-            <tbody>
-              {s.recentDeals.map((deal) => (
-                <tr key={deal.id} className="border-b border-white/5 last:border-0">
-                  <td className="px-5 py-3">
-                    <Link href="/pipeline" className="text-foreground font-medium hover:text-primary transition-colors">
-                      {deal.deal_name}
-                    </Link>
-                  </td>
-                  <td className="px-5 py-3">
-                    <span className={cn(
-                      "rounded-full px-1.5 py-0.5 text-[10px] font-medium",
-                      deal.board_type === "BD" && "bg-blue-500/20 text-blue-400",
-                      deal.board_type === "Marketing" && "bg-purple-500/20 text-purple-400",
-                      deal.board_type === "Admin" && "bg-orange-500/20 text-orange-400",
-                    )}>
-                      {deal.board_type}
-                    </span>
-                  </td>
-                  <td className="px-5 py-3 text-muted-foreground">{deal.stage_name}</td>
-                  <td className="px-5 py-3 text-muted-foreground text-xs">{timeAgo(deal.updated_at)}</td>
-                </tr>
+          {/* Follow-ups */}
+          <Widget title="Follow-Ups Due" icon={Clock} iconColor="text-yellow-400" subtitle="Deals in Follow Up stage needing action" empty={s.followUps.length === 0} emptyText="No follow-ups pending.">
+            {s.followUps.map((d) => (
+              <Link key={d.id} href={`/pipeline?highlight=${d.id}`} className="flex items-center justify-between py-2 px-1 rounded-lg hover:bg-white/[0.03] transition">
+                <div>
+                  <p className="text-sm text-foreground">{d.deal_name}</p>
+                  <p className="text-[10px] text-muted-foreground">{d.contact_name ?? "No contact"} &middot; {d.hours_since}h since last update</p>
+                </div>
+                <BoardBadge type={d.board_type} />
+              </Link>
+            ))}
+          </Widget>
+
+          {/* Hot conversations */}
+          <Widget title="Hot Conversations" icon={Flame} iconColor="text-orange-400" subtitle="Most active TG groups in last 24h" empty={s.hotConversations.length === 0} emptyText="No Telegram activity in the last 24h.">
+            {s.hotConversations.map((c, i) => (
+              <Link key={i} href={c.deal_id ? `/pipeline?highlight=${c.deal_id}` : "/groups"} className="flex items-center justify-between py-2 px-1 rounded-lg hover:bg-white/[0.03] transition">
+                <div className="flex items-center gap-2">
+                  <MessageCircle className="h-3.5 w-3.5 text-blue-400" />
+                  <div>
+                    <p className="text-sm text-foreground">{c.name}</p>
+                    <p className="text-[10px] text-muted-foreground">{c.deal_name}</p>
+                  </div>
+                </div>
+                <span className="rounded-full bg-blue-500/20 px-2 py-0.5 text-[10px] font-medium text-blue-400">
+                  {c.count} msg{c.count !== 1 ? "s" : ""}
+                </span>
+              </Link>
+            ))}
+          </Widget>
+
+          {/* Pinned deals */}
+          {s.pinnedDeals.length > 0 && (
+            <Widget title="Pinned Deals" icon={Pin} iconColor="text-primary" subtitle="High-priority deals (100% probability)">
+              {s.pinnedDeals.map((d) => (
+                <Link key={d.id} href={`/pipeline?highlight=${d.id}`} className="flex items-center justify-between py-2 px-1 rounded-lg hover:bg-white/[0.03] transition">
+                  <div className="flex items-center gap-2">
+                    {d.stage_color && <span className="h-2 w-2 rounded-full" style={{ backgroundColor: d.stage_color }} />}
+                    <div>
+                      <p className="text-sm text-foreground">{d.deal_name}</p>
+                      <p className="text-[10px] text-muted-foreground">{d.stage_name}</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <BoardBadge type={d.board_type} />
+                    {d.value != null && d.value > 0 && <p className="text-[10px] text-muted-foreground mt-0.5">${Number(d.value).toLocaleString()}</p>}
+                  </div>
+                </Link>
               ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-8 text-center">
-          <p className="text-sm text-muted-foreground">
-            No deals yet.{" "}
-            <Link href="/pipeline" className="text-primary hover:underline">
-              Create your first deal
-            </Link>{" "}
-            to see activity here.
-          </p>
-        </div>
-      )}
-
-      {/* Activity feed */}
-      <div className="rounded-2xl border border-white/10 bg-white/[0.035] overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-white/10">
-          <h2 className="text-sm font-medium text-foreground">Activity Feed</h2>
-          <span className="text-xs text-muted-foreground">
-            {notifications.filter((n) => !n.is_read).length} unread
-          </span>
+            </Widget>
+          )}
         </div>
 
-        {notifications.length > 0 ? (
-          <div className="divide-y divide-white/5">
-            {notifications.map((notif) => {
+        {/* Right column */}
+        <div className="space-y-4">
+
+          {/* Pipeline funnel */}
+          {s.stageBreakdown.length > 0 && (
+            <Widget title="Pipeline Funnel" icon={BarChart3} iconColor="text-primary">
+              {s.stageBreakdown.map((stage) => {
+                const maxCount = Math.max(...s.stageBreakdown.map((st) => st.count), 1);
+                const pct = (stage.count / maxCount) * 100;
+                return (
+                  <div key={stage.id} className="flex items-center gap-3 py-1">
+                    <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: stage.color }} />
+                    <span className="text-xs text-muted-foreground w-32 truncate">{stage.name}</span>
+                    <div className="flex-1 h-4 rounded-full bg-white/5 overflow-hidden">
+                      <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: `${stage.color}60` }} />
+                    </div>
+                    <span className="text-xs font-medium text-foreground w-6 text-right">{stage.count}</span>
+                  </div>
+                );
+              })}
+            </Widget>
+          )}
+
+          {/* Stage conversion rates */}
+          {s.conversionRates.length > 0 && (
+            <Widget title="Conversion Rates" icon={TrendingUp} iconColor="text-green-400" subtitle="Stage-to-stage progression">
+              {s.conversionRates.map((c) => (
+                <div key={c.id} className="flex items-center gap-3 py-1.5">
+                  <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
+                  <span className="text-xs text-muted-foreground flex-1 truncate">{c.name} → {c.next_stage}</span>
+                  {c.rate !== null ? (
+                    <span className={cn("text-xs font-medium", c.rate >= 50 ? "text-green-400" : c.rate >= 25 ? "text-yellow-400" : "text-red-400")}>
+                      {c.rate}%
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground/40">--</span>
+                  )}
+                  <span className="text-[10px] text-muted-foreground/50 w-12 text-right">{c.total_moves} moves</span>
+                </div>
+              ))}
+            </Widget>
+          )}
+
+          {/* Avg days per stage */}
+          {s.velocity.avgDaysPerStage.some((s) => s.avg_days !== null) && (
+            <Widget title="Avg. Days per Stage" icon={Clock} iconColor="text-cyan-400" subtitle="This week's pipeline speed">
+              {s.velocity.avgDaysPerStage.map((stage) => (
+                <div key={stage.id} className="flex items-center gap-3 py-1.5">
+                  <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: stage.color }} />
+                  <span className="text-xs text-muted-foreground flex-1 truncate">{stage.name}</span>
+                  <span className="text-xs font-medium text-foreground">
+                    {stage.avg_days !== null ? `${stage.avg_days}d` : "--"}
+                  </span>
+                </div>
+              ))}
+            </Widget>
+          )}
+
+          {/* Activity feed */}
+          <Widget title="Activity Feed" icon={Bell} iconColor="text-blue-400" subtitle={`${notifications.filter((n) => !n.is_read).length} unread`} empty={notifications.length === 0} emptyText="No activity yet. TG group messages will appear here.">
+            {notifications.slice(0, 8).map((notif) => {
               const Icon = NOTIF_ICONS[notif.type] ?? Bell;
               const iconColor = NOTIF_COLORS[notif.type] ?? "text-muted-foreground";
-
               return (
-                <div
-                  key={notif.id}
-                  className={cn(
-                    "flex gap-3 px-5 py-3 transition-colors",
-                    !notif.is_read && "bg-white/[0.02]"
-                  )}
-                >
-                  <div className={cn("mt-0.5 shrink-0", iconColor)}>
-                    <Icon className="h-4 w-4" />
-                  </div>
+                <div key={notif.id} className={cn("flex gap-2 py-2 px-1 rounded-lg", !notif.is_read && "bg-white/[0.02]")}>
+                  <Icon className={cn("h-3.5 w-3.5 mt-0.5 shrink-0", iconColor)} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2">
-                      <p className={cn(
-                        "text-sm",
-                        notif.is_read ? "text-muted-foreground" : "text-foreground"
-                      )}>
-                        {notif.title}
-                      </p>
-                      <span className="shrink-0 text-[10px] text-muted-foreground/50">
-                        {timeAgo(notif.created_at)}
-                      </span>
+                      <p className={cn("text-xs leading-snug", notif.is_read ? "text-muted-foreground" : "text-foreground")}>{notif.title}</p>
+                      <span className="text-[9px] text-muted-foreground/40 shrink-0">{timeAgo(notif.created_at)}</span>
                     </div>
-                    {notif.body && (
-                      <p className="mt-0.5 text-xs text-muted-foreground line-clamp-1">{notif.body}</p>
-                    )}
-                    {notif.deal && (
-                      <div className="mt-1 flex items-center gap-1.5">
-                        {notif.deal.stage && (
-                          <span
-                            className="rounded-md px-1.5 py-0.5 text-[10px] font-medium"
-                            style={{
-                              backgroundColor: `${notif.deal.stage.color}20`,
-                              color: notif.deal.stage.color,
-                            }}
-                          >
-                            {notif.deal.stage.name}
-                          </span>
-                        )}
-                        <span className="text-[10px] text-muted-foreground">{notif.deal.deal_name}</span>
-                      </div>
-                    )}
-                    <div className="mt-1.5 flex items-center gap-2">
+                    {notif.body && <p className="text-[10px] text-muted-foreground/60 line-clamp-1">{notif.body}</p>}
+                    <div className="flex items-center gap-2 mt-1">
                       {notif.tg_deep_link && (
-                        <a
-                          href={notif.tg_deep_link}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-[10px] font-medium text-blue-400 hover:text-blue-300"
-                        >
-                          <MessageCircle className="h-3 w-3" />
-                          Open in Telegram
-                        </a>
+                        <a href={notif.tg_deep_link} target="_blank" rel="noopener noreferrer" className="text-[9px] text-blue-400 hover:text-blue-300">Open in TG</a>
                       )}
                       {notif.pipeline_link && (
-                        <Link
-                          href={notif.pipeline_link}
-                          className="flex items-center gap-1 text-[10px] font-medium text-primary hover:text-primary/80"
-                        >
-                          <ArrowRight className="h-3 w-3" />
-                          View in Pipeline
-                        </Link>
+                        <Link href={notif.pipeline_link} className="text-[9px] text-primary hover:text-primary/80">View Deal</Link>
                       )}
                     </div>
                   </div>
-                  {!notif.is_read && (
-                    <div className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
-                  )}
                 </div>
               );
             })}
-          </div>
+          </Widget>
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- Sub-components ---
+
+function StatCard({ icon: Icon, iconColor, label, value, sub }: { icon: React.ElementType; iconColor: string; label: string; value: string | number; sub: string }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+      <div className="flex items-center gap-2">
+        <Icon className={cn("h-4 w-4", iconColor)} />
+        <p className="text-xs text-muted-foreground">{label}</p>
+      </div>
+      <p className="mt-2 text-xl font-semibold text-foreground">{value}</p>
+      <p className="mt-0.5 text-[10px] text-muted-foreground/60">{sub}</p>
+    </div>
+  );
+}
+
+function Widget({ title, icon: Icon, iconColor, subtitle, children, empty, emptyText }: {
+  title: string; icon: React.ElementType; iconColor: string; subtitle?: string;
+  children?: React.ReactNode; empty?: boolean; emptyText?: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.035] overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+        <div className="flex items-center gap-2">
+          <Icon className={cn("h-4 w-4", iconColor)} />
+          <h2 className="text-sm font-medium text-foreground">{title}</h2>
+        </div>
+        {subtitle && <span className="text-[10px] text-muted-foreground">{subtitle}</span>}
+      </div>
+      <div className="px-4 py-3">
+        {empty ? (
+          <p className="text-xs text-muted-foreground/50 text-center py-4">{emptyText}</p>
         ) : (
-          <div className="px-5 py-12 text-center">
-            <Bell className="mx-auto h-8 w-8 text-muted-foreground/20" />
-            <p className="mt-2 text-sm text-muted-foreground">No activity yet</p>
-            <p className="mt-1 text-xs text-muted-foreground/60">
-              Messages from Telegram groups linked to deals will appear here.
-            </p>
-          </div>
+          <div className="space-y-0.5">{children}</div>
         )}
       </div>
     </div>
   );
 }
 
-function StatCard({ label, value, sub }: { label: string; value: string | number; sub: string }) {
+function BoardBadge({ type }: { type: string }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5">
-      <p className="text-sm text-muted-foreground">{label}</p>
-      {value !== "" && <p className="mt-1 text-2xl font-semibold text-foreground">{value}</p>}
-      <p className="mt-0.5 text-xs text-muted-foreground/60">{sub}</p>
-    </div>
+    <span className={cn(
+      "rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+      type === "BD" && "bg-blue-500/20 text-blue-400",
+      type === "Marketing" && "bg-purple-500/20 text-purple-400",
+      type === "Admin" && "bg-orange-500/20 text-orange-400",
+    )}>
+      {type}
+    </span>
   );
 }
