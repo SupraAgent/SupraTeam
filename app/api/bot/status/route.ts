@@ -1,43 +1,38 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createSupabaseAdmin } from "@/lib/supabase";
 
 export async function GET() {
-  const supabase = await createClient();
-  if (!supabase) return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
-
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) {
-    return NextResponse.json({ connected: false, reason: "No bot token configured" });
+    return NextResponse.json({ ok: false, connected: false, error: "Bot token not configured" });
   }
 
   try {
-    // Call Telegram getMe to verify the token
     const res = await fetch(`https://api.telegram.org/bot${token}/getMe`);
     const data = await res.json();
 
     if (!data.ok) {
-      return NextResponse.json({ connected: false, reason: "Invalid bot token" });
+      return NextResponse.json({ ok: false, connected: false, error: "Invalid bot token" });
     }
 
     // Count groups
-    const { count } = await supabase
-      .from("tg_groups")
-      .select("id", { count: "exact", head: true })
-      .eq("bot_is_admin", true);
+    const supabase = createSupabaseAdmin();
+    let groups = 0;
+    if (supabase) {
+      const { count } = await supabase
+        .from("tg_groups")
+        .select("id", { count: "exact", head: true })
+        .eq("bot_is_admin", true);
+      groups = count ?? 0;
+    }
 
     return NextResponse.json({
+      ok: true,
       connected: true,
-      bot: {
-        id: data.result.id,
-        username: data.result.username,
-        first_name: data.result.first_name,
-      },
-      groups: count ?? 0,
+      result: data.result,
+      groups,
     });
   } catch {
-    return NextResponse.json({ connected: false, reason: "Failed to reach Telegram API" });
+    return NextResponse.json({ ok: false, connected: false, error: "Failed to reach Telegram API" });
   }
 }

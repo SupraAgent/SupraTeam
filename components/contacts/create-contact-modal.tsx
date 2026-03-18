@@ -23,6 +23,7 @@ export function CreateContactModal({ open, onClose, onCreated }: CreateContactMo
   const [telegram, setTelegram] = React.useState("");
   const [title, setTitle] = React.useState("");
   const [notes, setNotes] = React.useState("");
+  const [tgGroupLink, setTgGroupLink] = React.useState("");
   const [stageId, setStageId] = React.useState("");
   const [stages, setStages] = React.useState<PipelineStage[]>([]);
 
@@ -56,7 +57,7 @@ export function CreateContactModal({ open, onClose, onCreated }: CreateContactMo
           phone: phone || null,
           telegram_username: telegram || null,
           title: title || null,
-          notes: notes || null,
+          notes: notes ? (tgGroupLink ? `${notes}\nTG Group: ${tgGroupLink}` : notes) : (tgGroupLink ? `TG Group: ${tgGroupLink}` : null),
           stage_id: stageId || null,
         }),
       });
@@ -108,9 +109,15 @@ export function CreateContactModal({ open, onClose, onCreated }: CreateContactMo
           </div>
         </div>
 
-        <div>
-          <label className="text-xs font-medium text-muted-foreground">Telegram Username</label>
-          <Input value={telegram} onChange={(e) => setTelegram(e.target.value)} placeholder="username (without @)" className="mt-1" />
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">Telegram Username</label>
+            <Input value={telegram} onChange={(e) => setTelegram(e.target.value)} placeholder="username (without @)" className="mt-1" />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">TG Group Link</label>
+            <Input value={tgGroupLink} onChange={(e) => setTgGroupLink(e.target.value)} placeholder="https://t.me/+abc123" className="mt-1" />
+          </div>
         </div>
 
         <div>
