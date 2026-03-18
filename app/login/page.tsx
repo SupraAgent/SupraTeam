@@ -104,7 +104,7 @@ export default function LoginPage() {
             <p className="text-sm text-muted-foreground">Signing in...</p>
           </div>
         ) : (
-          <div ref={widgetRef} className="flex justify-center py-2" />
+          <div ref={widgetRef} className="flex justify-center py-3 px-4 rounded-xl bg-white/90 mx-auto w-fit min-h-[48px] items-center" />
         )}
 
         <div className="space-y-2">
