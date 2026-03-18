@@ -33,6 +33,7 @@ export function CreateDealModal({ open, onClose, stages, contacts, onCreated }: 
   const [stageId, setStageId] = React.useState("");
   const [contactId, setContactId] = React.useState("");
   const [value, setValue] = React.useState("");
+  const [tgLink, setTgLink] = React.useState("");
   const [customFields, setCustomFields] = React.useState<CustomField[]>([]);
   const [customValues, setCustomValues] = React.useState<Record<string, string>>({});
 
@@ -78,6 +79,7 @@ export function CreateDealModal({ open, onClose, stages, contacts, onCreated }: 
           stage_id: stageId,
           contact_id: contactId || null,
           value: value ? Number(value) : null,
+          telegram_chat_link: tgLink || null,
           custom_fields: customValues,
         }),
       });
@@ -88,6 +90,7 @@ export function CreateDealModal({ open, onClose, stages, contacts, onCreated }: 
         setStageId(stages[0]?.id ?? "");
         setContactId("");
         setValue("");
+        setTgLink("");
         setCustomValues({});
         onCreated();
         onClose();
@@ -222,6 +225,16 @@ export function CreateDealModal({ open, onClose, stages, contacts, onCreated }: 
               className="mt-1"
             />
           </div>
+        </div>
+
+        <div>
+          <label className="text-xs font-medium text-muted-foreground">Telegram Group Link</label>
+          <Input
+            value={tgLink}
+            onChange={(e) => setTgLink(e.target.value)}
+            placeholder="https://t.me/+abc123 or https://t.me/groupname"
+            className="mt-1"
+          />
         </div>
 
         {/* Dynamic custom fields */}
