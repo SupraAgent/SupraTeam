@@ -9,9 +9,10 @@ type DealListViewProps = {
   board: BoardType;
   onDealClick: (deal: Deal) => void;
   highlightDealId?: string | null;
+  highlightedDealIds?: Set<string>;
 };
 
-export function DealListView({ deals, stages, board, onDealClick, highlightDealId }: DealListViewProps) {
+export function DealListView({ deals, stages, board, onDealClick, highlightDealId, highlightedDealIds }: DealListViewProps) {
   const filtered = board === "All" ? deals : deals.filter((d) => d.board_type === board);
 
   if (filtered.length === 0) {
@@ -45,7 +46,8 @@ export function DealListView({ deals, stages, board, onDealClick, highlightDealI
                 onClick={() => onDealClick(deal)}
                 className={cn(
                   "border-b border-white/5 cursor-pointer transition-colors hover:bg-white/[0.04]",
-                  deal.id === highlightDealId && "bg-primary/10 ring-1 ring-primary/30"
+                  deal.id === highlightDealId && "bg-primary/10 ring-1 ring-primary/30",
+                  highlightedDealIds?.has(deal.id) && deal.id !== highlightDealId && "bg-amber-500/5 border-l-2 border-l-amber-400"
                 )}
               >
                 <td className="px-4 py-3">

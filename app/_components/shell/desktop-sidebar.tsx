@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
+import { useShell } from "./shell-context";
 
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard", icon: HomeIcon },
@@ -23,15 +24,28 @@ const SETTINGS_ITEMS = [
 export function DesktopSidebar() {
   const pathname = usePathname();
   const { user, signOut } = useAuth();
+  const { sidebarCollapsed, setSidebarCollapsed } = useShell();
 
   return (
-    <aside className="hidden md:flex md:w-56 md:flex-col md:fixed md:inset-y-0 border-r border-white/10 bg-white/[0.02]">
-      {/* Logo */}
-      <div className="flex h-14 items-center gap-2 px-4 border-b border-white/10">
-        <div className="h-6 w-6 rounded-lg bg-primary/20 flex items-center justify-center">
-          <div className="h-2.5 w-2.5 rounded-full bg-primary" />
+    <aside className={cn(
+      "hidden md:flex md:flex-col md:fixed md:inset-y-0 border-r border-white/10 bg-white/[0.02] transition-all duration-200",
+      sidebarCollapsed ? "md:w-14" : "md:w-56"
+    )}>
+      {/* Logo + collapse toggle */}
+      <div className="flex h-14 items-center justify-between px-4 border-b border-white/10">
+        <div className="flex items-center gap-2">
+          <div className="h-6 w-6 rounded-lg bg-primary/20 flex items-center justify-center shrink-0">
+            <div className="h-2.5 w-2.5 rounded-full bg-primary" />
+          </div>
+          {!sidebarCollapsed && <span className="text-sm font-semibold text-foreground">SupraCRM</span>}
         </div>
-        <span className="text-sm font-semibold text-foreground">SupraCRM</span>
+        <button
+          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+          className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
+          title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          <CollapseIcon className="h-4 w-4" collapsed={sidebarCollapsed} />
+        </button>
       </div>
 
       {/* Nav */}
@@ -42,40 +56,47 @@ export function DesktopSidebar() {
             <Link
               key={item.href}
               href={item.href}
+              title={sidebarCollapsed ? item.label : undefined}
               className={cn(
-                "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors",
+                "flex items-center rounded-lg py-2 text-[13px] font-medium transition-colors",
+                sidebarCollapsed ? "justify-center px-2" : "gap-2.5 px-2.5",
                 active
                   ? "bg-white/10 text-foreground"
                   : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
               )}
             >
               <item.icon className="h-4 w-4 shrink-0" />
-              {item.label}
+              {!sidebarCollapsed && item.label}
             </Link>
           );
         })}
 
         {/* Settings section */}
-        <div className="pt-4 pb-1 px-2.5">
-          <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/60">
-            Settings
-          </span>
-        </div>
+        {!sidebarCollapsed && (
+          <div className="pt-4 pb-1 px-2.5">
+            <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/60">
+              Settings
+            </span>
+          </div>
+        )}
+        {sidebarCollapsed && <div className="pt-2 border-t border-white/10 mt-2" />}
         {SETTINGS_ITEMS.map((item) => {
           const active = item.href === "/settings" ? pathname === "/settings" : pathname.startsWith(item.href);
           return (
             <Link
               key={item.href}
               href={item.href}
+              title={sidebarCollapsed ? item.label : undefined}
               className={cn(
-                "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors",
+                "flex items-center rounded-lg py-2 text-[13px] font-medium transition-colors",
+                sidebarCollapsed ? "justify-center px-2" : "gap-2.5 px-2.5",
                 active
                   ? "bg-white/10 text-foreground"
                   : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
               )}
             >
               <SettingsIcon className="h-4 w-4 shrink-0" />
-              {item.label}
+              {!sidebarCollapsed && item.label}
             </Link>
           );
         })}
@@ -113,10 +134,14 @@ export function DesktopSidebar() {
         ) : (
           <Link
             href="/login"
-            className="flex items-center justify-center gap-2 rounded-xl bg-[#2AABEE] text-white px-3 py-2.5 text-xs font-medium transition hover:bg-[#2AABEE]/90 w-full"
+            className={cn(
+              "flex items-center justify-center rounded-xl bg-[#2AABEE] text-white text-xs font-medium transition hover:bg-[#2AABEE]/90 w-full",
+              sidebarCollapsed ? "p-2" : "gap-2 px-3 py-2.5"
+            )}
+            title={sidebarCollapsed ? "Sign in with Telegram" : undefined}
           >
-            <TelegramIcon className="h-4 w-4" />
-            Sign in with Telegram
+            <TelegramIcon className="h-4 w-4 shrink-0" />
+            {!sidebarCollapsed && "Sign in with Telegram"}
           </Link>
         )}
       </div>
@@ -178,6 +203,23 @@ function SettingsIcon({ className }: { className?: string }) {
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="3" />
       <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z" />
+    </svg>
+  );
+}
+
+function CollapseIcon({ className, collapsed }: { className?: string; collapsed: boolean }) {
+  if (collapsed) {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+        <path d="M13 17l5-5-5-5" />
+        <path d="M6 17l5-5-5-5" />
+      </svg>
+    );
+  }
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M11 7l-5 5 5 5" />
+      <path d="M18 7l-5 5 5 5" />
     </svg>
   );
 }

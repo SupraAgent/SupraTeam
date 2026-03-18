@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
+export const maxDuration = 10;
 
 export async function POST(request: Request) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -21,8 +22,8 @@ export async function POST(request: Request) {
   }
 
   try {
-    // Handle /start, /help, /status, /deals commands
-    if (update.message?.text?.startsWith("/")) {
+    // --- Handle commands ---
+    if (update.message?.text?.startsWith("/") && update.message.chat.type === "private") {
       const chatId = update.message.chat.id;
       const command = update.message.text.split(" ")[0].split("@")[0];
 
@@ -48,7 +49,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // Handle group membership changes
+    // --- Handle group membership changes ---
     if (update.my_chat_member) {
       const chat = update.my_chat_member.chat;
       const status = update.my_chat_member.new_chat_member?.status;
@@ -74,38 +75,109 @@ export async function POST(request: Request) {
       }
     }
 
-    // Handle group text messages -> notifications
+    // --- Handle group text messages ---
     if (update.message?.text && (update.message.chat.type === "group" || update.message.chat.type === "supergroup")) {
       const chat = update.message.chat;
       const from = update.message.from;
       const msgId = update.message.message_id;
       const text = update.message.text;
       const senderName = from.first_name + (from.last_name ? ` ${from.last_name}` : "");
+      const senderUsername = from.username ?? null;
+      const isBot = from.is_bot;
 
+      // Find the TG group
       const { data: tgGroup } = await supabase
         .from("tg_groups")
         .select("id, group_name")
         .eq("telegram_group_id", chat.id)
         .single();
 
-      if (tgGroup) {
-        const { data: deals } = await supabase
-          .from("crm_deals")
-          .select("id, deal_name")
-          .eq("telegram_chat_id", chat.id);
+      if (!tgGroup) return NextResponse.json({ ok: true });
 
-        if (deals && deals.length > 0) {
-          const privateChatId = String(chat.id).replace(/^-100/, "");
-          for (const deal of deals) {
-            await supabase.from("crm_notifications").insert({
-              type: "tg_message",
+      // Find linked deals: by telegram_chat_id OR by tg_group_id
+      const { data: deals } = await supabase
+        .from("crm_deals")
+        .select("id, deal_name, contact_id")
+        .or(`telegram_chat_id.eq.${chat.id},tg_group_id.eq.${tgGroup.id}`);
+
+      if (!deals || deals.length === 0) return NextResponse.json({ ok: true });
+
+      const privateChatId = String(chat.id).replace(/^-100/, "");
+      const tgDeepLink = `https://t.me/c/${privateChatId}/${msgId}`;
+
+      // Check if sender is a "team member" (has a profile in the system)
+      // If team member sends a message, CLEAR highlights (they responded)
+      // If external person sends, CREATE highlight
+      let isTeamMember = false;
+      if (senderUsername) {
+        const { data: contact } = await supabase
+          .from("crm_contacts")
+          .select("id")
+          .eq("telegram_username", senderUsername)
+          .single();
+        // If sender is NOT a contact, they might be a team member
+        // For now: if sender is the bot, skip. Otherwise create highlight.
+        // We'll treat all non-bot senders as external for highlights
+        // and clear when a different person responds within 24h
+        isTeamMember = false; // TODO: check against profiles table when auth works
+      }
+
+      for (const deal of deals) {
+        // Create notification
+        await supabase.from("crm_notifications").insert({
+          type: "tg_message",
+          deal_id: deal.id,
+          tg_group_id: tgGroup.id,
+          title: `${senderName} in ${tgGroup.group_name}`,
+          body: text.length > 200 ? text.slice(0, 200) + "..." : text,
+          tg_deep_link: tgDeepLink,
+          tg_sender_name: senderName,
+          pipeline_link: `/pipeline?highlight=${deal.id}`,
+        });
+
+        if (!isBot) {
+          // Check if there's an active highlight for this deal from a DIFFERENT sender
+          const { data: activeHighlights } = await supabase
+            .from("crm_highlights")
+            .select("id, sender_name")
+            .eq("deal_id", deal.id)
+            .eq("is_active", true);
+
+          if (activeHighlights && activeHighlights.length > 0) {
+            // If someone different is responding, clear the highlight
+            const existingFromDifferentSender = activeHighlights.some(
+              (h) => h.sender_name !== senderName
+            );
+            if (existingFromDifferentSender) {
+              await supabase
+                .from("crm_highlights")
+                .update({ is_active: false, cleared_at: new Date().toISOString(), cleared_by: "response" })
+                .eq("deal_id", deal.id)
+                .eq("is_active", true);
+            }
+          }
+
+          // Check if there's already an active highlight from this sender in last 24h
+          const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+          const { data: recentHighlight } = await supabase
+            .from("crm_highlights")
+            .select("id")
+            .eq("deal_id", deal.id)
+            .eq("sender_name", senderName)
+            .eq("is_active", true)
+            .gte("created_at", twentyFourHoursAgo)
+            .limit(1);
+
+          // Only create new highlight if none exists from this sender in 24h
+          if (!recentHighlight || recentHighlight.length === 0) {
+            await supabase.from("crm_highlights").insert({
               deal_id: deal.id,
+              contact_id: deal.contact_id,
               tg_group_id: tgGroup.id,
-              title: `${senderName} in ${tgGroup.group_name}`,
-              body: text.length > 200 ? text.slice(0, 200) + "..." : text,
-              tg_deep_link: `https://t.me/c/${privateChatId}/${msgId}`,
-              tg_sender_name: senderName,
-              pipeline_link: `/pipeline?highlight=${deal.id}`,
+              sender_name: senderName,
+              message_preview: text.length > 100 ? text.slice(0, 100) + "..." : text,
+              tg_deep_link: tgDeepLink,
+              highlight_type: "tg_message",
             });
           }
         }

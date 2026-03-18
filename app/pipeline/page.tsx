@@ -62,6 +62,7 @@ export default function PipelinePage() {
   const [loading, setLoading] = React.useState(true);
   const [usingSamples, setUsingSamples] = React.useState(false);
   const [highlightDealId, setHighlightDealId] = React.useState<string | null>(null);
+  const [highlightedDealIds, setHighlightedDealIds] = React.useState<Set<string>>(new Set());
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -87,10 +88,11 @@ export default function PipelinePage() {
 
   const fetchData = React.useCallback(async () => {
     try {
-      const [stagesRes, dealsRes, contactsRes] = await Promise.all([
+      const [stagesRes, dealsRes, contactsRes, highlightsRes] = await Promise.all([
         fetch("/api/pipeline"),
         fetch("/api/deals"),
         fetch("/api/contacts"),
+        fetch("/api/highlights"),
       ]);
 
       let fetchedStages: PipelineStage[] = [];
@@ -109,6 +111,10 @@ export default function PipelinePage() {
       if (contactsRes.ok) {
         const { contacts } = await contactsRes.json();
         setContacts(contacts);
+      }
+      if (highlightsRes.ok) {
+        const { highlighted_deal_ids } = await highlightsRes.json();
+        setHighlightedDealIds(new Set(highlighted_deal_ids ?? []));
       }
 
       // Show sample deals if no real deals exist
@@ -239,6 +245,7 @@ export default function PipelinePage() {
           onMoveDeal={handleMoveDeal}
           onDealClick={setSelectedDeal}
           highlightDealId={highlightDealId}
+          highlightedDealIds={highlightedDealIds}
         />
       ) : (
         <DealListView
@@ -247,6 +254,7 @@ export default function PipelinePage() {
           board={board}
           onDealClick={setSelectedDeal}
           highlightDealId={highlightDealId}
+          highlightedDealIds={highlightedDealIds}
         />
       )}
 
