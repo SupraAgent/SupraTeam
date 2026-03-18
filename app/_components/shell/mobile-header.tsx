@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { href: "/contacts", label: "Contacts" },
   { href: "/groups", label: "Groups" },
   { href: "/broadcasts", label: "Broadcasts" },
+  { href: "/access", label: "Access Control" },
   { href: "/settings", label: "Settings" },
 ] as const;
 

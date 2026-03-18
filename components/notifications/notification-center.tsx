@@ -62,9 +62,21 @@ export function NotificationCenter() {
 
   React.useEffect(() => {
     fetchNotifications();
-    // Poll every 30s for new notifications
-    const interval = setInterval(fetchNotifications, 30000);
-    return () => clearInterval(interval);
+    let interval = setInterval(fetchNotifications, 30000);
+
+    function handleVisibility() {
+      if (document.hidden) {
+        clearInterval(interval);
+      } else {
+        fetchNotifications();
+        interval = setInterval(fetchNotifications, 30000);
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
   }, [fetchNotifications]);
 
   // Close on outside click
@@ -115,7 +127,7 @@ export function NotificationCenter() {
 
       {/* Dropdown panel */}
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-2 w-[420px] rounded-2xl border border-white/10 bg-[hsl(225,35%,8%)] shadow-2xl shadow-black/50">
+        <div className="absolute right-0 top-full z-50 mt-2 w-[min(420px,calc(100vw-2rem))] rounded-2xl border border-white/10 bg-[hsl(225,35%,8%)] shadow-2xl shadow-black/50">
           {/* Header */}
           <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
             <h3 className="text-sm font-medium text-foreground">Notifications</h3>

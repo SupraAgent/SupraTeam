@@ -1,7 +1,7 @@
 "use client";
 
 import type { Deal, PipelineStage, BoardType } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { cn, timeAgo } from "@/lib/utils";
 
 type DealListViewProps = {
   deals: Deal[];
@@ -24,100 +24,144 @@ export function DealListView({ deals, stages, board, onDealClick, highlightDealI
   }
 
   return (
-    <div className="rounded-xl border border-white/10 overflow-hidden">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-white/10 bg-white/[0.03]">
-            <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Deal</th>
-            <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Contact</th>
-            <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Board</th>
-            <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Stage</th>
-            <th className="text-right px-4 py-2.5 text-xs font-medium text-muted-foreground">Value</th>
-            <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Last Activity</th>
-          </tr>
-        </thead>
-        <tbody>
-          {filtered.map((deal) => {
-            const stage = deal.stage ?? stages.find((s) => s.id === deal.stage_id);
-            return (
-              <tr
-                key={deal.id}
-                data-deal-id={deal.id}
-                onClick={() => onDealClick(deal)}
-                className={cn(
-                  "border-b border-white/5 cursor-pointer transition-colors hover:bg-white/[0.04]",
-                  deal.id === highlightDealId && "bg-primary/10 ring-1 ring-primary/30",
-                  highlightedDealIds?.has(deal.id) && deal.id !== highlightDealId && "bg-amber-500/5 border-l-2 border-l-amber-400"
-                )}
-              >
-                <td className="px-4 py-3">
-                  <p className="font-medium text-foreground">{deal.deal_name}</p>
-                </td>
-                <td className="px-4 py-3 text-muted-foreground">
-                  {deal.contact ? (
-                    <span>
-                      {deal.contact.name}
-                      {deal.contact.telegram_username && (
-                        <span className="ml-1 text-blue-400">@{deal.contact.telegram_username}</span>
-                      )}
-                    </span>
-                  ) : (
-                    <span className="text-muted-foreground/40">--</span>
+    <>
+      {/* Desktop table */}
+      <div className="hidden sm:block rounded-xl border border-white/10 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-white/10 bg-white/[0.03]">
+              <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Deal</th>
+              <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Contact</th>
+              <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Board</th>
+              <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Stage</th>
+              <th className="text-right px-4 py-2.5 text-xs font-medium text-muted-foreground">Value</th>
+              <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Last Activity</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((deal) => {
+              const stage = deal.stage ?? stages.find((s) => s.id === deal.stage_id);
+              return (
+                <tr
+                  key={deal.id}
+                  data-deal-id={deal.id}
+                  onClick={() => onDealClick(deal)}
+                  className={cn(
+                    "border-b border-white/5 cursor-pointer transition-colors hover:bg-white/[0.04]",
+                    deal.id === highlightDealId && "bg-primary/10 ring-1 ring-primary/30",
+                    highlightedDealIds?.has(deal.id) && deal.id !== highlightDealId && "bg-amber-500/5 border-l-2 border-l-amber-400"
                   )}
-                </td>
-                <td className="px-4 py-3">
-                  <span className={cn(
-                    "rounded-full px-2 py-0.5 text-[10px] font-medium",
-                    deal.board_type === "BD" && "bg-blue-500/20 text-blue-400",
-                    deal.board_type === "Marketing" && "bg-purple-500/20 text-purple-400",
-                    deal.board_type === "Admin" && "bg-orange-500/20 text-orange-400",
-                  )}>
-                    {deal.board_type}
-                  </span>
-                </td>
-                <td className="px-4 py-3">
-                  {stage ? (
-                    <span
-                      className="inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium"
-                      style={{
-                        backgroundColor: `${stage.color}20`,
-                        color: stage.color ?? undefined,
-                      }}
-                    >
+                >
+                  <td className="px-4 py-3">
+                    <p className="font-medium text-foreground">{deal.deal_name}</p>
+                  </td>
+                  <td className="px-4 py-3 text-muted-foreground">
+                    {deal.contact ? (
+                      <span>
+                        {deal.contact.name}
+                        {deal.contact.telegram_username && (
+                          <span className="ml-1 text-blue-400">@{deal.contact.telegram_username}</span>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground/40">--</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={cn(
+                      "rounded-full px-2 py-0.5 text-[10px] font-medium",
+                      deal.board_type === "BD" && "bg-blue-500/20 text-blue-400",
+                      deal.board_type === "Marketing" && "bg-purple-500/20 text-purple-400",
+                      deal.board_type === "Admin" && "bg-orange-500/20 text-orange-400",
+                    )}>
+                      {deal.board_type}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    {stage ? (
                       <span
-                        className="h-1.5 w-1.5 rounded-full"
-                        style={{ backgroundColor: stage.color ?? undefined }}
-                      />
-                      {stage.name}
-                    </span>
-                  ) : (
-                    <span className="text-muted-foreground/40">--</span>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-right text-muted-foreground">
-                  {deal.value != null && deal.value > 0
-                    ? `$${Number(deal.value).toLocaleString()}`
-                    : "--"}
-                </td>
-                <td className="px-4 py-3 text-xs text-muted-foreground">
-                  {timeAgo(deal.updated_at)}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
+                        className="inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium"
+                        style={{
+                          backgroundColor: `${stage.color}20`,
+                          color: stage.color ?? undefined,
+                        }}
+                      >
+                        <span
+                          className="h-1.5 w-1.5 rounded-full"
+                          style={{ backgroundColor: stage.color ?? undefined }}
+                        />
+                        {stage.name}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground/40">--</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right text-muted-foreground">
+                    {deal.value != null && deal.value > 0
+                      ? `$${Number(deal.value).toLocaleString()}`
+                      : "--"}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">
+                    {timeAgo(deal.updated_at)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
 
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
+      {/* Mobile card list */}
+      <div className="sm:hidden space-y-2">
+        {filtered.map((deal) => {
+          const stage = deal.stage ?? stages.find((s) => s.id === deal.stage_id);
+          return (
+            <div
+              key={deal.id}
+              data-deal-id={deal.id}
+              onClick={() => onDealClick(deal)}
+              className={cn(
+                "rounded-xl border border-white/10 bg-white/[0.035] p-3 cursor-pointer transition hover:bg-white/[0.06] active:bg-white/[0.08]",
+                deal.id === highlightDealId && "bg-primary/10 ring-1 ring-primary/30",
+                highlightedDealIds?.has(deal.id) && deal.id !== highlightDealId && "bg-amber-500/5 border-l-2 border-l-amber-400"
+              )}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-sm font-medium text-foreground">{deal.deal_name}</p>
+                <span className={cn(
+                  "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+                  deal.board_type === "BD" && "bg-blue-500/20 text-blue-400",
+                  deal.board_type === "Marketing" && "bg-purple-500/20 text-purple-400",
+                  deal.board_type === "Admin" && "bg-orange-500/20 text-orange-400",
+                )}>
+                  {deal.board_type}
+                </span>
+              </div>
+              <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+                {stage && (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium"
+                    style={{ backgroundColor: `${stage.color}20`, color: stage.color ?? undefined }}
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: stage.color ?? undefined }} />
+                    {stage.name}
+                  </span>
+                )}
+                {deal.value != null && deal.value > 0 && (
+                  <span className="text-xs text-muted-foreground">${Number(deal.value).toLocaleString()}</span>
+                )}
+                <span className="text-[10px] text-muted-foreground/50 ml-auto">{timeAgo(deal.updated_at)}</span>
+              </div>
+              {deal.contact && (
+                <p className="mt-1 text-[11px] text-muted-foreground truncate">
+                  {deal.contact.name}
+                  {deal.contact.telegram_username && <span className="text-blue-400 ml-1">@{deal.contact.telegram_username}</span>}
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
 }

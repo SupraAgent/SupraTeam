@@ -42,19 +42,20 @@ export function CommandPalette() {
     }
   }, [open]);
 
-  // Search on query change
+  // Search on query change with AbortController
   React.useEffect(() => {
     if (!query || query.length < 2) {
       setResults({ deals: [], contacts: [], groups: [] });
       return;
     }
+    const controller = new AbortController();
     const timer = setTimeout(() => {
-      fetch(`/api/search?q=${encodeURIComponent(query)}`)
+      fetch(`/api/search?q=${encodeURIComponent(query)}`, { signal: controller.signal })
         .then((r) => r.json())
         .then(setResults)
         .catch(() => {});
     }, 200);
-    return () => clearTimeout(timer);
+    return () => { clearTimeout(timer); controller.abort(); };
   }, [query]);
 
   // Flatten results for keyboard navigation
