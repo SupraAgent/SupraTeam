@@ -3,20 +3,81 @@
 import * as React from "react";
 import { SlideOver } from "@/components/ui/slide-over";
 import { Button } from "@/components/ui/button";
-import type { Contact } from "@/lib/types";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Select } from "@/components/ui/select";
+import type { Contact, PipelineStage } from "@/lib/types";
 import { timeAgo } from "@/lib/utils";
+import { toast } from "sonner";
+import { Save, Trash2, MessageCircle } from "lucide-react";
 
 type ContactDetailPanelProps = {
   contact: Contact | null;
   open: boolean;
   onClose: () => void;
   onDeleted: () => void;
+  onUpdated?: () => void;
 };
 
-export function ContactDetailPanel({ contact, open, onClose, onDeleted }: ContactDetailPanelProps) {
+export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdated }: ContactDetailPanelProps) {
   const [deleting, setDeleting] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
+
+  const [name, setName] = React.useState("");
+  const [company, setCompany] = React.useState("");
+  const [title, setTitle] = React.useState("");
+  const [email, setEmail] = React.useState("");
+  const [phone, setPhone] = React.useState("");
+  const [telegram, setTelegram] = React.useState("");
+  const [stageId, setStageId] = React.useState("");
+  const [notes, setNotes] = React.useState("");
+  const [stages, setStages] = React.useState<PipelineStage[]>([]);
+
+  React.useEffect(() => {
+    if (contact && open) {
+      setName(contact.name);
+      setCompany(contact.company ?? "");
+      setTitle(contact.title ?? "");
+      setEmail(contact.email ?? "");
+      setPhone(contact.phone ?? "");
+      setTelegram(contact.telegram_username ?? "");
+      setStageId(contact.stage_id ?? "");
+      setNotes(contact.notes ?? "");
+
+      fetch("/api/pipeline").then((r) => r.json()).then((d) => setStages(d.stages ?? [])).catch(() => {});
+    }
+  }, [contact, open]);
 
   if (!contact) return null;
+
+  async function handleSave() {
+    if (!contact) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/contacts/${contact.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          company: company || null,
+          title: title || null,
+          email: email || null,
+          phone: phone || null,
+          telegram_username: telegram || null,
+          stage_id: stageId || null,
+          notes: notes || null,
+        }),
+      });
+      if (res.ok) {
+        toast.success("Contact updated");
+        onUpdated?.();
+      } else {
+        toast.error("Failed to save");
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function handleDelete() {
     if (!contact) return;
@@ -24,6 +85,7 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted }: Contac
     try {
       const res = await fetch(`/api/contacts/${contact.id}`, { method: "DELETE" });
       if (res.ok) {
+        toast.success("Contact deleted");
         onDeleted();
         onClose();
       }
@@ -33,50 +95,84 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted }: Contac
   }
 
   return (
-    <SlideOver open={open} onClose={onClose} title={contact.name}>
+    <SlideOver open={open} onClose={onClose} title={name || contact.name}>
       <div className="space-y-4">
-        {contact.company && (
-          <div>
-            <p className="text-xs text-muted-foreground">Company</p>
-            <p className="text-sm text-foreground">{contact.company}</p>
-          </div>
+        {/* TG link if username exists */}
+        {telegram && (
+          <a
+            href={`https://t.me/${telegram}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-2 rounded-xl bg-[#2AABEE] text-white px-4 py-2.5 text-sm font-medium transition hover:bg-[#2AABEE]/90 w-full"
+          >
+            <MessageCircle className="h-4 w-4" />
+            Message on Telegram
+          </a>
         )}
-        {contact.title && (
-          <div>
-            <p className="text-xs text-muted-foreground">Title</p>
-            <p className="text-sm text-foreground">{contact.title}</p>
-          </div>
-        )}
-        {contact.telegram_username && (
-          <div>
-            <p className="text-xs text-muted-foreground">Telegram</p>
-            <p className="text-sm text-primary">@{contact.telegram_username}</p>
-          </div>
-        )}
-        {contact.email && (
-          <div>
-            <p className="text-xs text-muted-foreground">Email</p>
-            <p className="text-sm text-foreground">{contact.email}</p>
-          </div>
-        )}
-        {contact.phone && (
-          <div>
-            <p className="text-xs text-muted-foreground">Phone</p>
-            <p className="text-sm text-foreground">{contact.phone}</p>
-          </div>
-        )}
-        {contact.notes && (
-          <div>
-            <p className="text-xs text-muted-foreground">Notes</p>
-            <p className="text-sm text-foreground whitespace-pre-wrap">{contact.notes}</p>
-          </div>
-        )}
+
+        {/* Editable fields */}
         <div>
-          <p className="text-xs text-muted-foreground">Created</p>
-          <p className="text-sm text-foreground">{timeAgo(contact.created_at)}</p>
+          <label className="text-[11px] font-medium text-muted-foreground">Name</label>
+          <Input value={name} onChange={(e) => setName(e.target.value)} className="mt-1" />
         </div>
 
-        <div className="pt-4 border-t border-white/10">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-[11px] font-medium text-muted-foreground">Company</label>
+            <Input value={company} onChange={(e) => setCompany(e.target.value)} className="mt-1" />
+          </div>
+          <div>
+            <label className="text-[11px] font-medium text-muted-foreground">Title</label>
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} className="mt-1" />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-[11px] font-medium text-muted-foreground">Email</label>
+            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="mt-1" />
+          </div>
+          <div>
+            <label className="text-[11px] font-medium text-muted-foreground">Phone</label>
+            <Input value={phone} onChange={(e) => setPhone(e.target.value)} className="mt-1" />
+          </div>
+        </div>
+
+        <div>
+          <label className="text-[11px] font-medium text-muted-foreground">Telegram Username</label>
+          <Input value={telegram} onChange={(e) => setTelegram(e.target.value)} placeholder="without @" className="mt-1" />
+        </div>
+
+        <div>
+          <label className="text-[11px] font-medium text-muted-foreground">Stage</label>
+          <Select
+            value={stageId}
+            onChange={(e) => setStageId(e.target.value)}
+            options={stages.map((s) => ({ value: s.id, label: s.name }))}
+            placeholder="No stage"
+            className="mt-1"
+          />
+        </div>
+
+        <div>
+          <label className="text-[11px] font-medium text-muted-foreground">Notes</label>
+          <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="mt-1 min-h-[80px]" />
+        </div>
+
+        {/* Timestamps */}
+        <div className="space-y-1 pt-2">
+          <div className="flex justify-between text-[11px]">
+            <span className="text-muted-foreground">Created</span>
+            <span className="text-foreground">{timeAgo(contact.created_at)}</span>
+          </div>
+          <div className="flex justify-between text-[11px]">
+            <span className="text-muted-foreground">Updated</span>
+            <span className="text-foreground">{timeAgo(contact.updated_at)}</span>
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center justify-between pt-3 border-t border-white/10">
           <Button
             variant="ghost"
             size="sm"
@@ -84,7 +180,12 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted }: Contac
             disabled={deleting}
             className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
           >
-            {deleting ? "Deleting..." : "Delete Contact"}
+            <Trash2 className="mr-1 h-3.5 w-3.5" />
+            {deleting ? "Deleting..." : "Delete"}
+          </Button>
+          <Button size="sm" onClick={handleSave} disabled={saving}>
+            <Save className="mr-1 h-3.5 w-3.5" />
+            {saving ? "Saving..." : "Save Changes"}
           </Button>
         </div>
       </div>

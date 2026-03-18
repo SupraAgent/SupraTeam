@@ -1,17 +1,14 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createSupabaseAdmin } from "@/lib/supabase";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const supabase = await createClient();
+  const supabase = createSupabaseAdmin();
   if (!supabase) return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
-
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { data: contact, error } = await supabase
     .from("crm_contacts")
-    .select("*")
+    .select("*, stage:pipeline_stages(*)")
     .eq("id", id)
     .single();
 
@@ -22,11 +19,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const supabase = await createClient();
+  const supabase = createSupabaseAdmin();
   if (!supabase) return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
-
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await request.json();
   body.updated_at = new Date().toISOString();
@@ -35,7 +29,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     .from("crm_contacts")
     .update(body)
     .eq("id", id)
-    .select()
+    .select("*, stage:pipeline_stages(*)")
     .single();
 
   if (error) {
@@ -48,11 +42,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const supabase = await createClient();
+  const supabase = createSupabaseAdmin();
   if (!supabase) return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
-
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { error } = await supabase.from("crm_contacts").delete().eq("id", id);
 
