@@ -15,91 +15,11 @@ import {
   hashPhone,
   phoneLast4,
 } from "@/lib/telegram-client";
-import { pendingLogins } from "../route";
-
-/** Create or sign-in a Supabase user from Telegram user data */
-async function getOrCreateSupabaseSession(
-  admin: NonNullable<ReturnType<typeof createSupabaseAdmin>>,
-  tgUser: { id: number | bigint; firstName?: string; lastName?: string; username?: string; phone?: string }
-) {
-  const tgId = Number(tgUser.id);
-  const email = `tg_${tgId}@supracrm.tg`;
-  const botToken = process.env.TELEGRAM_BOT_TOKEN || "mtproto_auth";
-  const password = `tg_${tgId}_${botToken.slice(0, 16)}`;
-  const displayName = [tgUser.firstName, tgUser.lastName].filter(Boolean).join(" ") || `User ${tgId}`;
-
-  const userMetadata = {
-    telegram_id: tgId,
-    telegram_username: tgUser.username ?? null,
-    display_name: displayName,
-    avatar_url: null,
-  };
-
-  // Try sign in first
-  const { data: signInResult, error: signInError } = await admin.auth.signInWithPassword({
-    email,
-    password,
-  });
-
-  let session = signInResult?.session;
-
-  if (signInError) {
-    // Create new user
-    const { data: newUser, error: createError } = await admin.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: userMetadata,
-    });
-
-    if (createError) {
-      console.error("[auth/telegram-phone] create user error:", createError);
-      return null;
-    }
-
-    const { data: newSignIn, error: newSignInError } = await admin.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-    if (newSignInError || !newSignIn.session) {
-      console.error("[auth/telegram-phone] sign in after create error:", newSignInError);
-      return null;
-    }
-
-    session = newSignIn.session;
-
-    // Create profile
-    await admin.from("profiles").upsert(
-      {
-        id: newUser.user.id,
-        display_name: displayName,
-        avatar_url: null,
-        telegram_id: tgId,
-      },
-      { onConflict: "id" }
-    );
-  } else {
-    // Update existing user metadata and profile
-    if (signInResult.user) {
-      await admin.auth.admin.updateUserById(signInResult.user.id, {
-        user_metadata: userMetadata,
-      });
-
-      await admin.from("profiles").upsert(
-        {
-          id: signInResult.user.id,
-          display_name: displayName,
-          avatar_url: null,
-          telegram_id: tgId,
-        },
-        { onConflict: "id" }
-      );
-    }
-  }
-
-  return session;
-}
+import {
+  pendingPhoneLogins,
+  phoneKey,
+  getOrCreateSupabaseSession,
+} from "@/lib/telegram-login-store";
 
 export async function POST(request: Request) {
   const admin = createSupabaseAdmin();
@@ -119,8 +39,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Phone number required" }, { status: 400 });
   }
 
-  const key = phone.replace(/\D/g, "");
-  const pending = pendingLogins.get(key);
+  const key = phoneKey(phone);
+  const pending = pendingPhoneLogins.get(key);
   if (!pending) {
     return NextResponse.json(
       { error: "No pending login. Start over by sending a new code." },
@@ -130,7 +50,7 @@ export async function POST(request: Request) {
 
   if (Date.now() > pending.expiresAt) {
     pending.client.disconnect().catch(() => {});
-    pendingLogins.delete(key);
+    pendingPhoneLogins.delete(key);
     return NextResponse.json({ error: "Code expired. Please try again." }, { status: 400 });
   }
 
@@ -202,7 +122,7 @@ export async function POST(request: Request) {
     });
 
     // Clean up pending
-    pendingLogins.delete(key);
+    pendingPhoneLogins.delete(key);
 
     return NextResponse.json({
       ok: true,
@@ -217,7 +137,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Invalid code. Please check and try again." }, { status: 400 });
     }
     if (message.includes("PHONE_CODE_EXPIRED")) {
-      pendingLogins.delete(key);
+      pendingPhoneLogins.delete(key);
       return NextResponse.json({ error: "Code expired. Please start over." }, { status: 400 });
     }
     if (message.includes("PASSWORD_HASH_INVALID")) {
