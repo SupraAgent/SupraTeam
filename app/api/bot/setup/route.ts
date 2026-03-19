@@ -13,15 +13,21 @@ export async function POST(request: Request) {
   // Delete any existing webhook first
   await fetch(`https://api.telegram.org/bot${token}/deleteWebhook`);
 
-  // Set new webhook
+  // Set new webhook with optional secret token for verification
+  const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  const webhookPayload: Record<string, unknown> = {
+    url: webhookUrl,
+    allowed_updates: ["message", "my_chat_member"],
+    drop_pending_updates: true,
+  };
+  if (webhookSecret) {
+    webhookPayload.secret_token = webhookSecret;
+  }
+
   const res = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      url: webhookUrl,
-      allowed_updates: ["message", "my_chat_member"],
-      drop_pending_updates: true,
-    }),
+    body: JSON.stringify(webhookPayload),
   });
 
   const data = await res.json();

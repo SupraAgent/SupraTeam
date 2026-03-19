@@ -27,6 +27,7 @@ const SETTINGS_ITEMS = [
   { href: "/settings/telegram", label: "Telegram" },
   { href: "/settings/email", label: "Email" },
   { href: "/settings/telegram-connect", label: "TG Connect" },
+  { href: "/settings/templates", label: "Bot Templates" },
 ] as const;
 
 export function DesktopSidebar() {

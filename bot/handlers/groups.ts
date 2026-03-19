@@ -35,6 +35,24 @@ export function registerGroupHandlers(bot: Bot) {
         console.error("[bot/groups] upsert error:", error);
       } else {
         console.log(`[bot/groups] ${isAdmin ? "Admin" : "Member"} in: ${chatTitle} (${chatId})`);
+
+        // Send welcome message when bot is added as admin
+        if (isAdmin) {
+          try {
+            const { data: tpl } = await supabase
+              .from("crm_bot_templates")
+              .select("body_template")
+              .eq("template_key", "welcome_group")
+              .eq("is_active", true)
+              .single();
+
+            const welcomeMsg = tpl?.body_template ??
+              "SupraCRM Bot is now active in this group.\n\nI'll send deal updates and pipeline notifications here. Use /deal to see linked deals.";
+            await ctx.reply(welcomeMsg);
+          } catch {
+            // Non-critical — don't block group registration
+          }
+        }
       }
     } else if (isRemoved) {
       const { error } = await supabase
