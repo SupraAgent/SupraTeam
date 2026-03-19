@@ -1,0 +1,341 @@
+"use client";
+
+import * as React from "react";
+import { cn } from "@/lib/utils";
+import { ThreadList } from "@/components/email/thread-list";
+import { ThreadView } from "@/components/email/thread-view";
+import { ComposeModal } from "@/components/email/compose-modal";
+import { LabelSidebar } from "@/components/email/label-sidebar";
+import { useThreads, useThread, useLabels, useEmailActions, useEmailKeyboard, useEmailConnections } from "@/lib/email/hooks";
+import { toast } from "sonner";
+
+export default function EmailPage() {
+  const { connections, loading: connectionsLoading } = useEmailConnections();
+  const [activeLabel, setActiveLabel] = React.useState("INBOX");
+  const [selectedThreadId, setSelectedThreadId] = React.useState<string | null>(null);
+  const [selectedIndex, setSelectedIndex] = React.useState(0);
+  const [searchQuery, setSearchQuery] = React.useState("");
+  const [showSearch, setShowSearch] = React.useState(false);
+  const searchRef = React.useRef<HTMLInputElement>(null);
+
+  // Compose modal state
+  const [composeOpen, setComposeOpen] = React.useState(false);
+  const [composeMode, setComposeMode] = React.useState<"compose" | "reply" | "replyAll" | "forward">("compose");
+  const [composeThreadId, setComposeThreadId] = React.useState<string>();
+  const [composeMessageId, setComposeMessageId] = React.useState<string>();
+
+  // Data hooks
+  const { threads, loading, error, nextPageToken, loadMore, refresh, setThreads } = useThreads({
+    labelIds: searchQuery ? undefined : [activeLabel],
+    query: searchQuery || undefined,
+  });
+  const { thread: activeThread, loading: threadLoading } = useThread(selectedThreadId);
+  const { labels, loading: labelsLoading } = useLabels();
+  const { performAction, undoAction } = useEmailActions(setThreads);
+
+  // Unread counts from labels
+  const unreadCounts: Record<string, number> = {};
+  for (const l of labels) {
+    if (l.unreadCount) unreadCounts[l.id] = l.unreadCount;
+  }
+
+  // No connection state
+  if (!connectionsLoading && connections.length === 0) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center px-4">
+        <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center">
+          <MailPlusIcon className="h-8 w-8 text-primary" />
+        </div>
+        <div>
+          <h2 className="text-lg font-semibold text-foreground">Connect your email</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Connect your Gmail account to read, send, and manage email alongside your CRM deals.
+          </p>
+        </div>
+        <a
+          href="/settings/email"
+          className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition"
+        >
+          Connect Gmail
+        </a>
+      </div>
+    );
+  }
+
+  // ── Action handlers ──────────────────────────────────────
+
+  function handleArchive() {
+    const id = selectedThreadId ?? threads[selectedIndex]?.id;
+    if (!id) return;
+    performAction(id, "archive");
+    toast("Archived", {
+      action: undoAction
+        ? { label: "Undo", onClick: () => undoAction.undo() }
+        : undefined,
+    });
+    // Move to next thread
+    if (selectedThreadId) {
+      const idx = threads.findIndex((t) => t.id === selectedThreadId);
+      const next = threads[idx + 1] ?? threads[idx - 1];
+      setSelectedThreadId(next?.id ?? null);
+    }
+  }
+
+  function handleTrash() {
+    const id = selectedThreadId ?? threads[selectedIndex]?.id;
+    if (!id) return;
+    performAction(id, "trash");
+    toast("Moved to trash");
+    if (selectedThreadId) {
+      const idx = threads.findIndex((t) => t.id === selectedThreadId);
+      const next = threads[idx + 1] ?? threads[idx - 1];
+      setSelectedThreadId(next?.id ?? null);
+    }
+  }
+
+  function handleStar() {
+    const id = selectedThreadId ?? threads[selectedIndex]?.id;
+    if (id) performAction(id, "star");
+  }
+
+  function handleMarkUnread() {
+    const id = selectedThreadId ?? threads[selectedIndex]?.id;
+    if (id) {
+      performAction(id, "unread");
+      setSelectedThreadId(null);
+    }
+  }
+
+  function openCompose(mode: "compose" | "reply" | "replyAll" | "forward", threadId?: string, messageId?: string) {
+    setComposeMode(mode);
+    setComposeThreadId(threadId);
+    setComposeMessageId(messageId);
+    setComposeOpen(true);
+  }
+
+  // ── Keyboard shortcuts ───────────────────────────────────
+
+  useEmailKeyboard({
+    onNext: () => {
+      if (!selectedThreadId) {
+        setSelectedIndex((i) => Math.min(i + 1, threads.length - 1));
+      }
+    },
+    onPrev: () => {
+      if (!selectedThreadId) {
+        setSelectedIndex((i) => Math.max(i - 1, 0));
+      }
+    },
+    onOpen: () => {
+      if (!selectedThreadId && threads[selectedIndex]) {
+        setSelectedThreadId(threads[selectedIndex].id);
+      }
+    },
+    onBack: () => setSelectedThreadId(null),
+    onArchive: handleArchive,
+    onTrash: handleTrash,
+    onReply: () => openCompose("reply", selectedThreadId ?? undefined),
+    onReplyAll: () => openCompose("replyAll", selectedThreadId ?? undefined),
+    onForward: () => openCompose("forward", selectedThreadId ?? undefined),
+    onStar: handleStar,
+    onMarkUnread: handleMarkUnread,
+    onCompose: () => openCompose("compose"),
+    onSearch: () => {
+      setShowSearch(true);
+      setTimeout(() => searchRef.current?.focus(), 50);
+    },
+    onArchiveNext: () => {
+      handleArchive();
+    },
+    onArchivePrev: () => {
+      handleArchive();
+    },
+    onSnooze: () => {
+      toast("Snooze coming soon");
+    },
+    onSendAndArchive: () => {
+      // Will be handled in compose
+    },
+  }, !composeOpen);
+
+  // ── Render ───────────────────────────────────────────────
+
+  return (
+    <div className="flex h-[calc(100vh-3.5rem)] md:h-screen">
+      {/* Label sidebar — hidden on mobile when thread is open */}
+      <div className={cn(
+        "w-44 border-r border-white/10 py-3 px-2 shrink-0 overflow-y-auto thin-scroll hidden lg:block"
+      )}>
+        <LabelSidebar
+          labels={labels}
+          activeLabel={activeLabel}
+          onSelectLabel={(id) => {
+            setActiveLabel(id);
+            setSelectedThreadId(null);
+            setSearchQuery("");
+          }}
+          unreadCounts={unreadCounts}
+        />
+      </div>
+
+      {/* Thread list */}
+      <div className={cn(
+        "w-80 border-r border-white/10 flex flex-col shrink-0",
+        selectedThreadId ? "hidden md:flex" : "flex",
+        "min-w-0"
+      )}>
+        {/* Header */}
+        <div className="px-3 py-2.5 border-b border-white/10 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2">
+            <h1 className="text-sm font-semibold text-foreground">
+              {searchQuery ? `Search: ${searchQuery}` : activeLabel === "INBOX" ? "Inbox" : labels.find((l) => l.id === activeLabel)?.name ?? activeLabel}
+            </h1>
+            {(unreadCounts[activeLabel] ?? 0) > 0 && (
+              <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                {unreadCounts[activeLabel]}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => openCompose("compose")}
+              className="rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-white/5 transition"
+              title="Compose (c)"
+            >
+              <ComposeIcon className="h-4 w-4" />
+            </button>
+            <button
+              onClick={refresh}
+              className="rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-white/5 transition"
+              title="Refresh"
+            >
+              <RefreshIcon className={cn("h-4 w-4", loading && "animate-spin")} />
+            </button>
+          </div>
+        </div>
+
+        {/* Search bar */}
+        {showSearch && (
+          <div className="px-3 py-2 border-b border-white/10">
+            <input
+              ref={searchRef}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  setShowSearch(false);
+                  setSearchQuery("");
+                }
+              }}
+              placeholder="Search emails..."
+              className="w-full rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs text-foreground
+                placeholder:text-muted-foreground/50 outline-none focus:ring-1 focus:ring-primary/50"
+            />
+          </div>
+        )}
+
+        {error && (
+          <div className="px-3 py-2 text-xs text-red-400 border-b border-white/10">
+            {error}
+          </div>
+        )}
+
+        <ThreadList
+          threads={threads}
+          selectedId={selectedThreadId}
+          onSelect={(id) => {
+            setSelectedThreadId(id);
+            setSelectedIndex(threads.findIndex((t) => t.id === id));
+          }}
+          loading={loading}
+          onLoadMore={loadMore}
+          hasMore={!!nextPageToken}
+        />
+      </div>
+
+      {/* Thread view */}
+      <div className={cn(
+        "flex-1 flex flex-col",
+        !selectedThreadId && "hidden md:flex"
+      )}>
+        {activeThread ? (
+          <ThreadView
+            thread={activeThread}
+            loading={threadLoading}
+            onReply={() => openCompose("reply", selectedThreadId ?? undefined)}
+            onReplyAll={() => openCompose("replyAll", selectedThreadId ?? undefined)}
+            onForward={(msgId) => openCompose("forward", selectedThreadId ?? undefined, msgId)}
+            onArchive={handleArchive}
+            onTrash={handleTrash}
+            onStar={handleStar}
+            onMarkUnread={handleMarkUnread}
+            onBack={() => setSelectedThreadId(null)}
+          />
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-2">
+            <MailOpenIcon className="h-10 w-10 opacity-30" />
+            <p className="text-sm">Select a thread to read</p>
+            <div className="flex flex-wrap items-center gap-2 mt-2 text-[10px]">
+              <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5">j/k</kbd>
+              <span>navigate</span>
+              <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5">Enter</kbd>
+              <span>open</span>
+              <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5">e</kbd>
+              <span>archive</span>
+              <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5">c</kbd>
+              <span>compose</span>
+              <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5">r</kbd>
+              <span>reply</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Undo toast */}
+      {undoAction && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-xl bg-white/10 border border-white/10 backdrop-blur-sm px-4 py-2.5 shadow-2xl">
+          <span className="text-xs text-foreground">
+            Thread {undoAction.action === "archive" ? "archived" : "trashed"}
+          </span>
+          <button
+            onClick={undoAction.undo}
+            className="text-xs font-semibold text-primary hover:text-primary/80 transition"
+          >
+            Undo
+          </button>
+        </div>
+      )}
+
+      {/* Compose modal */}
+      <ComposeModal
+        open={composeOpen}
+        onClose={() => setComposeOpen(false)}
+        mode={composeMode}
+        threadId={composeThreadId}
+        messageId={composeMessageId}
+        onSent={() => {
+          refresh();
+          toast("Email sent");
+        }}
+      />
+    </div>
+  );
+}
+
+// ── Inline SVGs ─────────────────────────────────────────────
+
+function MailPlusIcon({ className }: { className?: string }) {
+  return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22 6 12 13 2 6" /><line x1="12" y1="17" x2="12" y2="23" /><line x1="9" y1="20" x2="15" y2="20" /></svg>;
+}
+
+function MailOpenIcon({ className }: { className?: string }) {
+  return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"><path d="M21.2 8.4c.5.38.8.97.8 1.6v10a2 2 0 01-2 2H4a2 2 0 01-2-2V10a2 2 0 01.8-1.6l8-6a2 2 0 012.4 0l8 6z" /><path d="M22 10l-8.97 5.7a1.94 1.94 0 01-2.06 0L2 10" /></svg>;
+}
+
+function ComposeIcon({ className }: { className?: string }) {
+  return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>;
+}
+
+function RefreshIcon({ className }: { className?: string }) {
+  return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" /></svg>;
+}
