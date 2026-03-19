@@ -39,7 +39,7 @@ export async function POST() {
     access_type: "offline",
     scope: SCOPES,
     prompt: "consent",
-    state: auth.user.id,
+    state: Buffer.from(JSON.stringify({ uid: auth.user.id, ts: Date.now(), nonce: crypto.randomUUID() })).toString("base64url"),
   });
 
   return NextResponse.json({ url, source: "google" });

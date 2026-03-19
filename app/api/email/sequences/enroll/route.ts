@@ -108,7 +108,8 @@ export async function PATCH(request: Request) {
   const { error } = await auth.admin
     .from("crm_email_sequence_enrollments")
     .update(update)
-    .eq("id", body.enrollment_id);
+    .eq("id", body.enrollment_id)
+    .eq("enrolled_by", auth.user.id);
 
   if (error) {
     return NextResponse.json({ error: "Failed to update enrollment" }, { status: 500 });
