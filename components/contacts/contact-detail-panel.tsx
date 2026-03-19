@@ -9,7 +9,8 @@ import { Select } from "@/components/ui/select";
 import type { Contact, PipelineStage } from "@/lib/types";
 import { timeAgo } from "@/lib/utils";
 import { toast } from "sonner";
-import { Save, Trash2, MessageCircle } from "lucide-react";
+import { Save, Trash2, MessageCircle, FileText } from "lucide-react";
+import Link from "next/link";
 
 type ContactDetailPanelProps = {
   contact: Contact | null;
@@ -32,6 +33,7 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
   const [stageId, setStageId] = React.useState("");
   const [notes, setNotes] = React.useState("");
   const [stages, setStages] = React.useState<PipelineStage[]>([]);
+  const [linkedDocs, setLinkedDocs] = React.useState<{ id: string; title: string; updated_at: string }[]>([]);
 
   React.useEffect(() => {
     if (contact && open) {
@@ -45,6 +47,7 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
       setNotes(contact.notes ?? "");
 
       fetch("/api/pipeline").then((r) => r.json()).then((d) => setStages(d.stages ?? [])).catch(() => {});
+      fetch(`/api/docs?entity_type=contact&entity_id=${contact.id}`).then((r) => r.json()).then((d) => setLinkedDocs(d.docs ?? [])).catch(() => setLinkedDocs([]));
     }
   }, [contact, open]);
 
@@ -170,6 +173,26 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
             <span className="text-foreground">{timeAgo(contact.updated_at)}</span>
           </div>
         </div>
+
+        {/* Linked docs */}
+        {linkedDocs.length > 0 && (
+          <div className="pt-2">
+            <p className="text-[11px] font-medium text-muted-foreground mb-1.5">Linked Docs</p>
+            <div className="space-y-1">
+              {linkedDocs.map((doc) => (
+                <Link
+                  key={doc.id}
+                  href={`/docs?edit=${doc.id}`}
+                  className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-white/[0.03] transition"
+                >
+                  <FileText className="h-3.5 w-3.5 text-amber-400" />
+                  <span className="text-xs text-foreground truncate">{doc.title}</span>
+                  <span className="ml-auto text-[10px] text-muted-foreground/40">{timeAgo(doc.updated_at)}</span>
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Actions */}
         <div className="flex items-center justify-between pt-3 border-t border-white/10">

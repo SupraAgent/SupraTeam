@@ -9,8 +9,9 @@ import type { Deal, PipelineStage, Contact } from "@/lib/types";
 import { timeAgo, cn } from "@/lib/utils";
 import { toast } from "sonner";
 import {
-  MessageCircle, Save, Trash2, Send, GitBranch, StickyNote, ExternalLink,
+  MessageCircle, Save, Trash2, Send, GitBranch, StickyNote, ExternalLink, FileText,
 } from "lucide-react";
+import Link from "next/link";
 
 type Note = {
   id: string;
@@ -35,7 +36,13 @@ type DealDetailPanelProps = {
   onUpdated?: () => void;
 };
 
-type Tab = "details" | "conversation" | "activity";
+type LinkedDoc = {
+  id: string;
+  title: string;
+  updated_at: string;
+};
+
+type Tab = "details" | "conversation" | "activity" | "docs";
 
 export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: DealDetailPanelProps) {
   const [tab, setTab] = React.useState<Tab>("details");
@@ -62,6 +69,9 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
   // Activity
   const [activities, setActivities] = React.useState<Activity[]>([]);
 
+  // Linked docs
+  const [linkedDocs, setLinkedDocs] = React.useState<LinkedDoc[]>([]);
+
   // Load deal data into editable state
   React.useEffect(() => {
     if (deal && open) {
@@ -78,6 +88,7 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
         fetch("/api/pipeline").then((r) => r.json()).then((d) => setStages(d.stages ?? [])).catch(() => {}),
         fetch(`/api/deals/${deal.id}/notes`).then((r) => r.json()).then((d) => setNotes(d.notes ?? [])).catch(() => setNotes([])),
         fetch(`/api/deals/${deal.id}/activity`).then((r) => r.json()).then((d) => setActivities(d.activities ?? [])).catch(() => setActivities([])),
+        fetch(`/api/docs?entity_type=deal&entity_id=${deal.id}`).then((r) => r.json()).then((d) => setLinkedDocs(d.docs ?? [])).catch(() => setLinkedDocs([])),
       ]).finally(() => setLoadingContent(false));
     }
   }, [deal, open]);
@@ -150,6 +161,7 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
     { key: "details", label: "Details" },
     { key: "conversation", label: "Notes" },
     { key: "activity", label: "Activity" },
+    { key: "docs", label: `Docs${linkedDocs.length > 0 ? ` (${linkedDocs.length})` : ""}` },
   ];
 
   return (
@@ -355,6 +367,42 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
                   </div>
                 </div>
               ))
+            )}
+          </div>
+        )}
+
+        {/* Docs tab */}
+        {!loadingContent && tab === "docs" && (
+          <div className="space-y-3">
+            {linkedDocs.length === 0 ? (
+              <div className="text-center py-8">
+                <FileText className="mx-auto h-6 w-6 text-muted-foreground/20" />
+                <p className="mt-2 text-xs text-muted-foreground">No docs linked to this deal</p>
+                <Link
+                  href={`/docs`}
+                  className="mt-2 inline-block text-xs text-primary hover:text-primary/80"
+                >
+                  Create a doc and link it
+                </Link>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {linkedDocs.map((doc) => (
+                  <Link
+                    key={doc.id}
+                    href={`/docs?edit=${doc.id}`}
+                    className="block rounded-xl border border-white/10 bg-white/[0.03] p-3 hover:bg-white/[0.06] transition"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <FileText className="h-3.5 w-3.5 text-amber-400" />
+                        <p className="text-sm font-medium text-foreground">{doc.title}</p>
+                      </div>
+                      <span className="text-[10px] text-muted-foreground/40">{timeAgo(doc.updated_at)}</span>
+                    </div>
+                  </Link>
+                ))}
+              </div>
             )}
           </div>
         )}
