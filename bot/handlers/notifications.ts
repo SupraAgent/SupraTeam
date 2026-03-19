@@ -1,5 +1,6 @@
 import type { Bot } from "grammy";
 import { supabase } from "../lib/supabase.js";
+import { formatStageChangeMessage } from "../../lib/telegram-templates.js";
 
 const POLL_INTERVAL_MS = 10_000; // 10 seconds
 
@@ -90,12 +91,14 @@ async function processStageChange(
     if (profile?.display_name) changedByName = profile.display_name;
   }
 
-  const message =
-    `Deal Update: ${deal.deal_name}\n\n` +
-    `Stage: ${fromName} -> ${toName}\n` +
-    `Board: ${deal.board_type}\n` +
-    `Changed by: ${changedByName}`;
+  const message = formatStageChangeMessage(
+    deal.deal_name,
+    fromName,
+    toName,
+    deal.board_type ?? "Unknown",
+    changedByName
+  );
 
-  await bot.api.sendMessage(deal.telegram_chat_id, message);
+  await bot.api.sendMessage(deal.telegram_chat_id, message, { parse_mode: "HTML" });
   console.log(`[bot/notifications] Sent notification for deal "${deal.deal_name}" to chat ${deal.telegram_chat_id}`);
 }
