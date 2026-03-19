@@ -5,6 +5,7 @@ import DOMPurify from "dompurify";
 import { cn } from "@/lib/utils";
 import { timeAgo } from "@/lib/utils";
 import type { Thread, Message } from "@/lib/email/types";
+import { ContactAvatar } from "./contact-avatar";
 
 type ThreadViewProps = {
   thread: Thread;
@@ -138,11 +139,11 @@ function MessageBubble({
         className="w-full text-left px-4 py-2.5 flex items-center justify-between hover:bg-white/[0.02] transition"
       >
         <div className="flex items-center gap-2 min-w-0">
-          <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-            <span className="text-[10px] font-bold text-primary">
-              {(message.from.name || message.from.email).charAt(0).toUpperCase()}
-            </span>
-          </div>
+          <ContactAvatar
+            email={message.from.email}
+            name={message.from.name}
+            size={28}
+          />
           <div className="min-w-0">
             <span className={cn("text-xs", message.isUnread ? "font-semibold text-foreground" : "text-foreground/80")}>
               {message.from.name || message.from.email}

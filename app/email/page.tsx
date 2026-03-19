@@ -6,11 +6,21 @@ import { ThreadList } from "@/components/email/thread-list";
 import { ThreadView } from "@/components/email/thread-view";
 import { ComposeModal } from "@/components/email/compose-modal";
 import { LabelSidebar } from "@/components/email/label-sidebar";
+import { UndoSendProvider, UndoSendBar } from "@/components/email/undo-send-bar";
+import { SnoozePicker } from "@/components/email/snooze-picker";
 import { useThreads, useThread, useLabels, useEmailActions, useEmailKeyboard, useEmailConnections, useSplitInbox, usePrefetchThread } from "@/lib/email/hooks";
 import { INBOX_CATEGORIES, type InboxCategory } from "@/lib/email/types";
 import { toast } from "sonner";
 
 export default function EmailPage() {
+  return (
+    <UndoSendProvider>
+      <EmailPageInner />
+    </UndoSendProvider>
+  );
+}
+
+function EmailPageInner() {
   const { connections, loading: connectionsLoading } = useEmailConnections();
   const [activeLabel, setActiveLabel] = React.useState("INBOX");
   const [selectedThreadId, setSelectedThreadId] = React.useState<string | null>(null);
@@ -25,6 +35,10 @@ export default function EmailPage() {
   const [composeMode, setComposeMode] = React.useState<"compose" | "reply" | "replyAll" | "forward">("compose");
   const [composeThreadId, setComposeThreadId] = React.useState<string>();
   const [composeMessageId, setComposeMessageId] = React.useState<string>();
+
+  // Snooze state
+  const [snoozeOpen, setSnoozeOpen] = React.useState(false);
+  const [snoozeThreadId, setSnoozeThreadId] = React.useState<string | null>(null);
 
   // Data hooks
   const { threads, loading, error, nextPageToken, loadMore, refresh, setThreads } = useThreads({
@@ -80,7 +94,6 @@ export default function EmailPage() {
         ? { label: "Undo", onClick: () => undoAction.undo() }
         : undefined,
     });
-    // Move to next thread
     if (selectedThreadId) {
       const idx = visibleThreads.findIndex((t) => t.id === selectedThreadId);
       const next = visibleThreads[idx + 1] ?? visibleThreads[idx - 1];
@@ -110,6 +123,14 @@ export default function EmailPage() {
     if (id) {
       performAction(id, "unread");
       setSelectedThreadId(null);
+    }
+  }
+
+  function handleSnooze() {
+    const id = selectedThreadId ?? visibleThreads[selectedIndex]?.id;
+    if (id) {
+      setSnoozeThreadId(id);
+      setSnoozeOpen(true);
     }
   }
 
@@ -151,28 +172,20 @@ export default function EmailPage() {
       setShowSearch(true);
       setTimeout(() => searchRef.current?.focus(), 50);
     },
-    onArchiveNext: () => {
-      handleArchive();
-    },
-    onArchivePrev: () => {
-      handleArchive();
-    },
-    onSnooze: () => {
-      toast("Snooze coming soon");
-    },
-    onSendAndArchive: () => {
-      // Will be handled in compose
-    },
-  }, !composeOpen);
+    onArchiveNext: handleArchive,
+    onArchivePrev: handleArchive,
+    onSnooze: handleSnooze,
+    onSendAndArchive: () => {},
+  }, !composeOpen && !snoozeOpen);
 
   // ── Render ───────────────────────────────────────────────
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] md:h-screen">
-      {/* Label sidebar — hidden on mobile when thread is open */}
+      {/* Label sidebar */}
       <div className={cn(
         "w-44 border-r border-white/10 py-3 px-2 shrink-0 overflow-y-auto thin-scroll hidden lg:block"
-      )}>
+      )} style={{ backgroundColor: "hsl(var(--surface-1))" }}>
         <LabelSidebar
           labels={labels}
           activeLabel={activeLabel}
@@ -222,7 +235,7 @@ export default function EmailPage() {
           </div>
         </div>
 
-        {/* Split inbox tabs — only show for INBOX */}
+        {/* Split inbox tabs */}
         {activeLabel === "INBOX" && !searchQuery && (
           <div className="flex border-b border-white/10 shrink-0">
             <SplitTab
@@ -314,16 +327,18 @@ export default function EmailPage() {
               <span>archive</span>
               <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5">c</kbd>
               <span>compose</span>
-              <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5">r</kbd>
-              <span>reply</span>
+              <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5">h</kbd>
+              <span>snooze</span>
             </div>
           </div>
         )}
       </div>
 
-      {/* Undo toast */}
+      {/* Undo archive/trash toast */}
       {undoAction && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-xl bg-white/10 border border-white/10 backdrop-blur-sm px-4 py-2.5 shadow-2xl">
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-xl border border-white/10 backdrop-blur-sm px-4 py-2.5 shadow-2xl"
+          style={{ backgroundColor: "hsl(var(--surface-5))" }}
+        >
           <span className="text-xs text-foreground">
             Thread {undoAction.action === "archive" ? "archived" : "trashed"}
           </span>
@@ -336,6 +351,25 @@ export default function EmailPage() {
         </div>
       )}
 
+      {/* Undo send bar (60s countdown) */}
+      <UndoSendBar />
+
+      {/* Snooze picker */}
+      <SnoozePicker
+        open={snoozeOpen}
+        onClose={() => setSnoozeOpen(false)}
+        threadId={snoozeThreadId}
+        onSnoozed={() => {
+          // Remove snoozed thread from list
+          if (snoozeThreadId) {
+            setThreads((prev) => prev.filter((t) => t.id !== snoozeThreadId));
+            if (selectedThreadId === snoozeThreadId) {
+              setSelectedThreadId(null);
+            }
+          }
+        }}
+      />
+
       {/* Compose modal */}
       <ComposeModal
         open={composeOpen}
@@ -345,7 +379,6 @@ export default function EmailPage() {
         messageId={composeMessageId}
         onSent={() => {
           refresh();
-          toast("Email sent");
         }}
       />
     </div>
