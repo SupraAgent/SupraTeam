@@ -28,7 +28,7 @@ export function SlideOver({ open, onClose, title, children, className }: SlideOv
       <div className="fixed inset-0 bg-black/40" onClick={onClose} />
       <div
         className={cn(
-          "relative z-10 w-full max-w-md border-l border-white/10 bg-[hsl(225,35%,5%)] shadow-2xl overflow-y-auto",
+          "relative z-10 w-full max-w-md sm:max-w-md border-l border-white/10 bg-[hsl(225,35%,5%)] shadow-2xl overflow-y-auto",
           "animate-slide-in",
           className
         )}

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Bell, Check, CheckCheck, ExternalLink, ArrowRight, MessageCircle, GitBranch, UserPlus, AtSign } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, timeAgo } from "@/lib/utils";
 
 type Notification = {
   id: string;
@@ -40,17 +40,6 @@ const TYPE_CONFIG: Record<string, { icon: React.ElementType; label: string; colo
   mention: { icon: AtSign, label: "Mention", color: "text-pink-400" },
 };
 
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
-}
-
 export function NotificationCenter() {
   const [notifications, setNotifications] = React.useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = React.useState(0);
@@ -73,9 +62,21 @@ export function NotificationCenter() {
 
   React.useEffect(() => {
     fetchNotifications();
-    // Poll every 30s for new notifications
-    const interval = setInterval(fetchNotifications, 30000);
-    return () => clearInterval(interval);
+    let interval = setInterval(fetchNotifications, 30000);
+
+    function handleVisibility() {
+      if (document.hidden) {
+        clearInterval(interval);
+      } else {
+        fetchNotifications();
+        interval = setInterval(fetchNotifications, 30000);
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
   }, [fetchNotifications]);
 
   // Close on outside click
@@ -126,7 +127,7 @@ export function NotificationCenter() {
 
       {/* Dropdown panel */}
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-2 w-[420px] rounded-2xl border border-white/10 bg-[hsl(225,35%,8%)] shadow-2xl shadow-black/50">
+        <div className="absolute right-0 top-full z-50 mt-2 w-[min(420px,calc(100vw-2rem))] rounded-2xl border border-white/10 bg-[hsl(225,35%,8%)] shadow-2xl shadow-black/50">
           {/* Header */}
           <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
             <h3 className="text-sm font-medium text-foreground">Notifications</h3>

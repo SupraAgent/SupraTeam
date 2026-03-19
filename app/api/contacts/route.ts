@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { createSupabaseAdmin } from "@/lib/supabase";
+import { requireAuth } from "@/lib/auth-guard";
 
 export async function GET(request: Request) {
-  const supabase = createSupabaseAdmin();
-  if (!supabase) return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+  const { admin: supabase } = auth;
 
   const { searchParams } = new URL(request.url);
   const search = searchParams.get("search");
@@ -33,8 +34,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const supabase = createSupabaseAdmin();
-  if (!supabase) return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+  const { user, admin: supabase } = auth;
 
   const body = await request.json();
   const { name, email, phone, telegram_username, telegram_user_id, company, title, notes, stage_id } = body;
@@ -55,7 +57,7 @@ export async function POST(request: Request) {
       title: title || null,
       notes: notes || null,
       stage_id: stage_id || null,
-      created_by: null,
+      created_by: user.id,
     })
     .select("*, stage:pipeline_stages(*)")
     .single();

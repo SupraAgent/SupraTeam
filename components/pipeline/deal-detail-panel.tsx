@@ -52,6 +52,7 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
 
   // Stages + contacts for selectors
   const [stages, setStages] = React.useState<PipelineStage[]>([]);
+  const [loadingContent, setLoadingContent] = React.useState(true);
 
   // Notes
   const [notes, setNotes] = React.useState<Note[]>([]);
@@ -71,15 +72,13 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
       setBoardType(deal.board_type);
       setTgLink(deal.telegram_chat_link ?? "");
       setTab("details");
+      setLoadingContent(true);
 
-      // Fetch stages
-      fetch("/api/pipeline").then((r) => r.json()).then((d) => setStages(d.stages ?? [])).catch(() => {});
-
-      // Fetch notes
-      fetch(`/api/deals/${deal.id}/notes`).then((r) => r.json()).then((d) => setNotes(d.notes ?? [])).catch(() => setNotes([]));
-
-      // Fetch activity (notifications + stage history)
-      fetch(`/api/deals/${deal.id}/activity`).then((r) => r.json()).then((d) => setActivities(d.activities ?? [])).catch(() => setActivities([]));
+      Promise.all([
+        fetch("/api/pipeline").then((r) => r.json()).then((d) => setStages(d.stages ?? [])).catch(() => {}),
+        fetch(`/api/deals/${deal.id}/notes`).then((r) => r.json()).then((d) => setNotes(d.notes ?? [])).catch(() => setNotes([])),
+        fetch(`/api/deals/${deal.id}/activity`).then((r) => r.json()).then((d) => setActivities(d.activities ?? [])).catch(() => setActivities([])),
+      ]).finally(() => setLoadingContent(false));
     }
   }, [deal, open]);
 
@@ -187,8 +186,17 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
           ))}
         </div>
 
+        {/* Loading skeleton */}
+        {loadingContent && (
+          <div className="space-y-3">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-10 rounded-lg bg-white/[0.04] animate-pulse" />
+            ))}
+          </div>
+        )}
+
         {/* Details tab */}
-        {tab === "details" && (
+        {!loadingContent && tab === "details" && (
           <div className="space-y-3">
             <div>
               <label className="text-[11px] font-medium text-muted-foreground">Deal Name</label>
@@ -279,7 +287,7 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
         )}
 
         {/* Notes tab */}
-        {tab === "conversation" && (
+        {!loadingContent && tab === "conversation" && (
           <div className="space-y-3">
             {/* Add note */}
             <div className="flex gap-2">
@@ -315,7 +323,7 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
         )}
 
         {/* Activity tab */}
-        {tab === "activity" && (
+        {!loadingContent && tab === "activity" && (
           <div className="space-y-1">
             {activities.length === 0 ? (
               <div className="text-center py-8">
