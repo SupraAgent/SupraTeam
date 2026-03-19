@@ -37,6 +37,14 @@ function phoneKey(phone: string): string {
 }
 
 export async function POST(request: Request) {
+  // Fail fast if Telegram API credentials aren't configured
+  if (!parseInt(process.env.TELEGRAM_API_ID || "0", 10) || !process.env.TELEGRAM_API_HASH) {
+    return NextResponse.json(
+      { error: "Telegram API not configured. Set TELEGRAM_API_ID and TELEGRAM_API_HASH." },
+      { status: 503 }
+    );
+  }
+
   let body: { phone?: string };
   try {
     body = await request.json();
@@ -98,7 +106,7 @@ export async function POST(request: Request) {
     if (message.includes("PHONE_NUMBER_FLOOD")) {
       return NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 });
     }
-    if (message.includes("API_ID") || message.includes("api_id")) {
+    if (message.includes("API ID") || message.includes("API_ID") || message.includes("api_id") || message.includes("cannot be empty")) {
       return NextResponse.json({ error: "Telegram API not configured. Set TELEGRAM_API_ID and TELEGRAM_API_HASH." }, { status: 503 });
     }
 
