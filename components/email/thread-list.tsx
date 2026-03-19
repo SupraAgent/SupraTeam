@@ -12,9 +12,10 @@ type ThreadListProps = {
   loading: boolean;
   onLoadMore?: () => void;
   hasMore?: boolean;
+  onPrefetch?: (id: string) => void;
 };
 
-export function ThreadList({ threads, selectedId, onSelect, loading, onLoadMore, hasMore }: ThreadListProps) {
+export function ThreadList({ threads, selectedId, onSelect, loading, onLoadMore, hasMore, onPrefetch }: ThreadListProps) {
   const listRef = React.useRef<HTMLDivElement>(null);
 
   if (loading && threads.length === 0) {
@@ -42,6 +43,7 @@ export function ThreadList({ threads, selectedId, onSelect, loading, onLoadMore,
           thread={thread}
           isSelected={thread.id === selectedId}
           onClick={() => onSelect(thread.id)}
+          onMouseEnter={() => onPrefetch?.(thread.id)}
         />
       ))}
       {hasMore && (
@@ -60,10 +62,12 @@ function ThreadRow({
   thread,
   isSelected,
   onClick,
+  onMouseEnter,
 }: {
   thread: ThreadListItem;
   isSelected: boolean;
   onClick: () => void;
+  onMouseEnter?: () => void;
 }) {
   const senderName = thread.from[0]?.name || thread.from[0]?.email || "Unknown";
   const shortSender = senderName.split(" ")[0] || senderName.split("@")[0];
@@ -71,6 +75,7 @@ function ThreadRow({
   return (
     <button
       onClick={onClick}
+      onMouseEnter={onMouseEnter}
       className={cn(
         "w-full text-left px-3 py-2.5 border-b border-white/5 transition-colors flex gap-3",
         isSelected ? "bg-white/[0.08]" : "hover:bg-white/[0.03]",
