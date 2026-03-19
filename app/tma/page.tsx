@@ -39,11 +39,16 @@ export default function TMAHomePage() {
 
     // Fetch data
     Promise.all([
-      fetch("/api/deals").then((r) => r.json()),
-      fetch("/api/stats").then((r) => r.json()),
+      fetch("/api/deals").then((r) => r.json()).catch(() => ({ deals: [] })),
+      fetch("/api/stats").then((r) => r.ok ? r.json() : null).catch(() => null),
     ]).then(([dealsData, statsData]) => {
       setDeals(dealsData.deals ?? []);
-      setStats(statsData);
+      setStats(statsData ? {
+        totalDeals: statsData.totalDeals ?? 0,
+        staleDeals: statsData.staleDeals ?? [],
+        followUps: statsData.followUps ?? [],
+        hotConversations: statsData.hotConversations ?? [],
+      } : { totalDeals: 0, staleDeals: [], followUps: [], hotConversations: [] });
     }).finally(() => setLoading(false));
   }, []);
 
