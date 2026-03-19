@@ -178,23 +178,38 @@ export class GmailDriver implements MailDriver {
   }
 
   async reply(threadId: string, params: ReplyParams): Promise<Message> {
-    // Get the thread to find the last message for headers
-    const thread = await this.getThread(threadId);
-    const lastMsg = thread.messages[thread.messages.length - 1];
+    // Fetch only headers (METADATA), not full bodies
+    const threadRes = await this.gmail.users.threads.get({
+      userId: "me",
+      id: threadId,
+      format: "METADATA",
+      metadataHeaders: ["Subject", "From", "To", "Message-ID"],
+    });
+    const messages = threadRes.data.messages ?? [];
+    if (messages.length === 0) throw new Error("Thread has no messages");
+    const lastRaw = messages[messages.length - 1];
+    const getHdr = (m: typeof lastRaw, name: string) =>
+      m.payload?.headers?.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value ?? "";
+
+    const lastFrom = this.parseEmailAddress(getHdr(lastRaw, "From"));
+    const lastTo = this.parseEmailAddress(getHdr(lastRaw, "To"));
+    const lastSubject = getHdr(lastRaw, "Subject");
+    const lastMessageId = getHdr(lastRaw, "Message-ID") || lastRaw.id || "";
+    const firstTo = messages.length > 0 ? this.parseEmailAddress(getHdr(messages[0], "To")) : lastTo;
 
     const to = params.replyAll
-      ? [...lastMsg.to, lastMsg.from].filter((a) => a.email !== thread.messages[0].to[0]?.email)
-      : [lastMsg.from];
+      ? [lastFrom, lastTo].filter((a) => a.email !== firstTo.email)
+      : [lastFrom];
 
     const sendParams: SendParams = {
       to,
       cc: params.cc,
       bcc: params.bcc,
-      subject: lastMsg.subject.startsWith("Re:") ? lastMsg.subject : `Re: ${lastMsg.subject}`,
+      subject: lastSubject.startsWith("Re:") ? lastSubject : `Re: ${lastSubject}`,
       body: params.body,
       bodyText: params.bodyText,
-      inReplyTo: lastMsg.id,
-      references: lastMsg.id,
+      inReplyTo: lastMessageId,
+      references: lastMessageId,
     };
 
     const raw = this.buildRawEmail(sendParams);
@@ -296,6 +311,21 @@ export class GmailDriver implements MailDriver {
 
   private parseThreadListItem(data: gmail_v1.Schema$Thread): ThreadListItem {
     const messages = data.messages ?? [];
+    if (messages.length === 0) {
+      return {
+        id: data.id ?? "",
+        subject: "(no subject)",
+        snippet: data.snippet ?? "",
+        from: [],
+        to: [],
+        labelIds: [],
+        isUnread: false,
+        isStarred: false,
+        lastMessageAt: new Date().toISOString(),
+        messageCount: 0,
+      };
+    }
+
     const firstMsg = messages[0];
     const lastMsg = messages[messages.length - 1];
     const allLabels = new Set<string>();
@@ -309,15 +339,15 @@ export class GmailDriver implements MailDriver {
     }
 
     return {
-      id: data.id!,
+      id: data.id ?? "",
       subject: this.getHeader(firstMsg, "Subject") || "(no subject)",
       snippet: data.snippet ?? "",
       from: messages.map((m) => this.parseEmailAddress(this.getHeader(m, "From"))),
-      to: firstMsg ? [this.parseEmailAddress(this.getHeader(firstMsg, "To"))] : [],
+      to: [this.parseEmailAddress(this.getHeader(firstMsg, "To"))],
       labelIds: Array.from(allLabels),
       isUnread,
       isStarred,
-      lastMessageAt: lastMsg?.internalDate
+      lastMessageAt: lastMsg.internalDate
         ? new Date(parseInt(lastMsg.internalDate)).toISOString()
         : new Date().toISOString(),
       messageCount: messages.length,
@@ -413,15 +443,25 @@ export class GmailDriver implements MailDriver {
     return attachments;
   }
 
+  private sanitizeHeaderValue(value: string): string {
+    // Strip \r and \n to prevent header injection
+    return value.replace(/[\r\n]/g, "");
+  }
+
   private buildRawEmail(params: SendParams): string {
     const boundary = `boundary_${Date.now()}`;
-    const to = params.to.map((a) => (a.name ? `"${a.name}" <${a.email}>` : a.email)).join(", ");
-    const cc = params.cc?.map((a) => (a.name ? `"${a.name}" <${a.email}>` : a.email)).join(", ");
-    const bcc = params.bcc?.map((a) => (a.name ? `"${a.name}" <${a.email}>` : a.email)).join(", ");
+    const formatAddr = (a: EmailAddress) => {
+      const name = a.name ? this.sanitizeHeaderValue(a.name) : "";
+      const email = this.sanitizeHeaderValue(a.email);
+      return name ? `"${name}" <${email}>` : email;
+    };
+    const to = params.to.map(formatAddr).join(", ");
+    const cc = params.cc?.map(formatAddr).join(", ");
+    const bcc = params.bcc?.map(formatAddr).join(", ");
 
-    let headers = [
+    const headers = [
       `To: ${to}`,
-      `Subject: ${params.subject}`,
+      `Subject: ${this.sanitizeHeaderValue(params.subject)}`,
       `MIME-Version: 1.0`,
       `Content-Type: multipart/alternative; boundary="${boundary}"`,
     ];

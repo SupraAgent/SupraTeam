@@ -7,6 +7,7 @@ import { ThreadView } from "@/components/email/thread-view";
 import { ComposeModal } from "@/components/email/compose-modal";
 import { LabelSidebar } from "@/components/email/label-sidebar";
 import { useThreads, useThread, useLabels, useEmailActions, useEmailKeyboard, useEmailConnections } from "@/lib/email/hooks";
+import { EmailErrorBoundary } from "@/components/email/error-boundary";
 import { toast } from "sonner";
 
 export default function EmailPage() {
@@ -14,9 +15,18 @@ export default function EmailPage() {
   const [activeLabel, setActiveLabel] = React.useState("INBOX");
   const [selectedThreadId, setSelectedThreadId] = React.useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = React.useState(0);
+  const [searchInput, setSearchInput] = React.useState("");
   const [searchQuery, setSearchQuery] = React.useState("");
   const [showSearch, setShowSearch] = React.useState(false);
   const searchRef = React.useRef<HTMLInputElement>(null);
+  const searchTimerRef = React.useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  // Debounce search by 400ms
+  const handleSearchChange = React.useCallback((value: string) => {
+    setSearchInput(value);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => setSearchQuery(value), 400);
+  }, []);
 
   // Compose modal state
   const [composeOpen, setComposeOpen] = React.useState(false);
@@ -161,6 +171,7 @@ export default function EmailPage() {
   // ── Render ───────────────────────────────────────────────
 
   return (
+    <EmailErrorBoundary>
     <div className="flex h-[calc(100vh-3.5rem)] md:h-screen">
       {/* Label sidebar — hidden on mobile when thread is open */}
       <div className={cn(
@@ -172,6 +183,7 @@ export default function EmailPage() {
           onSelectLabel={(id) => {
             setActiveLabel(id);
             setSelectedThreadId(null);
+            setSearchInput("");
             setSearchQuery("");
           }}
           unreadCounts={unreadCounts}
@@ -219,11 +231,12 @@ export default function EmailPage() {
           <div className="px-3 py-2 border-b border-white/10">
             <input
               ref={searchRef}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              value={searchInput}
+              onChange={(e) => handleSearchChange(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Escape") {
                   setShowSearch(false);
+                  setSearchInput("");
                   setSearchQuery("");
                 }
               }}
@@ -319,6 +332,7 @@ export default function EmailPage() {
         }}
       />
     </div>
+    </EmailErrorBoundary>
   );
 }
 
