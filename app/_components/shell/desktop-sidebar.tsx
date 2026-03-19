@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { href: "/email", label: "Email", icon: MailIcon },
   { href: "/contacts", label: "Contacts", icon: UsersIcon },
   { href: "/groups", label: "TG Groups", icon: MessageCircleIcon },
+  { href: "/conversations", label: "Conversations", icon: ChatBubblesIcon },
   { href: "/broadcasts", label: "Broadcasts", icon: MegaphoneIcon },
   { href: "/access", label: "Access Control", icon: ShieldIcon },
   { href: "/graph", label: "Graph", icon: NetworkIcon },
@@ -25,6 +26,7 @@ const SETTINGS_ITEMS = [
   { href: "/settings/team", label: "Team" },
   { href: "/settings/telegram", label: "Telegram" },
   { href: "/settings/email", label: "Email" },
+  { href: "/settings/telegram-connect", label: "TG Connect" },
 ] as const;
 
 export function DesktopSidebar() {
@@ -273,6 +275,14 @@ function MailIcon({ className }: { className?: string }) {
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
       <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
       <polyline points="22 6 12 13 2 6" />
+    </svg>
+  );
+}
+
+function ChatBubblesIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
     </svg>
   );
 }
