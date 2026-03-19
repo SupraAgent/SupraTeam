@@ -99,9 +99,34 @@ body {
 
 /* Mobile touch target helpers */
 @media (max-width: 640px) {
-  /* Ensure minimum touch targets on interactive elements */
   .thin-scroll::-webkit-scrollbar {
     width: 6px;
     height: 6px;
   }
+
+  /* Larger touch targets for action buttons */
+  button[title] {
+    min-width: 36px;
+    min-height: 36px;
+  }
+
+  /* Full-width thread view on mobile */
+  .thread-view-mobile {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+  }
+}
+
+/* Safe swipe area — prevent system back gesture conflict */
+@supports (padding: env(safe-area-inset-left)) {
+  .swipe-row {
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+  }
+}
+
+/* Smooth swipe transition */
+.swipe-snap-back {
+  transition: transform 200ms ease-out;
 }
