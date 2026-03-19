@@ -73,7 +73,7 @@ export default function ContactsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold text-foreground">Contacts</h1>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -83,7 +83,8 @@ export default function ContactsPage() {
         <div className="flex items-center gap-2">
           <Button size="sm" variant="ghost" onClick={() => setImportOpen(true)}>
             <Download className="mr-1 h-3.5 w-3.5" />
-            Import from Telegram
+            <span className="hidden sm:inline">Import from Telegram</span>
+            <span className="sm:hidden">Import</span>
           </Button>
           <Button size="sm" onClick={() => setCreateOpen(true)}>
             Add Contact

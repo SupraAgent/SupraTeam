@@ -1,16 +1,17 @@
 import { NextResponse } from "next/server";
-import { createSupabaseAdmin } from "@/lib/supabase";
+import { requireAuth } from "@/lib/auth-guard";
 
 export async function GET() {
-  const supabase = createSupabaseAdmin();
-  if (!supabase) return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+  const { admin: supabase } = auth;
 
   const now = new Date();
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000).toISOString();
   const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
 
-  const [dealsRes, contactsRes, stagesRes, historyThisWeekRes, historyLastWeekRes, notificationsRes, pinnedRes] = await Promise.all([
+  const [dealsRes, contactsRes, stagesRes, historyThisWeekRes, historyLastWeekRes, notificationsRes, pinnedRes, groupsRes, tokensRes] = await Promise.all([
     supabase.from("crm_deals").select("id, deal_name, board_type, stage_id, value, probability, created_at, updated_at, stage_changed_at, contact:crm_contacts(name, telegram_username), stage:pipeline_stages(id, name, color, position)").order("updated_at", { ascending: false }),
     supabase.from("crm_contacts").select("id", { count: "exact", head: true }),
     supabase.from("pipeline_stages").select("id, name, position, color").order("position"),
@@ -18,6 +19,8 @@ export async function GET() {
     supabase.from("crm_deal_stage_history").select("id, deal_id, from_stage_id, to_stage_id, changed_at").gte("changed_at", fourteenDaysAgo).lt("changed_at", sevenDaysAgo),
     supabase.from("crm_notifications").select("id, type, title, body, tg_deep_link, pipeline_link, tg_sender_name, created_at, deal:crm_deals(id, deal_name, board_type, stage:pipeline_stages(name, color)), tg_group:tg_groups(group_name)").eq("type", "tg_message").gte("created_at", twentyFourHoursAgo).order("created_at", { ascending: false }),
     supabase.from("crm_deals").select("id, deal_name, board_type, value, stage:pipeline_stages(name, color)").eq("probability", 100).limit(5),
+    supabase.from("tg_groups").select("id", { count: "exact", head: true }),
+    supabase.from("user_tokens").select("id", { count: "exact", head: true }).eq("provider", "telegram_bot"),
   ]);
 
   const deals = dealsRes.data ?? [];
@@ -176,5 +179,11 @@ export async function GET() {
       stage_name: (d.stage as unknown as { name: string } | null)?.name ?? "",
       stage_color: (d.stage as unknown as { color: string } | null)?.color ?? null,
     })),
+    onboarding: {
+      hasBotToken: (tokensRes.count ?? 0) > 0 || !!process.env.TELEGRAM_BOT_TOKEN,
+      hasGroups: (groupsRes.count ?? 0) > 0,
+      hasDeals: deals.length > 0,
+      hasContacts: totalContacts > 0,
+    },
   });
 }

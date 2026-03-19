@@ -8,6 +8,7 @@ import { CreateDealModal } from "@/components/pipeline/create-deal-modal";
 import { DealDetailPanel } from "@/components/pipeline/deal-detail-panel";
 import { Button } from "@/components/ui/button";
 import { LayoutGrid, List } from "lucide-react";
+import { toast } from "sonner";
 import type { Deal, PipelineStage, Contact, BoardType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -56,7 +57,9 @@ export default function PipelinePage() {
   const [deals, setDeals] = React.useState<Deal[]>([]);
   const [contacts, setContacts] = React.useState<Contact[]>([]);
   const [board, setBoard] = React.useState<BoardType>("All");
-  const [viewMode, setViewMode] = React.useState<"kanban" | "list">("kanban");
+  const [viewMode, setViewMode] = React.useState<"kanban" | "list">(
+    typeof window !== "undefined" && window.innerWidth < 640 ? "list" : "kanban"
+  );
   const [createOpen, setCreateOpen] = React.useState(false);
   const [selectedDeal, setSelectedDeal] = React.useState<Deal | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -150,7 +153,7 @@ export default function PipelinePage() {
     });
 
     if (!res.ok) {
-      // Revert on failure
+      toast.error("Failed to move deal");
       fetchData();
     }
   }
@@ -170,14 +173,14 @@ export default function PipelinePage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-foreground">Pipeline</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-1 text-sm text-muted-foreground hidden sm:block">
             Drag deals between stages. Filter by BD, Marketing, or Admin board.
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
           {/* View toggle */}
           <div className="flex gap-0.5 rounded-lg border border-white/10 p-0.5">
             <button
@@ -203,7 +206,7 @@ export default function PipelinePage() {
           </div>
 
           {/* Board filter */}
-          <div className="flex gap-1">
+          <div className="flex gap-1 overflow-x-auto">
             {BOARDS.map((tab) => {
               const count = tab === "All" ? deals.length : deals.filter((d) => d.board_type === tab).length;
               return (
@@ -211,7 +214,7 @@ export default function PipelinePage() {
                   key={tab}
                   onClick={() => setBoard(tab)}
                   className={cn(
-                    "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                    "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap",
                     board === tab
                       ? "bg-white/10 text-foreground"
                       : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
