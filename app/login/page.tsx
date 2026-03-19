@@ -116,7 +116,9 @@ export default function LoginPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || "Failed to send code");
+        setError(res.status === 503
+          ? "Telegram API not configured. Ask an admin to set TELEGRAM_API_ID and TELEGRAM_API_HASH."
+          : data.error || "Failed to send code");
         return;
       }
       setPhoneCodeHash(data.phoneCodeHash);
@@ -172,7 +174,9 @@ export default function LoginPage() {
       const res = await fetch("/api/auth/telegram-qr", { method: "POST" });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || "QR login failed");
+        setError(res.status === 503
+          ? "Telegram API not configured. Ask an admin to set TELEGRAM_API_ID and TELEGRAM_API_HASH."
+          : data.error || "QR login failed");
         return;
       }
       setQrUrl(data.qrUrl);

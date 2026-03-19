@@ -42,6 +42,14 @@ setInterval(() => {
 }, 60_000);
 
 export async function POST() {
+  // Fail fast if Telegram API credentials aren't configured
+  if (!parseInt(process.env.TELEGRAM_API_ID || "0", 10) || !process.env.TELEGRAM_API_HASH) {
+    return NextResponse.json(
+      { error: "Telegram API not configured. Set TELEGRAM_API_ID and TELEGRAM_API_HASH." },
+      { status: 503 }
+    );
+  }
+
   try {
     const client = createTgClient();
     await client.connect();
@@ -100,7 +108,7 @@ export async function POST() {
     const message = err instanceof Error ? err.message : "QR login failed";
     console.error("[auth/telegram-qr]", message);
 
-    if (message.includes("API_ID") || message.includes("api_id")) {
+    if (message.includes("API ID") || message.includes("API_ID") || message.includes("api_id") || message.includes("cannot be empty")) {
       return NextResponse.json({ error: "Telegram API not configured. Set TELEGRAM_API_ID and TELEGRAM_API_HASH." }, { status: 503 });
     }
 
