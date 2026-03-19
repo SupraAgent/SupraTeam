@@ -46,3 +46,20 @@ export type Deal = {
 };
 
 export type BoardType = "All" | "BD" | "Marketing" | "Admin";
+
+export type Doc = {
+  id: string;
+  title: string;
+  content: string;
+  created_by: string;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+  links: DocLink[];
+};
+
+export type DocLink = {
+  entity_type: "deal" | "contact" | "group";
+  entity_id: string;
+  entity_name?: string;
+};

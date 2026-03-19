@@ -14,6 +14,8 @@ const NAV_ITEMS = [
   { href: "/groups", label: "Groups" },
   { href: "/broadcasts", label: "Broadcasts" },
   { href: "/access", label: "Access Control" },
+  { href: "/graph", label: "Graph" },
+  { href: "/docs", label: "Docs" },
   { href: "/settings", label: "Settings" },
 ] as const;
 
