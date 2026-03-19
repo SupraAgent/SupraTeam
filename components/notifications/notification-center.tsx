@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Bell, Check, CheckCheck, ExternalLink, ArrowRight, MessageCircle, GitBranch, UserPlus, AtSign } from "lucide-react";
+import { Bell, Check, CheckCheck, ExternalLink, ArrowRight, MessageCircle, GitBranch, UserPlus, AtSign, Clock } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
 
 type Notification = {
@@ -38,6 +38,7 @@ const TYPE_CONFIG: Record<string, { icon: React.ElementType; label: string; colo
   deal_created: { icon: ExternalLink, label: "New Deal", color: "text-green-400" },
   deal_assigned: { icon: UserPlus, label: "Assigned", color: "text-yellow-400" },
   mention: { icon: AtSign, label: "Mention", color: "text-pink-400" },
+  reminder: { icon: Clock, label: "Reminder", color: "text-amber-400" },
 };
 
 export function NotificationCenter() {

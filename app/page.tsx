@@ -43,16 +43,19 @@ const NOTIF_COLORS: Record<string, string> = {
 export default function HomePage() {
   const [stats, setStats] = React.useState<Stats | null>(null);
   const [notifications, setNotifications] = React.useState<Notification[]>([]);
+  const [reminders, setReminders] = React.useState<{ id: string; deal_id: string; reminder_type: string; message: string; due_at: string; deal?: { deal_name: string; board_type: string } }[]>([]);
   const [loading, setLoading] = React.useState(true);
 
   React.useEffect(() => {
     Promise.all([
       fetch("/api/stats").then((r) => (r.ok ? r.json() : null)),
       fetch("/api/notifications?limit=10").then((r) => (r.ok ? r.json() : null)),
+      fetch("/api/reminders").then((r) => (r.ok ? r.json() : null)).catch(() => null),
     ])
-      .then(([statsData, notifData]) => {
+      .then(([statsData, notifData, reminderData]) => {
         if (statsData) setStats(statsData);
         if (notifData) setNotifications(notifData.notifications ?? []);
+        if (reminderData) setReminders(reminderData.reminders ?? []);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -157,6 +160,36 @@ export default function HomePage() {
                 </div>
                 <BoardBadge type={d.board_type} />
               </Link>
+            ))}
+          </Widget>
+
+          {/* Reminders */}
+          <Widget title="Reminders" icon={Bell} iconColor="text-amber-400" subtitle="Auto-generated deal reminders" empty={reminders.length === 0} emptyText="No active reminders. Configure them in Pipeline Settings.">
+            {reminders.map((r) => (
+              <div key={r.id} className="flex items-center justify-between py-2 px-1 rounded-lg hover:bg-white/[0.03] transition">
+                <Link href={`/pipeline?highlight=${r.deal_id}`} className="flex-1">
+                  <p className="text-sm text-foreground">{r.deal?.deal_name ?? "Deal"}</p>
+                  <p className="text-[10px] text-muted-foreground">{r.message}</p>
+                </Link>
+                <div className="flex items-center gap-2">
+                  <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-medium text-amber-400">
+                    {r.reminder_type === "follow_up" ? "Follow up" : "Stage move?"}
+                  </span>
+                  <button
+                    onClick={async () => {
+                      await fetch("/api/reminders", {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ id: r.id }),
+                      });
+                      setReminders((prev) => prev.filter((rem) => rem.id !== r.id));
+                    }}
+                    className="text-muted-foreground hover:text-foreground text-xs"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
             ))}
           </Widget>
 
