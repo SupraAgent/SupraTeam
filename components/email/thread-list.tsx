@@ -4,6 +4,7 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 import { timeAgo } from "@/lib/utils";
 import type { ThreadListItem } from "@/lib/email/types";
+import { ContactAvatar } from "./contact-avatar";
 
 type ThreadListProps = {
   threads: ThreadListItem[];
@@ -82,12 +83,15 @@ function ThreadRow({
         thread.isUnread && "bg-white/[0.02]"
       )}
     >
-      {/* Star indicator */}
-      <div className="pt-0.5 shrink-0">
-        {thread.isStarred ? (
-          <StarFilledIcon className="h-3.5 w-3.5 text-yellow-400" />
-        ) : (
-          <div className="h-3.5 w-3.5" />
+      {/* Contact avatar */}
+      <div className="pt-0.5 shrink-0 relative">
+        <ContactAvatar
+          email={thread.from[0]?.email ?? ""}
+          name={thread.from[0]?.name}
+          size={28}
+        />
+        {thread.isStarred && (
+          <StarFilledIcon className="h-2.5 w-2.5 text-yellow-400 absolute -bottom-0.5 -right-0.5" />
         )}
       </div>
 
