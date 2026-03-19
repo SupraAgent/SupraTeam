@@ -22,13 +22,40 @@ export async function POST(request: Request) {
   }
 
   try {
-    // --- Handle commands ---
-    if (update.message?.text?.startsWith("/") && update.message.chat.type === "private") {
+    // --- Handle commands (private + group) ---
+    if (update.message?.text?.startsWith("/")) {
       const chatId = update.message.chat.id;
+      const chatType = update.message.chat.type;
       const command = update.message.text.split(" ")[0].split("@")[0];
 
-      if (command === "/start" || command === "/help") {
-        await sendMessage(token, chatId, "Welcome to SupraCRM Bot!\n\nCommands:\n/help - Show commands\n/status - Bot status\n/deals - Pipeline summary");
+      if ((command === "/start" || command === "/help") && chatType === "private") {
+        await sendMessage(token, chatId, "Welcome to SupraCRM Bot!\n\nCommands:\n/help - Show commands\n/status - Bot status\n/deals - Pipeline summary\n/deal - Show deal for this group (in groups)");
+      } else if (command === "/deal" && (chatType === "group" || chatType === "supergroup")) {
+        // Show deal linked to this group with Mini App button
+        const { data: tgGroup } = await supabase.from("tg_groups").select("id").eq("telegram_group_id", chatId).single();
+        if (tgGroup) {
+          const { data: linkedDeals } = await supabase.from("crm_deals").select("id, deal_name, board_type, value, stage:pipeline_stages(name)").eq("tg_group_id", tgGroup.id).limit(3);
+          if (linkedDeals && linkedDeals.length > 0) {
+            for (const d of linkedDeals) {
+              const stageName = (d.stage as unknown as { name: string } | null)?.name ?? "Unknown";
+              await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  chat_id: chatId,
+                  text: `${d.deal_name}\nBoard: ${d.board_type} | Stage: ${stageName}${d.value ? ` | $${Number(d.value).toLocaleString()}` : ""}`,
+                  reply_markup: {
+                    inline_keyboard: [[
+                      { text: "📊 Open in CRM", web_app: { url: `https://crm.supravibe.xyz/tma/deals/${d.id}` } },
+                    ]],
+                  },
+                }),
+              });
+            }
+          } else {
+            await sendMessage(token, chatId, "No deals linked to this group. Create one in the CRM and link this group.");
+          }
+        }
       } else if (command === "/status") {
         const [g, d] = await Promise.all([
           supabase.from("tg_groups").select("id", { count: "exact", head: true }).eq("bot_is_admin", true),
@@ -75,8 +102,8 @@ export async function POST(request: Request) {
       }
     }
 
-    // --- Handle group text messages ---
-    if (update.message?.text && (update.message.chat.type === "group" || update.message.chat.type === "supergroup")) {
+    // --- Handle group text messages (skip commands) ---
+    if (update.message?.text && !update.message.text.startsWith("/") && (update.message.chat.type === "group" || update.message.chat.type === "supergroup")) {
       const chat = update.message.chat;
       const from = update.message.from;
       const msgId = update.message.message_id;
@@ -170,6 +197,21 @@ export async function POST(request: Request) {
 
           // Only create new highlight if none exists from this sender in 24h
           if (!recentHighlight || recentHighlight.length === 0) {
+            // Detect priority based on keywords
+            const lowerText = text.toLowerCase();
+            const urgentWords = ["urgent", "asap", "immediately", "critical", "deadline"];
+            const highWords = ["ready to sign", "contract", "payment", "invoice", "approve", "confirm"];
+            const negativeWords = ["cancel", "delay", "problem", "issue", "disappointed", "frustrated", "concerned"];
+            const positiveWords = ["excited", "great", "love", "perfect", "amazing", "deal", "agree", "yes"];
+
+            let priority: "low" | "medium" | "high" | "urgent" = "medium";
+            if (urgentWords.some((w) => lowerText.includes(w))) priority = "urgent";
+            else if (highWords.some((w) => lowerText.includes(w))) priority = "high";
+
+            let sentiment: "positive" | "neutral" | "negative" = "neutral";
+            if (negativeWords.some((w) => lowerText.includes(w))) sentiment = "negative";
+            else if (positiveWords.some((w) => lowerText.includes(w))) sentiment = "positive";
+
             await supabase.from("crm_highlights").insert({
               deal_id: deal.id,
               contact_id: deal.contact_id,
@@ -178,6 +220,8 @@ export async function POST(request: Request) {
               message_preview: text.length > 100 ? text.slice(0, 100) + "..." : text,
               tg_deep_link: tgDeepLink,
               highlight_type: "tg_message",
+              priority,
+              sentiment,
             });
           }
         }

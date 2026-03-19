@@ -32,7 +32,16 @@ async function sendTelegramNotification(supabase: ReturnType<typeof createSupaba
     await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: deal.telegram_chat_id, text: message, parse_mode: "HTML" }),
+      body: JSON.stringify({
+        chat_id: deal.telegram_chat_id,
+        text: message,
+        parse_mode: "HTML",
+        reply_markup: {
+          inline_keyboard: [[
+            { text: "📊 Open in CRM", web_app: { url: `https://crm.supravibe.xyz/tma/deals/${dealId}` } },
+          ]],
+        },
+      }),
     });
   } catch (err) {
     console.error("[move] TG notification error:", err);
