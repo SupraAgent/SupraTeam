@@ -12,6 +12,10 @@ type Deal = {
   value: number | null;
   probability: number | null;
   telegram_chat_link: string | null;
+  health_score: number | null;
+  ai_summary: string | null;
+  outcome: string | null;
+  stage_id: string | null;
   stage: { name: string; color: string } | null;
   contact: { name: string; company: string | null; telegram_username: string | null } | null;
 };
@@ -145,6 +149,65 @@ export default function TMADealDetailPage() {
       {/* Info tab */}
       {tab === "info" && (
         <div className="px-4 pt-3 space-y-3">
+          {/* Health score badge */}
+          {deal.health_score != null && (
+            <div className={cn(
+              "rounded-xl p-3 flex items-center justify-between",
+              deal.health_score >= 75 ? "bg-green-500/10 border border-green-500/20" :
+              deal.health_score >= 50 ? "bg-yellow-500/10 border border-yellow-500/20" :
+              deal.health_score >= 25 ? "bg-orange-500/10 border border-orange-500/20" :
+              "bg-red-500/10 border border-red-500/20"
+            )}>
+              <span className="text-xs font-medium text-foreground">Health Score</span>
+              <span className={cn(
+                "text-lg font-bold",
+                deal.health_score >= 75 ? "text-green-400" :
+                deal.health_score >= 50 ? "text-yellow-400" :
+                deal.health_score >= 25 ? "text-orange-400" :
+                "text-red-400"
+              )}>
+                {deal.health_score}
+              </span>
+            </div>
+          )}
+
+          {/* AI Summary */}
+          {deal.ai_summary && (
+            <div className="rounded-xl border border-purple-500/20 bg-purple-500/5 p-3">
+              <p className="text-[10px] text-purple-400 font-medium mb-1">AI Summary</p>
+              <p className="text-xs text-foreground leading-relaxed">{deal.ai_summary}</p>
+            </div>
+          )}
+
+          {/* Outcome buttons */}
+          {deal.outcome === "open" && (
+            <div className="flex gap-2">
+              <button
+                onClick={async () => {
+                  await fetch(`/api/deals/${id}/outcome`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ outcome: "won" }) });
+                  setDeal((d) => d ? { ...d, outcome: "won" } : d);
+                }}
+                className="flex-1 rounded-xl bg-green-500/10 border border-green-500/20 py-2 text-xs font-medium text-green-400 transition active:bg-green-500/20"
+              >
+                Won
+              </button>
+              <button
+                onClick={async () => {
+                  await fetch(`/api/deals/${id}/outcome`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ outcome: "lost" }) });
+                  setDeal((d) => d ? { ...d, outcome: "lost" } : d);
+                }}
+                className="flex-1 rounded-xl bg-red-500/10 border border-red-500/20 py-2 text-xs font-medium text-red-400 transition active:bg-red-500/20"
+              >
+                Lost
+              </button>
+            </div>
+          )}
+          {deal.outcome && deal.outcome !== "open" && (
+            <div className={cn("rounded-xl p-3 text-center text-sm font-medium", deal.outcome === "won" ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400")}>
+              Deal {deal.outcome === "won" ? "Won" : "Lost"}
+            </div>
+          )}
+
           {deal.contact && (
             <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
               <p className="text-[10px] text-muted-foreground">Contact</p>

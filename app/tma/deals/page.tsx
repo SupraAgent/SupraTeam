@@ -58,16 +58,31 @@ export default function TMADealsPage() {
     );
   }
 
+  const [search, setSearch] = React.useState("");
+  const filteredDeals = search
+    ? deals.filter((d) => d.deal_name.toLowerCase().includes(search.toLowerCase()))
+    : deals;
+
   return (
     <div className="pb-20">
-      <div className="px-4 pt-4 pb-3 flex items-center justify-between">
+      <div className="px-4 pt-4 pb-1 flex items-center justify-between">
         <h1 className="text-lg font-semibold text-foreground">Pipeline</h1>
         <span className="text-xs text-muted-foreground">{deals.length} deals</span>
       </div>
 
+      {/* Search */}
+      <div className="px-4 pb-3">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search deals..."
+          className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground/50"
+        />
+      </div>
+
       <div className="px-4 space-y-2">
         {stages.map((stage) => {
-          const stageDeals = deals.filter((d) => d.stage_id === stage.id);
+          const stageDeals = filteredDeals.filter((d) => d.stage_id === stage.id);
           const expanded = expandedStages.has(stage.id);
 
           return (
