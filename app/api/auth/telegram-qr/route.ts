@@ -6,6 +6,9 @@
  * GET /api/auth/telegram-qr?token=<loginToken>
  * Poll for QR login completion
  * Returns: { status: 'pending' } | { status: 'confirmed', access_token, refresh_token }
+ *
+ * Note: Telegram QR login is authorized by the user's phone app, so 2FA
+ * is handled on the mobile device -- no server-side 2FA prompt needed.
  */
 
 import { NextResponse } from "next/server";
@@ -16,32 +19,22 @@ import {
   buildQRUrl,
   encryptSession,
 } from "@/lib/telegram-client";
+import {
+  pendingQRLogins,
+  getOrCreateSupabaseSession,
+} from "@/lib/telegram-login-store";
 import { Api } from "telegram";
-import type { TelegramClient } from "telegram";
 import crypto from "crypto";
 
-type QREntry = {
-  client: TelegramClient;
-  expiresAt: number;
-  confirmed: boolean;
-  tgUser?: { id: number; firstName: string; lastName?: string; username?: string };
-};
-
-// Pending QR sessions (keyed by a random login token, not user ID since we have no auth)
-const qrLogins = new Map<string, QREntry>();
-
-// Cleanup
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, entry] of qrLogins) {
-    if (now > entry.expiresAt) {
-      entry.client.disconnect().catch(() => {});
-      qrLogins.delete(key);
-    }
-  }
-}, 60_000);
-
 export async function POST() {
+  // Fail fast if Telegram API credentials aren't configured
+  if (!parseInt(process.env.TELEGRAM_API_ID || "0", 10) || !process.env.TELEGRAM_API_HASH) {
+    return NextResponse.json(
+      { error: "Telegram API not configured. Set TELEGRAM_API_ID and TELEGRAM_API_HASH." },
+      { status: 503 }
+    );
+  }
+
   try {
     const client = createTgClient();
     await client.connect();
@@ -49,6 +42,13 @@ export async function POST() {
     const { token, expiresAt } = await requestQRLogin(client);
     const qrUrl = buildQRUrl(token);
     const loginToken = crypto.randomBytes(24).toString("hex");
+
+    // Add entry to map BEFORE registering event handler to avoid race condition
+    pendingQRLogins.set(loginToken, {
+      client,
+      expiresAt: expiresAt * 1000,
+      confirmed: false,
+    });
 
     // Listen for login confirmation
     client.addEventHandler(async (update: Api.TypeUpdate) => {
@@ -66,7 +66,7 @@ export async function POST() {
             const authResult = result.authorization;
             if (authResult instanceof Api.auth.Authorization) {
               const tgUser = authResult.user as Api.User;
-              const entry = qrLogins.get(loginToken);
+              const entry = pendingQRLogins.get(loginToken);
               if (entry) {
                 entry.confirmed = true;
                 entry.tgUser = {
@@ -84,12 +84,6 @@ export async function POST() {
       }
     });
 
-    qrLogins.set(loginToken, {
-      client,
-      expiresAt: expiresAt * 1000,
-      confirmed: false,
-    });
-
     return NextResponse.json({
       ok: true,
       qrUrl,
@@ -100,7 +94,7 @@ export async function POST() {
     const message = err instanceof Error ? err.message : "QR login failed";
     console.error("[auth/telegram-qr]", message);
 
-    if (message.includes("API_ID") || message.includes("api_id")) {
+    if (message.includes("API ID") || message.includes("API_ID") || message.includes("api_id") || message.includes("cannot be empty")) {
       return NextResponse.json({ error: "Telegram API not configured. Set TELEGRAM_API_ID and TELEGRAM_API_HASH." }, { status: 503 });
     }
 
@@ -121,7 +115,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Missing token parameter" }, { status: 400 });
   }
 
-  const entry = qrLogins.get(loginToken);
+  const entry = pendingQRLogins.get(loginToken);
   if (!entry) {
     return NextResponse.json({ status: "expired" });
   }
@@ -131,109 +125,50 @@ export async function GET(request: Request) {
   }
 
   // Confirmed -- create Supabase session
-  const tgId = entry.tgUser.id;
-  const email = `tg_${tgId}@supracrm.tg`;
-  const botToken = process.env.TELEGRAM_BOT_TOKEN || "mtproto_auth";
-  const password = `tg_${tgId}_${botToken.slice(0, 16)}`;
-  const displayName = [entry.tgUser.firstName, entry.tgUser.lastName].filter(Boolean).join(" ") || `User ${tgId}`;
-
-  const userMetadata = {
-    telegram_id: tgId,
-    telegram_username: entry.tgUser.username ?? null,
-    display_name: displayName,
-    avatar_url: null,
-  };
-
-  // Try sign in first
-  const { data: signInResult, error: signInError } = await admin.auth.signInWithPassword({
-    email,
-    password,
-  });
-
-  let session = signInResult?.session;
-
-  if (signInError) {
-    // Create new user
-    const { data: newUser, error: createError } = await admin.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: userMetadata,
-    });
-
-    if (createError) {
-      console.error("[auth/telegram-qr] create user error:", createError);
-      return NextResponse.json({ error: "Failed to create account" }, { status: 500 });
-    }
-
-    const { data: newSignIn, error: newSignInError } = await admin.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-    if (newSignInError || !newSignIn.session) {
-      return NextResponse.json({ error: "Failed to sign in" }, { status: 500 });
-    }
-
-    session = newSignIn.session;
-
-    await admin.from("profiles").upsert(
-      {
-        id: newUser.user.id,
-        display_name: displayName,
-        avatar_url: null,
-        telegram_id: tgId,
-      },
-      { onConflict: "id" }
-    );
-  } else if (signInResult.user) {
-    await admin.auth.admin.updateUserById(signInResult.user.id, {
-      user_metadata: userMetadata,
-    });
-
-    await admin.from("profiles").upsert(
-      {
-        id: signInResult.user.id,
-        display_name: displayName,
-        avatar_url: null,
-        telegram_id: tgId,
-      },
-      { onConflict: "id" }
-    );
-  }
+  const session = await getOrCreateSupabaseSession(admin, entry.tgUser);
 
   if (!session) {
     return NextResponse.json({ error: "Failed to create session" }, { status: 500 });
   }
 
   // Save Telegram client session for later CRM use
-  const encryptedSession = encryptSession(entry.client);
+  try {
+    const encryptedSession = encryptSession(entry.client);
 
-  await admin.from("tg_client_sessions").upsert(
-    {
-      user_id: session.user.id,
-      session_encrypted: encryptedSession,
-      phone_number_hash: "qr_login",
-      phone_last4: null,
-      telegram_user_id: tgId,
-      is_active: true,
-      connected_at: new Date().toISOString(),
-      last_used_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id" }
-  );
+    const { error: sessionError } = await admin.from("tg_client_sessions").upsert(
+      {
+        user_id: session.user.id,
+        session_encrypted: encryptedSession,
+        phone_number_hash: "qr_login",
+        phone_last4: null,
+        telegram_user_id: entry.tgUser.id,
+        is_active: true,
+        connected_at: new Date().toISOString(),
+        last_used_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id" }
+    );
 
-  // Audit log
+    if (sessionError) {
+      console.error("[auth/telegram-qr] failed to save TG session:", sessionError);
+    }
+  } catch (err) {
+    console.error("[auth/telegram-qr] failed to encrypt/save TG session:", err);
+  }
+
+  // Audit log (non-critical)
   await admin.from("tg_client_audit_log").insert({
     user_id: session.user.id,
     action: "login",
     target_type: "user",
-    target_id: String(tgId),
+    target_id: String(entry.tgUser.id),
     metadata: { method: "qr", username: entry.tgUser.username },
+  }).then(({ error }) => {
+    if (error) console.error("[auth/telegram-qr] audit log error:", error);
   });
 
   // Cleanup
-  qrLogins.delete(loginToken);
+  pendingQRLogins.delete(loginToken);
 
   return NextResponse.json({
     status: "confirmed",

@@ -22,11 +22,16 @@ export function createDriverFromConnection(conn: ConnectionRecord): MailDriver {
 
   switch (conn.provider) {
     case "gmail": {
+      const clientId = process.env.GOOGLE_CLIENT_ID;
+      const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+      if (!clientId || !clientSecret) {
+        throw new Error("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set for Gmail integration");
+      }
       const driver = new GmailDriver({
         accessToken,
         refreshToken,
-        clientId: process.env.GOOGLE_CLIENT_ID ?? "",
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
+        clientId,
+        clientSecret,
       });
       driver.connectionId = conn.id;
       return driver;

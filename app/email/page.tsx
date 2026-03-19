@@ -12,6 +12,7 @@ import { AdvancedSearch } from "@/components/email/advanced-search";
 import { KeyboardHelp } from "@/components/email/keyboard-help";
 import { useThreads, useThread, useLabels, useEmailActions, useEmailKeyboard, useEmailConnections, useSplitInbox, usePrefetchThread } from "@/lib/email/hooks";
 import { INBOX_CATEGORIES, type InboxCategory } from "@/lib/email/types";
+import { EmailErrorBoundary } from "@/components/email/error-boundary";
 import { toast } from "sonner";
 
 export default function EmailPage() {
@@ -27,12 +28,21 @@ function EmailPageInner() {
   const [activeLabel, setActiveLabel] = React.useState("INBOX");
   const [selectedThreadId, setSelectedThreadId] = React.useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = React.useState(0);
+  const [searchInput, setSearchInput] = React.useState("");
   const [searchQuery, setSearchQuery] = React.useState("");
   const [showSearch, setShowSearch] = React.useState(false);
   const [advancedSearchOpen, setAdvancedSearchOpen] = React.useState(false);
   const [keyboardHelpOpen, setKeyboardHelpOpen] = React.useState(false);
   const [activeCategory, setActiveCategory] = React.useState<InboxCategory | "all">("all");
   const searchRef = React.useRef<HTMLInputElement>(null);
+  const searchTimerRef = React.useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  // Debounce search by 400ms
+  const handleSearchChange = React.useCallback((value: string) => {
+    setSearchInput(value);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => setSearchQuery(value), 400);
+  }, []);
 
   // Compose modal state
   const [composeOpen, setComposeOpen] = React.useState(false);
@@ -190,6 +200,7 @@ function EmailPageInner() {
   // ── Render ───────────────────────────────────────────────
 
   return (
+    <EmailErrorBoundary>
     <div className="flex h-[calc(100vh-3.5rem)] md:h-screen">
       {/* Label sidebar */}
       <div className={cn(
@@ -201,6 +212,7 @@ function EmailPageInner() {
           onSelectLabel={(id) => {
             setActiveLabel(id);
             setSelectedThreadId(null);
+            setSearchInput("");
             setSearchQuery("");
             setActiveCategory("all");
           }}
@@ -431,6 +443,7 @@ function EmailPageInner() {
         }}
       />
     </div>
+    </EmailErrorBoundary>
   );
 }
 
