@@ -56,11 +56,16 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
 
-  // Remove default from all
-  await auth.admin
+  // Remove default from all (check for errors)
+  const { error: clearErr } = await auth.admin
     .from("crm_email_connections")
     .update({ is_default: false })
     .eq("user_id", auth.user.id);
+
+  if (clearErr) {
+    console.error("[email/connections] failed to clear defaults:", clearErr);
+    return NextResponse.json({ error: "Failed to update default" }, { status: 500 });
+  }
 
   // Set new default
   const { error } = await auth.admin

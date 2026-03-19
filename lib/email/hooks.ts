@@ -87,21 +87,30 @@ export function useThreads(options?: {
 export function useThread(threadId: string | null) {
   const [thread, setThread] = React.useState<Thread | null>(null);
   const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState<string>();
 
   React.useEffect(() => {
     if (!threadId) {
       setThread(null);
+      setError(undefined);
       return;
     }
     setLoading(true);
+    setError(undefined);
     fetch(`/api/email/threads/${threadId}`)
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`Failed to load thread (${r.status})`);
+        return r.json();
+      })
       .then((json) => setThread(json.data ?? null))
-      .catch(() => setThread(null))
+      .catch((err) => {
+        setThread(null);
+        setError(err instanceof Error ? err.message : "Failed to load thread");
+      })
       .finally(() => setLoading(false));
   }, [threadId]);
 
-  return { thread, loading };
+  return { thread, loading, error, setThread };
 }
 
 // ── Labels ──────────────────────────────────────────────────
@@ -109,16 +118,22 @@ export function useThread(threadId: string | null) {
 export function useLabels() {
   const [labels, setLabels] = React.useState<Label[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string>();
 
   React.useEffect(() => {
     fetch("/api/email/labels")
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`Failed to load labels (${r.status})`);
+        return r.json();
+      })
       .then((json) => setLabels(json.data ?? []))
-      .catch(() => {})
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : "Failed to load labels");
+      })
       .finally(() => setLoading(false));
   }, []);
 
-  return { labels, loading };
+  return { labels, loading, error };
 }
 
 // ── Thread actions (optimistic) ─────────────────────────────
