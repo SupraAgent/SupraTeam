@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import DOMPurify from "dompurify";
 import { cn } from "@/lib/utils";
 import { timeAgo } from "@/lib/utils";
 import type { Thread, Message } from "@/lib/email/types";
@@ -175,7 +176,7 @@ function MessageBubble({
               [&_a]:text-primary [&_a]:no-underline [&_a:hover]:underline
               [&_img]:max-w-full [&_img]:rounded-lg
               [&_blockquote]:border-l-2 [&_blockquote]:border-white/10 [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground"
-            dangerouslySetInnerHTML={{ __html: message.body || message.bodyText.replace(/\n/g, "<br>") }}
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(message.body || message.bodyText.replace(/\n/g, "<br>"), { FORBID_TAGS: ["script", "style", "iframe", "object", "embed", "form"], FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover"] }) }}
           />
 
           {/* Attachments */}

@@ -21,13 +21,16 @@ export function createDriverFromConnection(conn: ConnectionRecord): MailDriver {
   const refreshToken = decryptToken(conn.refresh_token_encrypted);
 
   switch (conn.provider) {
-    case "gmail":
-      return new GmailDriver({
+    case "gmail": {
+      const driver = new GmailDriver({
         accessToken,
         refreshToken,
         clientId: process.env.GOOGLE_CLIENT_ID ?? "",
         clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
       });
+      driver.connectionId = conn.id;
+      return driver;
+    }
     case "outlook":
       throw new Error("Outlook driver not yet implemented. Coming in v2.");
     default:

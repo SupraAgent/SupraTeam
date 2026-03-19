@@ -29,6 +29,8 @@ export class GmailDriver implements MailDriver {
   private gmail: gmail_v1.Gmail;
   private auth: InstanceType<typeof google.auth.OAuth2>;
 
+  public connectionId: string | null = null;
+
   constructor(config: GmailConfig) {
     this.auth = new google.auth.OAuth2(config.clientId, config.clientSecret);
     this.auth.setCredentials({
@@ -36,6 +38,22 @@ export class GmailDriver implements MailDriver {
       refresh_token: config.refreshToken,
     });
     this.gmail = google.gmail({ version: "v1", auth: this.auth });
+
+    // Persist refreshed tokens back to database
+    this.auth.on("tokens", async (tokens) => {
+      if (tokens.access_token && this.connectionId) {
+        try {
+          const { updateConnectionTokens } = await import("./driver");
+          await updateConnectionTokens(
+            this.connectionId,
+            tokens.access_token,
+            tokens.expiry_date ? new Date(tokens.expiry_date) : undefined
+          );
+        } catch {
+          // Non-fatal: token will be refreshed again next time
+        }
+      }
+    });
   }
 
   /** Get refreshed access token (auto-refreshes if expired) */
@@ -53,17 +71,20 @@ export class GmailDriver implements MailDriver {
       pageToken: params.pageToken,
     });
 
-    const threads: ThreadListItem[] = [];
-    for (const t of res.data.threads ?? []) {
-      // Fetch minimal thread data for list view
-      const full = await this.gmail.users.threads.get({
-        userId: "me",
-        id: t.id!,
-        format: "METADATA",
-        metadataHeaders: ["Subject", "From", "To", "Date"],
-      });
-      threads.push(this.parseThreadListItem(full.data));
-    }
+    // Fetch all threads in parallel (fixes N+1)
+    const threadData = await Promise.all(
+      (res.data.threads ?? []).map((t) =>
+        this.gmail.users.threads.get({
+          userId: "me",
+          id: t.id!,
+          format: "METADATA",
+          metadataHeaders: ["Subject", "From", "To", "Date"],
+        })
+      )
+    );
+    const threads: ThreadListItem[] = threadData.map((full) =>
+      this.parseThreadListItem(full.data)
+    );
 
     return {
       threads,
@@ -232,22 +253,20 @@ export class GmailDriver implements MailDriver {
 
   async listLabels(): Promise<Label[]> {
     const res = await this.gmail.users.labels.list({ userId: "me" });
-    const labels: Label[] = [];
-    for (const l of res.data.labels ?? []) {
-      const detail = await this.gmail.users.labels.get({
-        userId: "me",
-        id: l.id!,
-      });
-      labels.push({
-        id: l.id!,
-        name: l.name!,
-        type: l.type === "system" ? "system" : "user",
-        messageCount: detail.data.messagesTotal ?? undefined,
-        unreadCount: detail.data.messagesUnread ?? undefined,
-        color: detail.data.color?.backgroundColor ?? undefined,
-      });
-    }
-    return labels;
+    // Fetch all label details in parallel (fixes N+1)
+    const details = await Promise.all(
+      (res.data.labels ?? []).map((l) =>
+        this.gmail.users.labels.get({ userId: "me", id: l.id! }).then((d) => ({ l, d: d.data }))
+      )
+    );
+    return details.map(({ l, d }) => ({
+      id: l.id!,
+      name: l.name!,
+      type: l.type === "system" ? "system" as const : "user" as const,
+      messageCount: d.messagesTotal ?? undefined,
+      unreadCount: d.messagesUnread ?? undefined,
+      color: d.color?.backgroundColor ?? undefined,
+    }));
   }
 
   async getAttachment(messageId: string, attachmentId: string): Promise<Attachment> {

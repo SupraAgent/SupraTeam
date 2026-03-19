@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { google } from "googleapis";
 import { encryptToken } from "@/lib/crypto";
 import { createSupabaseAdmin } from "@/lib/supabase";
+import { createClient } from "@/lib/supabase/server";
 
 function getOAuth2Client() {
   return new google.auth.OAuth2(
@@ -15,7 +16,7 @@ function getOAuth2Client() {
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get("code");
-  const state = searchParams.get("state"); // user_id
+  const stateParam = searchParams.get("state");
   const error = searchParams.get("error");
 
   if (error) {
@@ -24,10 +25,40 @@ export async function GET(request: Request) {
     );
   }
 
-  if (!code || !state) {
+  if (!code || !stateParam) {
     return NextResponse.redirect(
       new URL("/settings/email?error=missing_params", request.url)
     );
+  }
+
+  // Validate state -- must be a signed JSON payload with uid and timestamp
+  let userId: string;
+  try {
+    const stateJson = JSON.parse(Buffer.from(stateParam, "base64url").toString());
+    userId = stateJson.uid;
+    const ts = stateJson.ts;
+    if (!userId || !ts) throw new Error("Invalid state");
+    // Reject if state is older than 10 minutes
+    if (Date.now() - ts > 10 * 60 * 1000) {
+      return NextResponse.redirect(
+        new URL("/settings/email?error=state_expired", request.url)
+      );
+    }
+  } catch {
+    return NextResponse.redirect(
+      new URL("/settings/email?error=invalid_state", request.url)
+    );
+  }
+
+  // Verify the authenticated user matches the state
+  const supabase = await createClient();
+  if (supabase) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user && user.id !== userId) {
+      return NextResponse.redirect(
+        new URL("/settings/email?error=user_mismatch", request.url)
+      );
+    }
   }
 
   const admin = createSupabaseAdmin();
@@ -63,7 +94,7 @@ export async function GET(request: Request) {
     const { data: existing } = await admin
       .from("crm_email_connections")
       .select("id")
-      .eq("user_id", state)
+      .eq("user_id", userId)
       .limit(1);
 
     const isFirstConnection = !existing || existing.length === 0;
@@ -71,7 +102,7 @@ export async function GET(request: Request) {
     // Upsert the connection
     await admin.from("crm_email_connections").upsert(
       {
-        user_id: state,
+        user_id: userId,
         provider: "gmail",
         email,
         access_token_encrypted: encryptToken(tokens.access_token),
@@ -88,7 +119,7 @@ export async function GET(request: Request) {
 
     // Audit log
     await admin.from("crm_email_audit_log").insert({
-      user_id: state,
+      user_id: userId,
       action: "gmail_connected",
       metadata: { email },
     });

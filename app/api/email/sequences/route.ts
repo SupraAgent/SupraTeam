@@ -110,7 +110,8 @@ export async function DELETE(request: Request) {
   const { error } = await auth.admin
     .from("crm_email_sequences")
     .delete()
-    .eq("id", id);
+    .eq("id", id)
+    .eq("created_by", auth.user.id);
 
   if (error) {
     return NextResponse.json({ error: "Failed to delete" }, { status: 500 });
