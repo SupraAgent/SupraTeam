@@ -429,9 +429,20 @@ type KeyboardActions = {
   onArchivePrev: () => void;
   onSnooze: () => void;
   onSendAndArchive?: () => void;
+  // Vim-style g-chord navigation
+  onGoInbox?: () => void;
+  onGoStarred?: () => void;
+  onGoSent?: () => void;
+  onGoDrafts?: () => void;
+  onGoAll?: () => void;
+  onShowHelp?: () => void;
 };
 
 export function useEmailKeyboard(actions: KeyboardActions, enabled = true) {
+  // Track g-chord state (vim-style two-key combos)
+  const gPendingRef = React.useRef(false);
+  const gTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
   React.useEffect(() => {
     if (!enabled) return;
 
@@ -458,6 +469,28 @@ export function useEmailKeyboard(actions: KeyboardActions, enabled = true) {
           actions.onSendAndArchive();
           return;
         }
+        return;
+      }
+
+      // Handle g-chord (vim: gi=inbox, gs=starred, gt=sent, gd=drafts, ga=all)
+      if (gPendingRef.current) {
+        gPendingRef.current = false;
+        if (gTimerRef.current) clearTimeout(gTimerRef.current);
+        e.preventDefault();
+        switch (e.key) {
+          case "i": actions.onGoInbox?.(); return;
+          case "s": actions.onGoStarred?.(); return;
+          case "t": actions.onGoSent?.(); return;
+          case "d": actions.onGoDrafts?.(); return;
+          case "a": actions.onGoAll?.(); return;
+        }
+        return;
+      }
+
+      if (e.key === "g") {
+        gPendingRef.current = true;
+        // Auto-cancel after 500ms
+        gTimerRef.current = setTimeout(() => { gPendingRef.current = false; }, 500);
         return;
       }
 
@@ -526,10 +559,21 @@ export function useEmailKeyboard(actions: KeyboardActions, enabled = true) {
           e.preventDefault();
           actions.onSnooze();
           break;
+        case "d":
+          e.preventDefault();
+          actions.onTrash();
+          break;
+        case "?":
+          e.preventDefault();
+          actions.onShowHelp?.();
+          break;
       }
     }
 
     document.addEventListener("keydown", handleKey);
-    return () => document.removeEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("keydown", handleKey);
+      if (gTimerRef.current) clearTimeout(gTimerRef.current);
+    };
   }, [actions, enabled]);
 }

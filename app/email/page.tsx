@@ -8,6 +8,8 @@ import { ComposeModal } from "@/components/email/compose-modal";
 import { LabelSidebar } from "@/components/email/label-sidebar";
 import { UndoSendProvider, UndoSendBar } from "@/components/email/undo-send-bar";
 import { SnoozePicker } from "@/components/email/snooze-picker";
+import { AdvancedSearch } from "@/components/email/advanced-search";
+import { KeyboardHelp } from "@/components/email/keyboard-help";
 import { useThreads, useThread, useLabels, useEmailActions, useEmailKeyboard, useEmailConnections, useSplitInbox, usePrefetchThread } from "@/lib/email/hooks";
 import { INBOX_CATEGORIES, type InboxCategory } from "@/lib/email/types";
 import { toast } from "sonner";
@@ -27,6 +29,8 @@ function EmailPageInner() {
   const [selectedIndex, setSelectedIndex] = React.useState(0);
   const [searchQuery, setSearchQuery] = React.useState("");
   const [showSearch, setShowSearch] = React.useState(false);
+  const [advancedSearchOpen, setAdvancedSearchOpen] = React.useState(false);
+  const [keyboardHelpOpen, setKeyboardHelpOpen] = React.useState(false);
   const [activeCategory, setActiveCategory] = React.useState<InboxCategory | "all">("all");
   const searchRef = React.useRef<HTMLInputElement>(null);
 
@@ -169,14 +173,19 @@ function EmailPageInner() {
     onMarkUnread: handleMarkUnread,
     onCompose: () => openCompose("compose"),
     onSearch: () => {
-      setShowSearch(true);
-      setTimeout(() => searchRef.current?.focus(), 50);
+      setAdvancedSearchOpen(true);
     },
     onArchiveNext: handleArchive,
     onArchivePrev: handleArchive,
     onSnooze: handleSnooze,
     onSendAndArchive: () => {},
-  }, !composeOpen && !snoozeOpen);
+    onGoInbox: () => { setActiveLabel("INBOX"); setSelectedThreadId(null); setSearchQuery(""); },
+    onGoStarred: () => { setActiveLabel("STARRED"); setSelectedThreadId(null); setSearchQuery(""); },
+    onGoSent: () => { setActiveLabel("SENT"); setSelectedThreadId(null); setSearchQuery(""); },
+    onGoDrafts: () => { setActiveLabel("DRAFT"); setSelectedThreadId(null); setSearchQuery(""); },
+    onGoAll: () => { setSearchQuery("in:anywhere"); setSelectedThreadId(null); },
+    onShowHelp: () => setKeyboardHelpOpen((v) => !v),
+  }, !composeOpen && !snoozeOpen && !advancedSearchOpen && !keyboardHelpOpen);
 
   // ── Render ───────────────────────────────────────────────
 
@@ -219,6 +228,13 @@ function EmailPageInner() {
           </div>
           <div className="flex items-center gap-1">
             <button
+              onClick={() => setAdvancedSearchOpen(true)}
+              className="rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-white/5 transition"
+              title="Search (/)"
+            >
+              <SearchIcon className="h-4 w-4" />
+            </button>
+            <button
               onClick={() => openCompose("compose")}
               className="rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-white/5 transition"
               title="Compose (c)"
@@ -256,23 +272,27 @@ function EmailPageInner() {
           </div>
         )}
 
-        {/* Search bar */}
-        {showSearch && (
-          <div className="px-3 py-2 border-b border-white/10">
-            <input
-              ref={searchRef}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  setShowSearch(false);
-                  setSearchQuery("");
-                }
-              }}
-              placeholder="Search emails..."
-              className="w-full rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs text-foreground
-                placeholder:text-muted-foreground/50 outline-none focus:ring-1 focus:ring-primary/50"
-            />
+        {/* Active search indicator */}
+        {searchQuery && (
+          <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
+            <div className="flex items-center gap-2 min-w-0">
+              <SearchIcon className="h-3.5 w-3.5 text-primary shrink-0" />
+              <span className="text-xs text-foreground truncate">{searchQuery}</span>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                onClick={() => setAdvancedSearchOpen(true)}
+                className="text-[10px] text-primary hover:underline"
+              >
+                Edit
+              </button>
+              <button
+                onClick={() => { setSearchQuery(""); setShowSearch(false); }}
+                className="text-[10px] text-muted-foreground hover:text-foreground transition"
+              >
+                Clear
+              </button>
+            </div>
           </div>
         )}
 
@@ -293,6 +313,14 @@ function EmailPageInner() {
           onLoadMore={activeCategory === "all" ? loadMore : undefined}
           hasMore={activeCategory === "all" && !!nextPageToken}
           onPrefetch={prefetchThread}
+          onSwipeArchive={(id) => {
+            performAction(id, "archive");
+            toast("Archived");
+          }}
+          onSwipeSnooze={(id) => {
+            setSnoozeThreadId(id);
+            setSnoozeOpen(true);
+          }}
         />
       </div>
 
@@ -327,6 +355,8 @@ function EmailPageInner() {
               <span>archive</span>
               <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5">c</kbd>
               <span>compose</span>
+              <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5">/</kbd>
+              <span>search</span>
               <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5">h</kbd>
               <span>snooze</span>
             </div>
@@ -368,6 +398,25 @@ function EmailPageInner() {
             }
           }
         }}
+      />
+
+      {/* Keyboard help overlay */}
+      <KeyboardHelp
+        open={keyboardHelpOpen}
+        onClose={() => setKeyboardHelpOpen(false)}
+      />
+
+      {/* Advanced search */}
+      <AdvancedSearch
+        open={advancedSearchOpen}
+        onClose={() => setAdvancedSearchOpen(false)}
+        onSearch={(q) => {
+          setSearchQuery(q);
+          setShowSearch(true);
+          setSelectedThreadId(null);
+          setSelectedIndex(0);
+        }}
+        initialQuery={searchQuery}
       />
 
       {/* Compose modal */}
@@ -422,6 +471,10 @@ function SplitTab({
 }
 
 // ── Inline SVGs ─────────────────────────────────────────────
+
+function SearchIcon({ className }: { className?: string }) {
+  return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>;
+}
 
 function MailPlusIcon({ className }: { className?: string }) {
   return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22 6 12 13 2 6" /><line x1="12" y1="17" x2="12" y2="23" /><line x1="9" y1="20" x2="15" y2="20" /></svg>;
