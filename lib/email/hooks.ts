@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import type { Thread, ThreadList, ThreadListItem, Label, EmailConnection, InboxCategory } from "./types";
+import { cacheThreads, getCachedThreads, cacheFullThread, getCachedMessages } from "./idb-cache";
 
 // ── Thread cache (module-level singleton) ────────────────────
 
@@ -81,6 +82,15 @@ export function useThreads(options?: {
         }
         // Otherwise continue to revalidate in background (don't show loading)
       } else {
+        // Try IndexedDB for instant first paint (offline-first)
+        const labelId = options?.labelIds?.[0];
+        if (labelId && !options?.query) {
+          getCachedThreads(labelId).then((idbThreads) => {
+            if (idbThreads.length > 0 && threads.length === 0) {
+              setThreads(idbThreads as unknown as ThreadListItem[]);
+            }
+          }).catch(() => {});
+        }
         setLoading(true);
       }
     } else {
@@ -115,6 +125,9 @@ export function useThreads(options?: {
         listCache.set(cacheKey, { data: data.threads, ts: Date.now(), nextPageToken: data.nextPageToken });
       }
       setNextPageToken(data.nextPageToken);
+
+      // Persist to IndexedDB for offline access
+      cacheThreads(data.threads as unknown as Parameters<typeof cacheThreads>[0]).catch(() => {});
 
       // Pre-warm thread cache with list items (snippet data)
       for (const t of data.threads) {
@@ -177,9 +190,27 @@ export function useThread(threadId: string | null) {
       .then((json) => {
         const data = json.data ?? null;
         setThread(data);
-        if (data) setCachedThread(threadId, data);
+        if (data) {
+          setCachedThread(threadId, data);
+          // Persist messages to IDB for offline reading
+          if (data.messages?.length > 0) {
+            cacheFullThread(threadId, data.messages).catch(() => {});
+          }
+        }
       })
-      .catch(() => setThread(null))
+      .catch(() => {
+        // Try IndexedDB fallback for offline
+        getCachedMessages(threadId).then((msgs) => {
+          if (msgs.length > 0) {
+            const cached = getCachedThread(threadId);
+            if (cached) {
+              setThread({ ...cached, messages: msgs as unknown as Thread["messages"] });
+            }
+          } else {
+            setThread(null);
+          }
+        }).catch(() => setThread(null));
+      })
       .finally(() => setLoading(false));
   }, [threadId]);
 

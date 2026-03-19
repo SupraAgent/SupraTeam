@@ -26,6 +26,7 @@ const SETTINGS_ITEMS = [
   { href: "/settings/team", label: "Team" },
   { href: "/settings/telegram", label: "Telegram" },
   { href: "/settings/email", label: "Email" },
+  { href: "/settings/sequences", label: "Sequences" },
   { href: "/settings/telegram-connect", label: "TG Connect" },
   { href: "/settings/templates", label: "Bot Templates" },
 ] as const;

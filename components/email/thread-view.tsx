@@ -6,6 +6,8 @@ import { cn } from "@/lib/utils";
 import { timeAgo } from "@/lib/utils";
 import type { Thread, Message } from "@/lib/email/types";
 import { ContactAvatar } from "./contact-avatar";
+import { ThreadCrmLinks } from "./thread-crm-links";
+import { ReadReceiptIndicator } from "./read-receipt-indicator";
 
 type ThreadViewProps = {
   thread: Thread;
@@ -79,6 +81,13 @@ export function ThreadView({
           </ActionButton>
         </div>
       </div>
+
+      {/* CRM auto-links */}
+      <ThreadCrmLinks
+        threadId={thread.id}
+        fromEmails={thread.from.map((a) => a.email)}
+        toEmails={thread.to.map((a) => a.email)}
+      />
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto thin-scroll px-4 py-3 space-y-3">
@@ -155,9 +164,12 @@ function MessageBubble({
             )}
           </div>
         </div>
-        <span className="text-[10px] text-muted-foreground shrink-0 ml-2">
-          {timeAgo(message.date)}
-        </span>
+        <div className="flex items-center gap-2 shrink-0 ml-2">
+          <ReadReceiptIndicator trackingId={message.id} className="relative" />
+          <span className="text-[10px] text-muted-foreground">
+            {timeAgo(message.date)}
+          </span>
+        </div>
       </button>
 
       {/* Message body */}
