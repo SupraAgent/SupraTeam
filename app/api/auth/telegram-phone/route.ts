@@ -8,33 +8,7 @@
 
 import { NextResponse } from "next/server";
 import { createTgClient, sendPhoneCode, phoneLast4 } from "@/lib/telegram-client";
-import type { TelegramClient } from "telegram";
-
-// Pending login sessions (keyed by phone hash to avoid collisions)
-// Separate from the post-login connect flow in /api/telegram-client/connect
-const pendingLogins = new Map<
-  string,
-  { client: TelegramClient; phone: string; phoneCodeHash: string; expiresAt: number }
->();
-
-// Cleanup expired entries every minute
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, entry] of pendingLogins) {
-    if (now > entry.expiresAt) {
-      entry.client.disconnect().catch(() => {});
-      pendingLogins.delete(key);
-    }
-  }
-}, 60_000);
-
-// Export for use by verify route
-export { pendingLogins };
-
-/** Simple rate limit key from phone number */
-function phoneKey(phone: string): string {
-  return phone.replace(/\D/g, "");
-}
+import { pendingPhoneLogins, phoneKey } from "@/lib/telegram-login-store";
 
 export async function POST(request: Request) {
   // Fail fast if Telegram API credentials aren't configured
@@ -62,7 +36,7 @@ export async function POST(request: Request) {
 
   // Prevent duplicate sends for same phone
   const key = phoneKey(phone);
-  const existing = pendingLogins.get(key);
+  const existing = pendingPhoneLogins.get(key);
   if (existing && Date.now() < existing.expiresAt - 4 * 60 * 1000) {
     // Less than 1 minute since last send -- return existing hash
     return NextResponse.json({
@@ -76,7 +50,7 @@ export async function POST(request: Request) {
     // Clean up any existing client for this phone
     if (existing) {
       existing.client.disconnect().catch(() => {});
-      pendingLogins.delete(key);
+      pendingPhoneLogins.delete(key);
     }
 
     const client = createTgClient();
@@ -84,7 +58,7 @@ export async function POST(request: Request) {
 
     const { phoneCodeHash } = await sendPhoneCode(client, phone);
 
-    pendingLogins.set(key, {
+    pendingPhoneLogins.set(key, {
       client,
       phone,
       phoneCodeHash,
