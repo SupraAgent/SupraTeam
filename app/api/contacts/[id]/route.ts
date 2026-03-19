@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
-import { createSupabaseAdmin } from "@/lib/supabase";
+import { requireAuth } from "@/lib/auth-guard";
+
+const CONTACT_FIELDS = ["name", "email", "phone", "telegram_username", "telegram_user_id", "company", "title", "notes", "stage_id", "tg_group_link"];
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+  const { admin: supabase } = auth;
   const { id } = await params;
-  const supabase = createSupabaseAdmin();
-  if (!supabase) return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
 
   const { data: contact, error } = await supabase
     .from("crm_contacts")
@@ -18,12 +21,16 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 }
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+  const { admin: supabase } = auth;
   const { id } = await params;
-  const supabase = createSupabaseAdmin();
-  if (!supabase) return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
 
-  const body = await request.json();
-  body.updated_at = new Date().toISOString();
+  const raw = await request.json();
+  const body: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  for (const key of CONTACT_FIELDS) {
+    if (key in raw) body[key] = raw[key];
+  }
 
   const { data: contact, error } = await supabase
     .from("crm_contacts")
@@ -41,9 +48,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 }
 
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+  const { admin: supabase } = auth;
   const { id } = await params;
-  const supabase = createSupabaseAdmin();
-  if (!supabase) return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
 
   const { error } = await supabase.from("crm_contacts").delete().eq("id", id);
 

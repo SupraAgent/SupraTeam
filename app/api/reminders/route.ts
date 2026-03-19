@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
-import { createSupabaseAdmin } from "@/lib/supabase";
+import { requireAuth } from "@/lib/auth-guard";
 
 // GET active reminders
 export async function GET() {
-  const supabase = createSupabaseAdmin();
-  if (!supabase) return NextResponse.json({ error: "Not configured" }, { status: 503 });
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+  const { admin: supabase } = auth;
 
   const { data: reminders } = await supabase
     .from("crm_deal_reminders")
@@ -19,8 +20,9 @@ export async function GET() {
 
 // POST: generate reminders based on stage rules
 export async function POST() {
-  const supabase = createSupabaseAdmin();
-  if (!supabase) return NextResponse.json({ error: "Not configured" }, { status: 503 });
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+  const { admin: supabase } = auth;
 
   // Get stage reminder rules
   const { data: rules } = await supabase
@@ -115,8 +117,9 @@ export async function POST() {
 
 // PATCH: dismiss a reminder
 export async function PATCH(request: Request) {
-  const supabase = createSupabaseAdmin();
-  if (!supabase) return NextResponse.json({ error: "Not configured" }, { status: 503 });
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+  const { admin: supabase } = auth;
 
   const { id } = await request.json();
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });

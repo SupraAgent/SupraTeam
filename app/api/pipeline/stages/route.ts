@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
-import { createSupabaseAdmin } from "@/lib/supabase";
+import { requireAuth } from "@/lib/auth-guard";
 
 // Bulk update stages (reorder, rename, add, delete)
 export async function PUT(request: Request) {
-  const supabase = createSupabaseAdmin();
-  if (!supabase) return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+  const { admin: supabase } = auth;
 
   const { stages } = await request.json();
 

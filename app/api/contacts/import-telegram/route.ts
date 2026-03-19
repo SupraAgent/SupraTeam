@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createSupabaseAdmin } from "@/lib/supabase";
+import { requireAuth } from "@/lib/auth-guard";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
@@ -33,8 +33,9 @@ async function getChatMemberCount(chatId: number): Promise<number> {
 }
 
 export async function POST(request: Request) {
-  const supabase = createSupabaseAdmin();
-  if (!supabase) return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+  const { admin: supabase } = auth;
   if (!BOT_TOKEN) return NextResponse.json({ error: "Bot token not configured" }, { status: 503 });
 
   const { group_id } = await request.json();

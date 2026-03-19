@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
-import { createSupabaseAdmin } from "@/lib/supabase";
+import { requireAuth } from "@/lib/auth-guard";
 
 // Calculate health score for all deals and update them
 // Score 0-100: higher is healthier
 export async function POST() {
-  const supabase = createSupabaseAdmin();
-  if (!supabase) return NextResponse.json({ error: "Not configured" }, { status: 503 });
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+  const { admin: supabase } = auth;
 
   const { data: deals } = await supabase
     .from("crm_deals")
@@ -72,8 +73,9 @@ export async function GET() {
   // Trigger recalculation
   const calcRes = await fetch(new URL("/api/deals/health", process.env.NEXT_PUBLIC_SUPABASE_URL ? "https://crm.supravibe.xyz" : "http://localhost:3000"), { method: "POST" });
 
-  const supabase = createSupabaseAdmin();
-  if (!supabase) return NextResponse.json({ error: "Not configured" }, { status: 503 });
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+  const { admin: supabase } = auth;
 
   const { data: deals } = await supabase
     .from("crm_deals")
