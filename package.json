@@ -9,7 +9,9 @@
     "start": "next start",
     "lint": "eslint",
     "bot": "DOTENV_CONFIG_PATH=.env.local tsx --require dotenv/config bot/index.ts",
-    "bot:dev": "DOTENV_CONFIG_PATH=.env.local tsx watch --require dotenv/config bot/index.ts"
+    "bot:dev": "DOTENV_CONFIG_PATH=.env.local tsx watch --require dotenv/config bot/index.ts",
+    "cron:poll": "tsx cron/poll-notifications.ts",
+    "cron:digest": "tsx cron/daily-digest.ts"
   },
   "dependencies": {
     "@hello-pangea/dnd": "^18.0.1",

@@ -13,7 +13,7 @@ async function sendTelegramMessage(chatId: number, text: string) {
   });
 }
 
-// Called by Vercel cron or external scheduler
+// Called by Railway cron service, external scheduler, or directly via GET
 export async function GET(request: Request) {
   const { verifyCron } = await import("@/lib/cron-auth");
   const cronErr = verifyCron(request);
