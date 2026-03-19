@@ -58,6 +58,14 @@ export async function POST() {
     const qrUrl = buildQRUrl(token);
     const loginToken = crypto.randomBytes(24).toString("hex");
 
+    // Add entry to map BEFORE registering event handler to avoid race condition
+    // where a fast QR scan fires the handler before the entry exists
+    qrLogins.set(loginToken, {
+      client,
+      expiresAt: expiresAt * 1000,
+      confirmed: false,
+    });
+
     // Listen for login confirmation
     client.addEventHandler(async (update: Api.TypeUpdate) => {
       if (update instanceof Api.UpdateLoginToken) {
@@ -90,12 +98,6 @@ export async function POST() {
           console.error("[auth/telegram-qr] token update error:", err);
         }
       }
-    });
-
-    qrLogins.set(loginToken, {
-      client,
-      expiresAt: expiresAt * 1000,
-      confirmed: false,
     });
 
     return NextResponse.json({
@@ -215,29 +217,39 @@ export async function GET(request: Request) {
   }
 
   // Save Telegram client session for later CRM use
-  const encryptedSession = encryptSession(entry.client);
+  try {
+    const encryptedSession = encryptSession(entry.client);
 
-  await admin.from("tg_client_sessions").upsert(
-    {
-      user_id: session.user.id,
-      session_encrypted: encryptedSession,
-      phone_number_hash: "qr_login",
-      phone_last4: null,
-      telegram_user_id: tgId,
-      is_active: true,
-      connected_at: new Date().toISOString(),
-      last_used_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id" }
-  );
+    const { error: sessionError } = await admin.from("tg_client_sessions").upsert(
+      {
+        user_id: session.user.id,
+        session_encrypted: encryptedSession,
+        phone_number_hash: "qr_login",
+        phone_last4: null,
+        telegram_user_id: tgId,
+        is_active: true,
+        connected_at: new Date().toISOString(),
+        last_used_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id" }
+    );
 
-  // Audit log
+    if (sessionError) {
+      console.error("[auth/telegram-qr] failed to save TG session:", sessionError);
+    }
+  } catch (err) {
+    console.error("[auth/telegram-qr] failed to encrypt/save TG session:", err);
+  }
+
+  // Audit log (non-critical)
   await admin.from("tg_client_audit_log").insert({
     user_id: session.user.id,
     action: "login",
     target_type: "user",
     target_id: String(tgId),
     metadata: { method: "qr", username: entry.tgUser.username },
+  }).then(({ error }) => {
+    if (error) console.error("[auth/telegram-qr] audit log error:", error);
   });
 
   // Cleanup
