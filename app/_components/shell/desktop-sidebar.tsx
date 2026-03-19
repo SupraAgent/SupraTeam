@@ -10,6 +10,7 @@ import { useShell } from "./shell-context";
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard", icon: HomeIcon },
   { href: "/pipeline", label: "Pipeline", icon: KanbanIcon },
+  { href: "/email", label: "Email", icon: MailIcon },
   { href: "/contacts", label: "Contacts", icon: UsersIcon },
   { href: "/groups", label: "TG Groups", icon: MessageCircleIcon },
   { href: "/broadcasts", label: "Broadcasts", icon: MegaphoneIcon },
@@ -23,6 +24,7 @@ const SETTINGS_ITEMS = [
   { href: "/settings/pipeline", label: "Pipeline" },
   { href: "/settings/team", label: "Team" },
   { href: "/settings/telegram", label: "Telegram" },
+  { href: "/settings/email", label: "Email" },
 ] as const;
 
 export function DesktopSidebar() {
@@ -262,6 +264,15 @@ function NetworkIcon({ className }: { className?: string }) {
       <circle cx="19" cy="19" r="3" />
       <line x1="12" y1="8" x2="5" y2="16" />
       <line x1="12" y1="8" x2="19" y2="16" />
+    </svg>
+  );
+}
+
+function MailIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+      <polyline points="22 6 12 13 2 6" />
     </svg>
   );
 }
