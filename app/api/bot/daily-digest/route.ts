@@ -97,13 +97,40 @@ export async function GET(request: Request) {
     topDeals,
   };
 
-  const message = formatDailyDigest(stats);
+  // Load custom template if available
+  const { data: digestTpl } = await supabase
+    .from("crm_bot_templates")
+    .select("body_template")
+    .eq("template_key", "daily_digest")
+    .eq("is_active", true)
+    .single();
+
+  const message = formatDailyDigest(stats, digestTpl?.body_template ?? undefined);
 
   // 4. Get destination groups where bot is admin
-  const { data: groups, error: groupsErr } = await supabase
+  //    Optional: filter by slug via ?slug=xyz query param
+  const url = new URL(request.url);
+  const slugFilter = url.searchParams.get("slug");
+
+  let groupQuery = supabase
     .from("tg_groups")
     .select("telegram_group_id")
     .eq("bot_is_admin", true);
+
+  if (slugFilter) {
+    // Only send to groups with this slug tag
+    const { data: slugGroups } = await supabase
+      .from("tg_group_slugs")
+      .select("group_id")
+      .eq("slug", slugFilter);
+    const groupIds = (slugGroups ?? []).map((sg) => sg.group_id);
+    if (groupIds.length === 0) {
+      return NextResponse.json({ sent: 0, groups: 0, slug: slugFilter });
+    }
+    groupQuery = groupQuery.in("id", groupIds);
+  }
+
+  const { data: groups, error: groupsErr } = await groupQuery;
 
   if (groupsErr) {
     console.error("[daily-digest] Error fetching groups:", groupsErr);

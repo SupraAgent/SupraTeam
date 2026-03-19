@@ -72,7 +72,22 @@ export async function GET(request: Request) {
           if (profile?.display_name) changedByName = profile.display_name;
         }
 
-        const message = formatStageChangeMessage(deal.deal_name, fromName, toName, deal.board_type, changedByName);
+        // Load custom template if available
+        const { data: tpl } = await supabase
+          .from("crm_bot_templates")
+          .select("body_template")
+          .eq("template_key", "stage_change")
+          .eq("is_active", true)
+          .single();
+
+        const message = formatStageChangeMessage(
+          deal.deal_name,
+          fromName,
+          toName,
+          deal.board_type ?? "Unknown",
+          changedByName,
+          tpl?.body_template ?? undefined
+        );
         await sendTelegramMessage(deal.telegram_chat_id, message);
         processed++;
       }
