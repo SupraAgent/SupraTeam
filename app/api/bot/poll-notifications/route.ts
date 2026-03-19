@@ -87,5 +87,18 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.json({ processed });
+  // Auto-generate reminders based on stage rules
+  let remindersGenerated = 0;
+  try {
+    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://crm.supravibe.xyz";
+    const reminderRes = await fetch(`${baseUrl}/api/reminders`, { method: "POST" });
+    if (reminderRes.ok) {
+      const data = await reminderRes.json();
+      remindersGenerated = data.generated ?? 0;
+    }
+  } catch (err) {
+    console.error("[poll-notifications] reminder generation error:", err);
+  }
+
+  return NextResponse.json({ processed, remindersGenerated });
 }

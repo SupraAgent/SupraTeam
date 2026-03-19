@@ -12,6 +12,7 @@ import {
   Palette,
   ChevronUp,
   ChevronDown,
+  Clock,
 } from "lucide-react";
 
 type Stage = {
@@ -55,12 +56,18 @@ export default function PipelineSettingsPage() {
   const [stagesMsg, setStagesMsg] = React.useState("");
   const [fieldsMsg, setFieldsMsg] = React.useState("");
 
+  type ReminderRule = { stage_id: string; remind_after_hours: number; message: string; is_active: boolean };
+  const [reminderRules, setReminderRules] = React.useState<ReminderRule[]>([]);
+  const [savingReminders, setSavingReminders] = React.useState(false);
+  const [remindersMsg, setRemindersMsg] = React.useState("");
+
   React.useEffect(() => {
     async function load() {
       try {
-        const [stagesRes, fieldsRes] = await Promise.all([
+        const [stagesRes, fieldsRes, rulesRes] = await Promise.all([
           fetch("/api/pipeline"),
           fetch("/api/pipeline/fields"),
+          fetch("/api/reminders/rules").catch(() => null),
         ]);
 
         if (stagesRes.ok) {
@@ -70,6 +77,15 @@ export default function PipelineSettingsPage() {
         if (fieldsRes.ok) {
           const data = await fieldsRes.json();
           setFields(data.fields ?? []);
+        }
+        if (rulesRes?.ok) {
+          const data = await rulesRes.json();
+          setReminderRules((data.rules ?? []).map((r: Record<string, unknown>) => ({
+            stage_id: r.stage_id as string,
+            remind_after_hours: r.remind_after_hours as number,
+            message: r.message as string,
+            is_active: r.is_active as boolean,
+          })));
         }
       } finally {
         setLoading(false);
@@ -427,6 +443,148 @@ export default function PipelineSettingsPage() {
               No custom fields. The default deal form includes: Name, Board, Stage, Contact, and Value.
               <br />
               Add fields here to extend it.
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* --- Stage Reminders Section --- */}
+      <section className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-medium text-foreground flex items-center gap-2">
+              <Clock className="h-4 w-4 text-amber-400" />
+              Stage Reminders
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              Get notified when deals sit in a stage too long. Configure per stage.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {remindersMsg && (
+              <span className="text-xs text-primary">{remindersMsg}</span>
+            )}
+            <Button
+              size="sm"
+              onClick={async () => {
+                setSavingReminders(true);
+                setRemindersMsg("");
+                try {
+                  const res = await fetch("/api/reminders/rules", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ rules: reminderRules }),
+                  });
+                  if (res.ok) {
+                    setRemindersMsg("Reminders saved");
+                  } else {
+                    setRemindersMsg("Failed to save");
+                  }
+                } finally {
+                  setSavingReminders(false);
+                  setTimeout(() => setRemindersMsg(""), 3000);
+                }
+              }}
+              disabled={savingReminders}
+            >
+              <Save className="mr-1 h-3.5 w-3.5" />
+              {savingReminders ? "Saving..." : "Save"}
+            </Button>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          {stages.map((stage) => {
+            const rule = reminderRules.find((r) => r.stage_id === stage.id);
+            const hasRule = !!rule;
+
+            return (
+              <div
+                key={`reminder-${stage.id}`}
+                className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2.5"
+              >
+                <div
+                  className="h-3.5 w-3.5 rounded-full shrink-0"
+                  style={{ backgroundColor: stage.color }}
+                />
+                <span className="text-sm text-foreground w-36 truncate">{stage.name}</span>
+
+                <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={hasRule ? rule.is_active : false}
+                    onChange={(e) => {
+                      if (!hasRule) {
+                        setReminderRules((prev) => [...prev, {
+                          stage_id: stage.id!,
+                          remind_after_hours: 72,
+                          message: "{deal} needs attention ({hours}h in stage)",
+                          is_active: e.target.checked,
+                        }]);
+                      } else {
+                        setReminderRules((prev) => prev.map((r) =>
+                          r.stage_id === stage.id ? { ...r, is_active: e.target.checked } : r
+                        ));
+                      }
+                    }}
+                    className="rounded border-white/10"
+                  />
+                  Active
+                </label>
+
+                <div className="flex items-center gap-1 shrink-0">
+                  <span className="text-[11px] text-muted-foreground">After</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={720}
+                    value={rule?.remind_after_hours ?? 72}
+                    onChange={(e) => {
+                      const hours = parseInt(e.target.value) || 72;
+                      if (!hasRule) {
+                        setReminderRules((prev) => [...prev, {
+                          stage_id: stage.id!,
+                          remind_after_hours: hours,
+                          message: "{deal} needs attention ({hours}h in stage)",
+                          is_active: true,
+                        }]);
+                      } else {
+                        setReminderRules((prev) => prev.map((r) =>
+                          r.stage_id === stage.id ? { ...r, remind_after_hours: hours } : r
+                        ));
+                      }
+                    }}
+                    className="w-16 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-foreground outline-none"
+                  />
+                  <span className="text-[11px] text-muted-foreground">hours</span>
+                </div>
+
+                <Input
+                  value={rule?.message ?? "{deal} needs attention ({hours}h in stage)"}
+                  onChange={(e) => {
+                    if (!hasRule) {
+                      setReminderRules((prev) => [...prev, {
+                        stage_id: stage.id!,
+                        remind_after_hours: 72,
+                        message: e.target.value,
+                        is_active: true,
+                      }]);
+                    } else {
+                      setReminderRules((prev) => prev.map((r) =>
+                        r.stage_id === stage.id ? { ...r, message: e.target.value } : r
+                      ));
+                    }
+                  }}
+                  placeholder="Message template ({deal}, {hours})"
+                  className="flex-1 text-xs"
+                />
+              </div>
+            );
+          })}
+
+          {stages.length === 0 && (
+            <div className="rounded-xl border border-white/10 bg-white/[0.02] p-6 text-center text-sm text-muted-foreground">
+              Add pipeline stages above first, then configure reminders for each.
             </div>
           )}
         </div>
