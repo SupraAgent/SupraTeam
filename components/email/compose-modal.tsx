@@ -43,8 +43,20 @@ export function ComposeModal({
   const [error, setError] = React.useState("");
   const [templatePickerOpen, setTemplatePickerOpen] = React.useState(false);
   const [sendLaterOpen, setSendLaterOpen] = React.useState(false);
+  const [signature, setSignature] = React.useState("");
 
   const { queueSend } = useUndoSend();
+
+  // Fetch signature on mount
+  React.useEffect(() => {
+    fetch("/api/email/signatures")
+      .then((r) => r.json())
+      .then((json) => {
+        const sig = (json.data ?? [])[0];
+        if (sig?.signature_html) setSignature(sig.signature_html);
+      })
+      .catch(() => {});
+  }, []);
 
   // Reset on close
   React.useEffect(() => {
@@ -82,9 +94,22 @@ export function ComposeModal({
       return null;
     }
 
+    // Build HTML body with signature and tracking pixel
+    let html = bodyHtml || `<div>${bodyText.replace(/\n/g, "<br>")}</div>`;
+
+    // Append signature
+    if (signature) {
+      html += `<br><div style="color:#999;font-size:12px;border-top:1px solid #333;padding-top:8px;margin-top:16px">${signature}</div>`;
+    }
+
+    // Inject tracking pixel for read receipts
+    const trackingId = crypto.randomUUID();
+    const trackingPixel = `<img src="/api/email/track/${trackingId}" width="1" height="1" style="display:none" alt="" />`;
+    html += trackingPixel;
+
     const payload: Record<string, unknown> = {
       type: mode === "replyAll" ? "reply" : mode,
-      body: bodyHtml || `<div>${bodyText.replace(/\n/g, "<br>")}</div>`,
+      body: html,
       bodyText,
     };
 
