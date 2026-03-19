@@ -6,7 +6,8 @@ import { ThreadList } from "@/components/email/thread-list";
 import { ThreadView } from "@/components/email/thread-view";
 import { ComposeModal } from "@/components/email/compose-modal";
 import { LabelSidebar } from "@/components/email/label-sidebar";
-import { useThreads, useThread, useLabels, useEmailActions, useEmailKeyboard, useEmailConnections } from "@/lib/email/hooks";
+import { useThreads, useThread, useLabels, useEmailActions, useEmailKeyboard, useEmailConnections, useSplitInbox, usePrefetchThread } from "@/lib/email/hooks";
+import { INBOX_CATEGORIES, type InboxCategory } from "@/lib/email/types";
 import { toast } from "sonner";
 
 export default function EmailPage() {
@@ -16,6 +17,7 @@ export default function EmailPage() {
   const [selectedIndex, setSelectedIndex] = React.useState(0);
   const [searchQuery, setSearchQuery] = React.useState("");
   const [showSearch, setShowSearch] = React.useState(false);
+  const [activeCategory, setActiveCategory] = React.useState<InboxCategory | "all">("all");
   const searchRef = React.useRef<HTMLInputElement>(null);
 
   // Compose modal state
@@ -32,6 +34,11 @@ export default function EmailPage() {
   const { thread: activeThread, loading: threadLoading } = useThread(selectedThreadId);
   const { labels, loading: labelsLoading } = useLabels();
   const { performAction, undoAction } = useEmailActions(setThreads);
+  const { split, counts } = useSplitInbox(threads);
+  const prefetchThread = usePrefetchThread();
+
+  // Visible threads based on active category
+  const visibleThreads = activeCategory === "all" ? threads : split[activeCategory];
 
   // Unread counts from labels
   const unreadCounts: Record<string, number> = {};
@@ -65,7 +72,7 @@ export default function EmailPage() {
   // ── Action handlers ──────────────────────────────────────
 
   function handleArchive() {
-    const id = selectedThreadId ?? threads[selectedIndex]?.id;
+    const id = selectedThreadId ?? visibleThreads[selectedIndex]?.id;
     if (!id) return;
     performAction(id, "archive");
     toast("Archived", {
@@ -75,31 +82,31 @@ export default function EmailPage() {
     });
     // Move to next thread
     if (selectedThreadId) {
-      const idx = threads.findIndex((t) => t.id === selectedThreadId);
-      const next = threads[idx + 1] ?? threads[idx - 1];
+      const idx = visibleThreads.findIndex((t) => t.id === selectedThreadId);
+      const next = visibleThreads[idx + 1] ?? visibleThreads[idx - 1];
       setSelectedThreadId(next?.id ?? null);
     }
   }
 
   function handleTrash() {
-    const id = selectedThreadId ?? threads[selectedIndex]?.id;
+    const id = selectedThreadId ?? visibleThreads[selectedIndex]?.id;
     if (!id) return;
     performAction(id, "trash");
     toast("Moved to trash");
     if (selectedThreadId) {
-      const idx = threads.findIndex((t) => t.id === selectedThreadId);
-      const next = threads[idx + 1] ?? threads[idx - 1];
+      const idx = visibleThreads.findIndex((t) => t.id === selectedThreadId);
+      const next = visibleThreads[idx + 1] ?? visibleThreads[idx - 1];
       setSelectedThreadId(next?.id ?? null);
     }
   }
 
   function handleStar() {
-    const id = selectedThreadId ?? threads[selectedIndex]?.id;
+    const id = selectedThreadId ?? visibleThreads[selectedIndex]?.id;
     if (id) performAction(id, "star");
   }
 
   function handleMarkUnread() {
-    const id = selectedThreadId ?? threads[selectedIndex]?.id;
+    const id = selectedThreadId ?? visibleThreads[selectedIndex]?.id;
     if (id) {
       performAction(id, "unread");
       setSelectedThreadId(null);
@@ -118,7 +125,7 @@ export default function EmailPage() {
   useEmailKeyboard({
     onNext: () => {
       if (!selectedThreadId) {
-        setSelectedIndex((i) => Math.min(i + 1, threads.length - 1));
+        setSelectedIndex((i) => Math.min(i + 1, visibleThreads.length - 1));
       }
     },
     onPrev: () => {
@@ -127,8 +134,8 @@ export default function EmailPage() {
       }
     },
     onOpen: () => {
-      if (!selectedThreadId && threads[selectedIndex]) {
-        setSelectedThreadId(threads[selectedIndex].id);
+      if (!selectedThreadId && visibleThreads[selectedIndex]) {
+        setSelectedThreadId(visibleThreads[selectedIndex].id);
       }
     },
     onBack: () => setSelectedThreadId(null),
@@ -173,6 +180,7 @@ export default function EmailPage() {
             setActiveLabel(id);
             setSelectedThreadId(null);
             setSearchQuery("");
+            setActiveCategory("all");
           }}
           unreadCounts={unreadCounts}
         />
@@ -214,6 +222,27 @@ export default function EmailPage() {
           </div>
         </div>
 
+        {/* Split inbox tabs — only show for INBOX */}
+        {activeLabel === "INBOX" && !searchQuery && (
+          <div className="flex border-b border-white/10 shrink-0">
+            <SplitTab
+              label="All"
+              active={activeCategory === "all"}
+              count={threads.filter((t) => t.isUnread).length}
+              onClick={() => { setActiveCategory("all"); setSelectedIndex(0); }}
+            />
+            {INBOX_CATEGORIES.map((cat) => (
+              <SplitTab
+                key={cat.id}
+                label={cat.label}
+                active={activeCategory === cat.id}
+                count={counts[cat.id]}
+                onClick={() => { setActiveCategory(cat.id); setSelectedIndex(0); }}
+              />
+            ))}
+          </div>
+        )}
+
         {/* Search bar */}
         {showSearch && (
           <div className="px-3 py-2 border-b border-white/10">
@@ -241,15 +270,16 @@ export default function EmailPage() {
         )}
 
         <ThreadList
-          threads={threads}
+          threads={visibleThreads}
           selectedId={selectedThreadId}
           onSelect={(id) => {
             setSelectedThreadId(id);
-            setSelectedIndex(threads.findIndex((t) => t.id === id));
+            setSelectedIndex(visibleThreads.findIndex((t) => t.id === id));
           }}
           loading={loading}
-          onLoadMore={loadMore}
-          hasMore={!!nextPageToken}
+          onLoadMore={activeCategory === "all" ? loadMore : undefined}
+          hasMore={activeCategory === "all" && !!nextPageToken}
+          onPrefetch={prefetchThread}
         />
       </div>
 
@@ -319,6 +349,42 @@ export default function EmailPage() {
         }}
       />
     </div>
+  );
+}
+
+// ── Split inbox tab component ─────────────────────────────
+
+function SplitTab({
+  label,
+  active,
+  count,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  count: number;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "flex-1 flex items-center justify-center gap-1.5 px-2 py-2 text-xs font-medium transition-colors border-b-2",
+        active
+          ? "border-primary text-foreground"
+          : "border-transparent text-muted-foreground hover:text-foreground hover:bg-white/[0.02]"
+      )}
+    >
+      {label}
+      {count > 0 && (
+        <span className={cn(
+          "rounded-full px-1.5 py-0.5 text-[9px] font-semibold",
+          active ? "bg-primary/15 text-primary" : "bg-white/5 text-muted-foreground"
+        )}>
+          {count}
+        </span>
+      )}
+    </button>
   );
 }
 

@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { RichEditor } from "./rich-editor";
 
 type ComposeModalProps = {
   open: boolean;
@@ -31,25 +32,11 @@ export function ComposeModal({
   const [cc, setCc] = React.useState("");
   const [bcc, setBcc] = React.useState("");
   const [subject, setSubject] = React.useState(prefillSubject ?? "");
-  const [body, setBody] = React.useState("");
+  const [bodyHtml, setBodyHtml] = React.useState("");
+  const [bodyText, setBodyText] = React.useState("");
   const [showCcBcc, setShowCcBcc] = React.useState(false);
   const [sending, setSending] = React.useState(false);
-  const [sendLater, setSendLater] = React.useState(false);
   const [error, setError] = React.useState("");
-  const bodyRef = React.useRef<HTMLTextAreaElement>(null);
-
-  // Focus body on open
-  React.useEffect(() => {
-    if (open) {
-      setTimeout(() => {
-        if (mode === "compose" || mode === "forward") {
-          // Focus to field for new emails
-        } else {
-          bodyRef.current?.focus();
-        }
-      }, 100);
-    }
-  }, [open, mode]);
 
   // Reset on close
   React.useEffect(() => {
@@ -58,10 +45,10 @@ export function ComposeModal({
       setCc("");
       setBcc("");
       if (!prefillSubject) setSubject("");
-      setBody("");
+      setBodyHtml("");
+      setBodyText("");
       setShowCcBcc(false);
       setError("");
-      setSendLater(false);
     }
   }, [open, prefillTo, prefillSubject]);
 
@@ -80,7 +67,7 @@ export function ComposeModal({
         return;
       }
     }
-    if (!body.trim()) {
+    if (!bodyText.trim()) {
       setError("Message body required");
       return;
     }
@@ -91,8 +78,8 @@ export function ComposeModal({
     try {
       const payload: Record<string, unknown> = {
         type: mode === "replyAll" ? "reply" : mode,
-        body: `<div>${body.replace(/\n/g, "<br>")}</div>`,
-        bodyText: body,
+        body: bodyHtml || `<div>${bodyText.replace(/\n/g, "<br>")}</div>`,
+        bodyText,
       };
 
       if (mode === "compose" || mode === "forward") {
@@ -130,13 +117,18 @@ export function ComposeModal({
     }
   }
 
-  // Cmd+Enter to send
-  function handleKeyDown(e: React.KeyboardEvent) {
-    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-      e.preventDefault();
-      handleSend();
+  // Cmd+Enter to send (captured from RichEditor's contenteditable)
+  React.useEffect(() => {
+    if (!open) return;
+    function handleKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        handleSend();
+      }
     }
-  }
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [open, bodyText, bodyHtml, to, subject, cc, bcc, mode, threadId, messageId]);
 
   const title =
     mode === "compose"
@@ -149,7 +141,7 @@ export function ComposeModal({
 
   return (
     <Modal open={open} title={title} onClose={onClose}>
-      <div className="space-y-3" onKeyDown={handleKeyDown}>
+      <div className="space-y-3">
         {/* To (hidden for reply/replyAll) */}
         {(mode === "compose" || mode === "forward") && (
           <div>
@@ -200,15 +192,14 @@ export function ComposeModal({
 
         <div>
           <label className="block text-[10px] text-muted-foreground mb-1">Message</label>
-          <textarea
-            ref={bodyRef}
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
+          <RichEditor
+            content={bodyHtml}
+            onChange={(html, text) => {
+              setBodyHtml(html);
+              setBodyText(text);
+            }}
             placeholder="Write your message..."
-            rows={10}
-            className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-foreground
-              placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/50
-              resize-none thin-scroll"
+            autoFocus={mode === "reply" || mode === "replyAll"}
           />
         </div>
 
@@ -222,7 +213,7 @@ export function ComposeModal({
               {sending ? "Sending..." : "Send"}
             </Button>
             <span className="text-[10px] text-muted-foreground">
-              {navigator.platform?.includes("Mac") ? "⌘" : "Ctrl"}+Enter
+              {typeof navigator !== "undefined" && navigator.platform?.includes("Mac") ? "\u2318" : "Ctrl"}+Enter
             </span>
           </div>
           <Button variant="ghost" size="sm" onClick={onClose}>

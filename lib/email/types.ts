@@ -53,6 +53,16 @@ export type ThreadList = {
   resultSizeEstimate?: number;
 };
 
+// ── Split Inbox Categories ──────────────────────────────────
+
+export type InboxCategory = "important" | "updates" | "other";
+
+export const INBOX_CATEGORIES: { id: InboxCategory; label: string; description: string }[] = [
+  { id: "important", label: "Important", description: "Direct emails from people" },
+  { id: "updates", label: "Updates", description: "Notifications & automated" },
+  { id: "other", label: "Other", description: "Newsletters, promotions" },
+];
+
 export type Label = {
   id: string;
   name: string;
