@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { createSupabaseAdmin } from "@/lib/supabase";
+import { requireAuth } from "@/lib/auth-guard";
 
 export async function GET() {
-  const supabase = createSupabaseAdmin();
-  if (!supabase) return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+  const { admin: supabase } = auth;
 
   const { data: fields, error } = await supabase
     .from("crm_deal_fields")
@@ -20,8 +21,9 @@ export async function GET() {
 
 // Bulk update fields
 export async function PUT(request: Request) {
-  const supabase = createSupabaseAdmin();
-  if (!supabase) return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+  const { admin: supabase } = auth;
 
   const { fields } = await request.json();
 

@@ -14,7 +14,11 @@ async function sendTelegramMessage(chatId: number, text: string) {
 }
 
 // Called by Vercel cron or external scheduler
-export async function GET() {
+export async function GET(request: Request) {
+  const { verifyCron } = await import("@/lib/cron-auth");
+  const cronErr = verifyCron(request);
+  if (cronErr) return cronErr;
+
   const supabase = createSupabaseAdmin();
   if (!supabase || !BOT_TOKEN) {
     return NextResponse.json({ error: "Not configured" }, { status: 503 });

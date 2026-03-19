@@ -70,7 +70,12 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: "Invalid role. Must be bd_lead, marketing_lead, admin_lead, or null" }, { status: 400 });
   }
 
+  // RBAC: only admin_lead can change roles
   const admin = createSupabaseAdmin()!;
+  const { data: callerProfile } = await admin.from("profiles").select("crm_role").eq("id", user.id).single();
+  if (callerProfile?.crm_role !== "admin_lead") {
+    return NextResponse.json({ error: "Only admin leads can change team roles" }, { status: 403 });
+  }
 
   const { data: profile, error } = await admin
     .from("profiles")
