@@ -1,6 +1,6 @@
 /**
  * POST /api/telegram-client/qr-login
- * Initiate QR code login flow
+ * Initiate QR code login flow (requires auth -- this is the post-login connect flow)
  *
  * Returns: { ok: true, qrUrl: string, expiresAt: number }
  *
@@ -18,29 +18,8 @@ import {
   buildQRUrl,
   encryptSession,
 } from "@/lib/telegram-client";
+import { pendingQRConnects } from "@/lib/telegram-login-store";
 import { Api } from "telegram";
-
-// Pending QR sessions
-const qrSessions = new Map<
-  string,
-  {
-    client: ReturnType<typeof createTgClient>;
-    expiresAt: number;
-    confirmed: boolean;
-    tgUser?: { id: number; firstName: string; lastName?: string; username?: string };
-  }
->();
-
-// Cleanup
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, entry] of qrSessions) {
-    if (now > entry.expiresAt) {
-      entry.client.disconnect().catch(() => {});
-      qrSessions.delete(key);
-    }
-  }
-}, 60_000);
 
 export async function POST(_request: Request) {
   const auth = await requireAuth();
@@ -49,10 +28,10 @@ export async function POST(_request: Request) {
 
   try {
     // Clean up any existing QR session
-    const existing = qrSessions.get(user.id);
+    const existing = pendingQRConnects.get(user.id);
     if (existing) {
       existing.client.disconnect().catch(() => {});
-      qrSessions.delete(user.id);
+      pendingQRConnects.delete(user.id);
     }
 
     const client = createTgClient();
@@ -60,6 +39,13 @@ export async function POST(_request: Request) {
 
     const { token, expiresAt } = await requestQRLogin(client);
     const qrUrl = buildQRUrl(token);
+
+    // Add entry to map BEFORE registering event handler to avoid race condition
+    pendingQRConnects.set(user.id, {
+      client,
+      expiresAt: expiresAt * 1000,
+      confirmed: false,
+    });
 
     // Listen for login confirmation
     client.addEventHandler(async (update: Api.TypeUpdate) => {
@@ -77,7 +63,7 @@ export async function POST(_request: Request) {
             const authResult = result.authorization;
             if (authResult instanceof Api.auth.Authorization) {
               const tgUser = authResult.user as Api.User;
-              const entry = qrSessions.get(user.id);
+              const entry = pendingQRConnects.get(user.id);
               if (entry) {
                 entry.confirmed = true;
                 entry.tgUser = {
@@ -93,12 +79,6 @@ export async function POST(_request: Request) {
           console.error("[tg-client/qr-login] token update error:", err);
         }
       }
-    });
-
-    qrSessions.set(user.id, {
-      client,
-      expiresAt: expiresAt * 1000,
-      confirmed: false,
     });
 
     return NextResponse.json({
@@ -118,7 +98,7 @@ export async function GET(_request: Request) {
   if ("error" in auth) return auth.error;
   const { user, admin } = auth;
 
-  const entry = qrSessions.get(user.id);
+  const entry = pendingQRConnects.get(user.id);
   if (!entry) {
     return NextResponse.json({ status: "expired" });
   }
@@ -128,21 +108,29 @@ export async function GET(_request: Request) {
   }
 
   // Confirmed! Save session
-  const encryptedSession = encryptSession(entry.client);
+  try {
+    const encryptedSession = encryptSession(entry.client);
 
-  await admin.from("tg_client_sessions").upsert(
-    {
-      user_id: user.id,
-      session_encrypted: encryptedSession,
-      phone_number_hash: "qr_login",
-      phone_last4: null,
-      telegram_user_id: entry.tgUser.id,
-      is_active: true,
-      connected_at: new Date().toISOString(),
-      last_used_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id" }
-  );
+    const { error: sessionError } = await admin.from("tg_client_sessions").upsert(
+      {
+        user_id: user.id,
+        session_encrypted: encryptedSession,
+        phone_number_hash: "qr_login",
+        phone_last4: null,
+        telegram_user_id: entry.tgUser.id,
+        is_active: true,
+        connected_at: new Date().toISOString(),
+        last_used_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id" }
+    );
+
+    if (sessionError) {
+      console.error("[tg-client/qr-login] failed to save session:", sessionError);
+    }
+  } catch (err) {
+    console.error("[tg-client/qr-login] failed to encrypt/save session:", err);
+  }
 
   // Audit log
   await admin.from("tg_client_audit_log").insert({
@@ -151,10 +139,12 @@ export async function GET(_request: Request) {
     target_type: "user",
     target_id: String(entry.tgUser.id),
     metadata: { method: "qr", username: entry.tgUser.username },
+  }).then(({ error }) => {
+    if (error) console.error("[tg-client/qr-login] audit log error:", error);
   });
 
   // Cleanup
-  qrSessions.delete(user.id);
+  pendingQRConnects.delete(user.id);
 
   return NextResponse.json({
     status: "confirmed",
