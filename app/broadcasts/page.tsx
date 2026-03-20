@@ -20,6 +20,7 @@ import {
   XCircle,
   Calendar,
   Ban,
+  FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { timeAgo } from "@/lib/utils";
@@ -91,6 +92,11 @@ export default function BroadcastsPage() {
   const [expandedBroadcast, setExpandedBroadcast] = React.useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = React.useState(false);
 
+  // Templates
+  type BotTemplate = { id: string; template_key: string; name: string; body_template: string; category: string | null };
+  const [templates, setTemplates] = React.useState<BotTemplate[]>([]);
+  const [showTemplates, setShowTemplates] = React.useState(false);
+
   // Formatting helpers
   const [cursorPos, setCursorPos] = React.useState(0);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
@@ -99,8 +105,10 @@ export default function BroadcastsPage() {
     Promise.all([
       fetch("/api/groups").then((r) => r.json()).catch(() => ({ groups: [] })),
       fetch("/api/groups/slugs").then((r) => r.json()).catch(() => ({ slugs: [] })),
+      fetch("/api/bot/templates").then((r) => r.json()).catch(() => ({ data: [] })),
     ])
-      .then(([groupsData, slugsData]) => {
+      .then(([groupsData, slugsData, tplData]) => {
+        setTemplates((tplData.data ?? []).filter((t: BotTemplate) => t.category === "broadcast" || t.category === "custom"));
         const slugMap: Record<string, string[]> = {};
         for (const s of slugsData.slugs ?? []) {
           if (!slugMap[s.group_id]) slugMap[s.group_id] = [];
@@ -418,10 +426,50 @@ export default function BroadcastsPage() {
           {/* Left: Compose */}
           <div className="space-y-4">
             <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5 space-y-4">
-              <h2 className="text-sm font-medium text-foreground flex items-center gap-2">
-                <MessageCircle className="h-4 w-4 text-primary" />
-                Compose Message
-              </h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-medium text-foreground flex items-center gap-2">
+                  <MessageCircle className="h-4 w-4 text-primary" />
+                  Compose Message
+                </h2>
+                {templates.length > 0 && (
+                  <button
+                    onClick={() => setShowTemplates(!showTemplates)}
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors",
+                      showTemplates ? "bg-primary/20 text-primary" : "text-muted-foreground hover:bg-white/5"
+                    )}
+                  >
+                    <FileText className="h-3 w-3" />
+                    Templates
+                  </button>
+                )}
+              </div>
+
+              {/* Template picker */}
+              {showTemplates && (
+                <div className="rounded-lg border border-white/10 bg-white/[0.02] p-2 space-y-1">
+                  <p className="text-[10px] text-muted-foreground px-2 py-1">
+                    Pick a template to use as your message body
+                  </p>
+                  {templates.map((tpl) => (
+                    <button
+                      key={tpl.id}
+                      onClick={() => {
+                        setMessage(tpl.body_template);
+                        setShowTemplates(false);
+                        toast.success(`Template "${tpl.name}" loaded`);
+                      }}
+                      className="w-full text-left rounded-lg px-3 py-2 hover:bg-white/5 transition-colors"
+                    >
+                      <p className="text-xs font-medium text-foreground">{tpl.name}</p>
+                      <p className="text-[10px] text-muted-foreground font-mono truncate mt-0.5">
+                        {tpl.body_template.slice(0, 80)}
+                        {tpl.body_template.length > 80 ? "..." : ""}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {/* Formatting toolbar */}
               <div className="flex items-center gap-1 border-b border-white/5 pb-2">
