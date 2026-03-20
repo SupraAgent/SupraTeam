@@ -4,9 +4,10 @@ import * as React from "react";
 import { SlideOver } from "@/components/ui/slide-over";
 import { cn, timeAgo } from "@/lib/utils";
 import Link from "next/link";
+import { Button } from "@/components/ui/button";
 import {
   Shield, ShieldOff, Users, MessageCircle, Tag, ExternalLink,
-  Activity, TrendingUp, BarChart3,
+  Activity, TrendingUp, BarChart3, Star, StarOff, RefreshCw, UserCheck,
 } from "lucide-react";
 
 type MessageHistoryEntry = { date: string; count: number };
@@ -37,6 +38,27 @@ type LinkedDeal = {
   stage: { name: string; color: string } | null;
 };
 
+type GroupMember = {
+  id: string;
+  telegram_user_id: number;
+  display_name: string | null;
+  username: string | null;
+  role: string;
+  message_count_7d: number;
+  message_count_30d: number;
+  last_message_at: string | null;
+  engagement_tier: string;
+  is_flagged: boolean;
+  flag_reason: string | null;
+  contact: { id: string; name: string; email: string | null; telegram_username: string | null } | null;
+};
+
+type MemberSummary = {
+  total: number;
+  byTier: Record<string, number>;
+  flaggedCount: number;
+};
+
 type GroupDetailPanelProps = {
   group: TgGroup | null;
   open: boolean;
@@ -46,18 +68,57 @@ type GroupDetailPanelProps = {
 export function GroupDetailPanel({ group, open, onClose }: GroupDetailPanelProps) {
   const [linkedDeals, setLinkedDeals] = React.useState<LinkedDeal[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [members, setMembers] = React.useState<GroupMember[]>([]);
+  const [memberSummary, setMemberSummary] = React.useState<MemberSummary | null>(null);
+  const [membersLoading, setMembersLoading] = React.useState(false);
+  const [syncing, setSyncing] = React.useState(false);
+  const [showMembers, setShowMembers] = React.useState(false);
 
   React.useEffect(() => {
     if (group && open) {
       setLoading(true);
-      // Fetch deals linked to this group's telegram_group_id
-      fetch(`/api/deals?tg_group_id=${group.id}`)
-        .then((r) => r.json())
-        .then((d) => setLinkedDeals(d.deals ?? []))
-        .catch(() => setLinkedDeals([]))
-        .finally(() => setLoading(false));
+      setShowMembers(false);
+      // Fetch deals and members in parallel
+      Promise.all([
+        fetch(`/api/deals?tg_group_id=${group.id}`).then((r) => r.json()).catch(() => ({ deals: [] })),
+        fetch(`/api/groups/members?group_id=${group.id}`).then((r) => r.json()).catch(() => ({ members: [], summary: null })),
+      ]).then(([dealsData, membersData]) => {
+        setLinkedDeals(dealsData.deals ?? []);
+        setMembers(membersData.members ?? []);
+        setMemberSummary(membersData.summary ?? null);
+      }).finally(() => setLoading(false));
     }
   }, [group, open]);
+
+  async function syncMembers() {
+    if (!group) return;
+    setSyncing(true);
+    try {
+      await fetch("/api/groups/members", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ group_id: group.id }),
+      });
+      // Refresh
+      const res = await fetch(`/api/groups/members?group_id=${group.id}`);
+      const data = await res.json();
+      setMembers(data.members ?? []);
+      setMemberSummary(data.summary ?? null);
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  async function toggleFlag(member: GroupMember) {
+    await fetch("/api/groups/members", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: member.id, is_flagged: !member.is_flagged }),
+    });
+    setMembers((prev) =>
+      prev.map((m) => m.id === member.id ? { ...m, is_flagged: !m.is_flagged } : m)
+    );
+  }
 
   if (!group) return null;
 
@@ -252,6 +313,133 @@ export function GroupDetailPanel({ group, open, onClose }: GroupDetailPanelProps
                   )}
                 </Link>
               ))}
+            </div>
+          )}
+        </div>
+
+        {/* Member Analytics */}
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <p className="text-[11px] font-medium text-muted-foreground">
+              Members {memberSummary ? `(${memberSummary.total} tracked)` : ""}
+            </p>
+            <div className="flex items-center gap-1.5">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 text-[10px] px-2"
+                onClick={syncMembers}
+                disabled={syncing}
+              >
+                <RefreshCw className={cn("mr-1 h-2.5 w-2.5", syncing && "animate-spin")} />
+                {syncing ? "Syncing..." : "Sync"}
+              </Button>
+              {members.length > 0 && (
+                <button
+                  onClick={() => setShowMembers(!showMembers)}
+                  className="text-[10px] text-primary hover:underline"
+                >
+                  {showMembers ? "Hide" : "Show"}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Tier breakdown */}
+          {memberSummary && memberSummary.total > 0 && (
+            <div className="flex items-center gap-1 flex-wrap mb-2">
+              {(["champion", "active", "casual", "lurker", "dormant", "new"] as const).map((tier) => {
+                const count = memberSummary.byTier[tier] ?? 0;
+                if (count === 0) return null;
+                const tierColors: Record<string, string> = {
+                  champion: "bg-emerald-500/20 text-emerald-400",
+                  active: "bg-blue-500/20 text-blue-400",
+                  casual: "bg-purple-500/20 text-purple-400",
+                  lurker: "bg-yellow-500/20 text-yellow-400",
+                  dormant: "bg-red-500/20 text-red-400",
+                  new: "bg-white/10 text-muted-foreground",
+                };
+                return (
+                  <span
+                    key={tier}
+                    className={cn("rounded-md px-1.5 py-0.5 text-[9px] font-medium capitalize", tierColors[tier])}
+                  >
+                    {tier} {count}
+                  </span>
+                );
+              })}
+              {memberSummary.flaggedCount > 0 && (
+                <span className="rounded-md px-1.5 py-0.5 text-[9px] font-medium bg-amber-500/20 text-amber-400">
+                  <Star className="inline h-2.5 w-2.5 mr-0.5" />
+                  {memberSummary.flaggedCount} flagged
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Member list */}
+          {showMembers && (
+            <div className="space-y-1 max-h-[250px] overflow-y-auto thin-scroll">
+              {members.map((m) => {
+                const tierColors: Record<string, string> = {
+                  champion: "text-emerald-400",
+                  active: "text-blue-400",
+                  casual: "text-purple-400",
+                  lurker: "text-yellow-400",
+                  dormant: "text-red-400",
+                  new: "text-muted-foreground",
+                };
+                const roleIcons: Record<string, string> = {
+                  creator: "bg-amber-500/20 text-amber-400",
+                  administrator: "bg-blue-500/20 text-blue-400",
+                };
+                return (
+                  <div
+                    key={m.id}
+                    className="flex items-center gap-2 rounded-lg border border-white/5 bg-white/[0.02] px-2.5 py-1.5"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-foreground font-medium truncate">
+                          {m.display_name ?? m.username ?? `User ${m.telegram_user_id}`}
+                        </span>
+                        {roleIcons[m.role] && (
+                          <span className={cn("rounded px-1 py-0.5 text-[8px] capitalize", roleIcons[m.role])}>
+                            {m.role === "creator" ? "owner" : "admin"}
+                          </span>
+                        )}
+                        {m.contact && (
+                          <span title={`Linked: ${m.contact.name}`}>
+                            <UserCheck className="h-3 w-3 text-emerald-400 shrink-0" />
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 text-[9px] text-muted-foreground mt-0.5">
+                        <span className={tierColors[m.engagement_tier] ?? "text-muted-foreground"}>
+                          {m.engagement_tier}
+                        </span>
+                        <span>{m.message_count_7d} msgs/7d</span>
+                        {m.username && <span className="font-mono">@{m.username}</span>}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => toggleFlag(m)}
+                      className={cn(
+                        "shrink-0 p-1 rounded transition-colors",
+                        m.is_flagged ? "text-amber-400 hover:text-amber-300" : "text-muted-foreground/30 hover:text-amber-400"
+                      )}
+                      title={m.is_flagged ? "Unflag" : "Flag as high-value"}
+                    >
+                      {m.is_flagged ? <Star className="h-3.5 w-3.5 fill-current" /> : <Star className="h-3.5 w-3.5" />}
+                    </button>
+                  </div>
+                );
+              })}
+              {members.length === 0 && (
+                <p className="text-[10px] text-muted-foreground/50 text-center py-2">
+                  No members tracked yet. Click Sync to fetch from Telegram.
+                </p>
+              )}
             </div>
           )}
         </div>
