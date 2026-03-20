@@ -30,7 +30,7 @@ Two independent, unbiased product reviewers audited the SupraCRM codebase agains
 | 5 | Custom Fields & Properties | 3 | 85 | 10.4 | **70** | +59.6 | -15 |
 | 6 | Duplicate Detection | 2 | 78 | 7.2 | **75** | +67.8 | -3 |
 | 7 | Native TG Integration Depth | 5 | 95 | 53.6 | **79** | +25.4 | -16 |
-| 8 | Multi-Account Management | 5 | 95 | 23.8 | **38** | +14.2 | -57 |
+| 8 | Multi-Account Management | 5 | 95 | 23.8 | **60** | +36.2 | -35 |
 | 9 | TG Folder Sync | 4 | 90 | 0.0 | **13** | +13.0 | -77 |
 | 10 | Personal Account Support | 4 | 95 | 27.2 | **65** | +37.8 | -30 |
 | 11 | Group/Channel Monitoring | 3 | 80 | 61.4 | **77** | +15.6 | -3 |
@@ -60,8 +60,8 @@ Two independent, unbiased product reviewers audited the SupraCRM codebase agains
 
 | Metric | v1 (Before) | v2 (After) | Change |
 |--------|-------------|------------|--------|
-| **Consensus Average** | **32.5** | **61.6** | **+29.1** |
-| **Weighted Average** | ~32 | ~63 | **+31** |
+| **Consensus Average** | **32.5** | **62.3** | **+29.8** |
+| **Weighted Average** | ~32 | ~64 | **+32** |
 
 ### Rank vs Competitors (Weighted)
 
@@ -70,7 +70,7 @@ Two independent, unbiased product reviewers audited the SupraCRM codebase agains
 | 1 | CRMChat | 80.5 |
 | 2 | Respond.io | 72.3 |
 | 3 | Entergram | 66.6 |
-| **4** | **SupraCRM** | **~63** |
+| **4** | **SupraCRM** | **~64** |
 | 5 | NetHunt CRM | 57.8 |
 | 6 | Planfix | 55.5 |
 
@@ -118,7 +118,7 @@ Two independent, unbiased product reviewers audited the SupraCRM codebase agains
 | QR Code Lead Capture | 18 | 85 | -67 | Not a priority for internal team use |
 | Third-Party CRM Sync | 20 | 85 | -65 | Outbound webhooks only, no bidirectional sync |
 | Omnichannel | 30 | 95 | -65 | Telegram-first by design (not a gap to close) |
-| Multi-Account Management | 38 | 95 | -57 | Single bot architecture, MTProto exists but basic |
+| Multi-Account Management | 60 | 95 | -35 | Bot registry + per-group assignment, needs unified inbox |
 | AI Lead Qualification | 49 | 85 | -36 | Built into AI agent but no dedicated scoring system |
 | Zapier / API Access | 57 | 90 | -33 | Outbound webhooks only, no public API or Zapier app |
 
@@ -150,6 +150,14 @@ Two independent, unbiased product reviewers audited the SupraCRM codebase agains
 - Data retention policies, GDPR data export, right to erasure, consent records
 - View density system (compact/comfortable/spacious)
 - Welcome wizard modal and enhanced onboarding checklist
+
+### Category 8: Multi-Account Management (v2.1)
+- `crm_bots` registry table with encrypted token storage per bot
+- Bot CRUD API with Telegram verification on add (getMe)
+- Per-bot webhook routing (`/api/bot/webhook/[botId]`)
+- Settings UI: bot list with add/remove, default selection, activate/deactivate, webhook status
+- Groups page: per-group bot assignment dropdown, bot filter, bulk assign bot
+- Backwards-compatible: falls back to `TELEGRAM_BOT_TOKEN` env var if no bots registered
 
 ---
 

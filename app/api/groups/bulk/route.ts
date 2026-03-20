@@ -6,7 +6,7 @@ export async function POST(request: Request) {
   if ("error" in auth) return auth.error;
   const { admin: supabase } = auth;
 
-  const { action, group_ids, slug } = await request.json();
+  const { action, group_ids, slug, bot_id } = await request.json();
 
   if (!action || !Array.isArray(group_ids) || group_ids.length === 0) {
     return NextResponse.json(
@@ -57,6 +57,18 @@ export async function POST(request: Request) {
     const { error } = await supabase
       .from("tg_groups")
       .update({ is_archived: false, archived_at: null })
+      .in("id", group_ids);
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    for (const gid of group_ids) results.push({ group_id: gid, ok: true });
+  } else if (action === "assign_bot") {
+    if (!bot_id) {
+      return NextResponse.json({ error: "bot_id required for assign_bot" }, { status: 400 });
+    }
+    const { error } = await supabase
+      .from("tg_groups")
+      .update({ bot_id, updated_at: new Date().toISOString() })
       .in("id", group_ids);
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });

@@ -31,7 +31,7 @@ export async function getBotById(botId: string): Promise<BotEntry | null> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const tokenRaw = data?.token as any;
   const encryptedToken = Array.isArray(tokenRaw) ? tokenRaw[0]?.encrypted_token : tokenRaw?.encrypted_token;
-  if (!encryptedToken) return null;
+  if (!data || !encryptedToken) return null;
 
   const entry: BotEntry = {
     id: data.id,
@@ -60,7 +60,7 @@ export async function getDefaultBot(): Promise<BotEntry | null> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const defaultTokenRaw = data?.token as any;
   const defaultEncryptedToken = Array.isArray(defaultTokenRaw) ? defaultTokenRaw[0]?.encrypted_token : defaultTokenRaw?.encrypted_token;
-  if (!defaultEncryptedToken) {
+  if (!data || !defaultEncryptedToken) {
     // Fallback: env var for backwards compat
     const envToken = process.env.TELEGRAM_BOT_TOKEN;
     if (!envToken) return null;

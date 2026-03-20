@@ -3,228 +3,385 @@
 import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { MessageCircle, Check, X, RefreshCw, Save } from "lucide-react";
+import {
+  MessageCircle,
+  Check,
+  X,
+  RefreshCw,
+  Plus,
+  Trash2,
+  Star,
+  StarOff,
+  Wifi,
+  WifiOff,
+  Bot,
+  ChevronDown,
+  ChevronUp,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+
+type BotRecord = {
+  id: string;
+  label: string;
+  bot_username: string | null;
+  bot_first_name: string | null;
+  bot_telegram_id: number | null;
+  is_active: boolean;
+  is_default: boolean;
+  groups_count: number;
+  last_verified_at: string | null;
+  created_at: string;
+};
 
 type WebhookInfo = {
-  url: string;
-  pending_update_count: number;
-  last_error_date?: number;
+  url?: string;
+  pending_update_count?: number;
   last_error_message?: string;
-};
-
-type BotInfo = {
-  ok: boolean;
-  result?: {
-    id: number;
-    is_bot: boolean;
-    first_name: string;
-    username: string;
-  };
-};
-
-type TokenInfo = {
-  exists: boolean;
-  masked?: string;
+  bot_id?: string;
+  label?: string;
 };
 
 export default function TelegramSettingsPage() {
-  const [webhookInfo, setWebhookInfo] = React.useState<WebhookInfo | null>(null);
-  const [botInfo, setBotInfo] = React.useState<BotInfo | null>(null);
-  const [tokenInfo, setTokenInfo] = React.useState<TokenInfo | null>(null);
+  const [bots, setBots] = React.useState<BotRecord[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [setting, setSetting] = React.useState(false);
+  const [adding, setAdding] = React.useState(false);
   const [newToken, setNewToken] = React.useState("");
-  const [savingToken, setSavingToken] = React.useState(false);
-  const [tokenMsg, setTokenMsg] = React.useState("");
+  const [newLabel, setNewLabel] = React.useState("");
+  const [addError, setAddError] = React.useState("");
+  const [settingUp, setSettingUp] = React.useState(false);
+  const [setupResult, setSetupResult] = React.useState<string | null>(null);
+  const [expandedBot, setExpandedBot] = React.useState<string | null>(null);
+  const [webhookInfos, setWebhookInfos] = React.useState<Record<string, WebhookInfo>>({});
 
-  async function fetchStatus() {
+  async function fetchBots() {
     setLoading(true);
     try {
-      const [webhookRes, statusRes, tokenRes] = await Promise.all([
-        fetch("/api/bot/setup").then((r) => r.json()).catch(() => null),
-        fetch("/api/bot/status").then((r) => r.json()).catch(() => null),
-        fetch("/api/tokens?provider=telegram_bot").then((r) => r.ok ? r.json() : null).catch(() => null),
-      ]);
-      if (webhookRes) setWebhookInfo(webhookRes);
-      if (statusRes) setBotInfo(statusRes);
-      if (tokenRes?.data) {
-        setTokenInfo({ exists: true, masked: tokenRes.data.masked });
-      } else {
-        setTokenInfo({ exists: false });
+      const res = await fetch("/api/bots");
+      if (res.ok) {
+        const { data } = await res.json();
+        setBots(data ?? []);
       }
     } finally {
       setLoading(false);
     }
   }
 
-  React.useEffect(() => { fetchStatus(); }, []);
+  React.useEffect(() => { fetchBots(); }, []);
 
-  async function handleSetWebhook() {
-    setSetting(true);
+  async function handleAddBot() {
+    if (!newToken.trim()) return;
+    setAdding(true);
+    setAddError("");
+    try {
+      const res = await fetch("/api/bots", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: newToken.trim(), label: newLabel.trim() || undefined }),
+      });
+      if (res.ok) {
+        setNewToken("");
+        setNewLabel("");
+        await fetchBots();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setAddError(err.error ?? "Failed to add bot");
+      }
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    if (!confirm("Remove this bot? Groups will be unlinked.")) return;
+    await fetch(`/api/bots/${id}`, { method: "DELETE" });
+    await fetchBots();
+  }
+
+  async function handleSetDefault(id: string) {
+    await fetch(`/api/bots/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_default: true }),
+    });
+    await fetchBots();
+  }
+
+  async function handleToggleActive(id: string, currentlyActive: boolean) {
+    await fetch(`/api/bots/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_active: !currentlyActive }),
+    });
+    await fetchBots();
+  }
+
+  async function handleSetupWebhooks() {
+    setSettingUp(true);
+    setSetupResult(null);
     try {
       const res = await fetch("/api/bot/setup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
       });
-      if (res.ok) {
-        await fetchStatus();
-      }
-    } finally {
-      setSetting(false);
-    }
-  }
-
-  async function handleSaveToken() {
-    if (!newToken.trim()) return;
-    setSavingToken(true);
-    setTokenMsg("");
-    try {
-      const res = await fetch("/api/tokens", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: "telegram_bot", token: newToken.trim() }),
-      });
-      if (res.ok) {
-        setTokenMsg("Token saved. Restart the bot to apply.");
-        setNewToken("");
-        setTokenInfo({ exists: true, masked: "••••" + newToken.slice(-4) });
+      const data = await res.json();
+      if (data.ok) {
+        setSetupResult(`Webhooks configured for ${data.bots_configured} bot(s)`);
+        // Fetch webhook info for each bot
+        for (const bot of bots) {
+          const whRes = await fetch(`/api/bot/setup?botId=${bot.id}`);
+          if (whRes.ok) {
+            const whData = await whRes.json();
+            setWebhookInfos((prev) => ({ ...prev, [bot.id]: whData }));
+          }
+        }
       } else {
-        const err = await res.json().catch(() => ({}));
-        setTokenMsg(err.error ?? "Failed to save token");
+        setSetupResult(`Failed: ${data.error ?? "Unknown error"}`);
       }
     } finally {
-      setSavingToken(false);
-      setTimeout(() => setTokenMsg(""), 5000);
+      setSettingUp(false);
+      setTimeout(() => setSetupResult(null), 8000);
     }
   }
 
-  const siteHost = (process.env.NEXT_PUBLIC_SITE_URL ?? "").replace(/^https?:\/\//, "");
-  const isConnected = webhookInfo?.url && siteHost && webhookInfo.url.includes(siteHost);
+  async function handleCheckWebhook(botId: string) {
+    const res = await fetch(`/api/bot/setup?botId=${botId}`);
+    if (res.ok) {
+      const data = await res.json();
+      setWebhookInfos((prev) => ({ ...prev, [botId]: data }));
+    }
+  }
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-semibold text-foreground">Telegram Settings</h1>
+        <h1 className="text-xl font-semibold text-foreground">Telegram Bots</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Manage your Telegram bot connection, webhook, and group integrations.
+          Register multiple bots, assign them to groups, and manage webhooks.
         </p>
       </div>
 
-      {/* Bot status */}
-      <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5 space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#2AABEE]/10">
-              <MessageCircle className="h-5 w-5 text-[#2AABEE]" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-foreground">
-                {botInfo?.result ? `@${botInfo.result.username}` : "Telegram Bot"}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {botInfo?.result ? botInfo.result.first_name : "Checking status..."}
-              </p>
-            </div>
-          </div>
-          <span className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
-            isConnected ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"
-          }`}>
-            {isConnected ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
-            {isConnected ? "Connected" : "Not connected"}
-          </span>
-        </div>
-
-        {/* Webhook info */}
-        <div className="space-y-2 text-xs">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Webhook URL</span>
-            <span className="text-foreground font-mono">{webhookInfo?.url || "--"}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Pending updates</span>
-            <span className="text-foreground">{webhookInfo?.pending_update_count ?? "--"}</span>
-          </div>
-          {webhookInfo?.last_error_message && (
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Last error</span>
-              <span className="text-red-400">{webhookInfo.last_error_message}</span>
-            </div>
-          )}
-        </div>
-
-        <div className="flex gap-2">
-          <Button size="sm" onClick={handleSetWebhook} disabled={setting}>
-            {setting ? "Setting up..." : isConnected ? "Reconnect Webhook" : "Connect Webhook"}
-          </Button>
-          <Button size="sm" variant="ghost" onClick={fetchStatus} disabled={loading}>
-            <RefreshCw className={`h-3.5 w-3.5 mr-1 ${loading ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
-        </div>
-      </div>
-
-      {/* Bot Token Management */}
-      <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5 space-y-4">
-        <h2 className="text-sm font-medium text-foreground">Bot Token</h2>
-
-        {tokenInfo?.exists && (
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs text-foreground">Stored token</p>
-              <p className="text-xs text-muted-foreground font-mono">{tokenInfo.masked}</p>
-            </div>
-            <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-400">
-              Encrypted
-            </span>
+      {/* Bot List */}
+      <div className="space-y-3">
+        {loading && bots.length === 0 && (
+          <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-8 text-center text-sm text-muted-foreground">
+            Loading bots...
           </div>
         )}
 
-        <div>
-          <label className="block text-xs text-muted-foreground mb-1.5">
-            {tokenInfo?.exists ? "Replace bot token" : "Add bot token"}
-          </label>
-          <div className="flex gap-2">
+        {!loading && bots.length === 0 && (
+          <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-8 text-center space-y-2">
+            <Bot className="h-8 w-8 text-muted-foreground mx-auto" />
+            <p className="text-sm text-muted-foreground">No bots registered yet. Add your first bot below.</p>
+          </div>
+        )}
+
+        {bots.map((bot) => {
+          const isExpanded = expandedBot === bot.id;
+          const wh = webhookInfos[bot.id];
+
+          return (
+            <div
+              key={bot.id}
+              className={cn(
+                "rounded-2xl border bg-white/[0.035] p-4 transition-colors",
+                bot.is_default ? "border-primary/30" : "border-white/10",
+                !bot.is_active && "opacity-50"
+              )}
+            >
+              {/* Header row */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className={cn(
+                    "flex h-10 w-10 items-center justify-center rounded-xl shrink-0",
+                    bot.is_active ? "bg-[#2AABEE]/10" : "bg-white/5"
+                  )}>
+                    <MessageCircle className={cn("h-5 w-5", bot.is_active ? "text-[#2AABEE]" : "text-muted-foreground")} />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium text-foreground truncate">{bot.label}</p>
+                      {bot.is_default && (
+                        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary shrink-0">
+                          DEFAULT
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {bot.bot_username ? `@${bot.bot_username}` : "Unknown"} · {bot.groups_count} group{bot.groups_count !== 1 ? "s" : ""}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {!bot.is_default && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-8 w-8 p-0"
+                      title="Set as default"
+                      onClick={() => handleSetDefault(bot.id)}
+                    >
+                      <StarOff className="h-3.5 w-3.5 text-muted-foreground" />
+                    </Button>
+                  )}
+                  {bot.is_default && (
+                    <Button size="sm" variant="ghost" className="h-8 w-8 p-0" disabled title="Default bot">
+                      <Star className="h-3.5 w-3.5 text-primary" />
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 w-8 p-0"
+                    title={bot.is_active ? "Deactivate" : "Activate"}
+                    onClick={() => handleToggleActive(bot.id, bot.is_active)}
+                  >
+                    {bot.is_active ? <Wifi className="h-3.5 w-3.5 text-emerald-400" /> : <WifiOff className="h-3.5 w-3.5 text-red-400" />}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 w-8 p-0"
+                    onClick={() => setExpandedBot(isExpanded ? null : bot.id)}
+                  >
+                    {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 w-8 p-0 text-red-400 hover:text-red-300"
+                    title="Remove bot"
+                    onClick={() => handleDelete(bot.id)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+
+              {/* Expanded details */}
+              {isExpanded && (
+                <div className="mt-4 space-y-3 border-t border-white/5 pt-4">
+                  <div className="grid grid-cols-2 gap-3 text-xs">
+                    <div>
+                      <span className="text-muted-foreground">Bot ID</span>
+                      <p className="text-foreground font-mono">{bot.bot_telegram_id ?? "--"}</p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Groups managed</span>
+                      <p className="text-foreground">{bot.groups_count}</p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Last verified</span>
+                      <p className="text-foreground">{bot.last_verified_at ? new Date(bot.last_verified_at).toLocaleString() : "Never"}</p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Added</span>
+                      <p className="text-foreground">{new Date(bot.created_at).toLocaleDateString()}</p>
+                    </div>
+                  </div>
+
+                  {/* Webhook status */}
+                  {wh && (
+                    <div className="rounded-xl bg-white/[0.03] p-3 space-y-1 text-xs">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Webhook</span>
+                        <span className="text-foreground font-mono truncate max-w-[60%]">{wh.url ?? "Not set"}</span>
+                      </div>
+                      {wh.pending_update_count !== undefined && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Pending</span>
+                          <span className="text-foreground">{wh.pending_update_count}</span>
+                        </div>
+                      )}
+                      {wh.last_error_message && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Error</span>
+                          <span className="text-red-400">{wh.last_error_message}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <Button size="sm" variant="ghost" onClick={() => handleCheckWebhook(bot.id)}>
+                    <RefreshCw className="h-3 w-3 mr-1" /> Check webhook
+                  </Button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Add Bot */}
+      <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5 space-y-4">
+        <h2 className="text-sm font-medium text-foreground flex items-center gap-2">
+          <Plus className="h-4 w-4" /> Add Bot
+        </h2>
+
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs text-muted-foreground mb-1.5">Bot token (from @BotFather)</label>
             <Input
               type="password"
               value={newToken}
               onChange={(e) => setNewToken(e.target.value)}
               placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
-              className="flex-1 font-mono text-xs"
+              className="font-mono text-xs"
             />
-            <Button size="sm" onClick={handleSaveToken} disabled={savingToken || !newToken.trim()}>
-              <Save className="mr-1 h-3.5 w-3.5" />
-              {savingToken ? "Saving..." : "Save"}
-            </Button>
           </div>
-          {tokenMsg && (
-            <p className="mt-2 text-xs text-primary">{tokenMsg}</p>
-          )}
+          <div>
+            <label className="block text-xs text-muted-foreground mb-1.5">Label (optional)</label>
+            <Input
+              value={newLabel}
+              onChange={(e) => setNewLabel(e.target.value)}
+              placeholder='e.g. "BD Bot", "Marketing Bot"'
+              className="text-xs"
+            />
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Button size="sm" onClick={handleAddBot} disabled={adding || !newToken.trim()}>
+              {adding ? "Verifying..." : "Add Bot"}
+            </Button>
+            {addError && <p className="text-xs text-red-400">{addError}</p>}
+          </div>
         </div>
 
         <p className="text-xs text-muted-foreground">
-          Get a bot token from{" "}
-          <a
-            href="https://t.me/BotFather"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-primary hover:underline"
-          >
-            @BotFather
-          </a>
-          . Tokens are encrypted with AES-256-GCM before storage.
+          The token is verified with Telegram, then encrypted (AES-256-GCM) before storage. The first bot added becomes the default.
         </p>
       </div>
 
-      {/* Instructions */}
+      {/* Webhook Setup */}
+      {bots.length > 0 && (
+        <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5 space-y-4">
+          <h2 className="text-sm font-medium text-foreground">Webhooks</h2>
+          <p className="text-xs text-muted-foreground">
+            Set up webhooks for all active bots. Each bot gets its own webhook endpoint for receiving Telegram updates.
+          </p>
+          <div className="flex items-center gap-3">
+            <Button size="sm" onClick={handleSetupWebhooks} disabled={settingUp}>
+              {settingUp ? "Configuring..." : `Set Up Webhooks (${bots.filter((b) => b.is_active).length} bot${bots.filter((b) => b.is_active).length !== 1 ? "s" : ""})`}
+            </Button>
+            {setupResult && (
+              <p className={cn("text-xs", setupResult.startsWith("Failed") ? "text-red-400" : "text-emerald-400")}>
+                {setupResult}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Setup Guide */}
       <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5 space-y-3">
         <h2 className="text-sm font-medium text-foreground">Setup Guide</h2>
         <ol className="space-y-2 text-xs text-muted-foreground list-decimal list-inside">
-          <li>Add <span className="text-foreground font-mono">@SupraAdmin_bot</span> to a Telegram group as admin</li>
-          <li>The bot will auto-register the group in the CRM</li>
-          <li>Create a deal and paste the group&apos;s TG link in the deal detail panel</li>
-          <li>Messages in that group will appear as notifications in the CRM</li>
-          <li>Stage changes on deals will be sent to the linked TG group</li>
+          <li>Create bots via <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">@BotFather</a> — one per team (BD, Marketing, Admin)</li>
+          <li>Add each bot token above — it&apos;s verified with Telegram and encrypted</li>
+          <li>Click &quot;Set Up Webhooks&quot; to activate all bots</li>
+          <li>Add bots as admin to Telegram groups — groups auto-register and link to that bot</li>
+          <li>In the Groups page, you can reassign groups between bots</li>
         </ol>
       </div>
     </div>
