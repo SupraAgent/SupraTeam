@@ -185,12 +185,25 @@ async function main() {
     console.error("[poll-notifications] Retry error:", err);
   }
 
-  // Process scheduled messages
+  // Process workflow resume messages (delay nodes)
+  try {
+    const resumeRes = await fetch(`${APP_URL}/api/workflows/resume`, { method: "POST" });
+    if (resumeRes.ok) {
+      const data = await resumeRes.json();
+      if (data.resumed > 0) console.log(`[poll-notifications] Resumed ${data.resumed} workflow runs`);
+      if (data.failed > 0) console.log(`[poll-notifications] ${data.failed} workflow resumes failed`);
+    }
+  } catch (err) {
+    console.error("[poll-notifications] Workflow resume error:", err);
+  }
+
+  // Process scheduled messages (skip workflow resume sentinels with tg_chat_id=0)
   try {
     const { data: scheduled } = await supabase
       .from("crm_scheduled_messages")
       .select("*")
       .eq("status", "pending")
+      .neq("tg_chat_id", 0)
       .lte("send_at", new Date().toISOString())
       .order("send_at")
       .limit(10);
