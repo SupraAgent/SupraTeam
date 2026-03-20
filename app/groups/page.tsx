@@ -34,6 +34,7 @@ type TgGroup = {
   group_type: string | null;
   group_url: string | null;
   bot_is_admin: boolean;
+  bot_id: string | null;
   member_count: number | null;
   is_archived: boolean;
   archived_at: string | null;
@@ -47,6 +48,15 @@ type TgGroup = {
   slugs: string[];
   message_history: MessageHistoryEntry[];
   auto_archive_enabled: boolean;
+};
+
+type BotInfo = {
+  id: string;
+  label: string;
+  bot_username: string | null;
+  is_active: boolean;
+  is_default: boolean;
+  groups_count: number;
 };
 
 type SortKey = "name" | "last_active" | "members" | "health";
@@ -302,11 +312,13 @@ function ComparisonModal({
 
 export default function GroupsPage() {
   const [groups, setGroups] = React.useState<TgGroup[]>([]);
+  const [bots, setBots] = React.useState<BotInfo[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [search, setSearch] = React.useState("");
   const [slugFilter, setSlugFilter] = React.useState<string | null>(null);
   const [healthFilter, setHealthFilter] = React.useState<HealthStatus | null>(null);
   const [adminFilter, setAdminFilter] = React.useState<boolean | null>(null);
+  const [botFilter, setBotFilter] = React.useState<string | null>(null);
   const [showArchived, setShowArchived] = React.useState(false);
   const [sortBy, setSortBy] = React.useState<SortKey>("name");
   const [addingSlug, setAddingSlug] = React.useState<string | null>(null);
@@ -319,12 +331,23 @@ export default function GroupsPage() {
   const [showComparison, setShowComparison] = React.useState(false);
   const [selectedGroup, setSelectedGroup] = React.useState<TgGroup | null>(null);
 
+  const botMap = React.useMemo(() => {
+    const m: Record<string, BotInfo> = {};
+    for (const b of bots) m[b.id] = b;
+    return m;
+  }, [bots]);
+
   const fetchGroups = React.useCallback(async () => {
     try {
-      const [groupsRes, slugsRes] = await Promise.all([
+      const [groupsRes, slugsRes, botsRes] = await Promise.all([
         fetch("/api/groups"),
         fetch("/api/groups/slugs"),
+        fetch("/api/bots"),
       ]);
+      if (botsRes.ok) {
+        const botsData = await botsRes.json();
+        setBots(botsData.data ?? []);
+      }
       if (groupsRes.ok) {
         const data = await groupsRes.json();
         const rawGroups = data.groups ?? [];
@@ -338,6 +361,7 @@ export default function GroupsPage() {
           rawGroups.map((g: TgGroup) => ({
             ...g,
             slugs: slugMap[g.id] ?? [],
+            bot_id: g.bot_id ?? null,
             is_archived: g.is_archived ?? false,
             message_count_7d: g.message_count_7d ?? 0,
             message_count_30d: g.message_count_30d ?? 0,
@@ -462,6 +486,7 @@ export default function GroupsPage() {
     if (slugFilter && !g.slugs.includes(slugFilter)) return false;
     if (healthFilter && g.health_status !== healthFilter) return false;
     if (adminFilter !== null && g.bot_is_admin !== adminFilter) return false;
+    if (botFilter && g.bot_id !== botFilter) return false;
     if (search) {
       const q = search.toLowerCase();
       return (
@@ -681,6 +706,22 @@ export default function GroupsPage() {
               : "Members Only"}
         </button>
 
+        {/* Bot filter */}
+        {bots.length > 1 && (
+          <select
+            value={botFilter ?? ""}
+            onChange={(e) => setBotFilter(e.target.value || null)}
+            className="rounded-lg border border-white/10 bg-transparent px-2 py-1.5 text-xs text-muted-foreground"
+          >
+            <option value="">All Bots</option>
+            {bots.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.label} ({b.groups_count})
+              </option>
+            ))}
+          </select>
+        )}
+
         {/* Sort */}
         <select
           value={sortBy}
@@ -737,6 +778,33 @@ export default function GroupsPage() {
             <RefreshCw className="mr-1 h-3 w-3" />
             Verify Status
           </Button>
+          {bots.length > 1 && (
+            <div className="flex items-center gap-1">
+              <select
+                className="h-7 rounded-lg border border-white/10 bg-transparent px-2 text-xs text-muted-foreground"
+                defaultValue=""
+                onChange={async (e) => {
+                  if (!e.target.value) return;
+                  const ids = Array.from(selected);
+                  await fetch("/api/groups/bulk", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ action: "assign_bot", group_ids: ids, bot_id: e.target.value }),
+                  });
+                  showMsg(`Bot assigned to ${ids.length} groups`);
+                  setSelected(new Set());
+                  setLoading(true);
+                  fetchGroups();
+                  e.target.value = "";
+                }}
+              >
+                <option value="">Assign Bot...</option>
+                {bots.map((b) => (
+                  <option key={b.id} value={b.id}>{b.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
           {selected.size >= 2 && selected.size <= 3 && (
             <Button
               size="sm"
@@ -817,6 +885,8 @@ export default function GroupsPage() {
           <GroupCard
             key={group.id}
             group={group}
+            bots={bots}
+            botMap={botMap}
             isSelected={selected.has(group.id)}
             onToggleSelect={() => toggleSelect(group.id)}
             onOpenDetail={() => setSelectedGroup(group)}
@@ -826,6 +896,14 @@ export default function GroupsPage() {
             setNewSlug={setNewSlug}
             onAddSlug={handleAddSlug}
             onRemoveSlug={handleRemoveSlug}
+            onAssignBot={async (groupId, botId) => {
+              await fetch("/api/groups/bulk", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action: "assign_bot", group_ids: [groupId], bot_id: botId }),
+              });
+              fetchGroups();
+            }}
           />
         ))}
 
@@ -925,6 +1003,8 @@ export default function GroupsPage() {
 
 function GroupCard({
   group,
+  bots,
+  botMap,
   isSelected,
   onToggleSelect,
   onOpenDetail,
@@ -934,8 +1014,11 @@ function GroupCard({
   setNewSlug,
   onAddSlug,
   onRemoveSlug,
+  onAssignBot,
 }: {
   group: TgGroup;
+  bots: BotInfo[];
+  botMap: Record<string, BotInfo>;
   isSelected: boolean;
   onToggleSelect: () => void;
   onOpenDetail: () => void;
@@ -945,6 +1028,7 @@ function GroupCard({
   setNewSlug: (v: string) => void;
   onAddSlug: (groupId: string) => void;
   onRemoveSlug: (groupId: string, slug: string) => void;
+  onAssignBot: (groupId: string, botId: string) => void;
 }) {
   const health = HEALTH_CONFIG[group.health_status];
 
@@ -1012,6 +1096,27 @@ function GroupCard({
           <span className={cn("h-1.5 w-1.5 rounded-full", health.dot)} />
           {health.label}
         </span>
+
+        {/* Bot assignment */}
+        {bots.length > 1 ? (
+          <select
+            value={group.bot_id ?? ""}
+            onChange={(e) => {
+              if (e.target.value) onAssignBot(group.id, e.target.value);
+            }}
+            className="h-7 rounded-lg border border-[#2AABEE]/20 bg-[#2AABEE]/5 px-2 text-[10px] text-[#2AABEE] appearance-none cursor-pointer"
+            title="Assigned bot"
+          >
+            <option value="">No bot</option>
+            {bots.map((b) => (
+              <option key={b.id} value={b.id}>{b.label}</option>
+            ))}
+          </select>
+        ) : group.bot_id && botMap[group.bot_id] ? (
+          <span className="flex items-center gap-1 rounded-full border border-[#2AABEE]/20 bg-[#2AABEE]/5 px-2 py-0.5 text-[10px] text-[#2AABEE]">
+            {botMap[group.bot_id].label}
+          </span>
+        ) : null}
 
         {/* Admin badge */}
         {group.bot_is_admin ? (
