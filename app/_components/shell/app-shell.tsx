@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import Link from "next/link";
 import { ShellProvider } from "./shell-context";
 import { DesktopSidebar } from "./desktop-sidebar";
@@ -27,7 +28,12 @@ function TelegramLoginButton({ size = "sm" }: { size?: "sm" | "md" }) {
 
 function AppShellInner({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  const { sidebarCollapsed } = useShell();
+  const { sidebarCollapsed, viewDensity } = useShell();
+
+  // Apply density data attribute to html element
+  React.useEffect(() => {
+    document.documentElement.setAttribute("data-density", viewDensity);
+  }, [viewDensity]);
 
   return (
     <>

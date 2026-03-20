@@ -324,6 +324,45 @@ body {
     conic-gradient(from 300deg at 6% 94%, rgba(184, 228, 240, 0.08) 0deg, transparent 40deg, transparent 360deg);
 }
 
+/* View density system */
+[data-density="compact"] {
+  --density-py: 0.25rem;
+  --density-px: 0.5rem;
+  --density-gap: 0.25rem;
+  --density-text: 0.75rem;
+  --density-heading: 0.8125rem;
+}
+[data-density="comfortable"] {
+  --density-py: 0.5rem;
+  --density-px: 0.75rem;
+  --density-gap: 0.5rem;
+  --density-text: 0.8125rem;
+  --density-heading: 0.875rem;
+}
+[data-density="spacious"] {
+  --density-py: 0.75rem;
+  --density-px: 1rem;
+  --density-gap: 0.75rem;
+  --density-text: 0.875rem;
+  --density-heading: 1rem;
+}
+
+/* Smooth page transitions */
+@keyframes slide-up-fade {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-slide-up {
+  animation: slide-up-fade 200ms ease-out;
+}
+
+/* Focus ring for keyboard navigation */
+.focus-ring:focus-visible {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}
+
 /* Ice tooltip badge */
 .ice-badge {
   font-size: 9px;
