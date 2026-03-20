@@ -78,6 +78,11 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
   const [taskDue, setTaskDue] = React.useState("");
   const [creatingTask, setCreatingTask] = React.useState(false);
 
+  // Custom fields
+  type CustomField = { id: string; field_name: string; label: string; field_type: string; options: string[] | null; required: boolean; board_type: string | null };
+  const [customFields, setCustomFields] = React.useState<CustomField[]>([]);
+  const [customValues, setCustomValues] = React.useState<Record<string, string>>({});
+
   // Load deal data into editable state
   React.useEffect(() => {
     if (deal && open) {
@@ -95,6 +100,8 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
         fetch(`/api/deals/${deal.id}/notes`).then((r) => r.json()).then((d) => setNotes(d.notes ?? [])).catch(() => setNotes([])),
         fetch(`/api/deals/${deal.id}/activity`).then((r) => r.json()).then((d) => setActivities(d.activities ?? [])).catch(() => setActivities([])),
         fetch(`/api/docs?entity_type=deal&entity_id=${deal.id}`).then((r) => r.json()).then((d) => setLinkedDocs(d.docs ?? [])).catch(() => setLinkedDocs([])),
+        fetch("/api/pipeline/fields").then((r) => r.json()).then((d) => setCustomFields(d.fields ?? [])).catch(() => {}),
+        fetch(`/api/deals/${deal.id}`).then((r) => r.json()).then((d) => setCustomValues(d.custom_fields ?? {})).catch(() => {}),
       ]).finally(() => setLoadingContent(false));
     }
   }, [deal, open]);
@@ -115,6 +122,7 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
           stage_id: stageId || null,
           board_type: boardType,
           telegram_chat_link: tgLink || null,
+          custom_fields: customValues,
         }),
       });
       if (res.ok) {
@@ -301,6 +309,41 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
               <label className="text-[11px] font-medium text-muted-foreground">Telegram Chat Link</label>
               <Input value={tgLink} onChange={(e) => setTgLink(e.target.value)} placeholder="https://t.me/..." className="mt-1" />
             </div>
+
+            {/* Custom fields */}
+            {customFields
+              .filter((f) => !f.board_type || f.board_type === boardType)
+              .map((field) => (
+                <div key={field.id}>
+                  <label className="text-[11px] font-medium text-muted-foreground">
+                    {field.label}{field.required && " *"}
+                  </label>
+                  {field.field_type === "select" ? (
+                    <Select
+                      value={customValues[field.id] ?? ""}
+                      onChange={(e) => setCustomValues((prev) => ({ ...prev, [field.id]: e.target.value }))}
+                      options={(field.options ?? []).map((o) => ({ value: o, label: o }))}
+                      placeholder={`Select ${field.label.toLowerCase()}`}
+                      className="mt-1"
+                    />
+                  ) : field.field_type === "textarea" ? (
+                    <textarea
+                      value={customValues[field.id] ?? ""}
+                      onChange={(e) => setCustomValues((prev) => ({ ...prev, [field.id]: e.target.value }))}
+                      className="mt-1 w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-foreground outline-none focus:border-primary/40 min-h-[60px]"
+                      placeholder={field.label}
+                    />
+                  ) : (
+                    <Input
+                      type={field.field_type === "number" ? "number" : field.field_type === "date" ? "date" : field.field_type === "url" ? "url" : "text"}
+                      value={customValues[field.id] ?? ""}
+                      onChange={(e) => setCustomValues((prev) => ({ ...prev, [field.id]: e.target.value }))}
+                      placeholder={field.label}
+                      className="mt-1"
+                    />
+                  )}
+                </div>
+              ))}
 
             {/* Outcome tracking */}
             <div>

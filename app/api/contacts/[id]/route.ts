@@ -17,7 +17,18 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 
   if (error) return NextResponse.json({ error: "Contact not found" }, { status: 404 });
 
-  return NextResponse.json({ contact });
+  // Fetch custom field values
+  const { data: fieldValues } = await supabase
+    .from("crm_contact_field_values")
+    .select("field_id, value")
+    .eq("contact_id", id);
+
+  const custom_fields: Record<string, string> = {};
+  for (const fv of fieldValues ?? []) {
+    custom_fields[fv.field_id] = fv.value;
+  }
+
+  return NextResponse.json({ contact, custom_fields });
 }
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -46,6 +57,20 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (error) {
     console.error("[api/contacts/[id]] update error:", error);
     return NextResponse.json({ error: "Failed to update contact" }, { status: 500 });
+  }
+
+  // Save custom field values
+  if (raw.custom_fields && typeof raw.custom_fields === "object") {
+    for (const [fieldId, val] of Object.entries(raw.custom_fields)) {
+      if (val === null || val === "") {
+        await supabase.from("crm_contact_field_values").delete().eq("contact_id", id).eq("field_id", fieldId);
+      } else {
+        await supabase.from("crm_contact_field_values").upsert(
+          { contact_id: id, field_id: fieldId, value: String(val) },
+          { onConflict: "contact_id,field_id" }
+        );
+      }
+    }
   }
 
   return NextResponse.json({ contact, ok: true });

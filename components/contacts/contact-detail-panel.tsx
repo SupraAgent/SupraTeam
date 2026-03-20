@@ -64,6 +64,11 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
   const [duplicates, setDuplicates] = React.useState<Duplicate[]>([]);
   const [merging, setMerging] = React.useState(false);
 
+  // Custom fields
+  type CField = { id: string; label: string; field_type: string; options: string[] | null; required: boolean };
+  const [customFields, setCustomFields] = React.useState<CField[]>([]);
+  const [customValues, setCustomValues] = React.useState<Record<string, string>>({});
+
   React.useEffect(() => {
     if (contact && open) {
       setName(contact.name);
@@ -79,6 +84,8 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
 
       fetch("/api/pipeline").then((r) => r.json()).then((d) => setStages(d.stages ?? [])).catch(() => {});
       fetch(`/api/docs?entity_type=contact&entity_id=${contact.id}`).then((r) => r.json()).then((d) => setLinkedDocs(d.docs ?? [])).catch(() => setLinkedDocs([]));
+      fetch("/api/contacts/fields").then((r) => r.json()).then((d) => setCustomFields(d.fields ?? [])).catch(() => {});
+      fetch(`/api/contacts/${contact.id}`).then((r) => r.json()).then((d) => setCustomValues(d.custom_fields ?? {})).catch(() => {});
 
       // Find duplicates
       const params = new URLSearchParams({ exclude: contact.id });
@@ -112,6 +119,7 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
           lifecycle_stage: lifecycle,
           source,
           notes: notes || null,
+          custom_fields: customValues,
         }),
       });
       if (res.ok) {
@@ -276,6 +284,44 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
           <label className="text-[11px] font-medium text-muted-foreground">Notes</label>
           <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="mt-1 min-h-[80px]" />
         </div>
+
+        {/* Custom fields */}
+        {customFields.length > 0 && (
+          <div className="space-y-3 pt-1 border-t border-white/10">
+            <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wider pt-2">Custom Fields</p>
+            {customFields.map((field) => (
+              <div key={field.id}>
+                <label className="text-[11px] font-medium text-muted-foreground">
+                  {field.label}{field.required && " *"}
+                </label>
+                {field.field_type === "select" ? (
+                  <Select
+                    value={customValues[field.id] ?? ""}
+                    onChange={(e) => setCustomValues((prev) => ({ ...prev, [field.id]: e.target.value }))}
+                    options={(field.options ?? []).map((o) => ({ value: o, label: o }))}
+                    placeholder={`Select ${field.label.toLowerCase()}`}
+                    className="mt-1"
+                  />
+                ) : field.field_type === "textarea" ? (
+                  <Textarea
+                    value={customValues[field.id] ?? ""}
+                    onChange={(e) => setCustomValues((prev) => ({ ...prev, [field.id]: e.target.value }))}
+                    placeholder={field.label}
+                    className="mt-1 min-h-[60px]"
+                  />
+                ) : (
+                  <Input
+                    type={field.field_type === "number" ? "number" : field.field_type === "date" ? "date" : field.field_type === "url" ? "url" : "text"}
+                    value={customValues[field.id] ?? ""}
+                    onChange={(e) => setCustomValues((prev) => ({ ...prev, [field.id]: e.target.value }))}
+                    placeholder={field.label}
+                    className="mt-1"
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Timestamps */}
         <div className="space-y-1 pt-2">
