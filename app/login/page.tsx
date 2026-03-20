@@ -30,7 +30,7 @@ export default function LoginPage() {
   const widgetRef = React.useRef<HTMLDivElement>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(false);
-  const [method, setMethod] = React.useState<LoginMethod>("phone");
+  const [method, setMethod] = React.useState<LoginMethod>("qr");
 
   // Phone login state
   const [phone, setPhone] = React.useState("");
