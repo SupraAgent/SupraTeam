@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { Bell, Check, CheckCheck, ExternalLink, ArrowRight, MessageCircle, GitBranch, UserPlus, AtSign, Clock } from "lucide-react";
+import { Bell, Check, CheckCheck, ExternalLink, ArrowRight, MessageCircle, GitBranch, UserPlus, AtSign, Clock, Timer, CheckCircle2, Settings } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
+import Link from "next/link";
 
 type Notification = {
   id: string;
@@ -13,6 +14,8 @@ type Notification = {
   tg_sender_name: string | null;
   pipeline_link: string | null;
   is_read: boolean;
+  status?: string;
+  grouped_count?: number;
   created_at: string;
   deal: {
     id: string;
@@ -111,6 +114,16 @@ export function NotificationCenter() {
     setUnreadCount((c) => Math.max(0, c - 1));
   }
 
+  async function handleAction(id: string, action: "handled" | "dismiss" | "snooze", until?: string) {
+    await fetch("/api/notifications", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: [id], action, until }),
+    });
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+    setUnreadCount((c) => Math.max(0, c - 1));
+  }
+
   return (
     <div className="relative" ref={panelRef}>
       {/* Bell button */}
@@ -142,6 +155,14 @@ export function NotificationCenter() {
                   Mark all read
                 </button>
               )}
+              <Link
+                href="/settings/notifications"
+                onClick={() => setOpen(false)}
+                className="rounded-lg p-1 text-muted-foreground transition hover:bg-white/5 hover:text-foreground"
+                title="Notification preferences"
+              >
+                <Settings className="h-3.5 w-3.5" />
+              </Link>
             </div>
           </div>
 
@@ -226,8 +247,15 @@ export function NotificationCenter() {
                             </div>
                           )}
 
-                          {/* Action buttons */}
-                          <div className="mt-2 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition">
+                          {/* Grouped count badge */}
+                          {(notif.grouped_count ?? 1) > 1 && (
+                            <span className="mt-1 inline-flex items-center rounded-full bg-blue-500/10 px-1.5 py-0.5 text-[9px] font-medium text-blue-400">
+                              +{(notif.grouped_count ?? 1) - 1} more message{(notif.grouped_count ?? 1) > 2 ? "s" : ""}
+                            </span>
+                          )}
+
+                          {/* Action buttons — always visible */}
+                          <div className="mt-2 flex items-center gap-1.5 flex-wrap">
                             {notif.tg_deep_link && (
                               <a
                                 href={notif.tg_deep_link}
@@ -236,7 +264,7 @@ export function NotificationCenter() {
                                 className="flex items-center gap-1 rounded-lg bg-blue-500/10 px-2 py-1 text-[10px] font-medium text-blue-400 transition hover:bg-blue-500/20"
                               >
                                 <MessageCircle className="h-3 w-3" />
-                                Open in Telegram
+                                Reply in TG
                               </a>
                             )}
                             {notif.pipeline_link && (
@@ -245,18 +273,26 @@ export function NotificationCenter() {
                                 className="flex items-center gap-1 rounded-lg bg-primary/10 px-2 py-1 text-[10px] font-medium text-primary transition hover:bg-primary/20"
                               >
                                 <ArrowRight className="h-3 w-3" />
-                                View in Pipeline
+                                Open Deal
                               </a>
                             )}
-                            {!notif.is_read && (
-                              <button
-                                onClick={() => markRead(notif.id)}
-                                className="flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] text-muted-foreground transition hover:bg-white/5 hover:text-foreground"
-                              >
-                                <Check className="h-3 w-3" />
-                                Mark read
-                              </button>
-                            )}
+                            <button
+                              onClick={() => handleAction(notif.id, "handled")}
+                              className="flex items-center gap-1 rounded-lg bg-emerald-500/10 px-2 py-1 text-[10px] font-medium text-emerald-400 transition hover:bg-emerald-500/20"
+                            >
+                              <CheckCircle2 className="h-3 w-3" />
+                              Handled
+                            </button>
+                            <button
+                              onClick={() => {
+                                const fourHours = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
+                                handleAction(notif.id, "snooze", fourHours);
+                              }}
+                              className="flex items-center gap-1 rounded-lg bg-amber-500/10 px-2 py-1 text-[10px] font-medium text-amber-400 transition hover:bg-amber-500/20"
+                            >
+                              <Timer className="h-3 w-3" />
+                              Snooze 4h
+                            </button>
                           </div>
                         </div>
                       </div>

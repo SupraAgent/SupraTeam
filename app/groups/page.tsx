@@ -17,11 +17,14 @@ import {
   Activity,
   ChevronDown,
   AlertTriangle,
+  BarChart3,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { timeAgo } from "@/lib/utils";
 
 type HealthStatus = "active" | "quiet" | "stale" | "dead" | "unknown";
+
+type MessageHistoryEntry = { date: string; count: number };
 
 type TgGroup = {
   id: string;
@@ -41,6 +44,8 @@ type TgGroup = {
   created_at: string;
   updated_at: string;
   slugs: string[];
+  message_history: MessageHistoryEntry[];
+  auto_archive_enabled: boolean;
 };
 
 type SortKey = "name" | "last_active" | "members" | "health";
@@ -94,6 +99,206 @@ const HEALTH_ORDER: Record<HealthStatus, number> = {
   unknown: 4,
 };
 
+const SPARKLINE_STROKE_COLORS: Record<HealthStatus, string> = {
+  active: "#34d399",   // emerald-400
+  quiet: "#facc15",    // yellow-400
+  stale: "#fb923c",    // orange-400
+  dead: "#f87171",     // red-400
+  unknown: "#6b7280",  // gray-500
+};
+
+function Sparkline({
+  data,
+  healthStatus,
+  width = 80,
+  height = 24,
+}: {
+  data: MessageHistoryEntry[];
+  healthStatus: HealthStatus;
+  width?: number;
+  height?: number;
+}) {
+  if (!data || data.length === 0) return null;
+
+  const counts = data.map((d) => d.count);
+  const maxCount = Math.max(...counts, 1);
+  const padding = 2;
+  const innerW = width - padding * 2;
+  const innerH = height - padding * 2;
+
+  const points = counts.map((c, i) => {
+    const x = padding + (i / Math.max(counts.length - 1, 1)) * innerW;
+    const y = padding + innerH - (c / maxCount) * innerH;
+    return `${x},${y}`;
+  });
+
+  return (
+    <svg
+      width={width}
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      className="shrink-0"
+    >
+      <polyline
+        points={points.join(" ")}
+        fill="none"
+        stroke={SPARKLINE_STROKE_COLORS[healthStatus]}
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function ComparisonModal({
+  groups,
+  onClose,
+}: {
+  groups: TgGroup[];
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="w-full max-w-3xl mx-4 rounded-2xl border border-white/10 bg-[#1a1a2e] shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
+          <div className="flex items-center gap-2">
+            <BarChart3 className="h-4 w-4 text-primary" />
+            <h2 className="text-sm font-semibold text-foreground">
+              Group Comparison ({groups.length})
+            </h2>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-lg p-1.5 text-muted-foreground hover:bg-white/10 hover:text-foreground transition"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Comparison table */}
+        <div className="overflow-x-auto p-6">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-left text-muted-foreground border-b border-white/5">
+                <th className="pb-3 pr-4 font-medium">Metric</th>
+                {groups.map((g) => (
+                  <th key={g.id} className="pb-3 px-3 font-medium text-center">
+                    <span className="text-foreground truncate block max-w-[140px]">
+                      {g.group_name}
+                    </span>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {/* Health */}
+              <tr>
+                <td className="py-3 pr-4 text-muted-foreground">Health</td>
+                {groups.map((g) => {
+                  const h = HEALTH_CONFIG[g.health_status];
+                  return (
+                    <td key={g.id} className="py-3 px-3 text-center">
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium",
+                          h.bg, h.border, h.color
+                        )}
+                      >
+                        <span className={cn("h-1.5 w-1.5 rounded-full", h.dot)} />
+                        {h.label}
+                      </span>
+                    </td>
+                  );
+                })}
+              </tr>
+              {/* Members */}
+              <tr>
+                <td className="py-3 pr-4 text-muted-foreground">Members</td>
+                {groups.map((g) => (
+                  <td key={g.id} className="py-3 px-3 text-center text-foreground">
+                    {g.member_count ?? "--"}
+                  </td>
+                ))}
+              </tr>
+              {/* 7d messages */}
+              <tr>
+                <td className="py-3 pr-4 text-muted-foreground">Messages (7d)</td>
+                {groups.map((g) => (
+                  <td key={g.id} className="py-3 px-3 text-center text-foreground">
+                    {g.message_count_7d}
+                  </td>
+                ))}
+              </tr>
+              {/* 30d messages */}
+              <tr>
+                <td className="py-3 pr-4 text-muted-foreground">Messages (30d)</td>
+                {groups.map((g) => (
+                  <td key={g.id} className="py-3 px-3 text-center text-foreground">
+                    {g.message_count_30d}
+                  </td>
+                ))}
+              </tr>
+              {/* Sparkline */}
+              <tr>
+                <td className="py-3 pr-4 text-muted-foreground">Activity (30d)</td>
+                {groups.map((g) => (
+                  <td key={g.id} className="py-3 px-3">
+                    <div className="flex justify-center">
+                      {g.message_history && g.message_history.length > 0 ? (
+                        <Sparkline
+                          data={g.message_history}
+                          healthStatus={g.health_status}
+                          width={100}
+                          height={28}
+                        />
+                      ) : (
+                        <span className="text-muted-foreground/50">No data</span>
+                      )}
+                    </div>
+                  </td>
+                ))}
+              </tr>
+              {/* Slugs */}
+              <tr>
+                <td className="py-3 pr-4 text-muted-foreground">Slugs</td>
+                {groups.map((g) => (
+                  <td key={g.id} className="py-3 px-3 text-center">
+                    {g.slugs.length > 0 ? (
+                      <div className="flex flex-wrap justify-center gap-1">
+                        {g.slugs.map((s) => (
+                          <span
+                            key={s}
+                            className="inline-block rounded-md bg-primary/10 border border-primary/20 px-1.5 py-0.5 text-[9px] text-primary"
+                          >
+                            {s}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="text-muted-foreground/50">--</span>
+                    )}
+                  </td>
+                ))}
+              </tr>
+              {/* Last message */}
+              <tr>
+                <td className="py-3 pr-4 text-muted-foreground">Last Message</td>
+                {groups.map((g) => (
+                  <td key={g.id} className="py-3 px-3 text-center text-foreground">
+                    {g.last_message_at ? timeAgo(g.last_message_at) : "--"}
+                  </td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function GroupsPage() {
   const [groups, setGroups] = React.useState<TgGroup[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -110,6 +315,7 @@ export default function GroupsPage() {
   const [bulkSlugInput, setBulkSlugInput] = React.useState("");
   const [bulkAction, setBulkAction] = React.useState<string | null>(null);
   const [refreshingStats, setRefreshingStats] = React.useState(false);
+  const [showComparison, setShowComparison] = React.useState(false);
 
   const fetchGroups = React.useCallback(async () => {
     try {
@@ -134,6 +340,8 @@ export default function GroupsPage() {
             message_count_7d: g.message_count_7d ?? 0,
             message_count_30d: g.message_count_30d ?? 0,
             health_status: g.health_status ?? "unknown",
+            message_history: g.message_history ?? [],
+            auto_archive_enabled: g.auto_archive_enabled ?? false,
           }))
         );
       }
@@ -527,6 +735,17 @@ export default function GroupsPage() {
             <RefreshCw className="mr-1 h-3 w-3" />
             Verify Status
           </Button>
+          {selected.size >= 2 && selected.size <= 3 && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-xs"
+              onClick={() => setShowComparison(true)}
+            >
+              <BarChart3 className="mr-1 h-3 w-3" />
+              Compare
+            </Button>
+          )}
           <Button
             size="sm"
             variant="ghost"
@@ -681,6 +900,14 @@ export default function GroupsPage() {
             </div>
           )}
         </div>
+      )}
+
+      {/* Comparison Modal */}
+      {showComparison && selected.size >= 2 && selected.size <= 3 && (
+        <ComparisonModal
+          groups={groups.filter((g) => selected.has(g.id))}
+          onClose={() => setShowComparison(false)}
+        />
       )}
     </div>
   );

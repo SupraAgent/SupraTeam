@@ -8,6 +8,7 @@ import {
   AlertTriangle, Clock, TrendingUp, Flame, Zap, DollarSign, BarChart3, Pin, Plus, Download, Users,
 } from "lucide-react";
 import { SetupChecklist } from "@/components/onboarding/setup-checklist";
+import { ActionableNotificationWidget } from "@/components/notifications/actionable-notification-widget";
 
 type Stats = {
   totalDeals: number;
@@ -431,33 +432,8 @@ export default function HomePage() {
             </Widget>
           )}
 
-          {/* Activity feed */}
-          <Widget title="Activity Feed" icon={Bell} iconColor="text-blue-400" subtitle={`${notifications.filter((n) => !n.is_read).length} unread`} empty={notifications.length === 0} emptyText="No activity yet. TG group messages will appear here.">
-            {notifications.slice(0, 8).map((notif) => {
-              const Icon = NOTIF_ICONS[notif.type] ?? Bell;
-              const iconColor = NOTIF_COLORS[notif.type] ?? "text-muted-foreground";
-              return (
-                <div key={notif.id} className={cn("flex gap-2 py-2 px-1 rounded-lg", !notif.is_read && "bg-white/[0.02]")}>
-                  <Icon className={cn("h-3.5 w-3.5 mt-0.5 shrink-0", iconColor)} />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-2">
-                      <p className={cn("text-xs leading-snug", notif.is_read ? "text-muted-foreground" : "text-foreground")}>{notif.title}</p>
-                      <span className="text-[9px] text-muted-foreground/40 shrink-0">{timeAgo(notif.created_at)}</span>
-                    </div>
-                    {notif.body && <p className="text-[10px] text-muted-foreground/60 line-clamp-1">{notif.body}</p>}
-                    <div className="flex items-center gap-2 mt-1">
-                      {notif.tg_deep_link && (
-                        <a href={notif.tg_deep_link} target="_blank" rel="noopener noreferrer" className="text-[9px] text-blue-400 hover:text-blue-300">Open in TG</a>
-                      )}
-                      {notif.pipeline_link && (
-                        <Link href={notif.pipeline_link} className="text-[9px] text-primary hover:text-primary/80">View Deal</Link>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </Widget>
+          {/* Actionable notifications */}
+          <ActionableNotificationWidget />
 
         </div>
       </div>

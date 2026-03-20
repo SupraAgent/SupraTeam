@@ -165,17 +165,51 @@ export async function POST(request: Request) {
       }
 
       for (const deal of deals) {
-        // Create notification
-        await supabase.from("crm_notifications").insert({
-          type: "tg_message",
-          deal_id: deal.id,
-          tg_group_id: tgGroup.id,
-          title: `${senderName} in ${tgGroup.group_name}`,
-          body: text.length > 200 ? text.slice(0, 200) + "..." : text,
-          tg_deep_link: tgDeepLink,
-          tg_sender_name: senderName,
-          pipeline_link: `/pipeline?highlight=${deal.id}`,
-        });
+        // Smart notification grouping: batch messages from same group+deal
+        const groupKey = `tg:${tgGroup.id}:${deal.id}`;
+        const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+
+        const { data: existingNotif } = await supabase
+          .from("crm_notifications")
+          .select("id, grouped_count")
+          .eq("group_key", groupKey)
+          .eq("is_read", false)
+          .in("status", ["active"])
+          .gte("created_at", twoHoursAgo)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .single();
+
+        if (existingNotif) {
+          // Batch into existing notification
+          const newCount = (existingNotif.grouped_count ?? 1) + 1;
+          await supabase
+            .from("crm_notifications")
+            .update({
+              title: `${newCount} messages in ${tgGroup.group_name}`,
+              body: `${senderName}: ${text.length > 150 ? text.slice(0, 150) + "..." : text}`,
+              grouped_count: newCount,
+              tg_deep_link: tgDeepLink,
+              tg_sender_name: senderName,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", existingNotif.id);
+        } else {
+          // Create new notification with group_key
+          await supabase.from("crm_notifications").insert({
+            type: "tg_message",
+            deal_id: deal.id,
+            tg_group_id: tgGroup.id,
+            title: `${senderName} in ${tgGroup.group_name}`,
+            body: text.length > 200 ? text.slice(0, 200) + "..." : text,
+            tg_deep_link: tgDeepLink,
+            tg_sender_name: senderName,
+            pipeline_link: `/pipeline?highlight=${deal.id}`,
+            group_key: groupKey,
+            grouped_count: 1,
+            status: "active",
+          });
+        }
 
         if (!isBot) {
           // Check if there's an active highlight for this deal from a DIFFERENT sender
