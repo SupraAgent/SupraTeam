@@ -22,6 +22,9 @@ import {
   Ban,
   FileText,
   Sparkles,
+  BarChart3,
+  TrendingUp,
+  TrendingDown,
 } from "lucide-react";
 import { MERGE_VARIABLES } from "@/lib/telegram-templates";
 import { cn } from "@/lib/utils";
@@ -93,6 +96,18 @@ export default function BroadcastsPage() {
   const [showHistory, setShowHistory] = React.useState(false);
   const [expandedBroadcast, setExpandedBroadcast] = React.useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = React.useState(false);
+
+  // Analytics
+  type AnalyticsData = {
+    overview: { totalBroadcasts: number; totalSent: number; totalFailed: number; deliveryRate: number; thisWeek: number; lastWeek: number; weeklyChange: number };
+    byStatus: Record<string, number>;
+    slugStats: { slug: string; count: number; sent: number; failed: number; deliveryRate: number }[];
+    senderStats: { name: string; count: number }[];
+    dailyVolume: { date: string; count: number }[];
+  };
+  const [analytics, setAnalytics] = React.useState<AnalyticsData | null>(null);
+  const [showAnalytics, setShowAnalytics] = React.useState(false);
+  const [analyticsLoading, setAnalyticsLoading] = React.useState(false);
 
   // Templates
   type BotTemplate = { id: string; template_key: string; name: string; body_template: string; category: string | null };
@@ -178,6 +193,19 @@ export default function BroadcastsPage() {
     }
   }
 
+  async function fetchAnalytics() {
+    setAnalyticsLoading(true);
+    try {
+      const res = await fetch("/api/broadcasts/analytics");
+      if (res.ok) {
+        const data = await res.json();
+        setAnalytics(data);
+      }
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  }
+
   async function handleSend() {
     if (!message.trim() || selectedGroupIds.size === 0) return;
     setSending(true);
@@ -259,21 +287,146 @@ export default function BroadcastsPage() {
             Send messages to Telegram groups. Filter by slug for targeted broadcasts.
           </p>
         </div>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => {
-            setShowHistory(!showHistory);
-            if (!showHistory && broadcasts.length === 0) fetchHistory();
-          }}
-        >
-          <History className="mr-1 h-3.5 w-3.5" />
-          {showHistory ? "Compose" : "History"}
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setShowAnalytics(!showAnalytics);
+              setShowHistory(false);
+              if (!showAnalytics && !analytics) fetchAnalytics();
+            }}
+          >
+            <BarChart3 className="mr-1 h-3.5 w-3.5" />
+            {showAnalytics ? "Compose" : "Analytics"}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setShowHistory(!showHistory);
+              setShowAnalytics(false);
+              if (!showHistory && broadcasts.length === 0) fetchHistory();
+            }}
+          >
+            <History className="mr-1 h-3.5 w-3.5" />
+            {showHistory ? "Compose" : "History"}
+          </Button>
+        </div>
       </div>
 
-      {/* History view */}
-      {showHistory ? (
+      {/* Analytics view */}
+      {showAnalytics ? (
+        <div className="space-y-4">
+          {analyticsLoading || !analytics ? (
+            <div className="space-y-3">
+              {[1, 2, 3].map((i) => <div key={i} className="h-24 rounded-xl bg-white/[0.02] animate-pulse" />)}
+            </div>
+          ) : (
+            <>
+              {/* Overview cards */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Total Broadcasts</p>
+                  <p className="text-2xl font-bold text-foreground mt-1">{analytics.overview.totalBroadcasts}</p>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Delivery Rate</p>
+                  <p className={cn("text-2xl font-bold mt-1", analytics.overview.deliveryRate >= 90 ? "text-emerald-400" : analytics.overview.deliveryRate >= 70 ? "text-amber-400" : "text-red-400")}>
+                    {analytics.overview.deliveryRate}%
+                  </p>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Messages Sent</p>
+                  <p className="text-2xl font-bold text-foreground mt-1">{analytics.overview.totalSent}</p>
+                  {analytics.overview.totalFailed > 0 && (
+                    <p className="text-[10px] text-red-400 mt-0.5">{analytics.overview.totalFailed} failed</p>
+                  )}
+                </div>
+                <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">This Week</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <p className="text-2xl font-bold text-foreground">{analytics.overview.thisWeek}</p>
+                    {analytics.overview.weeklyChange !== 0 && (
+                      <span className={cn("flex items-center gap-0.5 text-xs", analytics.overview.weeklyChange >= 0 ? "text-emerald-400" : "text-red-400")}>
+                        {analytics.overview.weeklyChange >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                        {analytics.overview.weeklyChange >= 0 ? "+" : ""}{analytics.overview.weeklyChange}%
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Slug performance */}
+              {analytics.slugStats.length > 0 && (
+                <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4 space-y-3">
+                  <h3 className="text-sm font-medium text-foreground">Performance by Slug</h3>
+                  <div className="space-y-2">
+                    {analytics.slugStats.map((s) => (
+                      <div key={s.slug} className="flex items-center gap-3">
+                        <span className="text-xs text-foreground font-medium w-28 truncate">{s.slug}</span>
+                        <div className="flex-1 h-2 rounded-full bg-white/10 overflow-hidden">
+                          <div
+                            className={cn("h-full rounded-full", s.deliveryRate >= 90 ? "bg-emerald-400" : s.deliveryRate >= 70 ? "bg-amber-400" : "bg-red-400")}
+                            style={{ width: `${s.deliveryRate}%` }}
+                          />
+                        </div>
+                        <span className="text-[10px] text-muted-foreground w-20 text-right">
+                          {s.sent}/{s.sent + s.failed} ({s.deliveryRate}%)
+                        </span>
+                        <span className="text-[10px] text-muted-foreground w-16 text-right">
+                          {s.count} sends
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Sender breakdown */}
+              {analytics.senderStats.length > 0 && (
+                <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4 space-y-3">
+                  <h3 className="text-sm font-medium text-foreground">By Sender</h3>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    {analytics.senderStats.map((s) => (
+                      <span key={s.name} className="rounded-lg bg-white/5 border border-white/10 px-3 py-1.5 text-xs">
+                        <span className="text-foreground font-medium">{s.name}</span>
+                        <span className="text-muted-foreground ml-1.5">{s.count}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Daily volume chart (simple bar representation) */}
+              {analytics.dailyVolume.length > 0 && (
+                <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4 space-y-3">
+                  <h3 className="text-sm font-medium text-foreground">Daily Volume (30d)</h3>
+                  <div className="flex items-end gap-0.5 h-16">
+                    {analytics.dailyVolume.map((d) => {
+                      const max = Math.max(...analytics.dailyVolume.map((v) => v.count));
+                      const height = max > 0 ? (d.count / max) * 100 : 0;
+                      return (
+                        <div
+                          key={d.date}
+                          className="flex-1 bg-primary/40 rounded-t hover:bg-primary/60 transition-colors"
+                          style={{ height: `${Math.max(height, 4)}%` }}
+                          title={`${d.date}: ${d.count} broadcasts`}
+                        />
+                      );
+                    })}
+                  </div>
+                  <div className="flex justify-between text-[9px] text-muted-foreground">
+                    <span>{analytics.dailyVolume[0]?.date}</span>
+                    <span>{analytics.dailyVolume[analytics.dailyVolume.length - 1]?.date}</span>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      ) : /* History view */
+      showHistory ? (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-medium text-foreground">Broadcast History</h2>
