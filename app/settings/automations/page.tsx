@@ -56,6 +56,11 @@ export default function AutomationsPage() {
   const [actionMessage, setActionMessage] = React.useState("");
   const [actionDelay, setActionDelay] = React.useState("24");
 
+  // Execution log
+  type LogEntry = { id: string; trigger_type: string; action_type: string; success: boolean; created_at: string; rule: { name: string } | null; deal: { deal_name: string } | null };
+  const [logs, setLogs] = React.useState<LogEntry[]>([]);
+  const [showLog, setShowLog] = React.useState(false);
+
   const fetchRules = React.useCallback(async () => {
     try {
       const res = await fetch("/api/automation-rules");
@@ -69,6 +74,15 @@ export default function AutomationsPage() {
   }, []);
 
   React.useEffect(() => { fetchRules(); }, [fetchRules]);
+
+  async function fetchLog() {
+    setShowLog(true);
+    const res = await fetch("/api/automation-log");
+    if (res.ok) {
+      const data = await res.json();
+      setLogs(data.logs ?? []);
+    }
+  }
 
   function showMsg(text: string) {
     setMsg(text);
@@ -373,6 +387,34 @@ export default function AutomationsPage() {
             <p className="mt-2 text-sm text-muted-foreground">
               No automation rules. Create one to auto-trigger Telegram messages on deal events.
             </p>
+          </div>
+        )}
+      </div>
+
+      {/* Execution log */}
+      <div className="pt-4 border-t border-white/10">
+        <button
+          onClick={fetchLog}
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          {showLog ? "Refresh" : "View"} execution log
+        </button>
+
+        {showLog && (
+          <div className="mt-3 space-y-1">
+            {logs.length === 0 ? (
+              <p className="text-xs text-muted-foreground/50">No executions recorded yet.</p>
+            ) : (
+              logs.slice(0, 30).map((log) => (
+                <div key={log.id} className="flex items-center gap-2 text-[11px] py-1 border-b border-white/5">
+                  <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", log.success ? "bg-emerald-400" : "bg-red-400")} />
+                  <span className="text-foreground font-medium truncate">{log.rule?.name ?? "Deleted rule"}</span>
+                  <span className="text-muted-foreground/50">{log.trigger_type} → {log.action_type}</span>
+                  {log.deal && <span className="text-muted-foreground truncate">{log.deal.deal_name}</span>}
+                  <span className="ml-auto text-muted-foreground/40 shrink-0">{timeAgo(log.created_at)}</span>
+                </div>
+              ))
+            )}
           </div>
         )}
       </div>

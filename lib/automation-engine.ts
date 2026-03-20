@@ -49,6 +49,19 @@ export async function evaluateAutomationRules(event: AutomationEvent): Promise<n
     // Execute action
     const success = await executeAction(rule, deal, event, supabase);
     if (success) executed++;
+
+    // Log execution (non-critical)
+    try {
+      await supabase.from("crm_automation_log").insert({
+        rule_id: rule.id,
+        deal_id: event.dealId,
+        trigger_type: event.type,
+        action_type: rule.action_type,
+        success,
+      });
+    } catch {
+      // Don't fail on log error
+    }
   }
 
   return executed;
@@ -141,17 +154,17 @@ async function executeAction(
 
   if (actionType === "create_reminder") {
     const delayHours = Number(actionConfig.delay_hours ?? 24);
-    const title = renderTemplate(
-      (actionConfig.title as string) ?? "Follow up on {{deal_name}}",
+    const message = renderTemplate(
+      (actionConfig.title as string) ?? (actionConfig.message as string) ?? "Follow up on {{deal_name}}",
       vars
     );
     const dueAt = new Date(Date.now() + delayHours * 60 * 60 * 1000).toISOString();
 
     const { error } = await supabase.from("crm_deal_reminders").insert({
       deal_id: event.dealId,
-      title,
+      reminder_type: "follow_up",
+      message,
       due_at: dueAt,
-      source: "automation",
     });
     return !error;
   }
