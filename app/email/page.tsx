@@ -90,28 +90,8 @@ function EmailPageInner() {
     if (l.unreadCount) unreadCounts[l.id] = l.unreadCount;
   }
 
-  // No connection state
-  if (!connectionsLoading && connections.length === 0) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center px-4">
-        <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center">
-          <MailPlusIcon className="h-8 w-8 text-primary" />
-        </div>
-        <div>
-          <h2 className="text-lg font-semibold text-foreground">Connect your email</h2>
-          <p className="text-sm text-muted-foreground mt-1">
-            Connect your Gmail account to read, send, and manage email alongside your CRM deals.
-          </p>
-        </div>
-        <a
-          href="/settings/email"
-          className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition"
-        >
-          Connect Gmail
-        </a>
-      </div>
-    );
-  }
+  // No connection flag (render handled after all hooks)
+  const noConnection = !connectionsLoading && connections.length === 0;
 
   // ── Action handlers ──────────────────────────────────────
 
@@ -290,6 +270,28 @@ function EmailPageInner() {
   }, !composeOpen && !snoozeOpen && !advancedSearchOpen && !keyboardHelpOpen && !commandPaletteOpen);
 
   // ── Render ───────────────────────────────────────────────
+
+  if (noConnection) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center px-4">
+        <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center">
+          <MailPlusIcon className="h-8 w-8 text-primary" />
+        </div>
+        <div>
+          <h2 className="text-lg font-semibold text-foreground">Connect your email</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Connect your Gmail account to read, send, and manage email alongside your CRM deals.
+          </p>
+        </div>
+        <a
+          href="/settings/email"
+          className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition"
+        >
+          Connect Gmail
+        </a>
+      </div>
+    );
+  }
 
   return (
     <EmailErrorBoundary>
