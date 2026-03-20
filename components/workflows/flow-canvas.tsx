@@ -53,6 +53,31 @@ function FlowCanvasInner({ initialNodes, initialEdges, onSave, saving }: FlowCan
   const reactFlowWrapper = React.useRef<HTMLDivElement>(null);
   const [reactFlowInstance, setReactFlowInstance] = React.useState<ReturnType<typeof import("@xyflow/react").useReactFlow> | null>(null);
 
+  // Expose canvas state globally for AI chat widget
+  React.useEffect(() => {
+    (window as unknown as Record<string, unknown>).__supracrm_canvas_state = { nodes, edges };
+  }, [nodes, edges]);
+
+  // Listen for AI-generated workflow apply events
+  React.useEffect(() => {
+    function handleApply(e: Event) {
+      const detail = (e as CustomEvent).detail as {
+        nodes: Node[];
+        edges: Edge[];
+        action: "add" | "replace";
+      };
+      if (detail.action === "replace") {
+        setNodes(detail.nodes);
+        setEdges(detail.edges);
+      } else {
+        setNodes((prev) => [...prev, ...detail.nodes]);
+        setEdges((prev) => [...prev, ...detail.edges]);
+      }
+    }
+    window.addEventListener("supracrm:apply-workflow", handleApply);
+    return () => window.removeEventListener("supracrm:apply-workflow", handleApply);
+  }, [setNodes, setEdges]);
+
   // Auto-save with debounce
   const saveTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const nodesRef = React.useRef(nodes);

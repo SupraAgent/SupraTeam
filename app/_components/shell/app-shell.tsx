@@ -7,6 +7,7 @@ import { DesktopSidebar } from "./desktop-sidebar";
 import { MobileHeader } from "./mobile-header";
 import { NotificationCenter } from "@/components/notifications/notification-center";
 import { CommandPalette } from "@/components/search/command-palette";
+import { AIChatWidget } from "@/components/ai-chat-widget";
 import { useAuth } from "@/lib/auth";
 import { useShell } from "./shell-context";
 
@@ -56,6 +57,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
         <main className="flex-1 p-4 md:p-6">{children}</main>
       </div>
       <CommandPalette />
+      {user && <AIChatWidget />}
     </>
   );
 }
