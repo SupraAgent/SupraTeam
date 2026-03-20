@@ -25,7 +25,7 @@ type Stats = {
   conversionRates: { id: string; name: string; color: string; next_stage: string; rate: number | null; total_moves: number }[];
   hotConversations: { name: string; count: number; deal_name: string; deal_id: string }[];
   pinnedDeals: { id: string; deal_name: string; board_type: string; value: number | null; stage_name: string; stage_color: string | null }[];
-  onboarding: { hasBotToken: boolean; hasGroups: boolean; hasDeals: boolean; hasContacts: boolean };
+  onboarding: { hasBotToken: boolean; hasGroups: boolean; hasDeals: boolean; hasContacts: boolean; hasEmail: boolean };
 };
 
 type Analytics = {
@@ -111,7 +111,7 @@ export default function HomePage() {
     valueByBoard: { BD: 0, Marketing: 0, Admin: 0 }, staleDeals: [], followUps: [],
     velocity: { movesThisWeek: 0, movesLastWeek: 0, avgDaysPerStage: [] },
     conversionRates: [], hotConversations: [], pinnedDeals: [],
-    onboarding: { hasBotToken: false, hasGroups: false, hasDeals: false, hasContacts: false },
+    onboarding: { hasBotToken: false, hasGroups: false, hasDeals: false, hasContacts: false, hasEmail: false },
   };
 
   const velocityDelta = s.velocity.movesLastWeek > 0
@@ -133,6 +133,7 @@ export default function HomePage() {
         hasGroups={s.onboarding.hasGroups}
         hasDeals={s.onboarding.hasDeals}
         hasContacts={s.onboarding.hasContacts}
+        hasEmail={s.onboarding.hasEmail}
       />
 
       {/* Quick actions */}
