@@ -5,6 +5,9 @@ export type PipelineStage = {
   color: string | null;
 };
 
+export type LifecycleStage = "prospect" | "lead" | "opportunity" | "customer" | "churned" | "inactive";
+export type ContactSource = "manual" | "telegram_import" | "telegram_bot" | "csv_import" | "referral" | "event" | "inbound" | "outbound";
+
 export type Contact = {
   id: string;
   name: string;
@@ -16,6 +19,11 @@ export type Contact = {
   title: string | null;
   notes: string | null;
   stage_id: string | null;
+  lifecycle_stage: LifecycleStage;
+  lifecycle_changed_at: string | null;
+  source: ContactSource;
+  last_activity_at: string | null;
+  quality_score: number;
   created_by: string | null;
   created_at: string;
   updated_at: string;

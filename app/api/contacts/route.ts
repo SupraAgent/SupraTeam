@@ -39,7 +39,7 @@ export async function POST(request: Request) {
   const { user, admin: supabase } = auth;
 
   const body = await request.json();
-  const { name, email, phone, telegram_username, telegram_user_id, company, title, notes, stage_id } = body;
+  const { name, email, phone, telegram_username, telegram_user_id, company, title, notes, stage_id, lifecycle_stage, source } = body;
 
   if (!name) {
     return NextResponse.json({ error: "name is required" }, { status: 400 });
@@ -57,6 +57,8 @@ export async function POST(request: Request) {
       title: title || null,
       notes: notes || null,
       stage_id: stage_id || null,
+      lifecycle_stage: lifecycle_stage || "prospect",
+      source: source || "manual",
       created_by: user.id,
     })
     .select("*, stage:pipeline_stages(*)")

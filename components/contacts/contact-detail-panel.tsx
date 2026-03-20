@@ -6,11 +6,33 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
-import type { Contact, PipelineStage } from "@/lib/types";
-import { timeAgo } from "@/lib/utils";
+import type { Contact, PipelineStage, LifecycleStage, ContactSource } from "@/lib/types";
+import { timeAgo, cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { Save, Trash2, MessageCircle, FileText } from "lucide-react";
+import { Save, Trash2, MessageCircle, FileText, GitMerge, AlertTriangle } from "lucide-react";
 import Link from "next/link";
+
+const LIFECYCLE_OPTIONS: { value: LifecycleStage; label: string }[] = [
+  { value: "prospect", label: "Prospect" },
+  { value: "lead", label: "Lead" },
+  { value: "opportunity", label: "Opportunity" },
+  { value: "customer", label: "Customer" },
+  { value: "churned", label: "Churned" },
+  { value: "inactive", label: "Inactive" },
+];
+
+const SOURCE_OPTIONS: { value: ContactSource; label: string }[] = [
+  { value: "manual", label: "Manual" },
+  { value: "telegram_import", label: "Telegram Import" },
+  { value: "telegram_bot", label: "Telegram Bot" },
+  { value: "csv_import", label: "CSV Import" },
+  { value: "referral", label: "Referral" },
+  { value: "event", label: "Event" },
+  { value: "inbound", label: "Inbound" },
+  { value: "outbound", label: "Outbound" },
+];
+
+type Duplicate = { id: string; name: string; email: string | null; company: string | null; telegram_username: string | null };
 
 type ContactDetailPanelProps = {
   contact: Contact | null;
@@ -18,9 +40,10 @@ type ContactDetailPanelProps = {
   onClose: () => void;
   onDeleted: () => void;
   onUpdated?: () => void;
+  allContacts?: Contact[];
 };
 
-export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdated }: ContactDetailPanelProps) {
+export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdated, allContacts }: ContactDetailPanelProps) {
   const [deleting, setDeleting] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
 
@@ -31,9 +54,15 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
   const [phone, setPhone] = React.useState("");
   const [telegram, setTelegram] = React.useState("");
   const [stageId, setStageId] = React.useState("");
+  const [lifecycle, setLifecycle] = React.useState<LifecycleStage>("prospect");
+  const [source, setSource] = React.useState<ContactSource>("manual");
   const [notes, setNotes] = React.useState("");
   const [stages, setStages] = React.useState<PipelineStage[]>([]);
   const [linkedDocs, setLinkedDocs] = React.useState<{ id: string; title: string; updated_at: string }[]>([]);
+
+  // Duplicate detection
+  const [duplicates, setDuplicates] = React.useState<Duplicate[]>([]);
+  const [merging, setMerging] = React.useState(false);
 
   React.useEffect(() => {
     if (contact && open) {
@@ -44,10 +73,22 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
       setPhone(contact.phone ?? "");
       setTelegram(contact.telegram_username ?? "");
       setStageId(contact.stage_id ?? "");
+      setLifecycle(contact.lifecycle_stage ?? "prospect");
+      setSource(contact.source ?? "manual");
       setNotes(contact.notes ?? "");
 
       fetch("/api/pipeline").then((r) => r.json()).then((d) => setStages(d.stages ?? [])).catch(() => {});
       fetch(`/api/docs?entity_type=contact&entity_id=${contact.id}`).then((r) => r.json()).then((d) => setLinkedDocs(d.docs ?? [])).catch(() => setLinkedDocs([]));
+
+      // Find duplicates
+      const params = new URLSearchParams({ exclude: contact.id });
+      if (contact.name) params.set("name", contact.name);
+      if (contact.email) params.set("email", contact.email);
+      if (contact.telegram_username) params.set("telegram", contact.telegram_username);
+      fetch(`/api/contacts/duplicates?${params}`)
+        .then((r) => r.json())
+        .then((d) => setDuplicates(d.duplicates ?? []))
+        .catch(() => setDuplicates([]));
     }
   }, [contact, open]);
 
@@ -68,6 +109,8 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
           phone: phone || null,
           telegram_username: telegram || null,
           stage_id: stageId || null,
+          lifecycle_stage: lifecycle,
+          source,
           notes: notes || null,
         }),
       });
@@ -97,6 +140,27 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
     }
   }
 
+  async function handleMerge(duplicateId: string) {
+    if (!contact) return;
+    setMerging(true);
+    try {
+      const res = await fetch("/api/contacts/merge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ primaryId: contact.id, mergeIds: [duplicateId] }),
+      });
+      if (res.ok) {
+        toast.success("Contacts merged");
+        setDuplicates((prev) => prev.filter((d) => d.id !== duplicateId));
+        onUpdated?.();
+      } else {
+        toast.error("Merge failed");
+      }
+    } finally {
+      setMerging(false);
+    }
+  }
+
   return (
     <SlideOver open={open} onClose={onClose} title={name || contact.name}>
       <div className="space-y-4">
@@ -112,6 +176,57 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
             Message on Telegram
           </a>
         )}
+
+        {/* Duplicate warning */}
+        {duplicates.length > 0 && (
+          <div className="rounded-xl border border-amber-400/30 bg-amber-500/5 p-3 space-y-2">
+            <div className="flex items-center gap-2 text-xs text-amber-400 font-medium">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              {duplicates.length} potential duplicate{duplicates.length !== 1 ? "s" : ""} found
+            </div>
+            {duplicates.map((dup) => (
+              <div key={dup.id} className="flex items-center justify-between rounded-lg bg-white/[0.03] px-3 py-2">
+                <div>
+                  <p className="text-xs text-foreground font-medium">{dup.name}</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {[dup.email, dup.telegram_username && `@${dup.telegram_username}`, dup.company].filter(Boolean).join(" · ")}
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => handleMerge(dup.id)}
+                  disabled={merging}
+                  className="h-6 text-[10px] text-primary"
+                >
+                  <GitMerge className="h-3 w-3 mr-0.5" /> Merge
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Lifecycle + Source */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-[11px] font-medium text-muted-foreground">Lifecycle Stage</label>
+            <Select
+              value={lifecycle}
+              onChange={(e) => setLifecycle(e.target.value as LifecycleStage)}
+              options={LIFECYCLE_OPTIONS}
+              className="mt-1"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] font-medium text-muted-foreground">Source</label>
+            <Select
+              value={source}
+              onChange={(e) => setSource(e.target.value as ContactSource)}
+              options={SOURCE_OPTIONS}
+              className="mt-1"
+            />
+          </div>
+        </div>
 
         {/* Editable fields */}
         <div>
@@ -147,7 +262,7 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
         </div>
 
         <div>
-          <label className="text-[11px] font-medium text-muted-foreground">Stage</label>
+          <label className="text-[11px] font-medium text-muted-foreground">Pipeline Stage</label>
           <Select
             value={stageId}
             onChange={(e) => setStageId(e.target.value)}
@@ -172,6 +287,12 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
             <span className="text-muted-foreground">Updated</span>
             <span className="text-foreground">{timeAgo(contact.updated_at)}</span>
           </div>
+          {contact.lifecycle_changed_at && (
+            <div className="flex justify-between text-[11px]">
+              <span className="text-muted-foreground">Lifecycle changed</span>
+              <span className="text-foreground">{timeAgo(contact.lifecycle_changed_at)}</span>
+            </div>
+          )}
         </div>
 
         {/* Linked docs */}
