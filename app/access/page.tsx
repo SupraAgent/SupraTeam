@@ -41,7 +41,17 @@ type LogEntry = {
   target_name: string | null;
 };
 
-type Tab = "matrix" | "log";
+type AuditEntry = {
+  id: string;
+  action: string;
+  entity_type: string;
+  entity_id: string | null;
+  actor_name: string | null;
+  details: Record<string, unknown>;
+  created_at: string;
+};
+
+type Tab = "matrix" | "log" | "audit";
 
 export default function AccessControlPage() {
   const [tab, setTab] = React.useState<Tab>("matrix");
@@ -49,9 +59,11 @@ export default function AccessControlPage() {
   const [members, setMembers] = React.useState<TeamMember[]>([]);
   const [allSlugs, setAllSlugs] = React.useState<string[]>([]);
   const [logs, setLogs] = React.useState<LogEntry[]>([]);
+  const [auditLogs, setAuditLogs] = React.useState<AuditEntry[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [newSlug, setNewSlug] = React.useState("");
   const [bulkLoading, setBulkLoading] = React.useState<string | null>(null);
+  const [bulkSlugAction, setBulkSlugAction] = React.useState<{ slug: string; action: "add_to_groups" | "remove_from_groups" } | null>(null);
 
   const fetchData = React.useCallback(async () => {
     try {
@@ -90,9 +102,18 @@ export default function AccessControlPage() {
     fetchData();
   }, [fetchData]);
 
+  const fetchAuditLogs = React.useCallback(async () => {
+    const res = await fetch("/api/audit-log?entity_type=access&limit=50");
+    if (res.ok) {
+      const data = await res.json();
+      setAuditLogs(data.logs ?? []);
+    }
+  }, []);
+
   React.useEffect(() => {
     if (tab === "log") fetchLogs();
-  }, [tab, fetchLogs]);
+    if (tab === "audit") fetchAuditLogs();
+  }, [tab, fetchLogs, fetchAuditLogs]);
 
   function hasAccess(userId: string, slug: string): boolean {
     return grants.some((g) => g.user_id === userId && g.slug === slug);
@@ -225,7 +246,17 @@ export default function AccessControlPage() {
           )}
         >
           <History className="inline h-4 w-4 mr-1.5" />
-          Audit Log
+          Access Log
+        </button>
+        <button
+          onClick={() => setTab("audit")}
+          className={cn(
+            "px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors",
+            tab === "audit" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+          )}
+        >
+          <Shield className="inline h-4 w-4 mr-1.5" />
+          Audit Trail
         </button>
       </div>
 
@@ -261,8 +292,33 @@ export default function AccessControlPage() {
                         Team Member
                       </th>
                       {allSlugs.map((slug) => (
-                        <th key={slug} className="px-3 py-2.5 text-xs font-medium text-muted-foreground text-center min-w-[100px]">
-                          <span className="rounded-md bg-white/5 px-1.5 py-0.5">{slug}</span>
+                        <th key={slug} className="px-3 py-2.5 text-center min-w-[100px]">
+                          <span className="rounded-md bg-white/5 px-1.5 py-0.5 text-xs font-medium text-muted-foreground">{slug}</span>
+                          <div className="flex justify-center gap-0.5 mt-1">
+                            <button
+                              onClick={() => {
+                                // Bulk add all members with TG to this slug's groups
+                                const tgMembers = members.filter((m) => m.telegram_id && hasAccess(m.id, slug));
+                                if (tgMembers.length === 0) { toast.error("No TG-linked members with this access"); return; }
+                                setBulkSlugAction({ slug, action: "add_to_groups" });
+                              }}
+                              className="rounded px-1 py-0.5 text-[8px] text-blue-400 hover:bg-blue-500/10 transition"
+                              title="Bulk add all to groups"
+                            >
+                              +All
+                            </button>
+                            <button
+                              onClick={() => {
+                                const tgMembers = members.filter((m) => m.telegram_id && hasAccess(m.id, slug));
+                                if (tgMembers.length === 0) { toast.error("No TG-linked members with this access"); return; }
+                                setBulkSlugAction({ slug, action: "remove_from_groups" });
+                              }}
+                              className="rounded px-1 py-0.5 text-[8px] text-red-400 hover:bg-red-500/10 transition"
+                              title="Bulk remove all from groups"
+                            >
+                              -All
+                            </button>
+                          </div>
                         </th>
                       ))}
                     </tr>
@@ -348,7 +404,48 @@ export default function AccessControlPage() {
         </div>
       )}
 
-      {/* Audit log tab */}
+      {/* Bulk slug action bar */}
+      {bulkSlugAction && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 rounded-xl border border-white/10 bg-[hsl(225,35%,8%)] shadow-2xl px-5 py-3 flex items-center gap-4">
+          <p className="text-sm text-foreground">
+            {bulkSlugAction.action === "add_to_groups" ? (
+              <><UserPlus className="inline h-4 w-4 text-blue-400 mr-1" />Add all members with <span className="rounded bg-white/5 px-1.5 py-0.5 text-xs font-medium">{bulkSlugAction.slug}</span> access to groups?</>
+            ) : (
+              <><UserMinus className="inline h-4 w-4 text-red-400 mr-1" />Remove all members with <span className="rounded bg-white/5 px-1.5 py-0.5 text-xs font-medium">{bulkSlugAction.slug}</span> access from groups?</>
+            )}
+          </p>
+          <Button
+            size="sm"
+            variant={bulkSlugAction.action === "add_to_groups" ? "default" : "outline"}
+            disabled={!!bulkLoading}
+            onClick={async () => {
+              const { slug, action } = bulkSlugAction;
+              const tgMembers = members.filter((m) => m.telegram_id && hasAccess(m.id, slug));
+              setBulkLoading("bulk-slug");
+              let successCount = 0;
+              for (const m of tgMembers) {
+                try {
+                  const res = await fetch("/api/access/bulk", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ action, user_id: m.id, slug }),
+                  });
+                  if (res.ok) successCount++;
+                } catch { /* continue */ }
+              }
+              toast.success(`${action === "add_to_groups" ? "Added" : "Removed"} ${successCount}/${tgMembers.length} member(s)`);
+              setBulkLoading(null);
+              setBulkSlugAction(null);
+            }}
+          >
+            {bulkLoading === "bulk-slug" ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
+            Confirm ({members.filter((m) => m.telegram_id && hasAccess(m.id, bulkSlugAction.slug)).length} members)
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setBulkSlugAction(null)}>Cancel</Button>
+        </div>
+      )}
+
+      {/* Access log tab */}
       {tab === "log" && (
         <div className="space-y-2">
           {logs.length === 0 ? (
@@ -399,6 +496,62 @@ export default function AccessControlPage() {
                 {log.error_log && (
                   <p className="mt-2 text-[11px] text-red-400/70 bg-red-500/5 rounded px-2 py-1">{log.error_log}</p>
                 )}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* Audit trail tab */}
+      {tab === "audit" && (
+        <div className="space-y-2">
+          {auditLogs.length === 0 ? (
+            <div className="rounded-xl border border-white/10 bg-white/[0.02] p-8 text-center">
+              <Shield className="mx-auto h-8 w-8 text-muted-foreground/20" />
+              <p className="mt-2 text-sm text-muted-foreground">No audit entries yet.</p>
+            </div>
+          ) : (
+            auditLogs.map((entry) => (
+              <div
+                key={entry.id}
+                className="rounded-xl border border-white/10 bg-white/[0.035] px-4 py-3"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    {entry.action.includes("add") || entry.action.includes("grant") ? (
+                      <UserPlus className="h-4 w-4 text-green-400 shrink-0" />
+                    ) : entry.action.includes("remove") || entry.action.includes("revoke") ? (
+                      <UserMinus className="h-4 w-4 text-red-400 shrink-0" />
+                    ) : entry.action.includes("move") ? (
+                      <History className="h-4 w-4 text-blue-400 shrink-0" />
+                    ) : (
+                      <Shield className="h-4 w-4 text-muted-foreground shrink-0" />
+                    )}
+                    <div>
+                      <p className="text-sm text-foreground">
+                        <span className="font-medium">{entry.actor_name ?? "System"}</span>
+                        {" "}
+                        <span className="text-muted-foreground">{entry.action.replace(/_/g, " ")}</span>
+                        {entry.entity_id && (
+                          <>
+                            {" on "}
+                            <span className="rounded-md bg-white/5 px-1.5 py-0.5 text-xs">{entry.entity_id}</span>
+                          </>
+                        )}
+                      </p>
+                      {entry.details && Object.keys(entry.details).length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mt-1">
+                          {Object.entries(entry.details).map(([k, v]) => (
+                            <span key={k} className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                              {k}: {String(v)}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <p className="text-[10px] text-muted-foreground/50 mt-1">{timeAgo(entry.created_at)}</p>
+                    </div>
+                  </div>
+                </div>
               </div>
             ))
           )}

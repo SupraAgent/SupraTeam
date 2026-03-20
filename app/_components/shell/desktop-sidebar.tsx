@@ -29,6 +29,8 @@ const SETTINGS_ITEMS = [
   { href: "/settings/sequences", label: "Sequences" },
   { href: "/settings/telegram-connect", label: "TG Connect" },
   { href: "/settings/templates", label: "Bot Templates" },
+  { href: "/settings/automations", label: "Automations" },
+  { href: "/settings/notifications", label: "Notification Log" },
 ] as const;
 
 export function DesktopSidebar() {

@@ -3,6 +3,7 @@ import { requireAuth } from "@/lib/auth-guard";
 import { formatStageChangeMessage } from "@/lib/telegram-templates";
 import { sendTelegramWithTracking } from "@/lib/telegram-send";
 import { evaluateAutomationRules } from "@/lib/automation-engine";
+import { logAudit } from "@/lib/audit";
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -81,6 +82,16 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       },
     }).catch((err) => console.error("[move] TG send error:", err));
   }
+
+  // Audit log
+  logAudit({
+    action: "deal_move",
+    entityType: "deal",
+    entityId: id,
+    actorId: user.id,
+    actorName: userName,
+    details: { from_stage: fromName, to_stage: toName, deal_name: deal.deal_name },
+  }).catch(() => {});
 
   // Evaluate automation rules (non-blocking)
   evaluateAutomationRules({
