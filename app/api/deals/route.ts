@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
+import { evaluateAutomationRules } from "@/lib/automation-engine";
 
 export async function GET(request: Request) {
   const auth = await requireAuth();
@@ -112,6 +113,21 @@ export async function POST(request: Request) {
     if (fieldValues.length > 0) {
       await supabase.from("crm_deal_field_values").insert(fieldValues);
     }
+  }
+
+  // Trigger deal_created automations (non-blocking)
+  if (deal) {
+    evaluateAutomationRules({
+      type: "deal_created",
+      dealId: deal.id,
+      payload: {
+        deal_name: deal.deal_name,
+        board_type: deal.board_type,
+        stage_id: deal.stage_id,
+        value: deal.value,
+        created_by: user.id,
+      },
+    }).catch(() => {});
   }
 
   return NextResponse.json({ deal, ok: true });
