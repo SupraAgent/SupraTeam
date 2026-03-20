@@ -129,6 +129,12 @@ supabase/migrations/       # SQL migrations for CRM tables
 | `tg_group_slugs` | Slug tags on TG groups (junction) |
 | `crm_user_slug_access` | Which users can access which slug-tagged groups |
 | `crm_slug_access_log` | Audit log for bulk access changes |
+| `crm_workflows` | Visual automation workflows (React Flow nodes/edges as JSONB) |
+| `crm_workflow_runs` | Workflow execution history |
+| `crm_workflow_templates` | Reusable workflow templates (built-in + user-saved) |
+| `crm_ai_agent_config` | AI chatbot configuration (role prompt, escalation) |
+| `crm_ai_conversations` | AI conversation log with qualification data |
+| `crm_bots` | Multi-bot registry with encrypted tokens |
 
 Shared table extension: `profiles.crm_role` (bd_lead, marketing_lead, admin_lead)
 
@@ -151,6 +157,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=   # Same as SupraVibe
 SUPABASE_SERVICE_ROLE_KEY=       # Same as SupraVibe
 TOKEN_ENCRYPTION_KEY=            # Same as SupraVibe
 TELEGRAM_BOT_TOKEN=              # Phase 2
+ANTHROPIC_API_KEY=               # Claude AI features (chat widget, sentiment, summaries)
 ```
 
 ---
@@ -160,10 +167,12 @@ TELEGRAM_BOT_TOKEN=              # Phase 2
 | Phase | Status | Scope |
 |-------|--------|-------|
 | Phase 0: Foundation | Done | Repo, scaffold, auth, app shell, migration, page stubs |
-| Phase 1: CRM Core | Next | Kanban drag-drop, deals/contacts CRUD, board views, deal detail |
-| Phase 2: Telegram Bot | Pending | grammy bot, group registration, stage-change messages, templates |
-| Phase 3: Access Control | Pending | Slugs, matrix UI, bulk add/remove, audit log, automations, broadcasts |
-| Phase 4: Polish | Pending | Mobile, performance, error handling, onboarding |
+| Phase 1: CRM Core | Done | Kanban drag-drop, deals/contacts CRUD, board views, deal detail, custom fields, duplicate detection |
+| Phase 2: Telegram Bot | Done | grammy bot, group registration, stage-change messages, bot templates, multi-bot registry |
+| Phase 3: Access Control | Done | Slugs, matrix UI, bulk add/remove, audit log, automations, broadcasts, outreach sequences |
+| Phase 4: Polish | Done | Mobile TMA, view density, animations, onboarding wizard, privacy/GDPR |
+| Phase 5: AI & Automation | Done | Visual workflow builder (React Flow), AI agent, sentiment analysis, global AI chat assistant |
+| Phase 6: AI Chat & Templates | Done | Global Claude-powered chat widget on every page, per-page context, workflow templates (built-in + user-saved), AI template suggestions |
 
 ---
 
