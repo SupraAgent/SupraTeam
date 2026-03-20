@@ -31,6 +31,8 @@ export type Contact = {
   stage?: PipelineStage | null;
 };
 
+export type DealOutcome = "open" | "won" | "lost";
+
 export type Deal = {
   id: string;
   deal_name: string;
@@ -43,6 +45,11 @@ export type Deal = {
   telegram_chat_id: number | null;
   telegram_chat_name: string | null;
   telegram_chat_link: string | null;
+  outcome: DealOutcome | null;
+  outcome_reason: string | null;
+  outcome_at: string | null;
+  health_score: number | null;
+  expected_close_date: string | null;
   stage_changed_at: string;
   created_by: string | null;
   created_at: string;

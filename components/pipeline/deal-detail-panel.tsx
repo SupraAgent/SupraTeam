@@ -122,6 +122,21 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
     }
   }
 
+  async function handleOutcome(outcome: "open" | "won" | "lost") {
+    if (!deal) return;
+    const res = await fetch(`/api/deals/${deal.id}/outcome`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ outcome }),
+    });
+    if (res.ok) {
+      toast.success(`Deal marked as ${outcome}`);
+      onUpdated?.();
+    } else {
+      toast.error("Failed to update outcome");
+    }
+  }
+
   async function handleAddNote() {
     if (!deal || !newNote.trim()) return;
     setSendingNote(true);
@@ -256,6 +271,62 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
               <Input value={tgLink} onChange={(e) => setTgLink(e.target.value)} placeholder="https://t.me/..." className="mt-1" />
             </div>
 
+            {/* Outcome tracking */}
+            <div>
+              <label className="text-[11px] font-medium text-muted-foreground">Deal Outcome</label>
+              <div className="flex gap-2 mt-1">
+                {(["open", "won", "lost"] as const).map((o) => (
+                  <button
+                    key={o}
+                    onClick={() => handleOutcome(o)}
+                    className={cn(
+                      "rounded-lg px-3 py-1.5 text-xs font-medium border transition-colors flex-1",
+                      deal.outcome === o
+                        ? o === "won" ? "bg-green-500/20 text-green-400 border-green-500/30"
+                        : o === "lost" ? "bg-red-500/20 text-red-400 border-red-500/30"
+                        : "bg-white/10 text-foreground border-white/20"
+                        : "border-white/10 text-muted-foreground hover:bg-white/5"
+                    )}
+                  >
+                    {o === "open" ? "Open" : o === "won" ? "Won" : "Lost"}
+                  </button>
+                ))}
+              </div>
+              {deal.outcome === "lost" && (
+                <Input
+                  placeholder="Reason for loss..."
+                  value={deal.outcome_reason ?? ""}
+                  onChange={() => {}} // Read-only display for now
+                  className="mt-1.5 text-xs"
+                  disabled
+                />
+              )}
+            </div>
+
+            {/* Health score */}
+            {deal.health_score != null && (
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-medium text-muted-foreground">Deal Health</span>
+                  <span className={cn(
+                    "text-sm font-semibold",
+                    deal.health_score >= 70 ? "text-green-400" : deal.health_score >= 40 ? "text-amber-400" : "text-red-400"
+                  )}>
+                    {deal.health_score}%
+                  </span>
+                </div>
+                <div className="mt-1.5 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                  <div
+                    className={cn(
+                      "h-full rounded-full transition-all",
+                      deal.health_score >= 70 ? "bg-green-400" : deal.health_score >= 40 ? "bg-amber-400" : "bg-red-400"
+                    )}
+                    style={{ width: `${deal.health_score}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
             {/* Contact info (read-only for now) */}
             {deal.contact && (
               <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
@@ -266,8 +337,17 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
               </div>
             )}
 
-            {/* Timestamps */}
+            {/* Timestamps + stage duration */}
             <div className="space-y-1 pt-2">
+              <div className="flex justify-between text-[11px]">
+                <span className="text-muted-foreground">In current stage</span>
+                <span className={cn(
+                  "text-foreground",
+                  deal.stage_changed_at && (Date.now() - new Date(deal.stage_changed_at).getTime()) > 14 * 86400000 && "text-amber-400"
+                )}>
+                  {deal.stage_changed_at ? `${Math.floor((Date.now() - new Date(deal.stage_changed_at).getTime()) / 86400000)}d` : "--"}
+                </span>
+              </div>
               <div className="flex justify-between text-[11px]">
                 <span className="text-muted-foreground">Stage changed</span>
                 <span className="text-foreground">{deal.stage_changed_at ? timeAgo(deal.stage_changed_at) : "--"}</span>
@@ -276,6 +356,16 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
                 <span className="text-muted-foreground">Created</span>
                 <span className="text-foreground">{timeAgo(deal.created_at)}</span>
               </div>
+              <div className="flex justify-between text-[11px]">
+                <span className="text-muted-foreground">Deal age</span>
+                <span className="text-foreground">{Math.floor((Date.now() - new Date(deal.created_at).getTime()) / 86400000)}d</span>
+              </div>
+              {deal.outcome_at && (
+                <div className="flex justify-between text-[11px]">
+                  <span className="text-muted-foreground">Closed</span>
+                  <span className="text-foreground">{timeAgo(deal.outcome_at)}</span>
+                </div>
+              )}
             </div>
 
             {/* Save + Delete */}
