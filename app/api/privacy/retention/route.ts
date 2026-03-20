@@ -80,11 +80,18 @@ export async function POST(request: Request) {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - policy.retention_days);
 
-  const { count, error } = await supabase
+  // Count before delete
+  const { count: beforeCount } = await supabase
+    .from(target.table)
+    .select("*", { count: "exact", head: true })
+    .lt(target.dateCol, cutoff.toISOString());
+
+  const { error } = await supabase
     .from(target.table)
     .delete()
-    .lt(target.dateCol, cutoff.toISOString())
-    .select("*", { count: "exact", head: true });
+    .lt(target.dateCol, cutoff.toISOString());
+
+  const count = beforeCount ?? 0;
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
