@@ -12,7 +12,11 @@ import {
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const APP_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://crm.supravibe.xyz";
+const APP_URL = process.env.NEXT_PUBLIC_SITE_URL;
+if (!APP_URL) {
+  console.error("[poll-notifications] NEXT_PUBLIC_SITE_URL not set");
+  process.exit(1);
+}
 
 if (!BOT_TOKEN || !SUPABASE_URL || !SUPABASE_KEY) {
   console.error("[poll-notifications] Missing required env vars");
@@ -138,6 +142,86 @@ async function main() {
     }
 
     console.log(`[poll-notifications] Processed ${processed} notifications`);
+  }
+
+  // Process failed notification retries
+  try {
+    const { data: failed } = await supabase
+      .from("crm_notification_log")
+      .select("*")
+      .eq("status", "failed")
+      .lt("retry_count", 3)
+      .lte("next_retry_at", new Date().toISOString())
+      .order("next_retry_at")
+      .limit(10);
+
+    let retried = 0;
+    for (const entry of failed ?? []) {
+      try {
+        const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ chat_id: entry.tg_chat_id, text: entry.message_preview, parse_mode: "HTML" }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          await supabase.from("crm_notification_log").update({ status: "sent", tg_message_id: data.result?.message_id, sent_at: new Date().toISOString() }).eq("id", entry.id);
+          retried++;
+        } else {
+          const newRetry = entry.retry_count + 1;
+          await supabase.from("crm_notification_log").update({
+            retry_count: newRetry,
+            last_error: data.description,
+            status: newRetry >= 3 ? "dead_letter" : "failed",
+            next_retry_at: newRetry < 3 ? new Date(Date.now() + [60000, 300000, 900000][newRetry]).toISOString() : null,
+          }).eq("id", entry.id);
+        }
+      } catch {
+        // Skip, will retry next cycle
+      }
+    }
+    if (retried > 0) console.log(`[poll-notifications] Retried ${retried} failed notifications`);
+  } catch (err) {
+    console.error("[poll-notifications] Retry error:", err);
+  }
+
+  // Process scheduled messages
+  try {
+    const { data: scheduled } = await supabase
+      .from("crm_scheduled_messages")
+      .select("*")
+      .eq("status", "pending")
+      .lte("send_at", new Date().toISOString())
+      .order("send_at")
+      .limit(10);
+
+    let sentScheduled = 0;
+    for (const msg of scheduled ?? []) {
+      try {
+        const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ chat_id: msg.tg_chat_id, text: msg.message_text, parse_mode: "HTML" }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          await supabase.from("crm_scheduled_messages").update({ status: "sent", sent_at: new Date().toISOString() }).eq("id", msg.id);
+          sentScheduled++;
+        } else {
+          const newRetry = (msg.retry_count ?? 0) + 1;
+          await supabase.from("crm_scheduled_messages").update({
+            retry_count: newRetry,
+            last_error: data.description,
+            status: newRetry >= 3 ? "failed" : "pending",
+          }).eq("id", msg.id);
+        }
+      } catch {
+        // Skip, will retry next cycle
+      }
+    }
+    if (sentScheduled > 0) console.log(`[poll-notifications] Sent ${sentScheduled} scheduled messages`);
+  } catch (err) {
+    console.error("[poll-notifications] Scheduled message error:", err);
   }
 
   // Auto-generate reminders

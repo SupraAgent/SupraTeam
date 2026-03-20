@@ -71,7 +71,8 @@ export async function POST() {
 // GET to recalculate and return all scores
 export async function GET() {
   // Trigger recalculation
-  const calcRes = await fetch(new URL("/api/deals/health", process.env.NEXT_PUBLIC_SUPABASE_URL ? "https://crm.supravibe.xyz" : "http://localhost:3000"), { method: "POST" });
+  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+  const calcRes = await fetch(new URL("/api/deals/health", baseUrl), { method: "POST" });
 
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;

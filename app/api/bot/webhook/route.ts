@@ -55,7 +55,7 @@ export async function POST(request: Request) {
                   text: `${d.deal_name}\nBoard: ${d.board_type} | Stage: ${stageName}${d.value ? ` | $${Number(d.value).toLocaleString()}` : ""}`,
                   reply_markup: {
                     inline_keyboard: [[
-                      { text: "📊 Open in CRM", web_app: { url: `https://crm.supravibe.xyz/tma/deals/${d.id}` } },
+                      { text: "📊 Open in CRM", web_app: { url: `${process.env.NEXT_PUBLIC_SITE_URL}/tma/deals/${d.id}` } },
                     ]],
                   },
                 }),
@@ -129,6 +129,12 @@ export async function POST(request: Request) {
         .single();
 
       if (!tgGroup) return NextResponse.json({ ok: true });
+
+      // Update last_message_at in real-time
+      await supabase
+        .from("tg_groups")
+        .update({ last_message_at: new Date().toISOString() })
+        .eq("id", tgGroup.id);
 
       // Find linked deals: by telegram_chat_id OR by tg_group_id
       const { data: deals } = await supabase
