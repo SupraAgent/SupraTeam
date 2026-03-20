@@ -28,6 +28,7 @@
     "@tiptap/starter-kit": "^3.20.4",
     "@types/cytoscape": "^3.21.9",
     "@types/dompurify": "^3.0.5",
+    "@xyflow/react": "^12.10.1",
     "big-integer": "^1.6.52",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
