@@ -21,7 +21,9 @@ import {
   Calendar,
   Ban,
   FileText,
+  Sparkles,
 } from "lucide-react";
+import { MERGE_VARIABLES } from "@/lib/telegram-templates";
 import { cn } from "@/lib/utils";
 import { timeAgo } from "@/lib/utils";
 import { toast } from "sonner";
@@ -470,6 +472,31 @@ export default function BroadcastsPage() {
                   ))}
                 </div>
               )}
+
+              {/* Merge variable chips */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <Sparkles className="h-3 w-3 text-muted-foreground shrink-0" />
+                {[...MERGE_VARIABLES.contact.slice(0, 4), ...MERGE_VARIABLES.deal.slice(0, 2), ...MERGE_VARIABLES.sender].map((v) => (
+                  <button
+                    key={v.key}
+                    onClick={() => {
+                      const ta = textareaRef.current;
+                      if (!ta) return;
+                      const pos = ta.selectionStart;
+                      const token = `{{${v.key}}}`;
+                      setMessage(message.slice(0, pos) + token + message.slice(pos));
+                      setTimeout(() => {
+                        ta.focus();
+                        ta.setSelectionRange(pos + token.length, pos + token.length);
+                      }, 0);
+                    }}
+                    className="rounded-md border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-[9px] font-mono text-primary hover:bg-primary/20 transition-colors cursor-pointer"
+                    title={v.hint}
+                  >
+                    {`{{${v.key}}}`}
+                  </button>
+                ))}
+              </div>
 
               {/* Formatting toolbar */}
               <div className="flex items-center gap-1 border-b border-white/5 pb-2">

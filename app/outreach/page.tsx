@@ -251,7 +251,7 @@ export default function OutreachPage() {
                 <textarea
                   value={step.message_template}
                   onChange={(e) => updateStep(i, "message_template", e.target.value)}
-                  placeholder={`Step ${i + 1} message. Use {{deal_name}}, {{stage}}, {{board_type}}`}
+                  placeholder={`Step ${i + 1} message. Use {{contact_name}}, {{deal_name}}, {{stage}}. Defaults: {{contact_first_name|there}}`}
                   rows={2}
                   className="flex-1 rounded-lg border border-white/10 bg-transparent px-2 py-1.5 text-xs font-mono resize-none"
                 />
