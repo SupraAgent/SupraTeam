@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { getDriverForUser } from "@/lib/email/driver";
+import { serverCache, TTL } from "@/lib/email/server-cache";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -10,14 +11,29 @@ export async function GET(request: Request, { params }: Params) {
   if ("error" in auth) return auth.error;
   const { id } = await params;
 
+  // Server-side cache for full threads (Railway persistent process)
+  const cacheKey = `thread:${auth.user.id}:${id}`;
+  const cached = serverCache.get(cacheKey);
+  if (cached) {
+    // Still mark as read in background
+    getDriverForUser(auth.user.id).then(({ driver }) => driver.markAsRead(id)).catch(() => {});
+    return NextResponse.json({ data: cached, source: "gmail" }, {
+      headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" },
+    });
+  }
+
   try {
     const { driver } = await getDriverForUser(auth.user.id);
     const thread = await driver.getThread(id);
 
-    // Mark as read on open
-    await driver.markAsRead(id).catch(() => {});
+    // Mark as read on open — fire-and-forget, don't block response
+    driver.markAsRead(id).catch(() => {});
 
-    return NextResponse.json({ data: thread, source: "gmail" });
+    serverCache.set(cacheKey, thread, TTL.THREAD_FULL);
+
+    return NextResponse.json({ data: thread, source: "gmail" }, {
+      headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" },
+    });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Failed to fetch thread";
     return NextResponse.json({ error: message }, { status: 500 });
@@ -30,7 +46,7 @@ export async function POST(request: Request, { params }: Params) {
   if ("error" in auth) return auth.error;
   const { id } = await params;
 
-  let body: { action: string; labelIds?: { add?: string[]; remove?: string[] } };
+  let body: { action: string; currentlyStarred?: boolean; labelIds?: { add?: string[]; remove?: string[] } };
   try {
     body = await request.json();
   } catch {
@@ -48,7 +64,7 @@ export async function POST(request: Request, { params }: Params) {
         await driver.trash(id);
         break;
       case "star":
-        await driver.toggleStar(id);
+        await driver.toggleStar(id, body.currentlyStarred);
         break;
       case "read":
         await driver.markAsRead(id);
@@ -67,8 +83,12 @@ export async function POST(request: Request, { params }: Params) {
         return NextResponse.json({ error: `Unknown action: ${body.action}` }, { status: 400 });
     }
 
-    // Audit log
-    await auth.admin.from("crm_email_audit_log").insert({
+    // Invalidate server-side caches after mutation
+    serverCache.delete(`thread:${auth.user.id}:${id}`);
+    serverCache.invalidatePrefix(`threads:${auth.user.id}:`);
+
+    // Audit log — fire-and-forget, don't block response
+    void auth.admin.from("crm_email_audit_log").insert({
       user_id: auth.user.id,
       action: `thread_${body.action}`,
       thread_id: id,

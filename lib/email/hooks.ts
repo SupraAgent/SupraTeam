@@ -8,7 +8,9 @@ import { cacheThreads, getCachedThreads, cacheFullThread, getCachedMessages } fr
 
 const threadCache = new Map<string, { data: Thread; ts: number }>();
 const listCache = new Map<string, { data: ThreadListItem[]; ts: number; nextPageToken?: string }>();
-const CACHE_TTL = 60_000; // 1 minute stale-while-revalidate window
+const CACHE_TTL = 30_000; // 30s stale-while-revalidate window
+const POLL_INTERVAL = 30_000; // 30s background refresh
+const PREFETCH_BATCH = 3; // prefetch first N threads on list load
 
 function getCachedThread(id: string): Thread | null {
   const entry = threadCache.get(id);
@@ -148,6 +150,23 @@ export function useThreads(options?: {
 
   React.useEffect(() => { fetchThreads(); }, [fetchThreads]);
 
+  // Background polling — refresh every 30s when tab is visible
+  React.useEffect(() => {
+    let timer: ReturnType<typeof setInterval>;
+
+    function startPolling() {
+      timer = setInterval(() => {
+        if (document.visibilityState === "visible") {
+          listCache.delete(cacheKey);
+          fetchThreads();
+        }
+      }, POLL_INTERVAL);
+    }
+
+    startPolling();
+    return () => clearInterval(timer);
+  }, [fetchThreads, cacheKey]);
+
   const loadMore = React.useCallback(() => {
     if (nextPageToken) fetchThreads(nextPageToken);
   }, [nextPageToken, fetchThreads]);
@@ -174,19 +193,21 @@ export function useThread(threadId: string | null) {
       return;
     }
 
-    // Serve cached immediately
+    // Serve cached immediately — show data before network, no loading spinner
     const cached = getCachedThread(threadId);
-    if (cached && cached.messages?.length > 0) {
+    if (cached) {
       setThread(cached);
-      // If fresh, skip network
-      const entry = threadCache.get(threadId);
-      if (entry && Date.now() - entry.ts < CACHE_TTL) {
-        return;
+      // If cache has full messages and is fresh, skip network entirely
+      if (cached.messages?.length > 0) {
+        const entry = threadCache.get(threadId);
+        if (entry && Date.now() - entry.ts < CACHE_TTL) {
+          return;
+        }
       }
-      // Revalidate in background
+      // Revalidate in background — don't show loading since we already have data
+    } else {
+      setLoading(true);
     }
-
-    setLoading(true);
     setError(undefined);
     fetch(`/api/email/threads/${threadId}`)
       .then((r) => {
@@ -242,6 +263,36 @@ export function usePrefetchThread() {
   }, []);
 
   return prefetch;
+}
+
+/** Prefetch first N threads on list load for instant navigation */
+export function useBatchPrefetch(threads: { id: string }[]) {
+  const prefetchedRef = React.useRef(new Set<string>());
+
+  React.useEffect(() => {
+    if (threads.length === 0) return;
+
+    const toPrefetch = threads
+      .slice(0, PREFETCH_BATCH)
+      .filter((t) => {
+        if (prefetchedRef.current.has(t.id)) return false;
+        const entry = threadCache.get(t.id);
+        return !(entry && entry.data.messages?.length > 0 && Date.now() - entry.ts < CACHE_TTL);
+      });
+
+    // Stagger prefetches to avoid request burst
+    toPrefetch.forEach((t, i) => {
+      setTimeout(() => {
+        prefetchedRef.current.add(t.id);
+        fetch(`/api/email/threads/${t.id}`)
+          .then((r) => r.json())
+          .then((json) => {
+            if (json.data) setCachedThread(t.id, json.data);
+          })
+          .catch(() => {});
+      }, i * 200); // 200ms stagger between each
+    });
+  }, [threads.map((t) => t.id).slice(0, PREFETCH_BATCH).join(",")]);
 }
 
 // ── Labels ──────────────────────────────────────────────────
@@ -351,7 +402,8 @@ export function useEmailActions(
   } | null>(null);
 
   const performAction = React.useCallback(
-    async (threadId: string, action: string, extra?: Record<string, unknown>) => {
+    async (threadId: string, action: string, extraIn?: Record<string, unknown>) => {
+      let extra = extraIn;
       // Optimistic update
       if (action === "archive" || action === "trash") {
         let removedThread: ThreadListItem | undefined;
@@ -392,9 +444,18 @@ export function useEmailActions(
       }
 
       if (action === "star") {
+        // Track current state before optimistic toggle so server can skip the extra GET
+        let currentlyStarred = false;
         setThreads((prev) =>
-          prev.map((t) => (t.id === threadId ? { ...t, isStarred: !t.isStarred } : t))
+          prev.map((t) => {
+            if (t.id === threadId) {
+              currentlyStarred = t.isStarred;
+              return { ...t, isStarred: !t.isStarred };
+            }
+            return t;
+          })
         );
+        extra = { ...extra, currentlyStarred };
       }
 
       if (action === "read") {
@@ -409,12 +470,12 @@ export function useEmailActions(
         );
       }
 
-      // Execute immediately for non-destructive actions
-      await fetch(`/api/email/threads/${threadId}`, {
+      // Fire-and-forget for non-destructive actions — UI already updated optimistically
+      fetch(`/api/email/threads/${threadId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, ...extra }),
-      });
+      }).catch(() => {});
     },
     [setThreads, undoAction]
   );

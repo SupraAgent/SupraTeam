@@ -2,6 +2,7 @@ import type { MailDriver, EmailProvider } from "./types";
 import { GmailDriver } from "./gmail";
 import { decryptToken } from "@/lib/crypto";
 import { createSupabaseAdmin } from "@/lib/supabase";
+import { serverCache, TTL } from "./server-cache";
 
 type ConnectionRecord = {
   id: string;
@@ -50,6 +51,12 @@ export async function getDriverForUser(
   userId: string,
   connectionId?: string
 ): Promise<{ driver: MailDriver; connection: ConnectionRecord }> {
+  // On Railway, cache the driver in-process memory to avoid
+  // repeated DB queries + token decryption on every API call
+  const cacheKey = `driver:${userId}:${connectionId ?? "default"}`;
+  const cached = serverCache.get<{ driver: MailDriver; connection: ConnectionRecord }>(cacheKey);
+  if (cached) return cached;
+
   const admin = createSupabaseAdmin();
   if (!admin) throw new Error("Supabase not configured");
 
@@ -79,16 +86,20 @@ export async function getDriverForUser(
       throw new Error("No email connection found. Connect your Gmail in Settings.");
     }
 
-    return {
+    const result = {
       driver: createDriverFromConnection(fallback as ConnectionRecord),
       connection: fallback as ConnectionRecord,
     };
+    serverCache.set(cacheKey, result, TTL.DRIVER);
+    return result;
   }
 
-  return {
+  const result = {
     driver: createDriverFromConnection(data as ConnectionRecord),
     connection: data as ConnectionRecord,
   };
+  serverCache.set(cacheKey, result, TTL.DRIVER);
+  return result;
 }
 
 /**

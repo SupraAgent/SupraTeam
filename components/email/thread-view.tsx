@@ -183,14 +183,8 @@ function MessageBubble({
             )}
           </div>
 
-          {/* Body — rendered as sanitized HTML */}
-          <div
-            className="text-sm text-foreground/90 prose prose-invert prose-sm max-w-none
-              [&_a]:text-primary [&_a]:no-underline [&_a:hover]:underline
-              [&_img]:max-w-full [&_img]:rounded-lg
-              [&_blockquote]:border-l-2 [&_blockquote]:border-white/10 [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground"
-            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(message.body || message.bodyText.replace(/\n/g, "<br>"), { FORBID_TAGS: ["script", "style", "iframe", "object", "embed", "form"], FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover"] }) }}
-          />
+          {/* Body — rendered as sanitized HTML (memoized to avoid re-sanitizing on every render) */}
+          <SanitizedBody body={message.body} bodyText={message.bodyText} />
 
           {/* Attachments */}
           {message.attachments.length > 0 && (
@@ -212,6 +206,24 @@ function MessageBubble({
     </div>
   );
 }
+
+const PURIFY_CONFIG = { FORBID_TAGS: ["script", "style", "iframe", "object", "embed", "form"], FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover"] };
+
+const SanitizedBody = React.memo(function SanitizedBody({ body, bodyText }: { body: string; bodyText: string }) {
+  const html = React.useMemo(
+    () => DOMPurify.sanitize(body || bodyText.replace(/\n/g, "<br>"), PURIFY_CONFIG),
+    [body, bodyText]
+  );
+  return (
+    <div
+      className="text-sm text-foreground/90 prose prose-invert prose-sm max-w-none
+        [&_a]:text-primary [&_a]:no-underline [&_a:hover]:underline
+        [&_img]:max-w-full [&_img]:rounded-lg
+        [&_blockquote]:border-l-2 [&_blockquote]:border-white/10 [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground"
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+});
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;

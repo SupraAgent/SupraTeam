@@ -1,0 +1,38 @@
+# Railway Infrastructure-as-Code configuration
+# Defines all services for SupraCRM deployment
+#
+# Services:
+#   1. web     — Next.js app (API + frontend)
+#   2. bot     — Telegram bot (long-polling, grammy)
+#   3. cron    — Cron jobs (notifications, sequences, digest)
+
+# ─── Web Service (Next.js) ────────────────────────────────────
+[services.web]
+builder = "NIXPACKS"
+startCommand = "npm start"
+healthcheckPath = "/api/health"
+healthcheckTimeout = 10
+
+[services.web.deploy]
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+
+# ─── Telegram Bot Service ─────────────────────────────────────
+# Long-polling bot process — runs separately from the web service
+# Shares the same env vars but runs bot/index.ts directly
+[services.bot]
+builder = "NIXPACKS"
+startCommand = "npx tsx bot/index.ts"
+
+[services.bot.deploy]
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+
+# ─── Cron Service ─────────────────────────────────────────────
+# Railway cron triggers — calls the web service's API endpoints
+#
+# To configure in Railway UI (or CLI):
+#   railway cron create --service web --schedule "*/5 * * * *" --endpoint "/api/cron"
+#   railway cron create --service web --schedule "0 9 * * 1-5" --endpoint "/api/cron?job=daily-digest"
+#
+# Or configure via Railway Dashboard > Service > Settings > Cron

@@ -10,7 +10,7 @@ import { UndoSendProvider, UndoSendBar } from "@/components/email/undo-send-bar"
 import { SnoozePicker } from "@/components/email/snooze-picker";
 import { AdvancedSearch } from "@/components/email/advanced-search";
 import { KeyboardHelp } from "@/components/email/keyboard-help";
-import { useThreads, useThread, useLabels, useEmailActions, useEmailKeyboard, useEmailConnections, useSplitInbox, usePrefetchThread } from "@/lib/email/hooks";
+import { useThreads, useThread, useLabels, useEmailActions, useEmailKeyboard, useEmailConnections, useSplitInbox, usePrefetchThread, useBatchPrefetch } from "@/lib/email/hooks";
 import { INBOX_CATEGORIES, type InboxCategory } from "@/lib/email/types";
 import { EmailErrorBoundary } from "@/components/email/error-boundary";
 import { toast } from "sonner";
@@ -41,7 +41,7 @@ function EmailPageInner() {
   const handleSearchChange = React.useCallback((value: string) => {
     setSearchInput(value);
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-    searchTimerRef.current = setTimeout(() => setSearchQuery(value), 400);
+    searchTimerRef.current = setTimeout(() => setSearchQuery(value), 200);
   }, []);
 
   // Compose modal state
@@ -64,6 +64,9 @@ function EmailPageInner() {
   const { performAction, undoAction } = useEmailActions(setThreads);
   const { split, counts } = useSplitInbox(threads);
   const prefetchThread = usePrefetchThread();
+
+  // Batch-prefetch first 3 threads for instant navigation
+  useBatchPrefetch(threads);
 
   // Visible threads based on active category
   const visibleThreads = activeCategory === "all" ? threads : split[activeCategory];
@@ -170,7 +173,14 @@ function EmailPageInner() {
     },
     onOpen: () => {
       if (!selectedThreadId && visibleThreads[selectedIndex]) {
-        setSelectedThreadId(visibleThreads[selectedIndex].id);
+        const thread = visibleThreads[selectedIndex];
+        setSelectedThreadId(thread.id);
+        // Optimistic mark-as-read on keyboard open
+        if (thread.isUnread) {
+          setThreads((prev) =>
+            prev.map((t) => (t.id === thread.id ? { ...t, isUnread: false } : t))
+          );
+        }
       }
     },
     onBack: () => setSelectedThreadId(null),
@@ -188,7 +198,14 @@ function EmailPageInner() {
     onArchiveNext: handleArchive,
     onArchivePrev: handleArchive,
     onSnooze: handleSnooze,
-    onSendAndArchive: () => {},
+    onSendAndArchive: () => {
+      // Send + Archive: archive current thread after compose closes
+      if (selectedThreadId) {
+        performAction(selectedThreadId, "archive");
+        toast("Archived");
+        setSelectedThreadId(null);
+      }
+    },
     onGoInbox: () => { setActiveLabel("INBOX"); setSelectedThreadId(null); setSearchQuery(""); },
     onGoStarred: () => { setActiveLabel("STARRED"); setSelectedThreadId(null); setSearchQuery(""); },
     onGoSent: () => { setActiveLabel("SENT"); setSelectedThreadId(null); setSearchQuery(""); },
@@ -320,6 +337,10 @@ function EmailPageInner() {
           onSelect={(id) => {
             setSelectedThreadId(id);
             setSelectedIndex(visibleThreads.findIndex((t) => t.id === id));
+            // Optimistic mark-as-read — update list instantly
+            setThreads((prev) =>
+              prev.map((t) => (t.id === id && t.isUnread ? { ...t, isUnread: false } : t))
+            );
           }}
           loading={loading}
           onLoadMore={activeCategory === "all" ? loadMore : undefined}
