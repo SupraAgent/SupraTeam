@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { RichEditor } from "./rich-editor";
 import { TemplatePicker } from "./template-picker";
 import { SendLaterPicker } from "./send-later-picker";
 import { useUndoSend } from "./undo-send-bar";
@@ -270,18 +271,14 @@ export function ComposeModal({
 
           <div>
             <label className="block text-[10px] text-muted-foreground mb-1">Message</label>
-            <textarea
-              value={bodyText}
-              onChange={(e) => {
-                setBodyText(e.target.value);
-                setBodyHtml(`<div>${e.target.value.replace(/\n/g, "<br>")}</div>`);
+            <RichEditor
+              content={bodyHtml}
+              onChange={(html, text) => {
+                setBodyHtml(html);
+                setBodyText(text);
               }}
               placeholder="Write your message..."
               autoFocus={mode === "reply" || mode === "replyAll"}
-              rows={10}
-              className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-foreground
-                placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/50
-                resize-none thin-scroll"
             />
           </div>
 
