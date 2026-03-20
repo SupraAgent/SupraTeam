@@ -81,20 +81,60 @@ export async function POST(request: Request) {
   return NextResponse.json({ notification, ok: true });
 }
 
-// Mark notifications as read
+// Mark notifications as read, snooze, dismiss, or handled
 export async function PATCH(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
   const { admin: supabase } = auth;
 
-  const { ids, mark_all } = await request.json();
+  const { ids, mark_all, action, until } = await request.json();
 
+  // Legacy: mark as read
   if (mark_all) {
     await supabase
       .from("crm_notifications")
       .update({ is_read: true })
       .eq("is_read", false);
-  } else if (Array.isArray(ids) && ids.length > 0) {
+    return NextResponse.json({ ok: true });
+  }
+
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return NextResponse.json({ ok: true });
+  }
+
+  // New action-based states
+  if (action === "snooze" && until) {
+    await supabase
+      .from("crm_notifications")
+      .update({ status: "snoozed", snoozed_until: until })
+      .in("id", ids);
+  } else if (action === "dismiss") {
+    await supabase
+      .from("crm_notifications")
+      .update({ status: "dismissed", is_read: true })
+      .in("id", ids);
+  } else if (action === "handled") {
+    // Mark as handled + clear corresponding highlights
+    await supabase
+      .from("crm_notifications")
+      .update({ status: "handled", is_read: true })
+      .in("id", ids);
+
+    // Get deal_ids from these notifications to clear highlights
+    const { data: notifs } = await supabase
+      .from("crm_notifications")
+      .select("deal_id")
+      .in("id", ids);
+    const dealIds = [...new Set((notifs ?? []).map((n) => n.deal_id).filter(Boolean))];
+    if (dealIds.length > 0) {
+      await supabase
+        .from("crm_highlights")
+        .update({ is_active: false, cleared_at: new Date().toISOString(), cleared_by: "handled" })
+        .in("deal_id", dealIds)
+        .eq("is_active", true);
+    }
+  } else {
+    // Default: mark as read
     await supabase
       .from("crm_notifications")
       .update({ is_read: true })
