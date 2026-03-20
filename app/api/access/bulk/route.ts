@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
+import { logAudit } from "@/lib/audit";
 
 export async function POST(request: Request) {
   const auth = await requireAuth();
@@ -182,6 +183,24 @@ export async function POST(request: Request) {
     status,
     error_log: errorLog || null,
     created_at: new Date().toISOString(),
+  });
+
+  // Centralized audit log
+  const userName = user.user_metadata?.display_name ?? user.user_metadata?.full_name ?? user.email ?? "Unknown";
+  await logAudit({
+    action: action === "add_to_groups" ? "bulk_add" : "bulk_remove",
+    entityType: "access",
+    entityId: slug,
+    actorId: user.id,
+    actorName: userName,
+    details: {
+      target_user_id: user_id,
+      target_name: profile.display_name,
+      slug,
+      groups_count: results.length,
+      success_count: results.filter((r) => r.success).length,
+      status,
+    },
   });
 
   const inviteLinks = action === "add_to_groups"

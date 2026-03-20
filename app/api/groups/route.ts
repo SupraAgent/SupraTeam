@@ -10,6 +10,7 @@ export async function GET() {
     .from("tg_groups")
     .select("*")
     .order("group_name");
+  // Note: includes archived groups — client filters them
 
   if (error) {
     console.error("[api/groups] error:", error);
