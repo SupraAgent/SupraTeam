@@ -18,10 +18,23 @@ import {
   Calendar,
   Webhook as WebhookIcon,
   Play,
+  BookTemplate,
+  Sparkles,
+  Hash,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { timeAgo } from "@/lib/utils";
 import type { Workflow as WorkflowType } from "@/lib/workflow-types";
+
+interface WorkflowTemplate {
+  id: string;
+  name: string;
+  description: string | null;
+  category: "built_in" | "custom";
+  tags: string[];
+  trigger_type: string | null;
+  use_count: number;
+}
 
 const TRIGGER_ICONS: Record<string, React.ElementType> = {
   deal_stage_change: ArrowRightLeft,
@@ -50,6 +63,10 @@ export default function AutomationsPage() {
   const [creating, setCreating] = React.useState(false);
   const [newName, setNewName] = React.useState("");
   const [msg, setMsg] = React.useState("");
+  const [showTemplates, setShowTemplates] = React.useState(false);
+  const [templates, setTemplates] = React.useState<WorkflowTemplate[]>([]);
+  const [templateTab, setTemplateTab] = React.useState<"built_in" | "custom">("built_in");
+  const [loadingTemplates, setLoadingTemplates] = React.useState(false);
 
   const fetchWorkflows = React.useCallback(async () => {
     try {
@@ -70,6 +87,39 @@ export default function AutomationsPage() {
   function showMsg(text: string) {
     setMsg(text);
     setTimeout(() => setMsg(""), 2000);
+  }
+
+  async function fetchTemplates() {
+    setLoadingTemplates(true);
+    try {
+      const res = await fetch("/api/workflow-templates");
+      if (res.ok) {
+        const data = await res.json();
+        setTemplates(data.templates ?? []);
+      }
+    } finally {
+      setLoadingTemplates(false);
+    }
+  }
+
+  function toggleTemplates() {
+    if (!showTemplates) fetchTemplates();
+    setShowTemplates(!showTemplates);
+  }
+
+  async function useTemplate(templateId: string) {
+    const res = await fetch(`/api/workflow-templates/${templateId}/use`, { method: "POST" });
+    if (res.ok) {
+      const data = await res.json();
+      router.push(`/automations/${data.workflow.id}`);
+    }
+  }
+
+  async function deleteTemplate(templateId: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    await fetch(`/api/workflow-templates/${templateId}`, { method: "DELETE" });
+    setTemplates((prev) => prev.filter((t) => t.id !== templateId));
+    showMsg("Template deleted");
   }
 
   async function handleCreate() {
@@ -128,6 +178,10 @@ export default function AutomationsPage() {
         </div>
         <div className="flex items-center gap-2">
           {msg && <span className="text-xs text-primary">{msg}</span>}
+          <Button size="sm" variant="outline" onClick={toggleTemplates}>
+            <BookTemplate className="mr-1 h-3.5 w-3.5" />
+            Templates
+          </Button>
           <Button size="sm" onClick={() => setCreating(true)}>
             <Plus className="mr-1 h-3.5 w-3.5" />
             New Workflow
@@ -152,6 +206,111 @@ export default function AutomationsPage() {
           <Button size="sm" variant="ghost" onClick={() => { setCreating(false); setNewName(""); }}>
             Cancel
           </Button>
+        </div>
+      )}
+
+      {/* Template library */}
+      {showTemplates && (
+        <div className="rounded-xl border border-white/10 bg-white/[0.02] overflow-hidden">
+          <div className="flex items-center gap-1 px-4 py-2.5 border-b border-white/10">
+            <button
+              onClick={() => setTemplateTab("built_in")}
+              className={cn(
+                "px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
+                templateTab === "built_in" ? "bg-primary/20 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-white/5"
+              )}
+            >
+              <Sparkles className="inline h-3 w-3 mr-1" />
+              Pre-built
+            </button>
+            <button
+              onClick={() => setTemplateTab("custom")}
+              className={cn(
+                "px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
+                templateTab === "custom" ? "bg-primary/20 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-white/5"
+              )}
+            >
+              My Templates
+            </button>
+            <button
+              onClick={() => setShowTemplates(false)}
+              className="ml-auto text-muted-foreground hover:text-foreground text-xs transition-colors"
+            >
+              Close
+            </button>
+          </div>
+
+          {loadingTemplates ? (
+            <div className="p-6 text-center">
+              <p className="text-xs text-muted-foreground/50">Loading templates...</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-4">
+              {templates
+                .filter((t) => t.category === templateTab)
+                .map((t) => {
+                  const TriggerIcon = TRIGGER_ICONS[t.trigger_type ?? ""] ?? Workflow;
+                  return (
+                    <div
+                      key={t.id}
+                      className="rounded-xl border border-white/[0.06] bg-white/[0.035] p-4 hover:bg-white/[0.06] transition-colors"
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <div className="h-9 w-9 rounded-lg bg-purple-500/10 flex items-center justify-center shrink-0">
+                          <TriggerIcon className="h-4.5 w-4.5 text-purple-400" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-foreground">{t.name}</p>
+                          {t.description && (
+                            <p className="text-[11px] text-muted-foreground/60 mt-0.5 line-clamp-2">{t.description}</p>
+                          )}
+                        </div>
+                      </div>
+
+                      {t.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-2.5">
+                          {t.tags.map((tag) => (
+                            <span key={tag} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-white/[0.06] text-[9px] text-muted-foreground">
+                              <Hash className="h-2 w-2" />
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="flex items-center gap-2 mt-3">
+                        <Button
+                          size="sm"
+                          className="h-7 text-[11px]"
+                          onClick={() => useTemplate(t.id)}
+                        >
+                          Use Template
+                        </Button>
+                        <span className="text-[9px] text-muted-foreground/40">
+                          Used {t.use_count} time{t.use_count !== 1 ? "s" : ""}
+                        </span>
+                        {t.category === "custom" && (
+                          <button
+                            onClick={(e) => deleteTemplate(t.id, e)}
+                            className="ml-auto h-6 w-6 rounded-lg flex items-center justify-center text-muted-foreground/40 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+
+              {templates.filter((t) => t.category === templateTab).length === 0 && (
+                <div className="col-span-full py-6 text-center">
+                  <p className="text-xs text-muted-foreground/50">
+                    {templateTab === "custom" ? "No saved templates yet. Save a workflow as a template from the editor." : "No built-in templates available."}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
