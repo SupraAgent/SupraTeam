@@ -6,12 +6,29 @@ import { KanbanBoard } from "@/components/pipeline/kanban-board";
 import { DealListView } from "@/components/pipeline/deal-list-view";
 import { CreateDealModal } from "@/components/pipeline/create-deal-modal";
 import { DealDetailPanel } from "@/components/pipeline/deal-detail-panel";
+import { PipelineFilterBar } from "@/components/pipeline/pipeline-filter-bar";
+import { BulkActionBar } from "@/components/pipeline/bulk-action-bar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { LayoutGrid, List, Search, DollarSign } from "lucide-react";
+import { LayoutGrid, List, Search, DollarSign, Filter } from "lucide-react";
 import { toast } from "sonner";
 import type { Deal, PipelineStage, Contact, BoardType } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+export type PipelineFilters = {
+  minValue: number | null;
+  maxValue: number | null;
+  minProbability: number | null;
+  maxProbability: number | null;
+  assignedTo: string | null;
+  staleDays: number | null;
+  outcome: string | null;
+};
+
+const EMPTY_FILTERS: PipelineFilters = {
+  minValue: null, maxValue: null, minProbability: null, maxProbability: null,
+  assignedTo: null, staleDays: null, outcome: null,
+};
 
 const BOARDS: BoardType[] = ["All", "BD", "Marketing", "Admin"];
 
@@ -68,8 +85,26 @@ export default function PipelinePage() {
   const [usingSamples, setUsingSamples] = React.useState(false);
   const [highlightDealId, setHighlightDealId] = React.useState<string | null>(null);
   const [highlightedDealIds, setHighlightedDealIds] = React.useState<Set<string>>(new Set());
+  const [filters, setFilters] = React.useState<PipelineFilters>(EMPTY_FILTERS);
+  const [showFilters, setShowFilters] = React.useState(false);
+  const [selectedDealIds, setSelectedDealIds] = React.useState<Set<string>>(new Set());
   const searchParams = useSearchParams();
   const router = useRouter();
+
+  // Unique assigned profiles for filter dropdown
+  const assignedProfiles = React.useMemo(() => {
+    const map = new Map<string, { id: string; display_name: string }>();
+    for (const d of deals) {
+      if (d.assigned_to && d.assigned_profile) {
+        map.set(d.assigned_to, { id: d.assigned_to, display_name: d.assigned_profile.display_name });
+      }
+    }
+    return Array.from(map.values());
+  }, [deals]);
+
+  const hasActiveFilters = filters.minValue != null || filters.maxValue != null ||
+    filters.minProbability != null || filters.maxProbability != null ||
+    filters.assignedTo != null || filters.staleDays != null || filters.outcome != null;
 
   // Handle ?highlight=deal-id
   React.useEffect(() => {
@@ -160,21 +195,137 @@ export default function PipelinePage() {
     }
   }
 
-  // Search filter
-  const searchFiltered = search
-    ? deals.filter((d) => {
-        const q = search.toLowerCase();
-        return (
-          d.deal_name.toLowerCase().includes(q) ||
-          d.contact?.name?.toLowerCase().includes(q) ||
-          d.contact?.company?.toLowerCase().includes(q)
-        );
-      })
-    : deals;
+  // Search + advanced filters
+  const searchFiltered = React.useMemo(() => {
+    let result = deals;
+
+    // Text search
+    if (search) {
+      const q = search.toLowerCase();
+      result = result.filter((d) =>
+        d.deal_name.toLowerCase().includes(q) ||
+        d.contact?.name?.toLowerCase().includes(q) ||
+        d.contact?.company?.toLowerCase().includes(q)
+      );
+    }
+
+    // Advanced filters
+    if (filters.minValue != null) result = result.filter((d) => Number(d.value ?? 0) >= filters.minValue!);
+    if (filters.maxValue != null) result = result.filter((d) => Number(d.value ?? 0) <= filters.maxValue!);
+    if (filters.minProbability != null) result = result.filter((d) => Number(d.probability ?? 0) >= filters.minProbability!);
+    if (filters.maxProbability != null) result = result.filter((d) => Number(d.probability ?? 0) <= filters.maxProbability!);
+    if (filters.assignedTo === "__unassigned") {
+      result = result.filter((d) => !d.assigned_to);
+    } else if (filters.assignedTo) {
+      result = result.filter((d) => d.assigned_to === filters.assignedTo);
+    }
+    if (filters.outcome) result = result.filter((d) => (d as Deal & { outcome?: string }).outcome === filters.outcome);
+    if (filters.staleDays != null) {
+      const cutoff = Date.now() - filters.staleDays * 86400000;
+      result = result.filter((d) => new Date(d.stage_changed_at).getTime() < cutoff);
+    }
+
+    return result;
+  }, [deals, search, filters]);
 
   // Pipeline summary
   const totalValue = deals.reduce((sum, d) => sum + Number(d.value ?? 0), 0);
   const weightedValue = deals.reduce((sum, d) => sum + Number(d.value ?? 0) * (Number(d.probability ?? 50) / 100), 0);
+
+  // Bulk actions
+  function toggleSelectDeal(dealId: string) {
+    setSelectedDealIds((prev) => {
+      const next = new Set(prev);
+      next.has(dealId) ? next.delete(dealId) : next.add(dealId);
+      return next;
+    });
+  }
+
+  function selectAllVisible() {
+    const boardFiltered = board === "All" ? searchFiltered : searchFiltered.filter((d) => d.board_type === board);
+    setSelectedDealIds(new Set(boardFiltered.map((d) => d.id)));
+  }
+
+  function clearSelection() {
+    setSelectedDealIds(new Set());
+  }
+
+  async function handleBulkMove(stageId: string) {
+    const ids = Array.from(selectedDealIds);
+    const results = await Promise.allSettled(
+      ids.map((id) =>
+        fetch(`/api/deals/${id}/move`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ stage_id: stageId }),
+        })
+      )
+    );
+    const succeeded = results.filter((r) => r.status === "fulfilled").length;
+    toast.success(`Moved ${succeeded} deal${succeeded !== 1 ? "s" : ""}`);
+    clearSelection();
+    fetchData();
+  }
+
+  async function handleBulkDelete() {
+    const ids = Array.from(selectedDealIds);
+    const results = await Promise.allSettled(
+      ids.map((id) => fetch(`/api/deals/${id}`, { method: "DELETE" }))
+    );
+    const succeeded = results.filter((r) => r.status === "fulfilled").length;
+    toast.success(`Deleted ${succeeded} deal${succeeded !== 1 ? "s" : ""}`);
+    clearSelection();
+    fetchData();
+  }
+
+  async function handleBulkOutcome(outcome: string) {
+    const ids = Array.from(selectedDealIds);
+    const results = await Promise.allSettled(
+      ids.map((id) =>
+        fetch(`/api/deals/${id}/outcome`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ outcome }),
+        })
+      )
+    );
+    const succeeded = results.filter((r) => r.status === "fulfilled").length;
+    toast.success(`Marked ${succeeded} deal${succeeded !== 1 ? "s" : ""} as ${outcome}`);
+    clearSelection();
+    fetchData();
+  }
+
+  // Quick actions from deal cards
+  async function handleQuickMove(dealId: string, stageId: string) {
+    handleMoveDeal(dealId, stageId);
+  }
+
+  async function handleQuickOutcome(dealId: string, outcome: string) {
+    const res = await fetch(`/api/deals/${dealId}/outcome`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ outcome }),
+    });
+    if (res.ok) {
+      toast.success(`Deal marked as ${outcome}`);
+      fetchData();
+    } else {
+      toast.error("Failed to update outcome");
+    }
+  }
+
+  async function handleInlineEdit(dealId: string, field: string, val: number | null) {
+    const res = await fetch(`/api/deals/${dealId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ [field]: val }),
+    });
+    if (res.ok) {
+      setDeals((prev) => prev.map((d) => d.id === dealId ? { ...d, [field]: val } : d));
+    } else {
+      toast.error("Failed to update");
+    }
+  }
 
   if (loading) {
     return (
@@ -246,6 +397,18 @@ export default function PipelinePage() {
               );
             })}
           </div>
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={cn(
+              "rounded-lg p-1.5 transition-colors",
+              showFilters || hasActiveFilters
+                ? "bg-primary/20 text-primary"
+                : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+            )}
+            title="Advanced filters"
+          >
+            <Filter className="h-3.5 w-3.5" />
+          </button>
           <div className="relative">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50" />
             <Input
@@ -273,6 +436,29 @@ export default function PipelinePage() {
         </div>
       )}
 
+      {/* Advanced filter bar */}
+      {showFilters && (
+        <PipelineFilterBar
+          filters={filters}
+          onChange={setFilters}
+          onClear={() => setFilters(EMPTY_FILTERS)}
+          assignedProfiles={assignedProfiles}
+        />
+      )}
+
+      {/* Bulk action bar */}
+      {selectedDealIds.size > 0 && (
+        <BulkActionBar
+          count={selectedDealIds.size}
+          stages={stages}
+          onMove={handleBulkMove}
+          onDelete={handleBulkDelete}
+          onOutcome={handleBulkOutcome}
+          onSelectAll={selectAllVisible}
+          onClear={clearSelection}
+        />
+      )}
+
       {usingSamples && (
         <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-2 text-sm text-muted-foreground">
           Showing sample deals. Add your first deal to get started.
@@ -283,9 +469,15 @@ export default function PipelinePage() {
         <KanbanBoard
           stages={stages}
           deals={searchFiltered}
+          allDeals={deals}
           board={board}
           onMoveDeal={handleMoveDeal}
           onDealClick={setSelectedDeal}
+          onQuickMove={handleQuickMove}
+          onQuickOutcome={handleQuickOutcome}
+          onInlineEdit={handleInlineEdit}
+          selectedDealIds={selectedDealIds}
+          onToggleSelect={toggleSelectDeal}
           highlightDealId={highlightDealId}
           highlightedDealIds={highlightedDealIds}
         />
@@ -295,6 +487,8 @@ export default function PipelinePage() {
           stages={stages}
           board={board}
           onDealClick={setSelectedDeal}
+          selectedDealIds={selectedDealIds}
+          onToggleSelect={toggleSelectDeal}
           highlightDealId={highlightDealId}
           highlightedDealIds={highlightedDealIds}
         />
