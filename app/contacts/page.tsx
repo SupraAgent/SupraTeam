@@ -46,6 +46,13 @@ export default function ContactsPage() {
   const [loading, setLoading] = React.useState(true);
   const [bulkDeleting, setBulkDeleting] = React.useState(false);
 
+  // Duplicate scanner
+  type DupGroup = { contacts: { id: string; name: string; email: string | null; phone: string | null; telegram_username: string | null; company: string | null }[]; reason: string; confidence: number };
+  const [showDupes, setShowDupes] = React.useState(false);
+  const [dupeGroups, setDupeGroups] = React.useState<DupGroup[]>([]);
+  const [scanningDupes, setScanningDupes] = React.useState(false);
+  const [mergingId, setMergingId] = React.useState<string | null>(null);
+
   const fetchData = React.useCallback(async () => {
     try {
       const [contactsRes, stagesRes, dealsRes] = await Promise.all([
@@ -197,6 +204,42 @@ export default function ContactsPage() {
     }
   }
 
+  async function scanDuplicates() {
+    setScanningDupes(true);
+    setShowDupes(true);
+    try {
+      const res = await fetch("/api/contacts/scan-duplicates");
+      if (res.ok) {
+        const data = await res.json();
+        setDupeGroups(data.groups ?? []);
+      }
+    } finally {
+      setScanningDupes(false);
+    }
+  }
+
+  async function mergeDupeGroup(group: DupGroup) {
+    const primary = group.contacts[0];
+    const mergeIds = group.contacts.slice(1).map((c) => c.id);
+    setMergingId(primary.id);
+    try {
+      const res = await fetch("/api/contacts/merge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ primaryId: primary.id, mergeIds }),
+      });
+      if (res.ok) {
+        toast.success(`Merged ${group.contacts.length} contacts into ${primary.name}`);
+        setDupeGroups((prev) => prev.filter((g) => g !== group));
+        fetchData();
+      } else {
+        toast.error("Merge failed");
+      }
+    } finally {
+      setMergingId(null);
+    }
+  }
+
   // Stats
   const withTg = contacts.filter((c) => c.telegram_username).length;
   const withDeals = new Set(deals.filter((d) => d.contact_id).map((d) => d.contact_id)).size;
@@ -236,6 +279,10 @@ export default function ContactsPage() {
           <a href="/api/contacts/export" className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.035] px-3 py-1.5 text-xs font-medium text-foreground hover:bg-white/[0.06] transition">
             <Upload className="h-3 w-3" /> Export CSV
           </a>
+          <Button size="sm" variant="ghost" onClick={scanDuplicates} disabled={scanningDupes}>
+            <GitMerge className="mr-1 h-3.5 w-3.5" />
+            {scanningDupes ? "Scanning..." : "Find Duplicates"}
+          </Button>
           <Button size="sm" variant="ghost" onClick={() => setImportOpen(true)}>
             <Download className="mr-1 h-3.5 w-3.5" />
             <span className="hidden sm:inline">Import from Telegram</span>
@@ -438,6 +485,67 @@ export default function ContactsPage() {
               <Trash2 className="h-2.5 w-2.5 mr-0.5" /> Delete
             </Button>
           </div>
+        </div>
+      )}
+
+      {/* Duplicate scanner results */}
+      {showDupes && (
+        <div className="rounded-xl border border-amber-400/20 bg-amber-500/5 p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <GitMerge className="h-4 w-4 text-amber-400" />
+              <span className="text-sm font-medium text-foreground">
+                {scanningDupes ? "Scanning..." : `${dupeGroups.length} duplicate group${dupeGroups.length !== 1 ? "s" : ""} found`}
+              </span>
+            </div>
+            <button onClick={() => setShowDupes(false)} className="text-xs text-muted-foreground hover:text-foreground">
+              Close
+            </button>
+          </div>
+
+          {!scanningDupes && dupeGroups.length === 0 && (
+            <p className="text-xs text-muted-foreground">No duplicates detected. Your contact database is clean.</p>
+          )}
+
+          {dupeGroups.map((group, gi) => (
+            <div key={gi} className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <span className={cn(
+                    "rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+                    group.confidence >= 80 ? "bg-red-500/20 text-red-400" :
+                    group.confidence >= 60 ? "bg-amber-500/20 text-amber-400" :
+                    "bg-blue-500/20 text-blue-400"
+                  )}>
+                    {group.confidence}% match
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">{group.reason}</span>
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => mergeDupeGroup(group)}
+                  disabled={mergingId === group.contacts[0].id}
+                  className="h-6 text-[10px] text-primary"
+                >
+                  <GitMerge className="h-3 w-3 mr-0.5" />
+                  {mergingId === group.contacts[0].id ? "Merging..." : "Merge All"}
+                </Button>
+              </div>
+              <div className="space-y-1">
+                {group.contacts.map((c, ci) => (
+                  <div key={c.id} className="flex items-center gap-3 text-xs">
+                    {ci === 0 && <span className="text-[9px] text-green-400 font-medium w-12">Primary</span>}
+                    {ci > 0 && <span className="text-[9px] text-muted-foreground/40 w-12">Merge</span>}
+                    <span className="text-foreground font-medium">{c.name}</span>
+                    {c.email && <span className="text-muted-foreground">{c.email}</span>}
+                    {c.telegram_username && <span className="text-primary">@{c.telegram_username}</span>}
+                    {c.company && <span className="text-muted-foreground/50">{c.company}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
