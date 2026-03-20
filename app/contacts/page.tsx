@@ -7,7 +7,8 @@ import { ContactDetailPanel } from "@/components/contacts/contact-detail-panel";
 import { ImportTelegramModal } from "@/components/contacts/import-telegram-modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Download, Upload, Users, MessageCircle, Building2, ArrowUpDown, Trash2, Filter, GitMerge, Sparkles } from "lucide-react";
+import { Download, Upload, Users, MessageCircle, Building2, ArrowUpDown, Trash2, Filter, GitMerge, Sparkles, AlertTriangle } from "lucide-react";
+import { MergePreviewModal } from "@/components/contacts/merge-preview-modal";
 import type { Contact, PipelineStage, Deal, LifecycleStage } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -47,11 +48,12 @@ export default function ContactsPage() {
   const [bulkDeleting, setBulkDeleting] = React.useState(false);
 
   // Duplicate scanner
-  type DupGroup = { contacts: { id: string; name: string; email: string | null; phone: string | null; telegram_username: string | null; company: string | null }[]; reason: string; confidence: number };
+  type DupGroup = { contacts: { id: string; name: string; email: string | null; phone: string | null; telegram_username: string | null; company: string | null; title: string | null }[]; reason: string; confidence: number; signals: string[] };
   const [showDupes, setShowDupes] = React.useState(false);
   const [dupeGroups, setDupeGroups] = React.useState<DupGroup[]>([]);
   const [scanningDupes, setScanningDupes] = React.useState(false);
   const [mergingId, setMergingId] = React.useState<string | null>(null);
+  const [mergePreviewGroup, setMergePreviewGroup] = React.useState<DupGroup | null>(null);
 
   const fetchData = React.useCallback(async () => {
     try {
@@ -79,6 +81,11 @@ export default function ContactsPage() {
 
   React.useEffect(() => {
     fetchData();
+    // Auto-scan for duplicates in background on page load
+    fetch("/api/contacts/scan-duplicates")
+      .then((r) => r.json())
+      .then((data) => setDupeGroups(data.groups ?? []))
+      .catch(() => {});
   }, [fetchData]);
 
   // Deal counts per contact
@@ -316,6 +323,13 @@ export default function ContactsPage() {
           <p className="mt-1 text-lg font-semibold text-foreground">{withDeals}</p>
           <p className="text-[10px] text-muted-foreground">Linked to Deals</p>
         </div>
+        {dupeGroups.length > 0 && (
+          <div className="rounded-xl border border-amber-400/20 bg-amber-500/5 p-3 text-center cursor-pointer hover:bg-amber-500/10 transition-colors" onClick={() => setShowDupes(true)}>
+            <AlertTriangle className="mx-auto h-4 w-4 text-amber-400" />
+            <p className="mt-1 text-lg font-semibold text-amber-400">{dupeGroups.length}</p>
+            <p className="text-[10px] text-muted-foreground">Duplicate Groups</p>
+          </div>
+        )}
       </div>
 
       {/* Lifecycle stage tabs */}
@@ -521,16 +535,26 @@ export default function ContactsPage() {
                   </span>
                   <span className="text-[10px] text-muted-foreground">{group.reason}</span>
                 </div>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => mergeDupeGroup(group)}
-                  disabled={mergingId === group.contacts[0].id}
-                  className="h-6 text-[10px] text-primary"
-                >
-                  <GitMerge className="h-3 w-3 mr-0.5" />
-                  {mergingId === group.contacts[0].id ? "Merging..." : "Merge All"}
-                </Button>
+                <div className="flex items-center gap-1">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setMergePreviewGroup(group)}
+                    className="h-6 text-[10px] text-foreground"
+                  >
+                    Review
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => mergeDupeGroup(group)}
+                    disabled={mergingId === group.contacts[0].id}
+                    className="h-6 text-[10px] text-primary"
+                  >
+                    <GitMerge className="h-3 w-3 mr-0.5" />
+                    {mergingId === group.contacts[0].id ? "Merging..." : "Quick Merge"}
+                  </Button>
+                </div>
               </div>
               <div className="space-y-1">
                 {group.contacts.map((c, ci) => (
@@ -578,6 +602,21 @@ export default function ContactsPage() {
         onUpdated={fetchData}
         allContacts={contacts}
       />
+
+      {mergePreviewGroup && (
+        <MergePreviewModal
+          open={!!mergePreviewGroup}
+          onClose={() => setMergePreviewGroup(null)}
+          contacts={mergePreviewGroup.contacts}
+          confidence={mergePreviewGroup.confidence}
+          signals={mergePreviewGroup.signals ?? []}
+          onMerged={() => {
+            setDupeGroups((prev) => prev.filter((g) => g !== mergePreviewGroup));
+            setMergePreviewGroup(null);
+            fetchData();
+          }}
+        />
+      )}
     </div>
   );
 }

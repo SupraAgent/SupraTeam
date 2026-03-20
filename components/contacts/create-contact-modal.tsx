@@ -7,10 +7,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, ShieldAlert } from "lucide-react";
 import type { PipelineStage, LifecycleStage, ContactSource } from "@/lib/types";
 
-type Duplicate = { id: string; name: string; email: string | null; company: string | null; telegram_username: string | null };
+type Duplicate = { id: string; name: string; email: string | null; company: string | null; telegram_username: string | null; phone: string | null; title: string | null; confidence: number; signals: string[] };
 
 type CreateContactModalProps = {
   open: boolean;
@@ -135,22 +135,35 @@ export function CreateContactModal({ open, onClose, onCreated }: CreateContactMo
     <Modal open={open} onClose={onClose} title="Add Contact">
       <form onSubmit={handleSubmit} className="space-y-3">
         {/* Duplicate warning */}
-        {duplicates.length > 0 && (
-          <div className="rounded-lg border border-amber-400/30 bg-amber-500/5 p-2.5">
-            <div className="flex items-center gap-1.5 text-xs text-amber-400 font-medium mb-1.5">
-              <AlertTriangle className="h-3 w-3" />
-              Possible duplicates found
-            </div>
-            {duplicates.slice(0, 3).map((dup) => (
-              <div key={dup.id} className="text-[11px] text-muted-foreground py-0.5">
-                <span className="text-foreground">{dup.name}</span>
-                {dup.email && <span className="ml-1.5">{dup.email}</span>}
-                {dup.telegram_username && <span className="ml-1.5 text-primary">@{dup.telegram_username}</span>}
+        {duplicates.length > 0 && (() => {
+          const highConfidence = duplicates.some((d) => d.confidence >= 75);
+          return (
+            <div className={`rounded-lg border p-2.5 ${highConfidence ? "border-red-400/30 bg-red-500/5" : "border-amber-400/30 bg-amber-500/5"}`}>
+              <div className={`flex items-center gap-1.5 text-xs font-medium mb-1.5 ${highConfidence ? "text-red-400" : "text-amber-400"}`}>
+                {highConfidence ? <ShieldAlert className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3 w-3" />}
+                {highConfidence ? "Likely duplicate — review before creating" : "Possible duplicates found"}
               </div>
-            ))}
-            {duplicates.length > 3 && <p className="text-[10px] text-muted-foreground/50 mt-1">+{duplicates.length - 3} more</p>}
-          </div>
-        )}
+              {duplicates.slice(0, 4).map((dup) => (
+                <div key={dup.id} className="flex items-center justify-between text-[11px] py-1">
+                  <div className="text-muted-foreground">
+                    <span className="text-foreground font-medium">{dup.name}</span>
+                    {dup.email && <span className="ml-1.5">{dup.email}</span>}
+                    {dup.telegram_username && <span className="ml-1.5 text-primary">@{dup.telegram_username}</span>}
+                    {dup.company && <span className="ml-1.5 text-muted-foreground/50">{dup.company}</span>}
+                  </div>
+                  <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-medium ml-2 shrink-0 ${
+                    dup.confidence >= 75 ? "bg-red-500/20 text-red-400" :
+                    dup.confidence >= 50 ? "bg-amber-500/20 text-amber-400" :
+                    "bg-blue-500/20 text-blue-400"
+                  }`}>
+                    {dup.confidence}%
+                  </span>
+                </div>
+              ))}
+              {duplicates.length > 4 && <p className="text-[10px] text-muted-foreground/50 mt-1">+{duplicates.length - 4} more</p>}
+            </div>
+          );
+        })()}
 
         <div>
           <label className="text-xs font-medium text-muted-foreground">Name *</label>
