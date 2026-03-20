@@ -15,6 +15,7 @@ import {
   ChevronUp,
   Code,
   Tag,
+  Send,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { timeAgo } from "@/lib/utils";
@@ -84,6 +85,10 @@ export default function TemplateSettingsPage() {
   const [versions, setVersions] = React.useState<TemplateVersion[]>([]);
   const [versionsLoading, setVersionsLoading] = React.useState(false);
   const [showCreate, setShowCreate] = React.useState(false);
+
+  // Test send
+  const [testChatId, setTestChatId] = React.useState("");
+  const [testSending, setTestSending] = React.useState<string | null>(null);
 
   // Create form
   const [newKey, setNewKey] = React.useState("");
@@ -207,6 +212,33 @@ export default function TemplateSettingsPage() {
 
   function insertVariable(variable: string) {
     setEditValue((prev) => prev + `{{${variable}}}`);
+  }
+
+  async function handleTestSend(templateKey: string, customBody?: string) {
+    if (!testChatId.trim()) {
+      toast.error("Enter a chat ID to send a test");
+      return;
+    }
+    setTestSending(templateKey);
+    try {
+      const res = await fetch("/api/bot/templates/test-send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          template_key: templateKey,
+          chat_id: testChatId.trim(),
+          custom_body: customBody,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        toast.success("Test message sent!");
+      } else {
+        toast.error(data.error ?? "Failed to send test");
+      }
+    } finally {
+      setTestSending(null);
+    }
   }
 
   if (loading) {
@@ -451,7 +483,7 @@ export default function TemplateSettingsPage() {
                   )}
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex items-center gap-2">
                   <Button size="sm" onClick={() => saveTemplate(tpl.template_key)} disabled={saving}>
                     <Save className="mr-1 h-3 w-3" />
                     {saving ? "Saving..." : "Save"}
@@ -459,6 +491,24 @@ export default function TemplateSettingsPage() {
                   <Button size="sm" variant="ghost" onClick={cancelEdit}>
                     Cancel
                   </Button>
+                  <div className="ml-auto flex items-center gap-1.5">
+                    <Input
+                      value={testChatId}
+                      onChange={(e) => setTestChatId(e.target.value)}
+                      placeholder="Chat ID"
+                      className="h-7 w-28 text-[10px] font-mono"
+                    />
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-xs"
+                      onClick={() => handleTestSend(tpl.template_key, editValue)}
+                      disabled={testSending === tpl.template_key || !testChatId.trim()}
+                    >
+                      <Send className="mr-1 h-3 w-3" />
+                      {testSending === tpl.template_key ? "Sending..." : "Test Draft"}
+                    </Button>
+                  </div>
                 </div>
               </div>
             ) : (
@@ -505,9 +555,27 @@ export default function TemplateSettingsPage() {
                     <History className="mr-1 h-3 w-3" />
                     Versions
                   </Button>
-                  <span className="text-[10px] text-muted-foreground ml-auto">
-                    Updated {timeAgo(tpl.updated_at)}
-                  </span>
+                  <div className="ml-auto flex items-center gap-1.5">
+                    <Input
+                      value={testChatId}
+                      onChange={(e) => setTestChatId(e.target.value)}
+                      placeholder="Chat ID"
+                      className="h-7 w-28 text-[10px] font-mono"
+                    />
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-xs"
+                      onClick={() => handleTestSend(tpl.template_key)}
+                      disabled={testSending === tpl.template_key || !testChatId.trim()}
+                    >
+                      <Send className="mr-1 h-3 w-3" />
+                      {testSending === tpl.template_key ? "Sending..." : "Test"}
+                    </Button>
+                    <span className="text-[10px] text-muted-foreground">
+                      {timeAgo(tpl.updated_at)}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Static preview */}
