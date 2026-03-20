@@ -8,11 +8,13 @@ type DealListViewProps = {
   stages: PipelineStage[];
   board: BoardType;
   onDealClick: (deal: Deal) => void;
+  selectedDealIds?: Set<string>;
+  onToggleSelect?: (dealId: string) => void;
   highlightDealId?: string | null;
   highlightedDealIds?: Set<string>;
 };
 
-export function DealListView({ deals, stages, board, onDealClick, highlightDealId, highlightedDealIds }: DealListViewProps) {
+export function DealListView({ deals, stages, board, onDealClick, selectedDealIds, onToggleSelect, highlightDealId, highlightedDealIds }: DealListViewProps) {
   const filtered = board === "All" ? deals : deals.filter((d) => d.board_type === board);
 
   if (filtered.length === 0) {
@@ -30,6 +32,7 @@ export function DealListView({ deals, stages, board, onDealClick, highlightDealI
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-white/10 bg-white/[0.03]">
+              {onToggleSelect && <th className="w-8 px-2 py-2.5" />}
               <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Deal</th>
               <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Contact</th>
               <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Board</th>
@@ -52,6 +55,23 @@ export function DealListView({ deals, stages, board, onDealClick, highlightDealI
                     highlightedDealIds?.has(deal.id) && deal.id !== highlightDealId && "bg-amber-500/5 border-l-2 border-l-amber-400"
                   )}
                 >
+                  {onToggleSelect && (
+                    <td className="w-8 px-2 py-3">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onToggleSelect(deal.id); }}
+                        className={cn(
+                          "h-4 w-4 rounded border flex items-center justify-center transition-colors",
+                          selectedDealIds?.has(deal.id)
+                            ? "bg-primary border-primary text-white"
+                            : "border-white/20 hover:border-white/40"
+                        )}
+                      >
+                        {selectedDealIds?.has(deal.id) && (
+                          <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                        )}
+                      </button>
+                    </td>
+                  )}
                   <td className="px-4 py-3">
                     <p className="font-medium text-foreground">{deal.deal_name}</p>
                   </td>
