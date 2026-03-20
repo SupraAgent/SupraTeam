@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { getDriverForUser } from "@/lib/email/driver";
 import type { SendParams, ReplyParams, ForwardParams } from "@/lib/email/types";
+import { logEmailAction } from "@/lib/email/audit";
 
 /** POST: Send, reply, or forward an email */
 export async function POST(request: Request) {
@@ -19,6 +20,7 @@ export async function POST(request: Request) {
     body: string;
     bodyText?: string;
     replyAll?: boolean;
+    attachments?: { filename: string; mimeType: string; data: string }[];
   };
 
   try {
@@ -47,6 +49,7 @@ export async function POST(request: Request) {
           subject: body.subject ?? "(no subject)",
           body: body.body,
           bodyText: body.bodyText,
+          attachments: body.attachments,
         };
         result = await driver.send(sendParams);
         break;
@@ -60,6 +63,7 @@ export async function POST(request: Request) {
           bodyText: body.bodyText,
           cc: body.cc,
           bcc: body.bcc,
+          attachments: body.attachments,
           replyAll: body.replyAll,
         };
         result = await driver.reply(body.threadId, replyParams);
@@ -82,16 +86,13 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "type must be send, reply, or forward" }, { status: 400 });
     }
 
-    // Audit log
-    await auth.admin.from("crm_email_audit_log").insert({
-      user_id: auth.user.id,
+    // Audit log — fire-and-forget, don't block response
+    logEmailAction(auth.admin, {
+      userId: auth.user.id,
       action: `email_${body.type}`,
-      thread_id: body.threadId ?? result?.threadId,
-      recipient: body.to?.[0]?.email ?? undefined,
-      metadata: {
-        connection_email: connection.email,
-        subject: body.subject,
-      },
+      threadId: body.threadId ?? result?.threadId,
+      recipient: body.to?.[0]?.email,
+      metadata: { connection_email: connection.email, subject: body.subject },
     });
 
     return NextResponse.json({ data: result, source: "gmail" });

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { getDriverForUser } from "@/lib/email/driver";
 import { serverCache, TTL } from "@/lib/email/server-cache";
+import { logEmailAction } from "@/lib/email/audit";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -46,7 +47,7 @@ export async function POST(request: Request, { params }: Params) {
   if ("error" in auth) return auth.error;
   const { id } = await params;
 
-  let body: { action: string; currentlyStarred?: boolean; labelIds?: { add?: string[]; remove?: string[] } };
+  let body: { action: string; currentlyStarred?: boolean; labelIds?: { add?: string[]; remove?: string[] }; bulkId?: string };
   try {
     body = await request.json();
   } catch {
@@ -88,11 +89,12 @@ export async function POST(request: Request, { params }: Params) {
     serverCache.invalidatePrefix(`threads:${auth.user.id}:`);
 
     // Audit log — fire-and-forget, don't block response
-    void auth.admin.from("crm_email_audit_log").insert({
-      user_id: auth.user.id,
+    logEmailAction(auth.admin, {
+      userId: auth.user.id,
       action: `thread_${body.action}`,
-      thread_id: id,
+      threadId: id,
       metadata: { connection_email: connection.email },
+      bulkId: body.bulkId,
     });
 
     return NextResponse.json({ ok: true, source: "gmail" });

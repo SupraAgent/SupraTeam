@@ -55,12 +55,14 @@ export type ThreadList = {
 
 // ── Split Inbox Categories ──────────────────────────────────
 
-export type InboxCategory = "important" | "updates" | "other";
+export type InboxCategory = "vip" | "action_required" | "fyi" | "newsletter" | "other";
 
 export const INBOX_CATEGORIES: { id: InboxCategory; label: string; description: string }[] = [
-  { id: "important", label: "Important", description: "Direct emails from people" },
-  { id: "updates", label: "Updates", description: "Notifications & automated" },
-  { id: "other", label: "Other", description: "Newsletters, promotions" },
+  { id: "vip", label: "VIP", description: "Important people & deals" },
+  { id: "action_required", label: "Action", description: "Needs your response" },
+  { id: "fyi", label: "FYI", description: "Informational, no action needed" },
+  { id: "newsletter", label: "News", description: "Newsletters & promotions" },
+  { id: "other", label: "Other", description: "Everything else" },
 ];
 
 export type Label = {
@@ -94,7 +96,7 @@ export type SendParams = {
   subject: string;
   body: string; // HTML
   bodyText?: string;
-  attachments?: File[];
+  attachments?: { filename: string; mimeType: string; data: string }[]; // base64
   inReplyTo?: string; // Message-Id header for threading
   references?: string; // References header
 };
@@ -104,7 +106,7 @@ export type ReplyParams = {
   bodyText?: string;
   cc?: EmailAddress[];
   bcc?: EmailAddress[];
-  attachments?: File[];
+  attachments?: { filename: string; mimeType: string; data: string }[]; // base64
   replyAll?: boolean;
 };
 
@@ -163,6 +165,10 @@ export interface MailDriver {
 
   // Metadata
   getProfile(): Promise<EmailProfile>;
+
+  // Push notifications (optional — not all providers support)
+  watchInbox?(topicName: string): Promise<{ historyId: string; expiration: string }>;
+  listHistory?(startHistoryId: string): Promise<{ historyId: string; changes: { threadId: string; type: string }[] }>;
 }
 
 // ── Connection record ───────────────────────────────────────

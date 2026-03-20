@@ -9,7 +9,9 @@ import { ContactAvatar } from "./contact-avatar";
 type ThreadListProps = {
   threads: ThreadListItem[];
   selectedId: string | null;
+  selectedIds?: Set<string>;
   onSelect: (id: string) => void;
+  onToggleSelect?: (id: string) => void;
   loading: boolean;
   onLoadMore?: () => void;
   hasMore?: boolean;
@@ -18,7 +20,7 @@ type ThreadListProps = {
   onSwipeSnooze?: (id: string) => void;
 };
 
-export function ThreadList({ threads, selectedId, onSelect, loading, onLoadMore, hasMore, onPrefetch, onSwipeArchive, onSwipeSnooze }: ThreadListProps) {
+export function ThreadList({ threads, selectedId, selectedIds, onSelect, onToggleSelect, loading, onLoadMore, hasMore, onPrefetch, onSwipeArchive, onSwipeSnooze }: ThreadListProps) {
   const listRef = React.useRef<HTMLDivElement>(null);
 
   if (loading && threads.length === 0) {
@@ -45,7 +47,10 @@ export function ThreadList({ threads, selectedId, onSelect, loading, onLoadMore,
           key={thread.id}
           thread={thread}
           isSelected={thread.id === selectedId}
+          isChecked={selectedIds?.has(thread.id) ?? false}
+          showCheckbox={!!selectedIds && selectedIds.size > 0}
           onClick={() => onSelect(thread.id)}
+          onToggleSelect={() => onToggleSelect?.(thread.id)}
           onMouseEnter={() => onPrefetch?.(thread.id)}
           onSwipeLeft={() => onSwipeArchive?.(thread.id)}
           onSwipeRight={() => onSwipeSnooze?.(thread.id)}
@@ -66,14 +71,20 @@ export function ThreadList({ threads, selectedId, onSelect, loading, onLoadMore,
 function ThreadRow({
   thread,
   isSelected,
+  isChecked,
+  showCheckbox,
   onClick,
+  onToggleSelect,
   onMouseEnter,
   onSwipeLeft,
   onSwipeRight,
 }: {
   thread: ThreadListItem;
   isSelected: boolean;
+  isChecked: boolean;
+  showCheckbox: boolean;
   onClick: () => void;
+  onToggleSelect?: () => void;
   onMouseEnter?: () => void;
   onSwipeLeft?: () => void;
   onSwipeRight?: () => void;
@@ -134,9 +145,29 @@ function ThreadRow({
       className={cn(
         "w-full text-left px-3 py-2.5 border-b border-white/5 transition-colors flex gap-3 relative",
         isSelected ? "bg-white/[0.08]" : "hover:bg-white/[0.03]",
-        thread.isUnread && "bg-white/[0.02]"
+        isChecked && "bg-primary/[0.08]",
+        thread.isUnread && !isChecked && "bg-white/[0.02]"
       )}
     >
+      {/* Selection checkbox */}
+      {(showCheckbox || isChecked) && (
+        <div
+          className="pt-1 shrink-0 flex items-start"
+          onClick={(e) => { e.stopPropagation(); onToggleSelect?.(); }}
+        >
+          <div className={cn(
+            "h-4 w-4 rounded border transition-colors flex items-center justify-center cursor-pointer",
+            isChecked ? "bg-primary border-primary" : "border-white/20 hover:border-white/40"
+          )}>
+            {isChecked && (
+              <svg className="h-3 w-3 text-primary-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Contact avatar */}
       <div className="pt-0.5 shrink-0 relative">
         <ContactAvatar

@@ -227,6 +227,7 @@ export class GmailDriver implements MailDriver {
       subject: lastSubject.startsWith("Re:") ? lastSubject : `Re: ${lastSubject}`,
       body: params.body,
       bodyText: params.bodyText,
+      attachments: params.attachments,
       inReplyTo: lastMessageId,
       references: lastMessageId,
     };
@@ -316,6 +317,71 @@ export class GmailDriver implements MailDriver {
       mimeType: "application/octet-stream",
       size: data.length,
     };
+  }
+
+  async watchInbox(topicName: string): Promise<{ historyId: string; expiration: string }> {
+    const res = await this.gmail.users.watch({
+      userId: "me",
+      requestBody: {
+        topicName,
+        labelIds: ["INBOX"],
+      },
+    });
+    return {
+      historyId: res.data.historyId ?? "",
+      expiration: res.data.expiration ?? "",
+    };
+  }
+
+  async listHistory(startHistoryId: string): Promise<{
+    historyId: string;
+    changes: { threadId: string; type: "added" | "removed" | "labelChanged" }[];
+  }> {
+    try {
+      const res = await this.gmail.users.history.list({
+        userId: "me",
+        startHistoryId,
+        historyTypes: ["messageAdded", "messageDeleted", "labelAdded", "labelRemoved"],
+      });
+
+      const changes: { threadId: string; type: "added" | "removed" | "labelChanged" }[] = [];
+      const seenThreads = new Set<string>();
+
+      for (const record of res.data.history ?? []) {
+        for (const added of record.messagesAdded ?? []) {
+          const tid = added.message?.threadId;
+          if (tid && !seenThreads.has(tid)) {
+            seenThreads.add(tid);
+            changes.push({ threadId: tid, type: "added" });
+          }
+        }
+        for (const removed of record.messagesDeleted ?? []) {
+          const tid = removed.message?.threadId;
+          if (tid && !seenThreads.has(tid)) {
+            seenThreads.add(tid);
+            changes.push({ threadId: tid, type: "removed" });
+          }
+        }
+        for (const label of [...(record.labelsAdded ?? []), ...(record.labelsRemoved ?? [])]) {
+          const tid = label.message?.threadId;
+          if (tid && !seenThreads.has(tid)) {
+            seenThreads.add(tid);
+            changes.push({ threadId: tid, type: "labelChanged" });
+          }
+        }
+      }
+
+      return {
+        historyId: res.data.historyId ?? startHistoryId,
+        changes,
+      };
+    } catch (err: unknown) {
+      // If historyId is too old, Gmail returns 404. Return empty with same ID
+      if (err && typeof err === "object" && "code" in err && (err as { code: number }).code === 404) {
+        return { historyId: startHistoryId, changes: [] };
+      }
+      throw err;
+    }
   }
 
   async getProfile(): Promise<EmailProfile> {
@@ -469,6 +535,9 @@ export class GmailDriver implements MailDriver {
 
   private buildRawEmail(params: SendParams): string {
     const boundary = `boundary_${Date.now()}`;
+    const hasAttachments = params.attachments && params.attachments.length > 0;
+    const mixedBoundary = hasAttachments ? `mixed_${Date.now() + 1}` : null;
+
     const formatAddr = (a: EmailAddress) => {
       const name = a.name ? this.sanitizeHeaderValue(a.name) : "";
       const email = this.sanitizeHeaderValue(a.email);
@@ -482,7 +551,6 @@ export class GmailDriver implements MailDriver {
       `To: ${to}`,
       `Subject: ${this.sanitizeHeaderValue(params.subject)}`,
       `MIME-Version: 1.0`,
-      `Content-Type: multipart/alternative; boundary="${boundary}"`,
     ];
 
     if (cc) headers.push(`Cc: ${cc}`);
@@ -491,20 +559,59 @@ export class GmailDriver implements MailDriver {
     if (params.references) headers.push(`References: ${params.references}`);
 
     const textPart = params.bodyText || params.body.replace(/<[^>]+>/g, "");
-    const email = [
-      headers.join("\r\n"),
-      "",
-      `--${boundary}`,
-      "Content-Type: text/plain; charset=UTF-8",
-      "",
-      textPart,
-      `--${boundary}`,
-      "Content-Type: text/html; charset=UTF-8",
-      "",
-      params.body,
-      `--${boundary}--`,
-    ].join("\r\n");
 
-    return Buffer.from(email).toString("base64url");
+    if (hasAttachments && mixedBoundary) {
+      // multipart/mixed wrapping multipart/alternative + attachments
+      headers.push(`Content-Type: multipart/mixed; boundary="${mixedBoundary}"`);
+
+      const parts = [
+        headers.join("\r\n"),
+        "",
+        `--${mixedBoundary}`,
+        `Content-Type: multipart/alternative; boundary="${boundary}"`,
+        "",
+        `--${boundary}`,
+        "Content-Type: text/plain; charset=UTF-8",
+        "",
+        textPart,
+        `--${boundary}`,
+        "Content-Type: text/html; charset=UTF-8",
+        "",
+        params.body,
+        `--${boundary}--`,
+      ];
+
+      for (const att of params.attachments!) {
+        parts.push(
+          `--${mixedBoundary}`,
+          `Content-Type: ${att.mimeType}; name="${att.filename}"`,
+          `Content-Disposition: attachment; filename="${att.filename}"`,
+          `Content-Transfer-Encoding: base64`,
+          "",
+          att.data
+        );
+      }
+      parts.push(`--${mixedBoundary}--`);
+
+      return Buffer.from(parts.join("\r\n")).toString("base64url");
+    } else {
+      headers.push(`Content-Type: multipart/alternative; boundary="${boundary}"`);
+
+      const email = [
+        headers.join("\r\n"),
+        "",
+        `--${boundary}`,
+        "Content-Type: text/plain; charset=UTF-8",
+        "",
+        textPart,
+        `--${boundary}`,
+        "Content-Type: text/html; charset=UTF-8",
+        "",
+        params.body,
+        `--${boundary}--`,
+      ].join("\r\n");
+
+      return Buffer.from(email).toString("base64url");
+    }
   }
 }
