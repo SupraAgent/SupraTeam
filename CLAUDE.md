@@ -160,10 +160,10 @@ TELEGRAM_BOT_TOKEN=              # Phase 2
 | Phase | Status | Scope |
 |-------|--------|-------|
 | Phase 0: Foundation | Done | Repo, scaffold, auth, app shell, migration, page stubs |
-| Phase 1: CRM Core | Next | Kanban drag-drop, deals/contacts CRUD, board views, deal detail |
-| Phase 2: Telegram Bot | Pending | grammy bot, group registration, stage-change messages, templates |
-| Phase 3: Access Control | Pending | Slugs, matrix UI, bulk add/remove, audit log, automations, broadcasts |
-| Phase 4: Polish | Pending | Mobile, performance, error handling, onboarding |
+| Phase 1: CRM Core | Done | Kanban drag-drop, deals/contacts CRUD, board views, deal detail, pipeline summary bar, collapsible columns, WIP limits, task priorities & assignment |
+| Phase 2: Telegram Bot | Done | grammy bot, group registration, stage-change messages, templates, merge variables, broadcast personalization |
+| Phase 3: Access Control | Done | Slugs, matrix UI, bulk add/remove, audit log, automations, broadcasts, workflows |
+| Phase 4: Polish | In Progress | Mobile, performance, error handling, onboarding, competitive scoring improvements |
 
 ---
 
