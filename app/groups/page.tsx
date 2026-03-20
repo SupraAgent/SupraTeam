@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { timeAgo } from "@/lib/utils";
+import { GroupDetailPanel } from "@/components/groups/group-detail-panel";
 
 type HealthStatus = "active" | "quiet" | "stale" | "dead" | "unknown";
 
@@ -316,6 +317,7 @@ export default function GroupsPage() {
   const [bulkAction, setBulkAction] = React.useState<string | null>(null);
   const [refreshingStats, setRefreshingStats] = React.useState(false);
   const [showComparison, setShowComparison] = React.useState(false);
+  const [selectedGroup, setSelectedGroup] = React.useState<TgGroup | null>(null);
 
   const fetchGroups = React.useCallback(async () => {
     try {
@@ -817,6 +819,7 @@ export default function GroupsPage() {
             group={group}
             isSelected={selected.has(group.id)}
             onToggleSelect={() => toggleSelect(group.id)}
+            onOpenDetail={() => setSelectedGroup(group)}
             addingSlug={addingSlug}
             setAddingSlug={setAddingSlug}
             newSlug={newSlug}
@@ -909,6 +912,13 @@ export default function GroupsPage() {
           onClose={() => setShowComparison(false)}
         />
       )}
+
+      {/* Group Detail Panel */}
+      <GroupDetailPanel
+        group={selectedGroup}
+        open={!!selectedGroup}
+        onClose={() => setSelectedGroup(null)}
+      />
     </div>
   );
 }
@@ -917,6 +927,7 @@ function GroupCard({
   group,
   isSelected,
   onToggleSelect,
+  onOpenDetail,
   addingSlug,
   setAddingSlug,
   newSlug,
@@ -927,6 +938,7 @@ function GroupCard({
   group: TgGroup;
   isSelected: boolean;
   onToggleSelect: () => void;
+  onOpenDetail: () => void;
   addingSlug: string | null;
   setAddingSlug: (id: string | null) => void;
   newSlug: string;
@@ -965,9 +977,9 @@ function GroupCard({
         {/* Info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <p className="text-sm font-medium text-foreground truncate">
+            <button onClick={onOpenDetail} className="text-sm font-medium text-foreground truncate hover:text-primary transition-colors text-left">
               {group.group_name}
-            </p>
+            </button>
             {group.group_url && (
               <a
                 href={group.group_url}

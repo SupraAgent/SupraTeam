@@ -8,6 +8,7 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const board = searchParams.get("board");
+  const tgGroupId = searchParams.get("tg_group_id");
 
   let query = supabase
     .from("crm_deals")
@@ -20,6 +21,10 @@ export async function GET(request: Request) {
 
   if (board && board !== "All") {
     query = query.eq("board_type", board);
+  }
+
+  if (tgGroupId) {
+    query = query.eq("tg_group_id", tgGroupId);
   }
 
   const { data: deals, error } = await query;
