@@ -1,10 +1,13 @@
 /**
  * Automation rule engine.
- * Evaluates trigger-condition-action rules against CRM events.
+ * Evaluates trigger-condition-action rules against CRM events,
+ * then evaluates matching visual workflows.
  */
 import { createSupabaseAdmin } from "@/lib/supabase";
 import { sendTelegramWithTracking } from "@/lib/telegram-send";
 import { renderTemplate } from "@/lib/telegram-templates";
+import { executeWorkflowFromData } from "@/lib/workflow-engine";
+import type { Workflow } from "@/lib/workflow-types";
 
 export interface AutomationEvent {
   type: "stage_change" | "deal_created" | "deal_value_change" | "tag_added";
@@ -64,7 +67,53 @@ export async function evaluateAutomationRules(event: AutomationEvent): Promise<n
     }
   }
 
+  // Also evaluate visual workflows (non-blocking)
+  evaluateWorkflows(event, supabase).catch((err) =>
+    console.error("[automation-engine] Workflow evaluation error:", err)
+  );
+
   return executed;
+}
+
+/**
+ * Map simple automation event types to workflow trigger types.
+ */
+const EVENT_TO_WORKFLOW_TRIGGER: Record<string, string> = {
+  stage_change: "deal_stage_change",
+  deal_created: "deal_created",
+  deal_value_change: "deal_value_change",
+  tag_added: "tag_added",
+};
+
+/**
+ * Evaluate active visual workflows matching the event trigger type.
+ */
+async function evaluateWorkflows(
+  event: AutomationEvent,
+  supabase: NonNullable<ReturnType<typeof createSupabaseAdmin>>
+): Promise<void> {
+  const workflowTrigger = EVENT_TO_WORKFLOW_TRIGGER[event.type];
+  if (!workflowTrigger) return;
+
+  const { data: workflows } = await supabase
+    .from("crm_workflows")
+    .select("*")
+    .eq("trigger_type", workflowTrigger)
+    .eq("is_active", true);
+
+  if (!workflows || workflows.length === 0) return;
+
+  for (const wf of workflows) {
+    try {
+      await executeWorkflowFromData(wf as unknown as Workflow, {
+        type: event.type,
+        dealId: event.dealId,
+        payload: event.payload,
+      }, supabase);
+    } catch (err) {
+      console.error(`[automation-engine] Workflow ${wf.id} failed:`, err);
+    }
+  }
 }
 
 function matchesTrigger(
