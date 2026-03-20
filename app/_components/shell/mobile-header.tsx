@@ -10,6 +10,7 @@ import { NotificationCenter } from "@/components/notifications/notification-cent
 const NAV_ITEMS = [
   { href: "/", label: "Home" },
   { href: "/pipeline", label: "Pipeline" },
+  { href: "/tasks", label: "Tasks" },
   { href: "/email", label: "Email" },
   { href: "/contacts", label: "Contacts" },
   { href: "/groups", label: "Groups" },

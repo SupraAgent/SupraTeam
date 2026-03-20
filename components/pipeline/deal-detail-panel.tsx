@@ -9,7 +9,7 @@ import type { Deal, PipelineStage, Contact } from "@/lib/types";
 import { timeAgo, cn } from "@/lib/utils";
 import { toast } from "sonner";
 import {
-  MessageCircle, Save, Trash2, Send, GitBranch, StickyNote, ExternalLink, FileText,
+  MessageCircle, Save, Trash2, Send, GitBranch, StickyNote, ExternalLink, FileText, Plus, Clock,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -71,6 +71,12 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
 
   // Linked docs
   const [linkedDocs, setLinkedDocs] = React.useState<LinkedDoc[]>([]);
+
+  // Task creation
+  const [showTaskForm, setShowTaskForm] = React.useState(false);
+  const [taskMessage, setTaskMessage] = React.useState("");
+  const [taskDue, setTaskDue] = React.useState("");
+  const [creatingTask, setCreatingTask] = React.useState(false);
 
   // Load deal data into editable state
   React.useEffect(() => {
@@ -169,6 +175,31 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
       }
     } finally {
       setDeleting(false);
+    }
+  }
+
+  async function handleCreateTask(e: React.FormEvent) {
+    e.preventDefault();
+    if (!deal || !taskMessage.trim()) return;
+    setCreatingTask(true);
+    try {
+      const res = await fetch("/api/reminders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: taskMessage.trim(),
+          deal_id: deal.id,
+          due_at: taskDue ? new Date(taskDue).toISOString() : undefined,
+        }),
+      });
+      if (res.ok) {
+        toast.success("Task created");
+        setTaskMessage("");
+        setTaskDue("");
+        setShowTaskForm(false);
+      }
+    } finally {
+      setCreatingTask(false);
     }
   }
 
@@ -365,6 +396,45 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
                   <span className="text-muted-foreground">Closed</span>
                   <span className="text-foreground">{timeAgo(deal.outcome_at)}</span>
                 </div>
+              )}
+            </div>
+
+            {/* Quick task creation */}
+            <div className="pt-2">
+              {!showTaskForm ? (
+                <button
+                  onClick={() => setShowTaskForm(true)}
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <Plus className="h-3 w-3" /> Add Task
+                </button>
+              ) : (
+                <form onSubmit={handleCreateTask} className="space-y-2 rounded-lg border border-white/10 bg-white/[0.03] p-2.5">
+                  <Input
+                    value={taskMessage}
+                    onChange={(e) => setTaskMessage(e.target.value)}
+                    placeholder="Task description..."
+                    className="text-xs"
+                    autoFocus
+                  />
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1 text-muted-foreground">
+                      <Clock className="h-3 w-3" />
+                      <input
+                        type="datetime-local"
+                        value={taskDue}
+                        onChange={(e) => setTaskDue(e.target.value)}
+                        className="bg-transparent border-none text-[10px] text-muted-foreground outline-none"
+                      />
+                    </div>
+                    <div className="ml-auto flex gap-1">
+                      <Button type="button" variant="ghost" size="sm" onClick={() => setShowTaskForm(false)} className="h-6 px-2 text-[10px]">Cancel</Button>
+                      <Button type="submit" size="sm" disabled={creatingTask || !taskMessage.trim()} className="h-6 px-2 text-[10px]">
+                        {creatingTask ? "..." : "Add"}
+                      </Button>
+                    </div>
+                  </div>
+                </form>
               )}
             </div>
 

@@ -10,6 +10,7 @@ import { useShell } from "./shell-context";
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard", icon: HomeIcon },
   { href: "/pipeline", label: "Pipeline", icon: KanbanIcon },
+  { href: "/tasks", label: "Tasks", icon: TasksIcon },
   { href: "/email", label: "Email", icon: MailIcon },
   { href: "/contacts", label: "Contacts", icon: UsersIcon },
   { href: "/groups", label: "TG Groups", icon: MessageCircleIcon },
@@ -289,6 +290,15 @@ function ChatBubblesIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
       <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+    </svg>
+  );
+}
+
+function TasksIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 11l3 3L22 4" />
+      <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
     </svg>
   );
 }
