@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
+import { dispatchWebhook } from "@/lib/webhooks";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -41,6 +42,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (error) {
     console.error("[api/deals/[id]/notes] insert error:", error);
     return NextResponse.json({ error: "Failed to add note" }, { status: 500 });
+  }
+
+  // Fire webhook (non-blocking)
+  if (note) {
+    dispatchWebhook("note.created", { deal_id: id, note_id: note.id }).catch(() => {});
   }
 
   return NextResponse.json({ note, ok: true });

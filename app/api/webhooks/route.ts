@@ -1,0 +1,131 @@
+/**
+ * GET    /api/webhooks — List all webhook endpoints
+ * POST   /api/webhooks — Create a new webhook
+ * PUT    /api/webhooks — Update a webhook
+ * DELETE /api/webhooks — Delete a webhook
+ */
+
+import { NextResponse } from "next/server";
+import { requireAuth } from "@/lib/auth-guard";
+
+const VALID_EVENTS = [
+  "deal.created", "deal.updated", "deal.stage_changed", "deal.won", "deal.lost",
+  "contact.created", "contact.updated", "note.created",
+];
+
+export async function GET() {
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+  const { admin: supabase } = auth;
+
+  const { data: webhooks } = await supabase
+    .from("crm_webhooks")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  // Get recent delivery stats per webhook
+  const webhookIds = (webhooks ?? []).map((w) => w.id);
+  let deliveryStats: Record<string, { total: number; success: number; lastDelivery: string | null }> = {};
+
+  if (webhookIds.length > 0) {
+    const { data: deliveries } = await supabase
+      .from("crm_webhook_deliveries")
+      .select("webhook_id, success, created_at")
+      .in("webhook_id", webhookIds)
+      .order("created_at", { ascending: false })
+      .limit(500);
+
+    for (const d of deliveries ?? []) {
+      if (!deliveryStats[d.webhook_id]) {
+        deliveryStats[d.webhook_id] = { total: 0, success: 0, lastDelivery: null };
+      }
+      deliveryStats[d.webhook_id].total++;
+      if (d.success) deliveryStats[d.webhook_id].success++;
+      if (!deliveryStats[d.webhook_id].lastDelivery) {
+        deliveryStats[d.webhook_id].lastDelivery = d.created_at;
+      }
+    }
+  }
+
+  const enriched = (webhooks ?? []).map((w) => ({
+    ...w,
+    delivery_stats: deliveryStats[w.id] ?? { total: 0, success: 0, lastDelivery: null },
+  }));
+
+  return NextResponse.json({ webhooks: enriched, validEvents: VALID_EVENTS });
+}
+
+export async function POST(request: Request) {
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+  const { user, admin: supabase } = auth;
+
+  const { name, url, secret, events, headers } = await request.json();
+
+  if (!name?.trim() || !url?.trim()) {
+    return NextResponse.json({ error: "name and url required" }, { status: 400 });
+  }
+  if (!Array.isArray(events) || events.length === 0) {
+    return NextResponse.json({ error: "At least one event required" }, { status: 400 });
+  }
+
+  const { data, error } = await supabase
+    .from("crm_webhooks")
+    .insert({
+      name: name.trim(),
+      url: url.trim(),
+      secret: secret || null,
+      events,
+      headers: headers ?? {},
+      created_by: user.id,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ webhook: data, ok: true });
+}
+
+export async function PUT(request: Request) {
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+  const { admin: supabase } = auth;
+
+  const { id, ...updates } = await request.json();
+  if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+
+  updates.updated_at = new Date().toISOString();
+
+  // Reset failure count if re-activating
+  if (updates.is_active === true) {
+    updates.failure_count = 0;
+  }
+
+  const { error } = await supabase
+    .from("crm_webhooks")
+    .update(updates)
+    .eq("id", id);
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
+}
+
+export async function DELETE(request: Request) {
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+  const { admin: supabase } = auth;
+
+  const { id } = await request.json();
+  if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+
+  const { error } = await supabase
+    .from("crm_webhooks")
+    .delete()
+    .eq("id", id);
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
+}

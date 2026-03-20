@@ -4,6 +4,7 @@ import { formatStageChangeMessage } from "@/lib/telegram-templates";
 import { sendTelegramWithTracking } from "@/lib/telegram-send";
 import { evaluateAutomationRules } from "@/lib/automation-engine";
 import { logAudit } from "@/lib/audit";
+import { dispatchWebhook } from "@/lib/webhooks";
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -92,6 +93,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     actorName: userName,
     details: { from_stage: fromName, to_stage: toName, deal_name: deal.deal_name },
   }).catch(() => {});
+
+  // Fire webhooks (non-blocking)
+  dispatchWebhook("deal.stage_changed", { deal_id: id, deal_name: deal.deal_name, from_stage: fromName, to_stage: toName, board_type: deal.board_type }).catch(() => {});
 
   // Evaluate automation rules (non-blocking)
   evaluateAutomationRules({
