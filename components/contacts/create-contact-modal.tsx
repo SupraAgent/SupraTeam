@@ -50,17 +50,22 @@ export function CreateContactModal({ open, onClose, onCreated }: CreateContactMo
   const [duplicates, setDuplicates] = React.useState<Duplicate[]>([]);
   const debounceRef = React.useRef<ReturnType<typeof setTimeout>>(null);
 
+  // Custom fields
+  type CField = { id: string; label: string; field_type: string; options: string[] | null; required: boolean };
+  const [customFields, setCustomFields] = React.useState<CField[]>([]);
+  const [customValues, setCustomValues] = React.useState<Record<string, string>>({});
+
   React.useEffect(() => {
     if (open) {
-      fetch("/api/pipeline")
-        .then((r) => r.json())
-        .then((data) => {
+      Promise.all([
+        fetch("/api/pipeline").then((r) => r.json()).then((data) => {
           setStages(data.stages ?? []);
           if (data.stages?.length > 0 && !stageId) {
             setStageId(data.stages[0].id);
           }
-        })
-        .catch(() => {});
+        }).catch(() => {}),
+        fetch("/api/contacts/fields").then((r) => r.json()).then((d) => setCustomFields(d.fields ?? [])).catch(() => {}),
+      ]);
     }
   }, [open, stageId]);
 
@@ -107,6 +112,7 @@ export function CreateContactModal({ open, onClose, onCreated }: CreateContactMo
           stage_id: stageId || null,
           lifecycle_stage: lifecycle,
           source,
+          custom_fields: customValues,
         }),
       });
 
@@ -114,7 +120,7 @@ export function CreateContactModal({ open, onClose, onCreated }: CreateContactMo
         toast.success("Contact added");
         setName(""); setCompany(""); setEmail(""); setPhone("");
         setTelegram(""); setTitle(""); setNotes(""); setLifecycle("prospect");
-        setSource("manual"); setStageId(stages[0]?.id ?? ""); setDuplicates([]);
+        setSource("manual"); setStageId(stages[0]?.id ?? ""); setDuplicates([]); setCustomValues({});
         onCreated();
         onClose();
       } else {
@@ -219,6 +225,44 @@ export function CreateContactModal({ open, onClose, onCreated }: CreateContactMo
           <label className="text-xs font-medium text-muted-foreground">Notes</label>
           <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notes about this contact..." className="mt-1 min-h-[80px]" />
         </div>
+
+        {/* Custom fields */}
+        {customFields.length > 0 && (
+          <div className="space-y-3 pt-1 border-t border-white/10">
+            <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wider pt-2">Custom Fields</p>
+            {customFields.map((field) => (
+              <div key={field.id}>
+                <label className="text-xs font-medium text-muted-foreground">
+                  {field.label}{field.required && " *"}
+                </label>
+                {field.field_type === "select" ? (
+                  <Select
+                    value={customValues[field.id] ?? ""}
+                    onChange={(e) => setCustomValues((prev) => ({ ...prev, [field.id]: e.target.value }))}
+                    options={(field.options ?? []).map((o) => ({ value: o, label: o }))}
+                    placeholder={`Select ${field.label.toLowerCase()}`}
+                    className="mt-1"
+                  />
+                ) : field.field_type === "textarea" ? (
+                  <Textarea
+                    value={customValues[field.id] ?? ""}
+                    onChange={(e) => setCustomValues((prev) => ({ ...prev, [field.id]: e.target.value }))}
+                    placeholder={field.label}
+                    className="mt-1 min-h-[60px]"
+                  />
+                ) : (
+                  <Input
+                    type={field.field_type === "number" ? "number" : field.field_type === "date" ? "date" : field.field_type === "url" ? "url" : "text"}
+                    value={customValues[field.id] ?? ""}
+                    onChange={(e) => setCustomValues((prev) => ({ ...prev, [field.id]: e.target.value }))}
+                    placeholder={field.label}
+                    className="mt-1"
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        )}
 
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>

@@ -69,5 +69,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Failed to create contact" }, { status: 500 });
   }
 
+  // Save custom field values
+  if (body.custom_fields && typeof body.custom_fields === "object" && contact) {
+    const fieldValues = Object.entries(body.custom_fields)
+      .filter(([, v]) => v)
+      .map(([fieldId, val]) => ({
+        contact_id: contact.id,
+        field_id: fieldId,
+        value: String(val),
+      }));
+
+    if (fieldValues.length > 0) {
+      await supabase.from("crm_contact_field_values").insert(fieldValues);
+    }
+  }
+
   return NextResponse.json({ contact, ok: true });
 }

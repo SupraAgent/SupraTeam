@@ -32,7 +32,18 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     assigned_profile = profile;
   }
 
-  return NextResponse.json({ deal: { ...deal, assigned_profile } });
+  // Fetch custom field values
+  const { data: fieldValues } = await supabase
+    .from("crm_deal_field_values")
+    .select("field_id, value")
+    .eq("deal_id", id);
+
+  const custom_fields: Record<string, string> = {};
+  for (const fv of fieldValues ?? []) {
+    custom_fields[fv.field_id] = fv.value;
+  }
+
+  return NextResponse.json({ deal: { ...deal, assigned_profile }, custom_fields });
 }
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -78,6 +89,20 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (error) {
     console.error("[api/deals/[id]] update error:", error);
     return NextResponse.json({ error: "Failed to update deal" }, { status: 500 });
+  }
+
+  // Save custom field values
+  if (raw.custom_fields && typeof raw.custom_fields === "object") {
+    for (const [fieldId, val] of Object.entries(raw.custom_fields)) {
+      if (val === null || val === "") {
+        await supabase.from("crm_deal_field_values").delete().eq("deal_id", id).eq("field_id", fieldId);
+      } else {
+        await supabase.from("crm_deal_field_values").upsert(
+          { deal_id: id, field_id: fieldId, value: String(val) },
+          { onConflict: "deal_id,field_id" }
+        );
+      }
+    }
   }
 
   return NextResponse.json({ deal, ok: true });

@@ -24,6 +24,7 @@ const NAV_ITEMS = [
 const SETTINGS_ITEMS = [
   { href: "/settings", label: "General" },
   { href: "/settings/pipeline", label: "Pipeline" },
+  { href: "/settings/contacts", label: "Contacts" },
   { href: "/settings/team", label: "Team" },
   { href: "/settings/telegram", label: "Telegram" },
   { href: "/settings/email", label: "Email" },
