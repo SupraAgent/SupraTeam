@@ -18,6 +18,9 @@ import {
   ChevronDown,
   AlertTriangle,
   BarChart3,
+  TrendingDown,
+  TrendingUp,
+  Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { timeAgo } from "@/lib/utils";
@@ -250,6 +253,58 @@ function ComparisonModal({
                     {g.message_count_30d}
                   </td>
                 ))}
+              </tr>
+              {/* Msgs per member */}
+              <tr>
+                <td className="py-3 pr-4 text-muted-foreground">Msgs/Member (7d)</td>
+                {groups.map((g) => {
+                  const ratio = g.member_count && g.member_count > 0 ? (g.message_count_7d / g.member_count).toFixed(1) : "--";
+                  return (
+                    <td key={g.id} className="py-3 px-3 text-center text-purple-400 font-medium">
+                      {ratio}
+                    </td>
+                  );
+                })}
+              </tr>
+              {/* Weekly Trend */}
+              <tr>
+                <td className="py-3 pr-4 text-muted-foreground">Weekly Trend</td>
+                {groups.map((g) => {
+                  if (!g.message_history || g.message_history.length < 14) {
+                    return <td key={g.id} className="py-3 px-3 text-center text-muted-foreground/50">--</td>;
+                  }
+                  const thisWeek = g.message_history.slice(-7).reduce((s, e) => s + e.count, 0);
+                  const prevWeek = g.message_history.slice(-14, -7).reduce((s, e) => s + e.count, 0);
+                  const trend = prevWeek === 0 ? (thisWeek > 0 ? 100 : 0) : Math.round(((thisWeek - prevWeek) / prevWeek) * 100);
+                  return (
+                    <td key={g.id} className={cn("py-3 px-3 text-center font-medium", trend >= 0 ? "text-emerald-400" : "text-red-400")}>
+                      {trend >= 0 ? "+" : ""}{trend}%
+                    </td>
+                  );
+                })}
+              </tr>
+              {/* Engagement Score */}
+              <tr>
+                <td className="py-3 pr-4 text-muted-foreground">Engagement Score</td>
+                {groups.map((g) => {
+                  let score = 0;
+                  if (g.last_message_at) {
+                    const daysSince = (Date.now() - new Date(g.last_message_at).getTime()) / 86400000;
+                    if (daysSince < 1) score += 30; else if (daysSince < 3) score += 20; else if (daysSince < 7) score += 10;
+                  }
+                  if (g.message_count_7d >= 50) score += 25; else if (g.message_count_7d >= 20) score += 18; else if (g.message_count_7d >= 5) score += 10; else if (g.message_count_7d >= 1) score += 5;
+                  if (g.message_count_30d >= 200) score += 20; else if (g.message_count_30d >= 50) score += 12; else if (g.message_count_30d >= 10) score += 5;
+                  if (g.member_count) { if (g.member_count >= 100) score += 15; else if (g.member_count >= 20) score += 10; else if (g.member_count >= 5) score += 5; }
+                  if (g.message_history?.length >= 20) score += 10;
+                  score = Math.min(score, 100);
+                  return (
+                    <td key={g.id} className="py-3 px-3 text-center">
+                      <span className={cn("font-semibold", score >= 60 ? "text-emerald-400" : score >= 30 ? "text-amber-400" : "text-red-400")}>
+                        {score}/100
+                      </span>
+                    </td>
+                  );
+                })}
               </tr>
               {/* Sparkline */}
               <tr>
@@ -523,6 +578,37 @@ export default function GroupsPage() {
     (g) => g.health_status === "stale" || g.health_status === "dead"
   ).length;
 
+  // Compute weekly trends for all groups
+  const groupTrends = React.useMemo(() => {
+    const trends: Record<string, { trend: number; prevWeek: number; thisWeek: number }> = {};
+    for (const g of activeGroups) {
+      if (!g.message_history || g.message_history.length < 14) continue;
+      const thisWeek = g.message_history.slice(-7).reduce((s, e) => s + e.count, 0);
+      const prevWeek = g.message_history.slice(-14, -7).reduce((s, e) => s + e.count, 0);
+      const trend = prevWeek === 0 ? (thisWeek > 0 ? 100 : 0) : Math.round(((thisWeek - prevWeek) / prevWeek) * 100);
+      trends[g.id] = { trend, prevWeek, thisWeek };
+    }
+    return trends;
+  }, [activeGroups]);
+
+  // Activity alerts: groups with significant drops or spikes
+  const activityAlerts = React.useMemo(() => {
+    const declining: TgGroup[] = [];
+    const surging: TgGroup[] = [];
+    for (const g of activeGroups) {
+      const t = groupTrends[g.id];
+      if (!t) continue;
+      if (t.trend <= -50 && t.prevWeek >= 5) declining.push(g);
+      if (t.trend >= 100 && t.thisWeek >= 10) surging.push(g);
+    }
+    return { declining, surging };
+  }, [activeGroups, groupTrends]);
+
+  // Total messages and per-member ratio
+  const totalMessages7d = activeGroups.reduce((s, g) => s + g.message_count_7d, 0);
+  const totalMembers = activeGroups.reduce((s, g) => s + (g.member_count ?? 0), 0);
+  const msgsPerMember = totalMembers > 0 ? (totalMessages7d / totalMembers).toFixed(1) : "0";
+
   if (loading) {
     return (
       <div className="space-y-4">
@@ -571,37 +657,95 @@ export default function GroupsPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-5 gap-3">
+      <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
         <div className="rounded-xl border border-white/10 bg-white/[0.035] p-3 text-center">
           <p className="text-lg font-semibold text-foreground">{activeGroups.length}</p>
-          <p className="text-xs text-muted-foreground">Total Groups</p>
-        </div>
-        <div className="rounded-xl border border-emerald-500/10 bg-emerald-500/5 p-3 text-center">
-          <p className="text-lg font-semibold text-emerald-400">
-            {activeGroups.filter((g) => g.bot_is_admin).length}
-          </p>
-          <p className="text-xs text-muted-foreground">Bot is Admin</p>
-        </div>
-        <div className="rounded-xl border border-blue-500/10 bg-blue-500/5 p-3 text-center">
-          <p className="text-lg font-semibold text-blue-400">{allSlugs.length}</p>
-          <p className="text-xs text-muted-foreground">Unique Slugs</p>
+          <p className="text-[10px] text-muted-foreground">Total Groups</p>
         </div>
         <div className="rounded-xl border border-emerald-500/10 bg-emerald-500/5 p-3 text-center">
           <p className="text-lg font-semibold text-emerald-400">{activeCount}</p>
-          <p className="text-xs text-muted-foreground">Active Groups</p>
+          <p className="text-[10px] text-muted-foreground">Active</p>
+        </div>
+        <div className="rounded-xl border border-blue-500/10 bg-blue-500/5 p-3 text-center">
+          <p className="text-lg font-semibold text-blue-400">{totalMessages7d}</p>
+          <p className="text-[10px] text-muted-foreground">Msgs (7d)</p>
+        </div>
+        <div className="rounded-xl border border-purple-500/10 bg-purple-500/5 p-3 text-center">
+          <p className="text-lg font-semibold text-purple-400">{msgsPerMember}</p>
+          <p className="text-[10px] text-muted-foreground">Msgs/Member</p>
+        </div>
+        <div className="rounded-xl border border-blue-500/10 bg-blue-500/5 p-3 text-center">
+          <p className="text-lg font-semibold text-blue-400">{allSlugs.length}</p>
+          <p className="text-[10px] text-muted-foreground">Slugs</p>
         </div>
         {staleDeadCount > 0 ? (
           <div className="rounded-xl border border-orange-500/10 bg-orange-500/5 p-3 text-center">
             <p className="text-lg font-semibold text-orange-400">{staleDeadCount}</p>
-            <p className="text-xs text-muted-foreground">Stale / Dead</p>
+            <p className="text-[10px] text-muted-foreground">Stale / Dead</p>
           </div>
         ) : (
           <div className="rounded-xl border border-white/10 bg-white/[0.035] p-3 text-center">
             <p className="text-lg font-semibold text-foreground">0</p>
-            <p className="text-xs text-muted-foreground">Stale / Dead</p>
+            <p className="text-[10px] text-muted-foreground">Stale / Dead</p>
           </div>
         )}
       </div>
+
+      {/* Activity Alerts */}
+      {(activityAlerts.declining.length > 0 || activityAlerts.surging.length > 0) && (
+        <div className="space-y-2">
+          {activityAlerts.declining.length > 0 && (
+            <div className="rounded-xl border border-red-400/20 bg-red-500/5 px-4 py-3">
+              <div className="flex items-center gap-2 mb-2">
+                <TrendingDown className="h-3.5 w-3.5 text-red-400" />
+                <span className="text-xs font-medium text-red-400">
+                  {activityAlerts.declining.length} group{activityAlerts.declining.length !== 1 ? "s" : ""} declining rapidly
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {activityAlerts.declining.map((g) => {
+                  const t = groupTrends[g.id];
+                  return (
+                    <button
+                      key={g.id}
+                      onClick={() => setSelectedGroup(g)}
+                      className="flex items-center gap-1.5 rounded-lg border border-red-400/10 bg-red-500/5 px-2.5 py-1 text-[10px] text-red-400 hover:bg-red-500/10 transition"
+                    >
+                      <span className="text-foreground font-medium">{g.group_name}</span>
+                      <span>{t?.trend}% this week</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {activityAlerts.surging.length > 0 && (
+            <div className="rounded-xl border border-emerald-400/20 bg-emerald-500/5 px-4 py-3">
+              <div className="flex items-center gap-2 mb-2">
+                <Zap className="h-3.5 w-3.5 text-emerald-400" />
+                <span className="text-xs font-medium text-emerald-400">
+                  {activityAlerts.surging.length} group{activityAlerts.surging.length !== 1 ? "s" : ""} surging
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {activityAlerts.surging.map((g) => {
+                  const t = groupTrends[g.id];
+                  return (
+                    <button
+                      key={g.id}
+                      onClick={() => setSelectedGroup(g)}
+                      className="flex items-center gap-1.5 rounded-lg border border-emerald-400/10 bg-emerald-500/5 px-2.5 py-1 text-[10px] text-emerald-400 hover:bg-emerald-500/10 transition"
+                    >
+                      <span className="text-foreground font-medium">{g.group_name}</span>
+                      <span>+{t?.trend}% this week</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex items-center gap-2 flex-wrap">
@@ -896,6 +1040,7 @@ export default function GroupsPage() {
             setNewSlug={setNewSlug}
             onAddSlug={handleAddSlug}
             onRemoveSlug={handleRemoveSlug}
+            trend={groupTrends[group.id]?.trend ?? null}
             onAssignBot={async (groupId, botId) => {
               await fetch("/api/groups/bulk", {
                 method: "POST",
@@ -1015,6 +1160,7 @@ function GroupCard({
   onAddSlug,
   onRemoveSlug,
   onAssignBot,
+  trend = null,
 }: {
   group: TgGroup;
   bots: BotInfo[];
@@ -1029,6 +1175,7 @@ function GroupCard({
   onAddSlug: (groupId: string) => void;
   onRemoveSlug: (groupId: string, slug: string) => void;
   onAssignBot: (groupId: string, botId: string) => void;
+  trend?: number | null;
 }) {
   const health = HEALTH_CONFIG[group.health_status];
 
@@ -1135,20 +1282,32 @@ function GroupCard({
         )}
       </div>
 
-      {/* Activity metrics + sparkline */}
+      {/* Activity metrics + sparkline + trend */}
       {(group.last_message_at || group.message_count_7d > 0 || group.message_count_30d > 0 || (group.message_history && group.message_history.length > 0)) && (
         <div className="flex items-center gap-3 pl-[4.5rem] text-[10px] text-muted-foreground">
           {group.message_history && group.message_history.length > 0 && (
             <Sparkline data={group.message_history} healthStatus={group.health_status} />
           )}
+          {trend !== null && (
+            <span className={cn(
+              "flex items-center gap-0.5 font-medium",
+              trend >= 10 ? "text-emerald-400" : trend <= -10 ? "text-red-400" : "text-muted-foreground"
+            )}>
+              {trend >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+              {trend >= 0 ? "+" : ""}{trend}%
+            </span>
+          )}
           {group.last_message_at && (
-            <span>Last message: {timeAgo(group.last_message_at)}</span>
+            <span>Last: {timeAgo(group.last_message_at)}</span>
           )}
           {group.message_count_7d > 0 && (
-            <span>{group.message_count_7d} msgs this week</span>
+            <span>{group.message_count_7d} msgs/7d</span>
           )}
           {group.message_count_30d > 0 && (
-            <span>{group.message_count_30d} msgs this month</span>
+            <span>{group.message_count_30d} msgs/30d</span>
+          )}
+          {group.member_count && group.message_count_7d > 0 && (
+            <span className="text-purple-400">{(group.message_count_7d / group.member_count).toFixed(1)} msgs/member</span>
           )}
         </div>
       )}
