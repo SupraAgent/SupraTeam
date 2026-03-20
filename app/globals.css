@@ -363,6 +363,24 @@ body {
   border-radius: var(--radius);
 }
 
+/* Pull to refresh indicator */
+@keyframes ptr-spin {
+  to { transform: rotate(360deg); }
+}
+.ptr-spinner {
+  animation: ptr-spin 0.8s linear infinite;
+}
+
+/* Haptic feedback on tap (visual) */
+.tap-highlight {
+  -webkit-tap-highlight-color: rgba(255, 255, 255, 0.05);
+}
+
+/* Safe area bottom padding for fixed bottom bars */
+.safe-area-bottom {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
 /* Ice tooltip badge */
 .ice-badge {
   font-size: 9px;

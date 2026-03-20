@@ -20,6 +20,7 @@ type Deal = {
   contact: { name: string; company: string | null; telegram_username: string | null } | null;
 };
 
+type Stage = { id: string; name: string; position: number; color: string };
 type Note = { id: string; text: string; created_at: string };
 type Activity = { id: string; type: string; title: string; body?: string; tg_deep_link?: string; created_at: string };
 
@@ -40,6 +41,8 @@ export default function TMADealDetailPage() {
   const [notes, setNotes] = React.useState<Note[]>([]);
   const [activities, setActivities] = React.useState<Activity[]>([]);
   const [tab, setTab] = React.useState<"info" | "notes" | "activity">("info");
+  const [stages, setStages] = React.useState<Stage[]>([]);
+  const [movingStage, setMovingStage] = React.useState(false);
   const [newNote, setNewNote] = React.useState("");
   const [sending, setSending] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
@@ -55,12 +58,32 @@ export default function TMADealDetailPage() {
       fetch(`/api/deals/${id}`).then((r) => r.json()),
       fetch(`/api/deals/${id}/notes`).then((r) => r.json()),
       fetch(`/api/deals/${id}/activity`).then((r) => r.json()),
-    ]).then(([dealData, notesData, actData]) => {
+      fetch("/api/pipeline").then((r) => r.json()),
+    ]).then(([dealData, notesData, actData, stagesData]) => {
       setDeal(dealData.deal ?? null);
       setNotes(notesData.notes ?? []);
       setActivities(actData.activities ?? []);
+      setStages(stagesData.stages ?? []);
     }).finally(() => setLoading(false));
   }, [id]);
+
+  async function handleMoveStage(stageId: string) {
+    if (!deal || deal.stage_id === stageId) return;
+    setMovingStage(true);
+    try {
+      const res = await fetch(`/api/deals/${id}/move`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stage_id: stageId }),
+      });
+      if (res.ok) {
+        const stage = stages.find((s) => s.id === stageId);
+        setDeal((d) => d ? { ...d, stage_id: stageId, stage: stage ? { name: stage.name, color: stage.color } : d.stage } : d);
+      }
+    } finally {
+      setMovingStage(false);
+    }
+  }
 
   async function handleAddNote() {
     if (!newNote.trim()) return;
@@ -127,6 +150,32 @@ export default function TMADealDetailPage() {
             <MessageCircle className="h-4 w-4" />
             Open Telegram Chat
           </a>
+        </div>
+      )}
+
+      {/* Quick stage move */}
+      {stages.length > 0 && deal.outcome === "open" && (
+        <div className="px-4 pb-3">
+          <p className="text-[10px] text-muted-foreground mb-1.5">Move to stage</p>
+          <div className="flex gap-1 overflow-x-auto thin-scroll pb-1">
+            {stages.sort((a, b) => a.position - b.position).map((s) => (
+              <button
+                key={s.id}
+                onClick={() => handleMoveStage(s.id)}
+                disabled={movingStage || deal.stage_id === s.id}
+                className={cn(
+                  "shrink-0 rounded-lg px-2.5 py-1.5 text-[10px] font-medium transition-colors whitespace-nowrap",
+                  deal.stage_id === s.id
+                    ? "border-2 text-foreground"
+                    : "border border-white/10 text-muted-foreground active:bg-white/[0.06]",
+                  movingStage && "opacity-50"
+                )}
+                style={deal.stage_id === s.id ? { borderColor: s.color, backgroundColor: `${s.color}20` } : undefined}
+              >
+                {s.name}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
