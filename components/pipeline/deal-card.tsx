@@ -182,6 +182,25 @@ export function DealCard({
               {deal.board_type}
             </span>
 
+            {/* Outcome badge */}
+            {deal.outcome === "won" && (
+              <span className="rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-green-500/20 text-green-400">Won</span>
+            )}
+            {deal.outcome === "lost" && (
+              <span className="rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-red-500/20 text-red-400">Lost</span>
+            )}
+
+            {/* Health dot */}
+            {deal.health_score != null && deal.outcome !== "won" && deal.outcome !== "lost" && (
+              <span
+                className={cn(
+                  "h-2 w-2 rounded-full",
+                  deal.health_score >= 70 ? "bg-green-400" : deal.health_score >= 40 ? "bg-amber-400" : "bg-red-400"
+                )}
+                title={`Health: ${deal.health_score}%`}
+              />
+            )}
+
             {/* Inline-editable value */}
             {editingField === "value" ? (
               <form onSubmit={commitEdit} className="flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>

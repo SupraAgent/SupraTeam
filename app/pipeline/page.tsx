@@ -32,40 +32,36 @@ const EMPTY_FILTERS: PipelineFilters = {
 
 const BOARDS: BoardType[] = ["All", "BD", "Marketing", "Admin"];
 
+const SAMPLE_BASE = {
+  contact_id: null, assigned_to: null, telegram_chat_id: null, telegram_chat_name: null,
+  telegram_chat_link: null, outcome: null, outcome_reason: null, outcome_at: null,
+  health_score: null, expected_close_date: null, created_by: null,
+  contact: null, assigned_profile: null,
+} as const;
+
 function makeSampleDeals(stages: PipelineStage[]): Deal[] {
   if (stages.length < 3) return [];
+  const now = new Date().toISOString();
   return [
     {
-      id: "sample-1", deal_name: "Acme Corp Partnership", contact_id: null, assigned_to: null,
+      ...SAMPLE_BASE, id: "sample-1", deal_name: "Acme Corp Partnership",
       board_type: "BD", stage_id: stages[0].id, value: 50000, probability: 30,
-      telegram_chat_id: null, telegram_chat_name: null, telegram_chat_link: null,
-      stage_changed_at: new Date().toISOString(), created_by: null,
-      created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
-      contact: null, stage: stages[0], assigned_profile: null,
+      stage_changed_at: now, created_at: now, updated_at: now, stage: stages[0],
     },
     {
-      id: "sample-2", deal_name: "DeFi Protocol Integration", contact_id: null, assigned_to: null,
+      ...SAMPLE_BASE, id: "sample-2", deal_name: "DeFi Protocol Integration",
       board_type: "BD", stage_id: stages[1].id, value: 120000, probability: 50,
-      telegram_chat_id: null, telegram_chat_name: null, telegram_chat_link: null,
-      stage_changed_at: new Date().toISOString(), created_by: null,
-      created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
-      contact: null, stage: stages[1], assigned_profile: null,
+      stage_changed_at: now, created_at: now, updated_at: now, stage: stages[1],
     },
     {
-      id: "sample-3", deal_name: "Exchange Listing Sponsorship", contact_id: null, assigned_to: null,
+      ...SAMPLE_BASE, id: "sample-3", deal_name: "Exchange Listing Sponsorship",
       board_type: "Marketing", stage_id: stages[2].id, value: 25000, probability: 60,
-      telegram_chat_id: null, telegram_chat_name: null, telegram_chat_link: null,
-      stage_changed_at: new Date().toISOString(), created_by: null,
-      created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
-      contact: null, stage: stages[2], assigned_profile: null,
+      stage_changed_at: now, created_at: now, updated_at: now, stage: stages[2],
     },
     {
-      id: "sample-4", deal_name: "Node Operator MOU", contact_id: null, assigned_to: null,
+      ...SAMPLE_BASE, id: "sample-4", deal_name: "Node Operator MOU",
       board_type: "Admin", stage_id: stages[4]?.id ?? stages[2].id, value: 75000, probability: 80,
-      telegram_chat_id: null, telegram_chat_name: null, telegram_chat_link: null,
-      stage_changed_at: new Date().toISOString(), created_by: null,
-      created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
-      contact: null, stage: stages[4] ?? stages[2], assigned_profile: null,
+      stage_changed_at: now, created_at: now, updated_at: now, stage: stages[4] ?? stages[2],
     },
   ];
 }
@@ -219,7 +215,7 @@ export default function PipelinePage() {
     } else if (filters.assignedTo) {
       result = result.filter((d) => d.assigned_to === filters.assignedTo);
     }
-    if (filters.outcome) result = result.filter((d) => (d as Deal & { outcome?: string }).outcome === filters.outcome);
+    if (filters.outcome) result = result.filter((d) => (d.outcome ?? "open") === filters.outcome);
     if (filters.staleDays != null) {
       const cutoff = Date.now() - filters.staleDays * 86400000;
       result = result.filter((d) => new Date(d.stage_changed_at).getTime() < cutoff);
