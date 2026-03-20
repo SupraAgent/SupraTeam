@@ -167,10 +167,10 @@ ANTHROPIC_API_KEY=               # Claude AI features (chat widget, sentiment, s
 | Phase | Status | Scope |
 |-------|--------|-------|
 | Phase 0: Foundation | Done | Repo, scaffold, auth, app shell, migration, page stubs |
-| Phase 1: CRM Core | Done | Kanban drag-drop, deals/contacts CRUD, board views, deal detail, custom fields, duplicate detection |
-| Phase 2: Telegram Bot | Done | grammy bot, group registration, stage-change messages, bot templates, multi-bot registry |
-| Phase 3: Access Control | Done | Slugs, matrix UI, bulk add/remove, audit log, automations, broadcasts, outreach sequences |
-| Phase 4: Polish | Done | Mobile TMA, view density, animations, onboarding wizard, privacy/GDPR |
+| Phase 1: CRM Core | Done | Kanban drag-drop, deals/contacts CRUD, board views, deal detail, custom fields, duplicate detection, pipeline summary bar, collapsible columns, WIP limits, task priorities & assignment |
+| Phase 2: Telegram Bot | Done | grammy bot, group registration, stage-change messages, bot templates, multi-bot registry, merge variables, broadcast personalization |
+| Phase 3: Access Control | Done | Slugs, matrix UI, bulk add/remove, audit log, automations, broadcasts, outreach sequences, workflows |
+| Phase 4: Polish | Done | Mobile TMA, view density, animations, onboarding wizard, privacy/GDPR, competitive scoring improvements |
 | Phase 5: AI & Automation | Done | Visual workflow builder (React Flow), AI agent, sentiment analysis, global AI chat assistant |
 | Phase 6: AI Chat & Templates | Done | Global Claude-powered chat widget on every page, per-page context, workflow templates (built-in + user-saved), AI template suggestions |
 
