@@ -26,6 +26,7 @@ const SETTINGS_ITEMS = [
   { href: "/settings/team", label: "Team" },
   { href: "/settings/telegram", label: "Telegram" },
   { href: "/settings/email", label: "Email" },
+  { href: "/settings/sequences", label: "Sequences" },
   { href: "/settings/telegram-connect", label: "TG Connect" },
   { href: "/settings/templates", label: "Bot Templates" },
 ] as const;
@@ -39,7 +40,9 @@ export function DesktopSidebar() {
     <aside className={cn(
       "hidden md:flex md:flex-col md:fixed md:inset-y-0 border-r border-white/10 bg-white/[0.02] transition-all duration-200",
       sidebarCollapsed ? "md:w-14" : "md:w-56"
-    )}>
+    )}
+    style={{ backgroundColor: "hsl(var(--surface-1))" }}
+    >
       {/* Logo + collapse toggle */}
       <div className="flex h-14 items-center justify-between px-4 border-b border-white/10">
         <div className="flex items-center gap-2">

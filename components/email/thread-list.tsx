@@ -4,6 +4,7 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 import { timeAgo } from "@/lib/utils";
 import type { ThreadListItem } from "@/lib/email/types";
+import { ContactAvatar } from "./contact-avatar";
 
 type ThreadListProps = {
   threads: ThreadListItem[];
@@ -12,9 +13,12 @@ type ThreadListProps = {
   loading: boolean;
   onLoadMore?: () => void;
   hasMore?: boolean;
+  onPrefetch?: (id: string) => void;
+  onSwipeArchive?: (id: string) => void;
+  onSwipeSnooze?: (id: string) => void;
 };
 
-export function ThreadList({ threads, selectedId, onSelect, loading, onLoadMore, hasMore }: ThreadListProps) {
+export function ThreadList({ threads, selectedId, onSelect, loading, onLoadMore, hasMore, onPrefetch, onSwipeArchive, onSwipeSnooze }: ThreadListProps) {
   const listRef = React.useRef<HTMLDivElement>(null);
 
   if (loading && threads.length === 0) {
@@ -42,6 +46,9 @@ export function ThreadList({ threads, selectedId, onSelect, loading, onLoadMore,
           thread={thread}
           isSelected={thread.id === selectedId}
           onClick={() => onSelect(thread.id)}
+          onMouseEnter={() => onPrefetch?.(thread.id)}
+          onSwipeLeft={() => onSwipeArchive?.(thread.id)}
+          onSwipeRight={() => onSwipeSnooze?.(thread.id)}
         />
       ))}
       {hasMore && (
@@ -60,29 +67,85 @@ function ThreadRow({
   thread,
   isSelected,
   onClick,
+  onMouseEnter,
+  onSwipeLeft,
+  onSwipeRight,
 }: {
   thread: ThreadListItem;
   isSelected: boolean;
   onClick: () => void;
+  onMouseEnter?: () => void;
+  onSwipeLeft?: () => void;
+  onSwipeRight?: () => void;
 }) {
   const senderName = thread.from[0]?.name || thread.from[0]?.email || "Unknown";
   const shortSender = senderName.split(" ")[0] || senderName.split("@")[0];
 
+  // Touch swipe tracking
+  const touchStartRef = React.useRef({ x: 0, y: 0 });
+  const [swipeOffset, setSwipeOffset] = React.useState(0);
+  const trackingRef = React.useRef(false);
+
+  function handleTouchStart(e: React.TouchEvent) {
+    touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    trackingRef.current = false;
+  }
+
+  function handleTouchMove(e: React.TouchEvent) {
+    const dx = e.touches[0].clientX - touchStartRef.current.x;
+    const dy = e.touches[0].clientY - touchStartRef.current.y;
+    if (!trackingRef.current) {
+      if (Math.abs(dy) > Math.abs(dx)) return;
+      if (Math.abs(dx) > 10) trackingRef.current = true;
+      else return;
+    }
+    setSwipeOffset(Math.max(-120, Math.min(120, dx)));
+  }
+
+  function handleTouchEnd() {
+    if (Math.abs(swipeOffset) > 80) {
+      if (swipeOffset < 0) onSwipeLeft?.();
+      else onSwipeRight?.();
+    }
+    setSwipeOffset(0);
+    trackingRef.current = false;
+  }
+
   return (
+    <div className="relative overflow-hidden">
+      {/* Swipe backgrounds */}
+      {swipeOffset > 0 && (
+        <div className="absolute inset-y-0 left-0 w-full bg-amber-500/20 flex items-center pl-4">
+          <span className="text-xs text-amber-400 font-medium">Snooze</span>
+        </div>
+      )}
+      {swipeOffset < 0 && (
+        <div className="absolute inset-y-0 right-0 w-full bg-green-500/20 flex items-center justify-end pr-4">
+          <span className="text-xs text-green-400 font-medium">Archive</span>
+        </div>
+      )}
     <button
       onClick={onClick}
+      onMouseEnter={onMouseEnter}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      style={{ transform: swipeOffset ? `translateX(${swipeOffset}px)` : undefined, transition: swipeOffset ? "none" : "transform 200ms ease-out" }}
       className={cn(
-        "w-full text-left px-3 py-2.5 border-b border-white/5 transition-colors flex gap-3",
+        "w-full text-left px-3 py-2.5 border-b border-white/5 transition-colors flex gap-3 relative",
         isSelected ? "bg-white/[0.08]" : "hover:bg-white/[0.03]",
         thread.isUnread && "bg-white/[0.02]"
       )}
     >
-      {/* Star indicator */}
-      <div className="pt-0.5 shrink-0">
-        {thread.isStarred ? (
-          <StarFilledIcon className="h-3.5 w-3.5 text-yellow-400" />
-        ) : (
-          <div className="h-3.5 w-3.5" />
+      {/* Contact avatar */}
+      <div className="pt-0.5 shrink-0 relative">
+        <ContactAvatar
+          email={thread.from[0]?.email ?? ""}
+          name={thread.from[0]?.name}
+          size={28}
+        />
+        {thread.isStarred && (
+          <StarFilledIcon className="h-2.5 w-2.5 text-yellow-400 absolute -bottom-0.5 -right-0.5" />
         )}
       </div>
 
@@ -130,6 +193,7 @@ function ThreadRow({
         </div>
       )}
     </button>
+    </div>
   );
 }
 

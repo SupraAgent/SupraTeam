@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { useSearchParams } from "next/navigation";
+import { toast } from "sonner";
 
 type Connection = {
   id: string;
@@ -154,6 +155,19 @@ export default function EmailSettingsPage() {
         )}
       </div>
 
+      {/* Signatures */}
+      {connections.length > 0 && (
+        <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5 space-y-4">
+          <h2 className="text-sm font-medium text-foreground">Email Signatures</h2>
+          <p className="text-xs text-muted-foreground">
+            Set a signature for each connected account. It will be appended to all outgoing emails.
+          </p>
+          {connections.map((conn) => (
+            <SignatureEditor key={conn.id} connectionId={conn.id} email={conn.email} />
+          ))}
+        </div>
+      )}
+
       {/* Setup guide */}
       <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5 space-y-3">
         <h2 className="text-sm font-medium text-foreground">Setup Requirements</h2>
@@ -184,6 +198,7 @@ export default function EmailSettingsPage() {
             ["/", "Search"],
             ["h", "Snooze"],
             ["⌘+Enter", "Send email"],
+            ["⌘+;", "Insert template"],
           ].map(([key, desc]) => (
             <div key={key} className="flex items-center justify-between py-0.5">
               <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">
@@ -193,6 +208,65 @@ export default function EmailSettingsPage() {
             </div>
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function SignatureEditor({ connectionId, email }: { connectionId: string; email: string }) {
+  const [signature, setSignature] = React.useState("");
+  const [loading, setLoading] = React.useState(true);
+  const [saving, setSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    fetch(`/api/email/signatures?connection_id=${connectionId}`)
+      .then((r) => r.json())
+      .then((json) => {
+        const sig = (json.data ?? []).find((s: { connection_id: string }) => s.connection_id === connectionId);
+        setSignature(sig?.signature_html ?? "");
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [connectionId]);
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      const res = await fetch("/api/email/signatures", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          connection_id: connectionId,
+          signature_html: signature,
+          signature_text: signature.replace(/<[^>]+>/g, ""),
+        }),
+      });
+      if (res.ok) {
+        toast.success("Signature saved");
+      } else {
+        toast.error("Failed to save");
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) return <p className="text-xs text-muted-foreground">Loading...</p>;
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3 space-y-2">
+      <p className="text-xs text-foreground font-medium">{email}</p>
+      <textarea
+        value={signature}
+        onChange={(e) => setSignature(e.target.value)}
+        placeholder="Your signature (HTML supported)&#10;&#10;e.g.&#10;Best regards,&#10;Jon — Supra&#10;supra.com"
+        className="w-full h-24 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-foreground
+          placeholder:text-muted-foreground/40 outline-none resize-none focus:ring-1 focus:ring-primary/50"
+      />
+      <div className="flex justify-end">
+        <Button size="sm" onClick={handleSave} disabled={saving}>
+          {saving ? "Saving..." : "Save Signature"}
+        </Button>
       </div>
     </div>
   );

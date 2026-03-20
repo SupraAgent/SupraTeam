@@ -28,7 +28,8 @@ export function Modal({ open, onClose, title, children, className }: ModalProps)
       <div className="fixed inset-0 bg-black/60" onClick={onClose} />
       <div
         className={cn(
-          "relative z-10 w-full max-w-lg rounded-2xl border border-white/10 bg-[hsl(225,35%,6%)] p-6 shadow-2xl animate-fade-in",
+          "relative z-10 w-full max-w-lg rounded-2xl border border-white/10 p-6 shadow-2xl animate-fade-in",
+          "bg-[hsl(var(--surface-4))]",
           className
         )}
       >

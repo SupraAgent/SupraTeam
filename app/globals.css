@@ -5,10 +5,19 @@
 :root {
   --radius: 14px;
 
-  /* SupraCRM dark system (shared with SupraVibe) */
-  --background: 225 35% 4%;
+  /* SupraCRM Carbon dark system — 5-shade depth hierarchy
+     Nearer surfaces = lighter, distant surfaces = darker
+     (simulating overhead lighting like Superhuman's Carbon theme) */
+  --background: 225 35% 4%;          /* L0: deepest — app background */
   --foreground: 210 40% 98%;
-  --card: 225 35% 6%;
+
+  --surface-1: 225 32% 7%;           /* L1: sidebar, main panels */
+  --surface-2: 225 28% 10%;          /* L2: cards, thread list items */
+  --surface-3: 225 24% 13%;          /* L3: hover states, active items */
+  --surface-4: 225 20% 17%;          /* L4: elevated — modals, dropdowns */
+  --surface-5: 225 18% 22%;          /* L5: highest — tooltips, toasts */
+
+  --card: 225 32% 7%;
   --card-foreground: 210 40% 98%;
   --border: 225 18% 14%;
 
@@ -72,11 +81,52 @@ body {
   animation: fade-in 150ms ease-out;
 }
 
+/* Depth-based surface utilities */
+.surface-1 { background-color: hsl(var(--surface-1)); }
+.surface-2 { background-color: hsl(var(--surface-2)); }
+.surface-3 { background-color: hsl(var(--surface-3)); }
+.surface-4 { background-color: hsl(var(--surface-4)); }
+.surface-5 { background-color: hsl(var(--surface-5)); }
+
+/* Undo send progress bar */
+@keyframes undo-countdown {
+  from { width: 100%; }
+  to { width: 0%; }
+}
+.undo-progress {
+  animation: undo-countdown linear forwards;
+}
+
 /* Mobile touch target helpers */
 @media (max-width: 640px) {
-  /* Ensure minimum touch targets on interactive elements */
   .thin-scroll::-webkit-scrollbar {
     width: 6px;
     height: 6px;
   }
+
+  /* Larger touch targets for action buttons */
+  button[title] {
+    min-width: 36px;
+    min-height: 36px;
+  }
+
+  /* Full-width thread view on mobile */
+  .thread-view-mobile {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+  }
+}
+
+/* Safe swipe area — prevent system back gesture conflict */
+@supports (padding: env(safe-area-inset-left)) {
+  .swipe-row {
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+  }
+}
+
+/* Smooth swipe transition */
+.swipe-snap-back {
+  transition: transform 200ms ease-out;
 }

@@ -6,11 +6,24 @@ import { ThreadList } from "@/components/email/thread-list";
 import { ThreadView } from "@/components/email/thread-view";
 import { ComposeModal } from "@/components/email/compose-modal";
 import { LabelSidebar } from "@/components/email/label-sidebar";
-import { useThreads, useThread, useLabels, useEmailActions, useEmailKeyboard, useEmailConnections } from "@/lib/email/hooks";
+import { UndoSendProvider, UndoSendBar } from "@/components/email/undo-send-bar";
+import { SnoozePicker } from "@/components/email/snooze-picker";
+import { AdvancedSearch } from "@/components/email/advanced-search";
+import { KeyboardHelp } from "@/components/email/keyboard-help";
+import { useThreads, useThread, useLabels, useEmailActions, useEmailKeyboard, useEmailConnections, useSplitInbox, usePrefetchThread } from "@/lib/email/hooks";
+import { INBOX_CATEGORIES, type InboxCategory } from "@/lib/email/types";
 import { EmailErrorBoundary } from "@/components/email/error-boundary";
 import { toast } from "sonner";
 
 export default function EmailPage() {
+  return (
+    <UndoSendProvider>
+      <EmailPageInner />
+    </UndoSendProvider>
+  );
+}
+
+function EmailPageInner() {
   const { connections, loading: connectionsLoading } = useEmailConnections();
   const [activeLabel, setActiveLabel] = React.useState("INBOX");
   const [selectedThreadId, setSelectedThreadId] = React.useState<string | null>(null);
@@ -18,6 +31,9 @@ export default function EmailPage() {
   const [searchInput, setSearchInput] = React.useState("");
   const [searchQuery, setSearchQuery] = React.useState("");
   const [showSearch, setShowSearch] = React.useState(false);
+  const [advancedSearchOpen, setAdvancedSearchOpen] = React.useState(false);
+  const [keyboardHelpOpen, setKeyboardHelpOpen] = React.useState(false);
+  const [activeCategory, setActiveCategory] = React.useState<InboxCategory | "all">("all");
   const searchRef = React.useRef<HTMLInputElement>(null);
   const searchTimerRef = React.useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -34,6 +50,10 @@ export default function EmailPage() {
   const [composeThreadId, setComposeThreadId] = React.useState<string>();
   const [composeMessageId, setComposeMessageId] = React.useState<string>();
 
+  // Snooze state
+  const [snoozeOpen, setSnoozeOpen] = React.useState(false);
+  const [snoozeThreadId, setSnoozeThreadId] = React.useState<string | null>(null);
+
   // Data hooks
   const { threads, loading, error, nextPageToken, loadMore, refresh, setThreads } = useThreads({
     labelIds: searchQuery ? undefined : [activeLabel],
@@ -42,6 +62,11 @@ export default function EmailPage() {
   const { thread: activeThread, loading: threadLoading } = useThread(selectedThreadId);
   const { labels, loading: labelsLoading } = useLabels();
   const { performAction, undoAction } = useEmailActions(setThreads);
+  const { split, counts } = useSplitInbox(threads);
+  const prefetchThread = usePrefetchThread();
+
+  // Visible threads based on active category
+  const visibleThreads = activeCategory === "all" ? threads : split[activeCategory];
 
   // Unread counts from labels
   const unreadCounts: Record<string, number> = {};
@@ -75,7 +100,7 @@ export default function EmailPage() {
   // ── Action handlers ──────────────────────────────────────
 
   function handleArchive() {
-    const id = selectedThreadId ?? threads[selectedIndex]?.id;
+    const id = selectedThreadId ?? visibleThreads[selectedIndex]?.id;
     if (!id) return;
     performAction(id, "archive");
     toast("Archived", {
@@ -83,36 +108,43 @@ export default function EmailPage() {
         ? { label: "Undo", onClick: () => undoAction.undo() }
         : undefined,
     });
-    // Move to next thread
     if (selectedThreadId) {
-      const idx = threads.findIndex((t) => t.id === selectedThreadId);
-      const next = threads[idx + 1] ?? threads[idx - 1];
+      const idx = visibleThreads.findIndex((t) => t.id === selectedThreadId);
+      const next = visibleThreads[idx + 1] ?? visibleThreads[idx - 1];
       setSelectedThreadId(next?.id ?? null);
     }
   }
 
   function handleTrash() {
-    const id = selectedThreadId ?? threads[selectedIndex]?.id;
+    const id = selectedThreadId ?? visibleThreads[selectedIndex]?.id;
     if (!id) return;
     performAction(id, "trash");
     toast("Moved to trash");
     if (selectedThreadId) {
-      const idx = threads.findIndex((t) => t.id === selectedThreadId);
-      const next = threads[idx + 1] ?? threads[idx - 1];
+      const idx = visibleThreads.findIndex((t) => t.id === selectedThreadId);
+      const next = visibleThreads[idx + 1] ?? visibleThreads[idx - 1];
       setSelectedThreadId(next?.id ?? null);
     }
   }
 
   function handleStar() {
-    const id = selectedThreadId ?? threads[selectedIndex]?.id;
+    const id = selectedThreadId ?? visibleThreads[selectedIndex]?.id;
     if (id) performAction(id, "star");
   }
 
   function handleMarkUnread() {
-    const id = selectedThreadId ?? threads[selectedIndex]?.id;
+    const id = selectedThreadId ?? visibleThreads[selectedIndex]?.id;
     if (id) {
       performAction(id, "unread");
       setSelectedThreadId(null);
+    }
+  }
+
+  function handleSnooze() {
+    const id = selectedThreadId ?? visibleThreads[selectedIndex]?.id;
+    if (id) {
+      setSnoozeThreadId(id);
+      setSnoozeOpen(true);
     }
   }
 
@@ -128,7 +160,7 @@ export default function EmailPage() {
   useEmailKeyboard({
     onNext: () => {
       if (!selectedThreadId) {
-        setSelectedIndex((i) => Math.min(i + 1, threads.length - 1));
+        setSelectedIndex((i) => Math.min(i + 1, visibleThreads.length - 1));
       }
     },
     onPrev: () => {
@@ -137,8 +169,8 @@ export default function EmailPage() {
       }
     },
     onOpen: () => {
-      if (!selectedThreadId && threads[selectedIndex]) {
-        setSelectedThreadId(threads[selectedIndex].id);
+      if (!selectedThreadId && visibleThreads[selectedIndex]) {
+        setSelectedThreadId(visibleThreads[selectedIndex].id);
       }
     },
     onBack: () => setSelectedThreadId(null),
@@ -151,32 +183,29 @@ export default function EmailPage() {
     onMarkUnread: handleMarkUnread,
     onCompose: () => openCompose("compose"),
     onSearch: () => {
-      setShowSearch(true);
-      setTimeout(() => searchRef.current?.focus(), 50);
+      setAdvancedSearchOpen(true);
     },
-    onArchiveNext: () => {
-      handleArchive();
-    },
-    onArchivePrev: () => {
-      handleArchive();
-    },
-    onSnooze: () => {
-      toast("Snooze coming soon");
-    },
-    onSendAndArchive: () => {
-      // Will be handled in compose
-    },
-  }, !composeOpen);
+    onArchiveNext: handleArchive,
+    onArchivePrev: handleArchive,
+    onSnooze: handleSnooze,
+    onSendAndArchive: () => {},
+    onGoInbox: () => { setActiveLabel("INBOX"); setSelectedThreadId(null); setSearchQuery(""); },
+    onGoStarred: () => { setActiveLabel("STARRED"); setSelectedThreadId(null); setSearchQuery(""); },
+    onGoSent: () => { setActiveLabel("SENT"); setSelectedThreadId(null); setSearchQuery(""); },
+    onGoDrafts: () => { setActiveLabel("DRAFT"); setSelectedThreadId(null); setSearchQuery(""); },
+    onGoAll: () => { setSearchQuery("in:anywhere"); setSelectedThreadId(null); },
+    onShowHelp: () => setKeyboardHelpOpen((v) => !v),
+  }, !composeOpen && !snoozeOpen && !advancedSearchOpen && !keyboardHelpOpen);
 
   // ── Render ───────────────────────────────────────────────
 
   return (
     <EmailErrorBoundary>
     <div className="flex h-[calc(100vh-3.5rem)] md:h-screen">
-      {/* Label sidebar — hidden on mobile when thread is open */}
+      {/* Label sidebar */}
       <div className={cn(
         "w-44 border-r border-white/10 py-3 px-2 shrink-0 overflow-y-auto thin-scroll hidden lg:block"
-      )}>
+      )} style={{ backgroundColor: "hsl(var(--surface-1))" }}>
         <LabelSidebar
           labels={labels}
           activeLabel={activeLabel}
@@ -185,6 +214,7 @@ export default function EmailPage() {
             setSelectedThreadId(null);
             setSearchInput("");
             setSearchQuery("");
+            setActiveCategory("all");
           }}
           unreadCounts={unreadCounts}
         />
@@ -210,6 +240,13 @@ export default function EmailPage() {
           </div>
           <div className="flex items-center gap-1">
             <button
+              onClick={() => setAdvancedSearchOpen(true)}
+              className="rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-white/5 transition"
+              title="Search (/)"
+            >
+              <SearchIcon className="h-4 w-4" />
+            </button>
+            <button
               onClick={() => openCompose("compose")}
               className="rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-white/5 transition"
               title="Compose (c)"
@@ -226,24 +263,48 @@ export default function EmailPage() {
           </div>
         </div>
 
-        {/* Search bar */}
-        {showSearch && (
-          <div className="px-3 py-2 border-b border-white/10">
-            <input
-              ref={searchRef}
-              value={searchInput}
-              onChange={(e) => handleSearchChange(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  setShowSearch(false);
-                  setSearchInput("");
-                  setSearchQuery("");
-                }
-              }}
-              placeholder="Search emails..."
-              className="w-full rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs text-foreground
-                placeholder:text-muted-foreground/50 outline-none focus:ring-1 focus:ring-primary/50"
+        {/* Split inbox tabs */}
+        {activeLabel === "INBOX" && !searchQuery && (
+          <div className="flex border-b border-white/10 shrink-0">
+            <SplitTab
+              label="All"
+              active={activeCategory === "all"}
+              count={threads.filter((t) => t.isUnread).length}
+              onClick={() => { setActiveCategory("all"); setSelectedIndex(0); }}
             />
+            {INBOX_CATEGORIES.map((cat) => (
+              <SplitTab
+                key={cat.id}
+                label={cat.label}
+                active={activeCategory === cat.id}
+                count={counts[cat.id]}
+                onClick={() => { setActiveCategory(cat.id); setSelectedIndex(0); }}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Active search indicator */}
+        {searchQuery && (
+          <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
+            <div className="flex items-center gap-2 min-w-0">
+              <SearchIcon className="h-3.5 w-3.5 text-primary shrink-0" />
+              <span className="text-xs text-foreground truncate">{searchQuery}</span>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                onClick={() => setAdvancedSearchOpen(true)}
+                className="text-[10px] text-primary hover:underline"
+              >
+                Edit
+              </button>
+              <button
+                onClick={() => { setSearchQuery(""); setShowSearch(false); }}
+                className="text-[10px] text-muted-foreground hover:text-foreground transition"
+              >
+                Clear
+              </button>
+            </div>
           </div>
         )}
 
@@ -254,15 +315,24 @@ export default function EmailPage() {
         )}
 
         <ThreadList
-          threads={threads}
+          threads={visibleThreads}
           selectedId={selectedThreadId}
           onSelect={(id) => {
             setSelectedThreadId(id);
-            setSelectedIndex(threads.findIndex((t) => t.id === id));
+            setSelectedIndex(visibleThreads.findIndex((t) => t.id === id));
           }}
           loading={loading}
-          onLoadMore={loadMore}
-          hasMore={!!nextPageToken}
+          onLoadMore={activeCategory === "all" ? loadMore : undefined}
+          hasMore={activeCategory === "all" && !!nextPageToken}
+          onPrefetch={prefetchThread}
+          onSwipeArchive={(id) => {
+            performAction(id, "archive");
+            toast("Archived");
+          }}
+          onSwipeSnooze={(id) => {
+            setSnoozeThreadId(id);
+            setSnoozeOpen(true);
+          }}
         />
       </div>
 
@@ -297,16 +367,20 @@ export default function EmailPage() {
               <span>archive</span>
               <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5">c</kbd>
               <span>compose</span>
-              <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5">r</kbd>
-              <span>reply</span>
+              <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5">/</kbd>
+              <span>search</span>
+              <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5">h</kbd>
+              <span>snooze</span>
             </div>
           </div>
         )}
       </div>
 
-      {/* Undo toast */}
+      {/* Undo archive/trash toast */}
       {undoAction && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-xl bg-white/10 border border-white/10 backdrop-blur-sm px-4 py-2.5 shadow-2xl">
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-xl border border-white/10 backdrop-blur-sm px-4 py-2.5 shadow-2xl"
+          style={{ backgroundColor: "hsl(var(--surface-5))" }}
+        >
           <span className="text-xs text-foreground">
             Thread {undoAction.action === "archive" ? "archived" : "trashed"}
           </span>
@@ -319,6 +393,44 @@ export default function EmailPage() {
         </div>
       )}
 
+      {/* Undo send bar (60s countdown) */}
+      <UndoSendBar />
+
+      {/* Snooze picker */}
+      <SnoozePicker
+        open={snoozeOpen}
+        onClose={() => setSnoozeOpen(false)}
+        threadId={snoozeThreadId}
+        onSnoozed={() => {
+          // Remove snoozed thread from list
+          if (snoozeThreadId) {
+            setThreads((prev) => prev.filter((t) => t.id !== snoozeThreadId));
+            if (selectedThreadId === snoozeThreadId) {
+              setSelectedThreadId(null);
+            }
+          }
+        }}
+      />
+
+      {/* Keyboard help overlay */}
+      <KeyboardHelp
+        open={keyboardHelpOpen}
+        onClose={() => setKeyboardHelpOpen(false)}
+      />
+
+      {/* Advanced search */}
+      <AdvancedSearch
+        open={advancedSearchOpen}
+        onClose={() => setAdvancedSearchOpen(false)}
+        onSearch={(q) => {
+          setSearchQuery(q);
+          setShowSearch(true);
+          setSelectedThreadId(null);
+          setSelectedIndex(0);
+        }}
+        initialQuery={searchQuery}
+      />
+
       {/* Compose modal */}
       <ComposeModal
         open={composeOpen}
@@ -328,7 +440,6 @@ export default function EmailPage() {
         messageId={composeMessageId}
         onSent={() => {
           refresh();
-          toast("Email sent");
         }}
       />
     </div>
@@ -336,7 +447,47 @@ export default function EmailPage() {
   );
 }
 
+// ── Split inbox tab component ─────────────────────────────
+
+function SplitTab({
+  label,
+  active,
+  count,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  count: number;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "flex-1 flex items-center justify-center gap-1.5 px-2 py-2 text-xs font-medium transition-colors border-b-2",
+        active
+          ? "border-primary text-foreground"
+          : "border-transparent text-muted-foreground hover:text-foreground hover:bg-white/[0.02]"
+      )}
+    >
+      {label}
+      {count > 0 && (
+        <span className={cn(
+          "rounded-full px-1.5 py-0.5 text-[9px] font-semibold",
+          active ? "bg-primary/15 text-primary" : "bg-white/5 text-muted-foreground"
+        )}>
+          {count}
+        </span>
+      )}
+    </button>
+  );
+}
+
 // ── Inline SVGs ─────────────────────────────────────────────
+
+function SearchIcon({ className }: { className?: string }) {
+  return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>;
+}
 
 function MailPlusIcon({ className }: { className?: string }) {
   return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22 6 12 13 2 6" /><line x1="12" y1="17" x2="12" y2="23" /><line x1="9" y1="20" x2="15" y2="20" /></svg>;

@@ -1,7 +1,34 @@
 "use client";
 
 import * as React from "react";
-import type { Thread, ThreadList, ThreadListItem, Label, EmailConnection } from "./types";
+import type { Thread, ThreadList, ThreadListItem, Label, EmailConnection, InboxCategory } from "./types";
+import { cacheThreads, getCachedThreads, cacheFullThread, getCachedMessages } from "./idb-cache";
+
+// ── Thread cache (module-level singleton) ────────────────────
+
+const threadCache = new Map<string, { data: Thread; ts: number }>();
+const listCache = new Map<string, { data: ThreadListItem[]; ts: number; nextPageToken?: string }>();
+const CACHE_TTL = 60_000; // 1 minute stale-while-revalidate window
+
+function getCachedThread(id: string): Thread | null {
+  const entry = threadCache.get(id);
+  if (!entry) return null;
+  return entry.data;
+}
+
+function setCachedThread(id: string, data: Thread) {
+  threadCache.set(id, { data, ts: Date.now() });
+}
+
+function isCacheStale(key: string, cache: Map<string, { ts: number }>): boolean {
+  const entry = cache.get(key);
+  if (!entry) return true;
+  return Date.now() - entry.ts > CACHE_TTL;
+}
+
+function getListCacheKey(labelIds?: string[], query?: string): string {
+  return `${labelIds?.join(",") ?? ""}|${query ?? ""}`;
+}
 
 // ── Connections ─────────────────────────────────────────────
 
@@ -27,7 +54,7 @@ export function useEmailConnections() {
   return { connections, loading, refresh };
 }
 
-// ── Threads (inbox) ─────────────────────────────────────────
+// ── Threads (inbox) — with cache + stale-while-revalidate ───
 
 export function useThreads(options?: {
   labelIds?: string[];
@@ -39,8 +66,37 @@ export function useThreads(options?: {
   const [nextPageToken, setNextPageToken] = React.useState<string>();
   const [error, setError] = React.useState<string>();
 
+  const cacheKey = getListCacheKey(options?.labelIds, options?.query);
+
   const fetchThreads = React.useCallback(async (pageToken?: string) => {
-    setLoading(true);
+    // Serve from cache immediately (stale-while-revalidate)
+    if (!pageToken) {
+      const cached = listCache.get(cacheKey);
+      if (cached) {
+        setThreads(cached.data);
+        setNextPageToken(cached.nextPageToken);
+        // If cache is fresh, skip network
+        if (!isCacheStale(cacheKey, listCache)) {
+          setLoading(false);
+          return;
+        }
+        // Otherwise continue to revalidate in background (don't show loading)
+      } else {
+        // Try IndexedDB for instant first paint (offline-first)
+        const labelId = options?.labelIds?.[0];
+        if (labelId && !options?.query) {
+          getCachedThreads(labelId).then((idbThreads) => {
+            if (idbThreads.length > 0 && threads.length === 0) {
+              setThreads(idbThreads as unknown as ThreadListItem[]);
+            }
+          }).catch(() => {});
+        }
+        setLoading(true);
+      }
+    } else {
+      setLoading(true);
+    }
+
     setError(undefined);
     try {
       const params = new URLSearchParams();
@@ -59,17 +115,36 @@ export function useThreads(options?: {
 
       const data = json.data as ThreadList;
       if (pageToken) {
-        setThreads((prev) => [...prev, ...data.threads]);
+        setThreads((prev) => {
+          const merged = [...prev, ...data.threads];
+          listCache.set(cacheKey, { data: merged, ts: Date.now(), nextPageToken: data.nextPageToken });
+          return merged;
+        });
       } else {
         setThreads(data.threads);
+        listCache.set(cacheKey, { data: data.threads, ts: Date.now(), nextPageToken: data.nextPageToken });
       }
       setNextPageToken(data.nextPageToken);
+
+      // Persist to IndexedDB for offline access
+      cacheThreads(data.threads as unknown as Parameters<typeof cacheThreads>[0]).catch(() => {});
+
+      // Pre-warm thread cache with list items (snippet data)
+      for (const t of data.threads) {
+        if (!threadCache.has(t.id)) {
+          // Store partial data for instant thread preview
+          threadCache.set(t.id, {
+            data: { ...t, messages: [] } as unknown as Thread,
+            ts: 0, // Mark as stale so full fetch happens
+          });
+        }
+      }
     } catch {
       setError("Network error");
     } finally {
       setLoading(false);
     }
-  }, [options?.labelIds?.join(","), options?.query, options?.maxResults]);
+  }, [options?.labelIds?.join(","), options?.query, options?.maxResults, cacheKey]);
 
   React.useEffect(() => { fetchThreads(); }, [fetchThreads]);
 
@@ -77,12 +152,15 @@ export function useThreads(options?: {
     if (nextPageToken) fetchThreads(nextPageToken);
   }, [nextPageToken, fetchThreads]);
 
-  const refresh = React.useCallback(() => fetchThreads(), [fetchThreads]);
+  const refresh = React.useCallback(() => {
+    listCache.delete(cacheKey);
+    return fetchThreads();
+  }, [fetchThreads, cacheKey]);
 
   return { threads, loading, error, nextPageToken, loadMore, refresh, setThreads };
 }
 
-// ── Single thread ───────────────────────────────────────────
+// ── Single thread — with cache ──────────────────────────────
 
 export function useThread(threadId: string | null) {
   const [thread, setThread] = React.useState<Thread | null>(null);
@@ -95,6 +173,19 @@ export function useThread(threadId: string | null) {
       setError(undefined);
       return;
     }
+
+    // Serve cached immediately
+    const cached = getCachedThread(threadId);
+    if (cached && cached.messages?.length > 0) {
+      setThread(cached);
+      // If fresh, skip network
+      const entry = threadCache.get(threadId);
+      if (entry && Date.now() - entry.ts < CACHE_TTL) {
+        return;
+      }
+      // Revalidate in background
+    }
+
     setLoading(true);
     setError(undefined);
     fetch(`/api/email/threads/${threadId}`)
@@ -102,15 +193,55 @@ export function useThread(threadId: string | null) {
         if (!r.ok) throw new Error(`Failed to load thread (${r.status})`);
         return r.json();
       })
-      .then((json) => setThread(json.data ?? null))
+      .then((json) => {
+        const data = json.data ?? null;
+        setThread(data);
+        if (data) {
+          setCachedThread(threadId, data);
+          // Persist messages to IDB for offline reading
+          if (data.messages?.length > 0) {
+            cacheFullThread(threadId, data.messages).catch(() => {});
+          }
+        }
+      })
       .catch((err) => {
-        setThread(null);
         setError(err instanceof Error ? err.message : "Failed to load thread");
+        // Try IndexedDB fallback for offline
+        getCachedMessages(threadId).then((msgs) => {
+          if (msgs.length > 0) {
+            const cached = getCachedThread(threadId);
+            if (cached) {
+              setThread({ ...cached, messages: msgs as unknown as Thread["messages"] });
+            }
+          } else {
+            setThread(null);
+          }
+        }).catch(() => setThread(null));
       })
       .finally(() => setLoading(false));
   }, [threadId]);
 
   return { thread, loading, error, setThread };
+}
+
+// ── Prefetch thread on hover ────────────────────────────────
+
+export function usePrefetchThread() {
+  const prefetch = React.useCallback((threadId: string) => {
+    const entry = threadCache.get(threadId);
+    // Only prefetch if we don't have full data
+    if (entry && entry.data.messages?.length > 0 && Date.now() - entry.ts < CACHE_TTL) {
+      return;
+    }
+    fetch(`/api/email/threads/${threadId}`)
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.data) setCachedThread(threadId, json.data);
+      })
+      .catch(() => {});
+  }, []);
+
+  return prefetch;
 }
 
 // ── Labels ──────────────────────────────────────────────────
@@ -134,6 +265,76 @@ export function useLabels() {
   }, []);
 
   return { labels, loading, error };
+}
+
+// ── Split inbox categorization ──────────────────────────────
+
+// Gmail category label IDs
+const CATEGORY_MAP: Record<string, InboxCategory> = {
+  CATEGORY_PERSONAL: "important",
+  CATEGORY_SOCIAL: "updates",
+  CATEGORY_PROMOTIONS: "other",
+  CATEGORY_UPDATES: "updates",
+  CATEGORY_FORUMS: "other",
+  IMPORTANT: "important",
+  STARRED: "important",
+};
+
+// Heuristic: categorize based on labels and sender patterns
+export function categorizeThread(thread: ThreadListItem): InboxCategory {
+  // Check Gmail category labels first
+  for (const labelId of thread.labelIds) {
+    const cat = CATEGORY_MAP[labelId];
+    if (cat) return cat;
+  }
+
+  // Heuristic: noreply/notifications → updates
+  const senderEmail = thread.from[0]?.email ?? "";
+  if (
+    senderEmail.includes("noreply") ||
+    senderEmail.includes("no-reply") ||
+    senderEmail.includes("notifications") ||
+    senderEmail.includes("notify") ||
+    senderEmail.includes("mailer-daemon") ||
+    senderEmail.includes("digest") ||
+    senderEmail.includes("updates@")
+  ) {
+    return "updates";
+  }
+
+  // Heuristic: newsletter/marketing patterns → other
+  if (
+    senderEmail.includes("newsletter") ||
+    senderEmail.includes("marketing") ||
+    senderEmail.includes("promo") ||
+    senderEmail.includes("info@") ||
+    senderEmail.includes("hello@") ||
+    senderEmail.includes("team@")
+  ) {
+    return "other";
+  }
+
+  // Default: important (direct human emails)
+  return "important";
+}
+
+export function useSplitInbox(threads: ThreadListItem[]) {
+  return React.useMemo(() => {
+    const split: Record<InboxCategory, ThreadListItem[]> = {
+      important: [],
+      updates: [],
+      other: [],
+    };
+    const counts: Record<InboxCategory, number> = { important: 0, updates: 0, other: 0 };
+
+    for (const thread of threads) {
+      const cat = categorizeThread(thread);
+      split[cat].push(thread);
+      if (thread.isUnread) counts[cat]++;
+    }
+
+    return { split, counts };
+  }, [threads]);
 }
 
 // ── Thread actions (optimistic) ─────────────────────────────
@@ -241,9 +442,20 @@ type KeyboardActions = {
   onArchivePrev: () => void;
   onSnooze: () => void;
   onSendAndArchive?: () => void;
+  // Vim-style g-chord navigation
+  onGoInbox?: () => void;
+  onGoStarred?: () => void;
+  onGoSent?: () => void;
+  onGoDrafts?: () => void;
+  onGoAll?: () => void;
+  onShowHelp?: () => void;
 };
 
 export function useEmailKeyboard(actions: KeyboardActions, enabled = true) {
+  // Track g-chord state (vim-style two-key combos)
+  const gPendingRef = React.useRef(false);
+  const gTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
   React.useEffect(() => {
     if (!enabled) return;
 
@@ -270,6 +482,28 @@ export function useEmailKeyboard(actions: KeyboardActions, enabled = true) {
           actions.onSendAndArchive();
           return;
         }
+        return;
+      }
+
+      // Handle g-chord (vim: gi=inbox, gs=starred, gt=sent, gd=drafts, ga=all)
+      if (gPendingRef.current) {
+        gPendingRef.current = false;
+        if (gTimerRef.current) clearTimeout(gTimerRef.current);
+        e.preventDefault();
+        switch (e.key) {
+          case "i": actions.onGoInbox?.(); return;
+          case "s": actions.onGoStarred?.(); return;
+          case "t": actions.onGoSent?.(); return;
+          case "d": actions.onGoDrafts?.(); return;
+          case "a": actions.onGoAll?.(); return;
+        }
+        return;
+      }
+
+      if (e.key === "g") {
+        gPendingRef.current = true;
+        // Auto-cancel after 500ms
+        gTimerRef.current = setTimeout(() => { gPendingRef.current = false; }, 500);
         return;
       }
 
@@ -338,10 +572,21 @@ export function useEmailKeyboard(actions: KeyboardActions, enabled = true) {
           e.preventDefault();
           actions.onSnooze();
           break;
+        case "d":
+          e.preventDefault();
+          actions.onTrash();
+          break;
+        case "?":
+          e.preventDefault();
+          actions.onShowHelp?.();
+          break;
       }
     }
 
     document.addEventListener("keydown", handleKey);
-    return () => document.removeEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("keydown", handleKey);
+      if (gTimerRef.current) clearTimeout(gTimerRef.current);
+    };
   }, [actions, enabled]);
 }
