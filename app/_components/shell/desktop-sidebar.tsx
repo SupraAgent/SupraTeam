@@ -16,6 +16,7 @@ const NAV_ITEMS = [
   { href: "/groups", label: "TG Groups", icon: MessageCircleIcon },
   { href: "/conversations", label: "Conversations", icon: ChatBubblesIcon },
   { href: "/broadcasts", label: "Broadcasts", icon: MegaphoneIcon },
+  { href: "/outreach", label: "Outreach", icon: OutreachIcon },
   { href: "/automations", label: "Automations", icon: WorkflowIcon },
   { href: "/access", label: "Access Control", icon: ShieldIcon },
   { href: "/graph", label: "Graph", icon: NetworkIcon },
@@ -301,6 +302,15 @@ function TasksIcon({ className }: { className?: string }) {
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
       <path d="M9 11l3 3L22 4" />
       <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
+    </svg>
+  );
+}
+
+function OutreachIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 2L11 13" />
+      <path d="M22 2L15 22l-4-9-9-4z" />
     </svg>
   );
 }
