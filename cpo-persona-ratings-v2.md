@@ -159,6 +159,17 @@ Two independent, unbiased product reviewers audited the SupraCRM codebase agains
 - Groups page: per-group bot assignment dropdown, bot filter, bulk assign bot
 - Backwards-compatible: falls back to `TELEGRAM_BOT_TOKEN` env var if no bots registered
 
+### Category 18 & 20: AI Chat Assistant & Workflow Templates (v2.2)
+- **Global AI Chat Widget**: Claude-powered floating chat bubble on every page, available when logged in
+- **Per-page context**: Each tab (Dashboard, Pipeline, Contacts, Groups, Broadcasts, Outreach, Email, Tasks, Conversations, Access Control, Settings, Automations, Graph, Docs) has its own system prompt, suggested prompts, and contextual label
+- **Automation builder mode**: On workflow editor pages, AI generates React Flow nodes/edges from natural language descriptions with "Apply to canvas" button
+- **Workflow Templates**: `crm_workflow_templates` table with category (built_in/custom), tags, use_count tracking
+- **5 built-in templates**: Deal Won Notification, New Deal Follow-up Task, BD Deal Stage Notification, Video Call Prep, Webhook → Telegram Alert
+- **Save as Template**: Button in workflow editor to save current canvas as reusable template with name, description, and tags
+- **Template Library**: Panel on automations list page with Pre-built and My Templates tabs, "Use Template" creates new workflow from template
+- **AI template suggestions**: AI sees available templates and suggests matching ones before building from scratch, with one-click "Use template" button in chat
+
+
 ### v3 Improvements (2026-03-20) — Categories 1, 4, 15
 
 #### #15 Personalization / Merge Variables (74 → ~82, gap -8 → ~0)
