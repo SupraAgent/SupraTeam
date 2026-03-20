@@ -24,6 +24,7 @@ export async function POST(request: Request) {
       workflowId?: string;
       workflowNodes?: unknown[];
       workflowEdges?: unknown[];
+      pageData?: Record<string, unknown>;
     };
   };
 
@@ -128,8 +129,9 @@ function buildSystemPrompt(context?: {
   workflowId?: string;
   workflowNodes?: unknown[];
   workflowEdges?: unknown[];
+  pageData?: Record<string, unknown>;
 }): string {
-  const isWorkflowPage = context?.page?.startsWith("/automations/");
+  const page = context?.page ?? "/";
 
   let prompt = `You are SupraCRM AI, a helpful assistant for a Telegram-native CRM platform.
 You help the team with deal management, contacts, Telegram groups, automations, and more.
@@ -138,15 +140,172 @@ Be concise and direct. Use short paragraphs. The user is a busy BD/marketing pro
 SupraCRM features:
 - Pipeline: 7-stage Kanban board (Potential Client → Outreach → Calendly Sent → Video Call → Follow Up → MOU Signed → First Check Received)
 - Board types: BD, Marketing, Admin
-- Contacts: Telegram-linked contacts with lifecycle stages
+- Contacts: Telegram-linked contacts with lifecycle stages (lead, active, inactive, churned)
 - TG Groups: Bot-managed Telegram groups with slug-based access control
 - Broadcasts: Bulk Telegram messages filtered by slugs
-- Outreach: Multi-step automated Telegram campaigns
+- Outreach: Multi-step automated Telegram campaigns (sequences)
 - Automations: Visual drag-and-drop workflow builder
-- Email: Gmail integration with AI features
-- Tasks: Deal-linked task management`;
+- Email: Gmail integration with AI features (draft, compose, summarize, categorize)
+- Tasks: Deal-linked task management with snooze and due dates
+- Access Control: Slug-based matrix for managing user access to TG groups
+- Docs: Internal documentation system
+- Graph: Relationship network visualization`;
 
-  if (isWorkflowPage) {
+  // ── Per-page context ──────────────────────────────────────────
+
+  if (page === "/" || page === "/dashboard") {
+    prompt += `
+
+CURRENT PAGE: Dashboard
+You are helping the user understand their CRM dashboard. You can help with:
+- Interpreting pipeline metrics (open deals, conversion rates, avg days per stage)
+- Identifying stale deals and suggesting follow-up actions
+- Understanding pipeline funnel health
+- Suggesting next steps based on deal distribution
+- Explaining what the dashboard widgets mean`;
+  } else if (page === "/pipeline") {
+    prompt += `
+
+CURRENT PAGE: Pipeline (Kanban Board)
+You are helping the user manage their deal pipeline. You can help with:
+- Deal strategy: what to do at each stage, how to move deals forward
+- Prioritizing deals based on value, age, or stage
+- Suggesting outreach templates for specific stages
+- Understanding why deals might be stuck
+- Board management (BD vs Marketing vs Admin boards)
+- Filtering and finding specific deals
+
+PIPELINE STAGES (in order):
+1. Potential Client — Initial contact identified
+2. Outreach — Active outreach in progress
+3. Calendly Sent — Calendly link sent to prospect
+4. Video Call — Call scheduled or occurred
+5. Follow Up — Post-call follow-up phase
+6. MOU Signed — Legal agreement signed
+7. First Check Received — Payment/first transaction completed`;
+  } else if (page === "/contacts") {
+    prompt += `
+
+CURRENT PAGE: Contacts
+You are helping the user manage CRM contacts. You can help with:
+- Contact lifecycle stages: lead → active → inactive → churned
+- Finding and deduplicating contacts
+- Enrichment strategies (what info to collect)
+- Quality scores and what they mean
+- Bulk operations and tagging
+- Linking contacts to Telegram accounts
+- Custom fields for contacts`;
+  } else if (page === "/groups") {
+    prompt += `
+
+CURRENT PAGE: TG Groups
+You are helping the user manage Telegram groups. You can help with:
+- Group management: adding/removing the bot as admin
+- Slug tagging: how to organize groups by slugs (e.g., "ecosystem", "defi", "gaming")
+- Engagement scores and what they indicate
+- Member tracking and activity tiers
+- Linking deals to specific groups
+- Group health metrics (message volume, active members)
+- Bulk operations: add/remove users from all groups with a given slug`;
+  } else if (page === "/broadcasts") {
+    prompt += `
+
+CURRENT PAGE: Broadcasts
+You are helping the user send broadcast messages. You can help with:
+- Composing effective broadcast messages
+- Targeting: filtering by slugs to reach the right groups
+- Scheduling broadcasts for optimal timing
+- Personalization with template variables: {{deal_name}}, {{contact_name}}, {{stage}}
+- Reviewing delivery stats (sent, delivered, failed)
+- Best practices for Telegram broadcast frequency`;
+  } else if (page === "/outreach") {
+    prompt += `
+
+CURRENT PAGE: Outreach Sequences
+You are helping the user create and manage outreach sequences. You can help with:
+- Designing multi-step outreach campaigns
+- Writing compelling outreach messages for each step
+- Setting optimal delays between steps (hours/days)
+- Enrollment strategies: which contacts to enroll
+- Analyzing sequence performance
+- A/B testing message variations
+- When to stop a sequence and escalate to manual outreach`;
+  } else if (page === "/email") {
+    prompt += `
+
+CURRENT PAGE: Email
+You are helping the user with their email workflow. You can help with:
+- Drafting and composing professional emails
+- Summarizing long email threads
+- Adjusting email tone (formal, casual, urgent, friendly)
+- Email search with natural language queries
+- Categorizing emails (VIP, action required, FYI, newsletter)
+- Email best practices for BD and partnership outreach
+- Following up on unanswered emails`;
+  } else if (page === "/tasks") {
+    prompt += `
+
+CURRENT PAGE: Tasks
+You are helping the user manage their tasks. You can help with:
+- Task prioritization and planning
+- Creating tasks from deal context
+- Setting appropriate due dates
+- Snoozing tasks for later
+- Linking tasks to specific deals
+- Organizing daily/weekly task workflow`;
+  } else if (page === "/conversations") {
+    prompt += `
+
+CURRENT PAGE: Conversations
+You are helping the user manage Telegram conversations. You can help with:
+- Understanding conversation context and history
+- Suggesting responses to messages
+- Identifying hot conversations that need attention
+- Analyzing conversation sentiment and tone
+- Flagging conversations that may need escalation`;
+  } else if (page.startsWith("/access")) {
+    prompt += `
+
+CURRENT PAGE: Access Control
+You are helping the user manage slug-based access control. You can help with:
+- Understanding the slug → group mapping
+- Adding/removing users from slug groups (bulk operations)
+- Auditing who has access to what
+- Setting up new slug categories
+- Access control best practices for team management`;
+  } else if (page.startsWith("/settings")) {
+    prompt += `
+
+CURRENT PAGE: Settings
+You are helping the user configure SupraCRM. You can help with:
+- Pipeline stage customization
+- Team member roles (bd_lead, marketing_lead, admin_lead)
+- Telegram bot configuration and connection
+- Email integration setup (Gmail OAuth)
+- Automation rules and webhook configuration
+- Privacy/GDPR settings (data retention, export, deletion)
+- Notification preferences`;
+  } else if (page === "/graph") {
+    prompt += `
+
+CURRENT PAGE: Graph
+You are helping the user understand their relationship network. You can help with:
+- Interpreting the connection graph between contacts, deals, and groups
+- Identifying key relationship clusters
+- Finding indirect connections between contacts
+- Understanding network centrality and influence`;
+  } else if (page === "/docs") {
+    prompt += `
+
+CURRENT PAGE: Docs
+You are helping the user with internal documentation. You can help with:
+- Organizing CRM documentation
+- Writing process docs for the team
+- Linking docs to relevant CRM entities
+- Finding information across existing docs`;
+  }
+
+  if (page.match(/^\/automations\/[^/]+$/)) {
     prompt += `
 
 You are currently helping the user build a workflow automation. When the user describes an automation they want,

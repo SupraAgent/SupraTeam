@@ -22,17 +22,119 @@ export function dispatchApplyWorkflow(data: WorkflowData) {
   );
 }
 
-const SUGGESTIONS: Record<string, string[]> = {
-  "/automations": [
-    "When a deal reaches MOU Signed, send a congrats message",
-    "Create a follow-up task when a deal enters Video Call stage",
-    "Send a daily digest of new deals to the BD group",
-  ],
-  default: [
-    "How do I create a new automation?",
-    "What pipeline stages are available?",
-    "How do slugs and access control work?",
-  ],
+const PAGE_CONFIG: Record<string, { label: string; suggestions: string[] }> = {
+  "/": {
+    label: "Dashboard assistant",
+    suggestions: [
+      "What do my pipeline metrics mean?",
+      "Are there any deals I should follow up on?",
+      "How healthy is my pipeline right now?",
+    ],
+  },
+  "/pipeline": {
+    label: "Pipeline assistant",
+    suggestions: [
+      "How should I move a deal from Outreach to Calendly Sent?",
+      "What's the best follow-up strategy after a video call?",
+      "Help me write an outreach message for a new prospect",
+    ],
+  },
+  "/contacts": {
+    label: "Contacts assistant",
+    suggestions: [
+      "How do contact lifecycle stages work?",
+      "What makes a high quality contact score?",
+      "Help me clean up duplicate contacts",
+    ],
+  },
+  "/groups": {
+    label: "TG Groups assistant",
+    suggestions: [
+      "How do I organize groups with slugs?",
+      "What does the engagement score mean?",
+      "How do I add the bot as admin to a group?",
+    ],
+  },
+  "/broadcasts": {
+    label: "Broadcast assistant",
+    suggestions: [
+      "Help me write a broadcast message for ecosystem partners",
+      "What's the best time to send broadcasts?",
+      "How do I target specific groups with slugs?",
+    ],
+  },
+  "/outreach": {
+    label: "Outreach assistant",
+    suggestions: [
+      "Help me design a 3-step outreach sequence",
+      "What's a good delay between outreach steps?",
+      "Write me an intro message for BD outreach",
+    ],
+  },
+  "/email": {
+    label: "Email assistant",
+    suggestions: [
+      "Help me draft a partnership follow-up email",
+      "Summarize my recent email threads",
+      "What emails need my attention right now?",
+    ],
+  },
+  "/tasks": {
+    label: "Tasks assistant",
+    suggestions: [
+      "Help me prioritize my tasks for today",
+      "What tasks are overdue?",
+      "Create a task checklist for onboarding a new partner",
+    ],
+  },
+  "/conversations": {
+    label: "Conversations assistant",
+    suggestions: [
+      "Which conversations need my attention?",
+      "Help me respond to this message",
+      "What's the sentiment in my recent chats?",
+    ],
+  },
+  "/access": {
+    label: "Access control assistant",
+    suggestions: [
+      "How does slug-based access control work?",
+      "Help me audit who has access to what",
+      "How do I bulk add users to a slug group?",
+    ],
+  },
+  "/settings": {
+    label: "Settings assistant",
+    suggestions: [
+      "How do I connect the Telegram bot?",
+      "Walk me through pipeline stage configuration",
+      "How do team roles work?",
+    ],
+  },
+  "/automations": {
+    label: "Automation builder",
+    suggestions: [
+      "When a deal reaches MOU Signed, send a congrats message",
+      "Create a follow-up task when a deal enters Video Call stage",
+      "Send a daily digest of new deals to the BD group",
+    ],
+  },
+  "/graph": {
+    label: "Graph assistant",
+    suggestions: [
+      "How do I read the relationship graph?",
+      "Who are my most connected contacts?",
+      "How are deals and groups related?",
+    ],
+  },
+  "/docs": {
+    label: "Docs assistant",
+    suggestions: [
+      "Help me write a process doc for deal onboarding",
+      "How should I organize our team docs?",
+      "What documentation should we have?",
+    ],
+  },
 };
 
 export function AIChatWidget() {
@@ -48,6 +150,29 @@ export function AIChatWidget() {
 
   const isWorkflowEditor = pathname?.match(/^\/automations\/[^/]+$/);
 
+  // Match current page to config — try exact, then prefix, then default
+  const pageConfig = React.useMemo(() => {
+    if (!pathname) return PAGE_CONFIG["/"];
+    if (isWorkflowEditor) return PAGE_CONFIG["/automations"];
+    if (PAGE_CONFIG[pathname]) return PAGE_CONFIG[pathname];
+    // Try prefix match (e.g. /settings/pipeline → /settings)
+    const prefix = "/" + pathname.split("/")[1];
+    if (PAGE_CONFIG[prefix]) return PAGE_CONFIG[prefix];
+    return PAGE_CONFIG["/"];
+  }, [pathname, isWorkflowEditor]);
+
+  // Clear chat when navigating to a new page section
+  const pageSectionRef = React.useRef(pathname?.split("/")[1]);
+  React.useEffect(() => {
+    const section = pathname?.split("/")[1];
+    if (section !== pageSectionRef.current) {
+      pageSectionRef.current = section;
+      setMessages([]);
+      setLastWorkflow(null);
+      setApplied(false);
+    }
+  }, [pathname]);
+
   // Auto-scroll to bottom
   React.useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -57,10 +182,6 @@ export function AIChatWidget() {
   React.useEffect(() => {
     if (open) inputRef.current?.focus();
   }, [open]);
-
-  const suggestions = isWorkflowEditor
-    ? SUGGESTIONS["/automations"]
-    : SUGGESTIONS.default;
 
   async function sendMessage(text: string) {
     if (!text.trim() || loading) return;
@@ -164,7 +285,7 @@ export function AIChatWidget() {
               <div>
                 <div className="text-sm font-medium text-foreground">SupraCRM AI</div>
                 <div className="text-[10px] text-muted-foreground">
-                  {isWorkflowEditor ? "Automation builder mode" : "Ask me anything"}
+                  {pageConfig.label}
                 </div>
               </div>
             </div>
@@ -194,10 +315,10 @@ export function AIChatWidget() {
                 <p className="text-xs text-muted-foreground text-center">
                   {isWorkflowEditor
                     ? "Describe an automation and I'll build it for you."
-                    : "How can I help you today?"}
+                    : `I'm your ${pageConfig.label}. How can I help?`}
                 </p>
                 <div className="space-y-2">
-                  {suggestions?.map((s, i) => (
+                  {pageConfig.suggestions.map((s, i) => (
                     <button
                       key={i}
                       onClick={() => sendMessage(s)}
@@ -282,7 +403,7 @@ export function AIChatWidget() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={isWorkflowEditor ? "Describe your automation..." : "Ask anything..."}
+                placeholder={isWorkflowEditor ? "Describe your automation..." : `Ask about ${pageConfig.label.replace(" assistant", "").toLowerCase()}...`}
                 rows={1}
                 className="flex-1 resize-none rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20 transition max-h-24"
                 style={{ minHeight: 36 }}
