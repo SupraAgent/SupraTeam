@@ -10,6 +10,8 @@ import type {
   ActionSendTelegramConfig,
   ActionSendEmailConfig,
   ActionUpdateDealConfig,
+  ActionUpdateContactConfig,
+  ActionAssignDealConfig,
   ActionCreateTaskConfig,
 } from "@/lib/workflow-types";
 
@@ -204,4 +206,76 @@ export async function executeCreateTask(
   return error
     ? { success: false, error: error.message }
     : { success: true, output: { taskId: data?.id, title, dueAt } };
+}
+
+/**
+ * Execute an "update_contact" action.
+ * Updates a field on the deal's linked contact.
+ */
+export async function executeUpdateContact(
+  config: ActionUpdateContactConfig,
+  ctx: ActionContext
+): Promise<ActionResult> {
+  const supabase = createSupabaseAdmin();
+  if (!supabase) return { success: false, error: "Supabase not configured" };
+
+  // Resolve contact ID from deal if not in context
+  let contactId = ctx.contactId;
+  if (!contactId && ctx.dealId) {
+    const { data: deal } = await supabase
+      .from("crm_deals")
+      .select("contact_id")
+      .eq("id", ctx.dealId)
+      .single();
+    contactId = deal?.contact_id ?? undefined;
+  }
+
+  if (!contactId) {
+    return { success: false, error: "No contact context" };
+  }
+
+  const value = renderTemplate(config.value || "", ctx.vars);
+  const ALLOWED_FIELDS = ["company", "title", "phone", "email", "name"];
+  if (!ALLOWED_FIELDS.includes(config.field)) {
+    return { success: false, error: `Invalid contact field: ${config.field}` };
+  }
+
+  const { error } = await supabase
+    .from("crm_contacts")
+    .update({ [config.field]: value })
+    .eq("id", contactId);
+
+  return error
+    ? { success: false, error: error.message }
+    : { success: true, output: { field: config.field, value, contactId } };
+}
+
+/**
+ * Execute an "assign_deal" action.
+ * Reassigns the deal to a different user.
+ */
+export async function executeAssignDeal(
+  config: ActionAssignDealConfig,
+  ctx: ActionContext
+): Promise<ActionResult> {
+  if (!ctx.dealId) {
+    return { success: false, error: "No deal context" };
+  }
+
+  const supabase = createSupabaseAdmin();
+  if (!supabase) return { success: false, error: "Supabase not configured" };
+
+  const assignTo = renderTemplate(config.assign_to || "", ctx.vars);
+  if (!assignTo) {
+    return { success: false, error: "No assign_to specified" };
+  }
+
+  const { error } = await supabase
+    .from("crm_deals")
+    .update({ assigned_to: assignTo, updated_at: new Date().toISOString() })
+    .eq("id", ctx.dealId);
+
+  return error
+    ? { success: false, error: error.message }
+    : { success: true, output: { assigned_to: assignTo } };
 }

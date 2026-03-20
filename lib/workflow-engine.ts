@@ -8,6 +8,8 @@ import {
   executeSendTelegram,
   executeSendEmail,
   executeUpdateDeal,
+  executeUpdateContact,
+  executeAssignDeal,
   executeCreateTask,
   type ActionContext,
   type ActionResult,
@@ -454,6 +456,30 @@ async function executeActionNode(
   data: ActionNodeData,
   ctx: ActionContext
 ): Promise<ActionResult> {
+  const MAX_RETRIES = 2;
+  let lastResult: ActionResult = { success: false, error: "Unknown action" };
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    lastResult = await executeActionOnce(data, ctx);
+    if (lastResult.success) return lastResult;
+
+    // Don't retry validation errors or config issues
+    const err = lastResult.error ?? "";
+    if (err.includes("not found") || err.includes("No ") || err.includes("Invalid") || err.includes("Unknown")) break;
+
+    // Wait before retry (1s, 3s)
+    if (attempt < MAX_RETRIES) {
+      await new Promise((r) => setTimeout(r, (attempt + 1) * 1000 + 1000));
+    }
+  }
+
+  return lastResult;
+}
+
+async function executeActionOnce(
+  data: ActionNodeData,
+  ctx: ActionContext
+): Promise<ActionResult> {
   switch (data.actionType) {
     case "send_telegram":
       return executeSendTelegram(data.config as Parameters<typeof executeSendTelegram>[0], ctx);
@@ -461,6 +487,10 @@ async function executeActionNode(
       return executeSendEmail(data.config as Parameters<typeof executeSendEmail>[0], ctx);
     case "update_deal":
       return executeUpdateDeal(data.config as Parameters<typeof executeUpdateDeal>[0], ctx);
+    case "update_contact":
+      return executeUpdateContact(data.config as Parameters<typeof executeUpdateContact>[0], ctx);
+    case "assign_deal":
+      return executeAssignDeal(data.config as Parameters<typeof executeAssignDeal>[0], ctx);
     case "create_task":
       return executeCreateTask(data.config as Parameters<typeof executeCreateTask>[0], ctx);
     default:
@@ -469,14 +499,36 @@ async function executeActionNode(
 }
 
 function evaluateCondition(data: ConditionNodeData, ctx: ActionContext): boolean {
-  const { field, operator, value } = data.config;
+  const config = data.config as ConditionNodeData["config"] & {
+    conditions?: { field: string; operator: string; value: string }[];
+    logic?: "and" | "or";
+  };
+
+  // Support grouped conditions with AND/OR logic
+  if (config.conditions && config.conditions.length > 0) {
+    const results = config.conditions.map((c) => evalSingleCondition(c.field, c.operator, c.value, ctx));
+    return config.logic === "or" ? results.some(Boolean) : results.every(Boolean);
+  }
+
+  // Single condition (backwards compatible)
+  return evalSingleCondition(config.field, config.operator, config.value, ctx);
+}
+
+function evalSingleCondition(
+  field: string,
+  operator: string,
+  value: string,
+  ctx: ActionContext
+): boolean {
   const actual = String(ctx.vars[field] ?? "");
   const expected = value;
 
   switch (operator) {
     case "equals": return actual === expected;
     case "not_equals": return actual !== expected;
-    case "contains": return actual.includes(expected);
+    case "contains": return actual.toLowerCase().includes(expected.toLowerCase());
+    case "not_contains": return !actual.toLowerCase().includes(expected.toLowerCase());
+    case "starts_with": return actual.toLowerCase().startsWith(expected.toLowerCase());
     case "gt": return Number(actual) > Number(expected);
     case "lt": return Number(actual) < Number(expected);
     case "gte": return Number(actual) >= Number(expected);
