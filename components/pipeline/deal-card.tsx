@@ -4,7 +4,7 @@ import * as React from "react";
 import { Draggable } from "@hello-pangea/dnd";
 import type { Deal, PipelineStage } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { MessageCircle, Snowflake, MoreHorizontal, ArrowRight, Trophy, XCircle, Check, X } from "lucide-react";
+import { MessageCircle, Snowflake, MoreHorizontal, ArrowRight, Trophy, XCircle, Check, X, TrendingUp, TrendingDown, Minus } from "lucide-react";
 
 type DealCardProps = {
   deal: Deal;
@@ -200,6 +200,23 @@ export function DealCard({
                 title={`Health: ${deal.health_score}%`}
               />
             )}
+
+            {/* Sentiment momentum indicator */}
+            {deal.ai_sentiment && deal.outcome !== "won" && deal.outcome !== "lost" && (() => {
+              const s = deal.ai_sentiment as { momentum?: string; overall_sentiment?: string };
+              if (!s.momentum) return null;
+              const icon = s.momentum === "accelerating" ? <TrendingUp className="h-2.5 w-2.5" /> :
+                           s.momentum === "declining" || s.momentum === "stalling" ? <TrendingDown className="h-2.5 w-2.5" /> :
+                           <Minus className="h-2.5 w-2.5" />;
+              const color = s.momentum === "accelerating" ? "text-emerald-400" :
+                            s.momentum === "declining" ? "text-red-400" :
+                            s.momentum === "stalling" ? "text-amber-400" : "text-muted-foreground/50";
+              return (
+                <span className={cn("flex items-center", color)} title={`Momentum: ${s.momentum}`}>
+                  {icon}
+                </span>
+              );
+            })()}
 
             {/* Inline-editable value */}
             {editingField === "value" ? (

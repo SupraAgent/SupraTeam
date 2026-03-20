@@ -10,7 +10,7 @@ import { PipelineFilterBar } from "@/components/pipeline/pipeline-filter-bar";
 import { BulkActionBar } from "@/components/pipeline/bulk-action-bar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { LayoutGrid, List, Search, DollarSign, Filter } from "lucide-react";
+import { LayoutGrid, List, Search, DollarSign, Filter, Brain, Sparkles, ChevronDown, ChevronUp } from "lucide-react";
 import { toast } from "sonner";
 import type { Deal, PipelineStage, Contact, BoardType } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -84,6 +84,16 @@ export default function PipelinePage() {
   const [filters, setFilters] = React.useState<PipelineFilters>(EMPTY_FILTERS);
   const [showFilters, setShowFilters] = React.useState(false);
   const [selectedDealIds, setSelectedDealIds] = React.useState<Set<string>>(new Set());
+  // AI Insights
+  const [insights, setInsights] = React.useState<string | null>(null);
+  const [insightsStats, setInsightsStats] = React.useState<{
+    total: number; totalValue: number; avgHealth: number; atRisk: number;
+    sentimentCounts?: Record<string, number>; momentumCounts?: Record<string, number>;
+  } | null>(null);
+  const [insightsLoading, setInsightsLoading] = React.useState(false);
+  const [showInsights, setShowInsights] = React.useState(false);
+  const [bulkSentimentLoading, setBulkSentimentLoading] = React.useState(false);
+
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -429,6 +439,93 @@ export default function PipelinePage() {
           <span className="text-white/10">|</span>
           <span>${Math.round(weightedValue).toLocaleString()} weighted</span>
           {search && <span className="text-primary ml-auto">{searchFiltered.length} match{searchFiltered.length !== 1 ? "es" : ""}</span>}
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={async () => {
+                setBulkSentimentLoading(true);
+                try {
+                  const res = await fetch("/api/deals/bulk-sentiment", { method: "POST" });
+                  if (res.ok) {
+                    const data = await res.json();
+                    toast.success(`Analyzed sentiment for ${data.analyzed} deal${data.analyzed !== 1 ? "s" : ""}`);
+                    fetchData();
+                  }
+                } finally {
+                  setBulkSentimentLoading(false);
+                }
+              }}
+              disabled={bulkSentimentLoading}
+              className="flex items-center gap-1 text-[10px] text-primary hover:text-primary/80 transition-colors"
+            >
+              <Brain className="h-3 w-3" />
+              {bulkSentimentLoading ? "Analyzing..." : "Bulk Sentiment"}
+            </button>
+            <button
+              onClick={async () => {
+                if (showInsights) { setShowInsights(false); return; }
+                setInsightsLoading(true);
+                setShowInsights(true);
+                try {
+                  const res = await fetch("/api/deals/pipeline-insights");
+                  if (res.ok) {
+                    const data = await res.json();
+                    setInsights(data.insights);
+                    setInsightsStats(data.stats);
+                  }
+                } finally {
+                  setInsightsLoading(false);
+                }
+              }}
+              className="flex items-center gap-1 text-[10px] text-primary hover:text-primary/80 transition-colors"
+            >
+              <Sparkles className="h-3 w-3" />
+              AI Insights
+              {showInsights ? <ChevronUp className="h-2.5 w-2.5" /> : <ChevronDown className="h-2.5 w-2.5" />}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* AI Pipeline Insights panel */}
+      {showInsights && (
+        <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-3">
+          {insightsLoading ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Sparkles className="h-3.5 w-3.5 animate-pulse text-primary" />
+              Generating pipeline insights...
+            </div>
+          ) : (
+            <>
+              {insightsStats && (
+                <div className="flex flex-wrap gap-3 text-[10px]">
+                  <span className="rounded-full bg-white/10 px-2 py-0.5">{insightsStats.total} open deals</span>
+                  <span className="rounded-full bg-white/10 px-2 py-0.5">${insightsStats.totalValue?.toLocaleString()} total</span>
+                  <span className={cn("rounded-full px-2 py-0.5", (insightsStats.avgHealth ?? 0) >= 60 ? "bg-emerald-500/20 text-emerald-400" : "bg-amber-500/20 text-amber-400")}>
+                    Avg health: {insightsStats.avgHealth}%
+                  </span>
+                  {(insightsStats.atRisk ?? 0) > 0 && (
+                    <span className="rounded-full bg-red-500/20 text-red-400 px-2 py-0.5">{insightsStats.atRisk} at risk</span>
+                  )}
+                  {insightsStats.sentimentCounts && Object.entries(insightsStats.sentimentCounts).filter(([, v]) => v > 0).map(([k, v]) => (
+                    <span key={k} className={cn("rounded-full px-2 py-0.5",
+                      k === "positive" ? "bg-emerald-500/10 text-emerald-400" :
+                      k === "negative" ? "bg-red-500/10 text-red-400" :
+                      k === "mixed" ? "bg-amber-500/10 text-amber-400" :
+                      "bg-white/5 text-muted-foreground"
+                    )}>
+                      {v} {k}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {insights && (
+                <p className="text-xs text-foreground/80 leading-relaxed">{insights}</p>
+              )}
+              {!insights && !insightsLoading && (
+                <p className="text-[10px] text-muted-foreground/50">No insights available.</p>
+              )}
+            </>
+          )}
         </div>
       )}
 
