@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
+import { dispatchWebhook } from "@/lib/webhooks";
 
 export async function GET(request: Request) {
   const auth = await requireAuth();
@@ -82,6 +83,11 @@ export async function POST(request: Request) {
     if (fieldValues.length > 0) {
       await supabase.from("crm_contact_field_values").insert(fieldValues);
     }
+  }
+
+  // Fire webhook (non-blocking)
+  if (contact) {
+    dispatchWebhook("contact.created", { contact_id: contact.id, name: contact.name, company: contact.company, source: contact.source }).catch(() => {});
   }
 
   return NextResponse.json({ contact, ok: true });

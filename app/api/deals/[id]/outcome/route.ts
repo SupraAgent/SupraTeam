@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
+import { dispatchWebhook } from "@/lib/webhooks";
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -30,6 +31,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (error) {
     console.error("[outcome] error:", error);
     return NextResponse.json({ error: "Failed to update outcome" }, { status: 500 });
+  }
+
+  // Fire webhook (non-blocking)
+  if (deal && (outcome === "won" || outcome === "lost")) {
+    const eventType = outcome === "won" ? "deal.won" as const : "deal.lost" as const;
+    dispatchWebhook(eventType, { deal_id: id, deal_name: deal.deal_name, outcome, reason: reason || null, value: deal.value }).catch(() => {});
   }
 
   return NextResponse.json({ deal, ok: true });
