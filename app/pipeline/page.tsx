@@ -8,6 +8,7 @@ import { CreateDealModal } from "@/components/pipeline/create-deal-modal";
 import { DealDetailPanel } from "@/components/pipeline/deal-detail-panel";
 import { PipelineFilterBar } from "@/components/pipeline/pipeline-filter-bar";
 import { BulkActionBar } from "@/components/pipeline/bulk-action-bar";
+import { SavedViewsBar } from "@/components/saved-views-bar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { LayoutGrid, List, Search, DollarSign, Filter } from "lucide-react";
@@ -454,6 +455,17 @@ export default function PipelinePage() {
           onClear={clearSelection}
         />
       )}
+
+      {/* Saved views */}
+      <SavedViewsBar
+        page="pipeline"
+        currentFilters={filters}
+        currentBoard={board}
+        onApplyView={(f, b) => {
+          setFilters({ ...EMPTY_FILTERS, ...f } as PipelineFilters);
+          if (b) setBoard(b as BoardType);
+        }}
+      />
 
       {usingSamples && (
         <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-2 text-sm text-muted-foreground">
