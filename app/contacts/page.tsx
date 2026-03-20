@@ -7,13 +7,24 @@ import { ContactDetailPanel } from "@/components/contacts/contact-detail-panel";
 import { ImportTelegramModal } from "@/components/contacts/import-telegram-modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Download, Upload, Users, MessageCircle, Building2, ArrowUpDown, Trash2 } from "lucide-react";
-import type { Contact, PipelineStage, Deal } from "@/lib/types";
+import { Download, Upload, Users, MessageCircle, Building2, ArrowUpDown, Trash2, Filter, GitMerge, Sparkles } from "lucide-react";
+import type { Contact, PipelineStage, Deal, LifecycleStage } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
-type SortKey = "name" | "company" | "created_at" | "deals";
+type SortKey = "name" | "company" | "created_at" | "deals" | "quality_score";
 type SortDir = "asc" | "desc";
+
+const LIFECYCLE_STAGES: { value: LifecycleStage; label: string; color: string }[] = [
+  { value: "prospect", label: "Prospect", color: "bg-slate-500/20 text-slate-400" },
+  { value: "lead", label: "Lead", color: "bg-blue-500/20 text-blue-400" },
+  { value: "opportunity", label: "Opportunity", color: "bg-amber-500/20 text-amber-400" },
+  { value: "customer", label: "Customer", color: "bg-green-500/20 text-green-400" },
+  { value: "churned", label: "Churned", color: "bg-red-500/20 text-red-400" },
+  { value: "inactive", label: "Inactive", color: "bg-gray-500/20 text-gray-400" },
+];
+
+export { LIFECYCLE_STAGES };
 
 export default function ContactsPage() {
   const [contacts, setContacts] = React.useState<Contact[]>([]);
@@ -21,6 +32,11 @@ export default function ContactsPage() {
   const [stages, setStages] = React.useState<PipelineStage[]>([]);
   const [search, setSearch] = React.useState("");
   const [stageFilter, setStageFilter] = React.useState<string>("all");
+  const [lifecycleFilter, setLifecycleFilter] = React.useState<string>("all");
+  const [showAdvanced, setShowAdvanced] = React.useState(false);
+  const [filterHasEmail, setFilterHasEmail] = React.useState(false);
+  const [filterHasTg, setFilterHasTg] = React.useState(false);
+  const [filterHasDeals, setFilterHasDeals] = React.useState(false);
   const [sortKey, setSortKey] = React.useState<SortKey>("created_at");
   const [sortDir, setSortDir] = React.useState<SortDir>("desc");
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
@@ -67,9 +83,31 @@ export default function ContactsPage() {
     return map;
   }, [deals]);
 
-  const filtered = contacts.filter((c) => {
+  // Contact quality score calculation (client-side, based on data completeness)
+  const contactsWithScore = React.useMemo(() => {
+    return contacts.map((c) => {
+      let score = c.quality_score || 0;
+      if (score === 0) {
+        // Auto-calculate based on data completeness
+        if (c.name) score += 15;
+        if (c.email) score += 20;
+        if (c.telegram_username) score += 20;
+        if (c.company) score += 15;
+        if (c.phone) score += 10;
+        if (c.title) score += 10;
+        if (dealCountMap[c.id]) score += 10;
+      }
+      return { ...c, quality_score: score };
+    });
+  }, [contacts, dealCountMap]);
+
+  const filtered = contactsWithScore.filter((c) => {
     if (stageFilter === "unassigned" && c.stage_id) return false;
     if (stageFilter !== "all" && stageFilter !== "unassigned" && c.stage_id !== stageFilter) return false;
+    if (lifecycleFilter !== "all" && c.lifecycle_stage !== lifecycleFilter) return false;
+    if (filterHasEmail && !c.email) return false;
+    if (filterHasTg && !c.telegram_username) return false;
+    if (filterHasDeals && !dealCountMap[c.id]) return false;
     if (search) {
       const q = search.toLowerCase();
       return (
@@ -90,6 +128,7 @@ export default function ContactsPage() {
       case "company": cmp = (a.company ?? "").localeCompare(b.company ?? ""); break;
       case "created_at": cmp = new Date(a.created_at).getTime() - new Date(b.created_at).getTime(); break;
       case "deals": cmp = (dealCountMap[a.id] ?? 0) - (dealCountMap[b.id] ?? 0); break;
+      case "quality_score": cmp = a.quality_score - b.quality_score; break;
     }
     return sortDir === "desc" ? -cmp : cmp;
   });
@@ -126,10 +165,54 @@ export default function ContactsPage() {
     fetchData();
   }
 
+  async function bulkLifecycle(lifecycle: LifecycleStage) {
+    const ids = Array.from(selected);
+    const res = await fetch("/api/contacts/bulk-update", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids, updates: { lifecycle_stage: lifecycle } }),
+    });
+    if (res.ok) {
+      toast.success(`Updated ${ids.length} contact(s) to ${lifecycle}`);
+      setSelected(new Set());
+      fetchData();
+    } else {
+      toast.error("Failed to update");
+    }
+  }
+
+  async function bulkStage(stageId: string) {
+    const ids = Array.from(selected);
+    const res = await fetch("/api/contacts/bulk-update", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids, updates: { stage_id: stageId || null } }),
+    });
+    if (res.ok) {
+      toast.success(`Updated ${ids.length} contact(s)`);
+      setSelected(new Set());
+      fetchData();
+    } else {
+      toast.error("Failed to update");
+    }
+  }
+
   // Stats
   const withTg = contacts.filter((c) => c.telegram_username).length;
   const withDeals = new Set(deals.filter((d) => d.contact_id).map((d) => d.contact_id)).size;
   const withCompany = contacts.filter((c) => c.company).length;
+
+  // Lifecycle counts
+  const lifecycleCounts = React.useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const c of contactsWithScore) {
+      const lc = c.lifecycle_stage || "prospect";
+      counts[lc] = (counts[lc] ?? 0) + 1;
+    }
+    return counts;
+  }, [contactsWithScore]);
+
+  const hasAdvancedFilters = filterHasEmail || filterHasTg || filterHasDeals || lifecycleFilter !== "all";
 
   if (loading) {
     return (
@@ -188,50 +271,85 @@ export default function ContactsPage() {
         </div>
       </div>
 
-      {/* Stage filter tabs */}
+      {/* Lifecycle stage tabs */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex gap-1 flex-wrap">
+          <button
+            onClick={() => setLifecycleFilter("all")}
+            className={cn(
+              "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+              lifecycleFilter === "all" ? "bg-white/10 text-foreground" : "text-muted-foreground hover:bg-white/5"
+            )}
+          >
+            All
+          </button>
+          {LIFECYCLE_STAGES.map((ls) => (
+            <button
+              key={ls.value}
+              onClick={() => setLifecycleFilter(ls.value)}
+              className={cn(
+                "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                lifecycleFilter === ls.value ? "bg-white/10 text-foreground" : "text-muted-foreground hover:bg-white/5"
+              )}
+            >
+              {ls.label}
+              {lifecycleCounts[ls.value] ? (
+                <span className="ml-1 text-muted-foreground/60">({lifecycleCounts[ls.value]})</span>
+              ) : null}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Pipeline stage + search + filters */}
       <div className="flex items-center gap-2 flex-wrap">
         <div className="flex gap-1 flex-wrap">
           <button
             onClick={() => setStageFilter("all")}
             className={cn(
-              "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
-              stageFilter === "all"
-                ? "bg-white/10 text-foreground"
-                : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+              "rounded-lg px-2 py-1 text-[10px] font-medium transition-colors",
+              stageFilter === "all" ? "bg-white/10 text-foreground" : "text-muted-foreground/50 hover:text-muted-foreground"
             )}
           >
-            All ({contacts.length})
+            All stages
           </button>
           {stages.map((stage) => {
-            const count = contacts.filter((c) => c.stage_id === stage.id).length;
+            const count = contactsWithScore.filter((c) => c.stage_id === stage.id).length;
             return (
               <button
                 key={stage.id}
                 onClick={() => setStageFilter(stage.id)}
                 className={cn(
-                  "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
-                  stageFilter === stage.id
-                    ? "bg-white/10 text-foreground"
-                    : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+                  "rounded-lg px-2 py-1 text-[10px] font-medium transition-colors",
+                  stageFilter === stage.id ? "bg-white/10 text-foreground" : "text-muted-foreground/50 hover:text-muted-foreground"
                 )}
               >
                 {stage.name}
-                {count > 0 && <span className="ml-1 text-muted-foreground/60">({count})</span>}
+                {count > 0 && <span className="ml-0.5 text-muted-foreground/40">({count})</span>}
               </button>
             );
           })}
           <button
             onClick={() => setStageFilter("unassigned")}
             className={cn(
-              "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
-              stageFilter === "unassigned"
-                ? "bg-white/10 text-foreground"
-                : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+              "rounded-lg px-2 py-1 text-[10px] font-medium transition-colors",
+              stageFilter === "unassigned" ? "bg-white/10 text-foreground" : "text-muted-foreground/50 hover:text-muted-foreground"
             )}
           >
-            No Stage ({contacts.filter((c) => !c.stage_id).length})
+            No Stage
           </button>
         </div>
+
+        <button
+          onClick={() => setShowAdvanced(!showAdvanced)}
+          className={cn(
+            "rounded-lg p-1.5 transition-colors",
+            showAdvanced || hasAdvancedFilters ? "bg-primary/20 text-primary" : "text-muted-foreground hover:bg-white/5"
+          )}
+          title="Advanced filters"
+        >
+          <Filter className="h-3.5 w-3.5" />
+        </button>
 
         <Input
           value={search}
@@ -242,7 +360,7 @@ export default function ContactsPage() {
 
         {/* Sort controls */}
         <div className="flex gap-1 ml-auto">
-          {([["name", "Name"], ["company", "Company"], ["created_at", "Date"], ["deals", "Deals"]] as [SortKey, string][]).map(([key, label]) => (
+          {([["name", "Name"], ["company", "Company"], ["created_at", "Date"], ["deals", "Deals"], ["quality_score", "Score"]] as [SortKey, string][]).map(([key, label]) => (
             <button
               key={key}
               onClick={() => toggleSort(key)}
@@ -257,16 +375,69 @@ export default function ContactsPage() {
         </div>
       </div>
 
+      {/* Advanced filter bar */}
+      {showAdvanced && (
+        <div className="rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3 flex items-center gap-4 flex-wrap">
+          <span className="text-xs text-muted-foreground">Show only:</span>
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+            <input type="checkbox" checked={filterHasEmail} onChange={(e) => setFilterHasEmail(e.target.checked)} className="rounded border-white/20" />
+            Has email
+          </label>
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+            <input type="checkbox" checked={filterHasTg} onChange={(e) => setFilterHasTg(e.target.checked)} className="rounded border-white/20" />
+            Has Telegram
+          </label>
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+            <input type="checkbox" checked={filterHasDeals} onChange={(e) => setFilterHasDeals(e.target.checked)} className="rounded border-white/20" />
+            Has deals
+          </label>
+          {hasAdvancedFilters && (
+            <button
+              onClick={() => { setFilterHasEmail(false); setFilterHasTg(false); setFilterHasDeals(false); setLifecycleFilter("all"); }}
+              className="text-xs text-primary hover:text-primary/80 ml-auto"
+            >
+              Clear filters
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Bulk action bar */}
       {selected.size > 0 && (
-        <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.035] px-4 py-2">
+        <div className="flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 px-4 py-2 flex-wrap">
           <span className="text-xs text-foreground font-medium">{selected.size} selected</span>
-          <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())} className="text-xs">
-            Clear
-          </Button>
-          <Button size="sm" variant="outline" onClick={bulkDelete} disabled={bulkDeleting} className="text-xs text-red-400 border-red-500/20 hover:bg-red-500/10">
-            <Trash2 className="h-3 w-3 mr-1" /> Delete
-          </Button>
+
+          {/* Lifecycle bulk change */}
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] text-muted-foreground">Lifecycle:</span>
+            {LIFECYCLE_STAGES.slice(0, 4).map((ls) => (
+              <button
+                key={ls.value}
+                onClick={() => bulkLifecycle(ls.value)}
+                className={cn("rounded-md px-1.5 py-0.5 text-[10px] font-medium transition-colors hover:brightness-125", ls.color)}
+              >
+                {ls.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Stage bulk change */}
+          <select
+            onChange={(e) => { if (e.target.value) bulkStage(e.target.value); e.target.value = ""; }}
+            className="h-6 rounded border border-white/10 bg-white/5 px-1.5 text-[10px] text-foreground outline-none appearance-none"
+          >
+            <option value="">Move to stage...</option>
+            {stages.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+
+          <div className="flex items-center gap-1 ml-auto">
+            <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())} className="h-6 text-[10px]">
+              Clear
+            </Button>
+            <Button size="sm" variant="outline" onClick={bulkDelete} disabled={bulkDeleting} className="h-6 text-[10px] text-red-400 border-red-500/20 hover:bg-red-500/10">
+              <Trash2 className="h-2.5 w-2.5 mr-0.5" /> Delete
+            </Button>
+          </div>
         </div>
       )}
 
@@ -297,6 +468,7 @@ export default function ContactsPage() {
         onClose={() => setSelectedContact(null)}
         onDeleted={fetchData}
         onUpdated={fetchData}
+        allContacts={contacts}
       />
     </div>
   );

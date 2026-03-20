@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 
-const CONTACT_FIELDS = ["name", "email", "phone", "telegram_username", "telegram_user_id", "company", "title", "notes", "stage_id", "tg_group_link"];
+const CONTACT_FIELDS = ["name", "email", "phone", "telegram_username", "telegram_user_id", "company", "title", "notes", "stage_id", "tg_group_link", "lifecycle_stage", "source", "quality_score"];
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireAuth();
@@ -30,6 +30,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const body: Record<string, unknown> = { updated_at: new Date().toISOString() };
   for (const key of CONTACT_FIELDS) {
     if (key in raw) body[key] = raw[key];
+  }
+  // Track lifecycle stage change timestamp
+  if ("lifecycle_stage" in raw) {
+    body.lifecycle_changed_at = new Date().toISOString();
   }
 
   const { data: contact, error } = await supabase
