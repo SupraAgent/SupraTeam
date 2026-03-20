@@ -9,20 +9,84 @@ export function escapeHtml(text: string): string {
 }
 
 /**
- * Render a template string by replacing {{placeholder}} with values.
- * Values are HTML-escaped unless the key ends with _html.
+ * Render a template string with advanced personalization:
+ * - {{var}} — basic variable substitution (HTML-escaped unless key ends with _html)
+ * - {{var|fallback}} — default value if var is empty/undefined
+ * - {{#if var}}...{{/if}} — conditional blocks (rendered only if var is truthy)
+ * - {{#unless var}}...{{/unless}} — inverse conditional blocks
  */
 export function renderTemplate(
   template: string,
   vars: Record<string, string | number | undefined>
 ): string {
-  return template.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => {
+  let result = template;
+
+  // Process {{#if var}}...{{/if}} blocks
+  result = result.replace(
+    /\{\{#if\s+(\w+)\}\}([\s\S]*?)\{\{\/if\}\}/g,
+    (_match, key: string, content: string) => {
+      const val = vars[key];
+      return val !== undefined && val !== null && val !== "" ? content : "";
+    }
+  );
+
+  // Process {{#unless var}}...{{/unless}} blocks
+  result = result.replace(
+    /\{\{#unless\s+(\w+)\}\}([\s\S]*?)\{\{\/unless\}\}/g,
+    (_match, key: string, content: string) => {
+      const val = vars[key];
+      return !val || val === "" ? content : "";
+    }
+  );
+
+  // Process {{var|fallback}} with default values
+  result = result.replace(/\{\{(\w+)\|([^}]*)\}\}/g, (_match, key: string, fallback: string) => {
     const val = vars[key];
-    if (val === undefined || val === null) return "";
-    if (key.endsWith("_html")) return String(val); // pre-escaped
+    if (val === undefined || val === null || val === "") {
+      return escapeHtml(fallback);
+    }
+    if (key.endsWith("_html")) return String(val);
     return escapeHtml(String(val));
   });
+
+  // Process basic {{var}} substitution
+  result = result.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => {
+    const val = vars[key];
+    if (val === undefined || val === null) return "";
+    if (key.endsWith("_html")) return String(val);
+    return escapeHtml(String(val));
+  });
+
+  return result;
 }
+
+/**
+ * Available merge variables for personalization.
+ * Used by UI to show variable picker chips.
+ */
+export const MERGE_VARIABLES = {
+  contact: [
+    { key: "contact_name", label: "Contact Name", hint: "Full name" },
+    { key: "contact_first_name", label: "First Name", hint: "First name only" },
+    { key: "contact_email", label: "Email", hint: "Primary email" },
+    { key: "contact_company", label: "Company", hint: "Organization" },
+    { key: "contact_telegram", label: "TG Username", hint: "@username" },
+    { key: "contact_phone", label: "Phone", hint: "Phone number" },
+    { key: "contact_title", label: "Title", hint: "Job title" },
+  ],
+  deal: [
+    { key: "deal_name", label: "Deal Name", hint: "Deal title" },
+    { key: "stage", label: "Stage", hint: "Current pipeline stage" },
+    { key: "board_type", label: "Board", hint: "BD/Marketing/Admin" },
+    { key: "value", label: "Value", hint: "Deal value" },
+  ],
+  sender: [
+    { key: "sender_name", label: "Sender Name", hint: "Your display name" },
+  ],
+  system: [
+    { key: "today", label: "Today's Date", hint: "YYYY-MM-DD" },
+  ],
+} as const;
 
 // ── Default templates (used as fallbacks when DB templates not loaded) ──
 
