@@ -3,7 +3,7 @@
 import { Draggable } from "@hello-pangea/dnd";
 import type { Deal } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { MessageCircle } from "lucide-react";
+import { MessageCircle, Clock } from "lucide-react";
 
 type DealCardProps = {
   deal: Deal;
@@ -14,6 +14,10 @@ type DealCardProps = {
 };
 
 export function DealCard({ deal, index, onClick, highlight, tgHighlight }: DealCardProps) {
+  const daysSinceUpdate = Math.floor((Date.now() - new Date(deal.updated_at).getTime()) / 86400000);
+  const isStale = daysSinceUpdate >= 7;
+  const isWarning = daysSinceUpdate >= 3 && daysSinceUpdate < 7;
+
   return (
     <Draggable draggableId={deal.id} index={index}>
       {(provided, snapshot) => (
@@ -59,6 +63,19 @@ export function DealCard({ deal, index, onClick, highlight, tgHighlight }: DealC
               <span className="text-[10px] text-muted-foreground">
                 ${Number(deal.value).toLocaleString()}
               </span>
+            )}
+
+            {(isStale || isWarning) && (
+              <span className={cn(
+                "flex items-center gap-0.5 text-[9px]",
+                isStale ? "text-red-400" : "text-yellow-400"
+              )} title={`${daysSinceUpdate}d since last update`}>
+                <Clock className="h-2.5 w-2.5" />{daysSinceUpdate}d
+              </span>
+            )}
+
+            {deal.probability != null && deal.probability > 0 && (
+              <span className="text-[9px] text-muted-foreground/50">{deal.probability}%</span>
             )}
 
             {deal.assigned_profile && (
