@@ -2,6 +2,9 @@
   "name": "supracrm",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=20.9.0"
+  },
   "scripts": {
     "dev": "next dev",
     "dev:app": "next dev -p 3002",
