@@ -11,7 +11,7 @@ export async function GET() {
   const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000).toISOString();
   const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
 
-  const [dealsRes, contactsRes, stagesRes, historyThisWeekRes, historyLastWeekRes, notificationsRes, pinnedRes, groupsRes, tokensRes] = await Promise.all([
+  const [dealsRes, contactsRes, stagesRes, historyThisWeekRes, historyLastWeekRes, notificationsRes, pinnedRes, groupsRes, tokensRes, emailRes] = await Promise.all([
     supabase.from("crm_deals").select("id, deal_name, board_type, stage_id, value, probability, created_at, updated_at, stage_changed_at, contact:crm_contacts(name, telegram_username), stage:pipeline_stages(id, name, color, position)").order("updated_at", { ascending: false }),
     supabase.from("crm_contacts").select("id", { count: "exact", head: true }),
     supabase.from("pipeline_stages").select("id, name, position, color").order("position"),
@@ -21,6 +21,7 @@ export async function GET() {
     supabase.from("crm_deals").select("id, deal_name, board_type, value, stage:pipeline_stages(name, color)").eq("probability", 100).limit(5),
     supabase.from("tg_groups").select("id", { count: "exact", head: true }),
     supabase.from("user_tokens").select("id", { count: "exact", head: true }).eq("provider", "telegram_bot"),
+    supabase.from("crm_email_connections").select("id", { count: "exact", head: true }),
   ]);
 
   const deals = dealsRes.data ?? [];
@@ -184,6 +185,7 @@ export async function GET() {
       hasGroups: (groupsRes.count ?? 0) > 0,
       hasDeals: deals.length > 0,
       hasContacts: totalContacts > 0,
+      hasEmail: (emailRes.count ?? 0) > 0
     },
   });
 }
