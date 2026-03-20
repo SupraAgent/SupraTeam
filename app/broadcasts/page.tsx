@@ -25,6 +25,9 @@ import {
   BarChart3,
   TrendingUp,
   TrendingDown,
+  Search,
+  AlertTriangle,
+  Save,
 } from "lucide-react";
 import { MERGE_VARIABLES } from "@/lib/telegram-templates";
 import { cn } from "@/lib/utils";
@@ -114,9 +117,43 @@ export default function BroadcastsPage() {
   const [templates, setTemplates] = React.useState<BotTemplate[]>([]);
   const [showTemplates, setShowTemplates] = React.useState(false);
 
+  // Send confirmation
+  const [showConfirm, setShowConfirm] = React.useState(false);
+
+  // History filtering
+  const [historySearch, setHistorySearch] = React.useState("");
+  const [historyStatusFilter, setHistoryStatusFilter] = React.useState<string | null>(null);
+
+  // Multi-slug targeting
+  const [selectedSlugs, setSelectedSlugs] = React.useState<Set<string>>(new Set());
+  const [slugMode, setSlugMode] = React.useState<"any" | "all">("any");
+
   // Formatting helpers
   const [cursorPos, setCursorPos] = React.useState(0);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+
+  // Draft auto-save
+  React.useEffect(() => {
+    const saved = localStorage.getItem("broadcast_draft");
+    if (saved) {
+      try {
+        const draft = JSON.parse(saved);
+        if (draft.message) setMessage(draft.message);
+        if (draft.scheduleDate) { setScheduleDate(draft.scheduleDate); setScheduleMode(true); }
+        if (draft.scheduleTime) setScheduleTime(draft.scheduleTime);
+      } catch {}
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (message.trim()) {
+      localStorage.setItem("broadcast_draft", JSON.stringify({
+        message, scheduleDate, scheduleTime,
+      }));
+    } else {
+      localStorage.removeItem("broadcast_draft");
+    }
+  }, [message, scheduleDate, scheduleTime]);
 
   React.useEffect(() => {
     Promise.all([
@@ -143,18 +180,51 @@ export default function BroadcastsPage() {
 
   const allSlugs = [...new Set(groups.flatMap((g) => g.slugs))].sort();
 
-  const filteredGroups = selectedSlug
-    ? groups.filter((g) => g.slugs.includes(selectedSlug))
-    : groups;
+  const filteredGroups = React.useMemo(() => {
+    if (selectedSlugs.size === 0 && !selectedSlug) return groups;
+    const activeSlugs = selectedSlugs.size > 0 ? selectedSlugs : selectedSlug ? new Set([selectedSlug]) : new Set<string>();
+    if (activeSlugs.size === 0) return groups;
+    return groups.filter((g) => {
+      if (slugMode === "all") return [...activeSlugs].every((s) => g.slugs.includes(s));
+      return [...activeSlugs].some((s) => g.slugs.includes(s));
+    });
+  }, [groups, selectedSlug, selectedSlugs, slugMode]);
+
+  // Total recipient count (sum of member_count across selected groups)
+  const totalRecipients = React.useMemo(() => {
+    return groups
+      .filter((g) => selectedGroupIds.has(g.id))
+      .reduce((sum, g) => sum + (g.member_count ?? 0), 0);
+  }, [groups, selectedGroupIds]);
+
+  // Filtered history
+  const filteredBroadcasts = React.useMemo(() => {
+    let result = broadcasts;
+    if (historySearch) {
+      const q = historySearch.toLowerCase();
+      result = result.filter((b) =>
+        b.message_text.toLowerCase().includes(q) ||
+        b.sender_name?.toLowerCase().includes(q) ||
+        b.slug_filter?.toLowerCase().includes(q)
+      );
+    }
+    if (historyStatusFilter) {
+      result = result.filter((b) => b.status === historyStatusFilter);
+    }
+    return result;
+  }, [broadcasts, historySearch, historyStatusFilter]);
 
   React.useEffect(() => {
     if (selectedSlug) {
       const matching = groups.filter((g) => g.slugs.includes(selectedSlug));
       setSelectedGroupIds(new Set(matching.map((g) => g.id)));
+    } else if (selectedSlugs.size > 0) {
+      const matching = filteredGroups;
+      setSelectedGroupIds(new Set(matching.map((g) => g.id)));
     } else {
       setSelectedGroupIds(new Set());
     }
-  }, [selectedSlug, groups]);
+  }, [selectedSlug, selectedSlugs, slugMode, groups, filteredGroups]);
 
   function toggleGroup(id: string) {
     setSelectedGroupIds((prev) => {
@@ -206,7 +276,13 @@ export default function BroadcastsPage() {
     }
   }
 
+  function requestSend() {
+    if (!message.trim() || selectedGroupIds.size === 0) return;
+    setShowConfirm(true);
+  }
+
   async function handleSend() {
+    setShowConfirm(false);
     if (!message.trim() || selectedGroupIds.size === 0) return;
     setSending(true);
     setResults(null);
@@ -228,6 +304,7 @@ export default function BroadcastsPage() {
       });
       const data = await res.json();
       if (data.ok) {
+        localStorage.removeItem("broadcast_draft");
         if (data.scheduled) {
           toast.success(`Broadcast scheduled for ${scheduleDate} ${scheduleTime}`);
           setMessage("");
@@ -440,6 +517,43 @@ export default function BroadcastsPage() {
             </Button>
           </div>
 
+          {/* History search & filters */}
+          {broadcasts.length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="relative flex-1 min-w-[180px]">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/50" />
+                <Input
+                  value={historySearch}
+                  onChange={(e) => setHistorySearch(e.target.value)}
+                  placeholder="Search broadcasts..."
+                  className="h-7 pl-7 text-xs"
+                />
+              </div>
+              <div className="flex gap-1">
+                {["sent", "scheduled", "failed", "cancelled"].map((s) => {
+                  const cfg = STATUS_CONFIG[s];
+                  return (
+                    <button
+                      key={s}
+                      onClick={() => setHistoryStatusFilter(historyStatusFilter === s ? null : s)}
+                      className={cn(
+                        "rounded-md px-2 py-1 text-[10px] font-medium transition-colors",
+                        historyStatusFilter === s ? `${cfg.bg} ${cfg.color}` : "text-muted-foreground hover:bg-white/5"
+                      )}
+                    >
+                      {cfg.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {(historySearch || historyStatusFilter) && (
+                <span className="text-[10px] text-muted-foreground">
+                  {filteredBroadcasts.length}/{broadcasts.length}
+                </span>
+              )}
+            </div>
+          )}
+
           {broadcasts.length === 0 && !historyLoading && (
             <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-8 text-center">
               <History className="mx-auto h-8 w-8 text-muted-foreground/30" />
@@ -449,7 +563,7 @@ export default function BroadcastsPage() {
             </div>
           )}
 
-          {broadcasts.map((b) => {
+          {filteredBroadcasts.map((b) => {
             const cfg = STATUS_CONFIG[b.status] ?? STATUS_CONFIG.draft;
             const Icon = cfg.icon;
             const isExpanded = expandedBroadcast === b.id;
@@ -760,12 +874,22 @@ export default function BroadcastsPage() {
               </div>
 
               <div className="flex items-center justify-between">
-                <p className="text-xs text-muted-foreground">
-                  {message.length} chars | {selectedGroupIds.size} group
-                  {selectedGroupIds.size !== 1 ? "s" : ""} selected
-                </p>
+                <div className="text-xs text-muted-foreground space-y-0.5">
+                  <p>{message.length} chars | {selectedGroupIds.size} group{selectedGroupIds.size !== 1 ? "s" : ""} selected</p>
+                  {totalRecipients > 0 && (
+                    <p className="text-[10px] flex items-center gap-1">
+                      <Users className="h-2.5 w-2.5" />
+                      ~{totalRecipients.toLocaleString()} total recipients
+                    </p>
+                  )}
+                  {message.trim() && (
+                    <p className="text-[10px] text-emerald-400/60 flex items-center gap-1">
+                      <Save className="h-2.5 w-2.5" /> Draft auto-saved
+                    </p>
+                  )}
+                </div>
                 <Button
-                  onClick={handleSend}
+                  onClick={requestSend}
                   disabled={
                     sending ||
                     !message.trim() ||
@@ -822,47 +946,78 @@ export default function BroadcastsPage() {
 
           {/* Right: Group selection */}
           <div className="space-y-4">
-            {/* Slug filter */}
+            {/* Slug filter — multi-select */}
             <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5 space-y-3">
-              <h2 className="text-sm font-medium text-foreground flex items-center gap-2">
-                <Tag className="h-4 w-4 text-purple-400" />
-                Filter by Slug
-              </h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-medium text-foreground flex items-center gap-2">
+                  <Tag className="h-4 w-4 text-purple-400" />
+                  Target by Slug
+                </h2>
+                {selectedSlugs.size > 1 && (
+                  <div className="flex gap-1 rounded-lg border border-white/10 p-0.5">
+                    <button
+                      onClick={() => setSlugMode("any")}
+                      className={cn("rounded-md px-2 py-0.5 text-[10px] font-medium transition-colors", slugMode === "any" ? "bg-white/10 text-foreground" : "text-muted-foreground")}
+                    >
+                      Any (OR)
+                    </button>
+                    <button
+                      onClick={() => setSlugMode("all")}
+                      className={cn("rounded-md px-2 py-0.5 text-[10px] font-medium transition-colors", slugMode === "all" ? "bg-white/10 text-foreground" : "text-muted-foreground")}
+                    >
+                      All (AND)
+                    </button>
+                  </div>
+                )}
+              </div>
               <div className="flex flex-wrap gap-1.5">
                 <button
-                  onClick={() => setSelectedSlug(null)}
+                  onClick={() => { setSelectedSlug(null); setSelectedSlugs(new Set()); }}
                   className={cn(
                     "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
-                    !selectedSlug
+                    !selectedSlug && selectedSlugs.size === 0
                       ? "bg-white/10 text-foreground"
                       : "text-muted-foreground hover:bg-white/5"
                   )}
                 >
                   All
                 </button>
-                {allSlugs.map((slug) => (
-                  <button
-                    key={slug}
-                    onClick={() =>
-                      setSelectedSlug(selectedSlug === slug ? null : slug)
-                    }
-                    className={cn(
-                      "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
-                      selectedSlug === slug
-                        ? "bg-primary/20 text-primary"
-                        : "text-muted-foreground hover:bg-white/5"
-                    )}
-                  >
-                    {slug} (
-                    {groups.filter((g) => g.slugs.includes(slug)).length})
-                  </button>
-                ))}
+                {allSlugs.map((slug) => {
+                  const isActive = selectedSlugs.has(slug) || selectedSlug === slug;
+                  return (
+                    <button
+                      key={slug}
+                      onClick={() => {
+                        setSelectedSlug(null);
+                        setSelectedSlugs((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(slug)) next.delete(slug);
+                          else next.add(slug);
+                          return next;
+                        });
+                      }}
+                      className={cn(
+                        "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                        isActive
+                          ? "bg-primary/20 text-primary"
+                          : "text-muted-foreground hover:bg-white/5"
+                      )}
+                    >
+                      {slug} ({groups.filter((g) => g.slugs.includes(slug)).length})
+                    </button>
+                  );
+                })}
                 {allSlugs.length === 0 && (
                   <p className="text-xs text-muted-foreground">
                     No slugs defined. Add slugs to groups first.
                   </p>
                 )}
               </div>
+              {selectedSlugs.size > 0 && (
+                <p className="text-[10px] text-muted-foreground">
+                  {filteredGroups.length} group{filteredGroups.length !== 1 ? "s" : ""} match{filteredGroups.length === 1 ? "es" : ""} ({slugMode === "any" ? "any" : "all"} of {selectedSlugs.size} slug{selectedSlugs.size !== 1 ? "s" : ""})
+                </p>
+              )}
             </div>
 
             {/* Group list */}
@@ -942,6 +1097,38 @@ export default function BroadcastsPage() {
                   </p>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Send confirmation modal */}
+      {showConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[hsl(225,35%,8%)] p-6 shadow-xl space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-xl bg-amber-500/10 flex items-center justify-center">
+                <AlertTriangle className="h-5 w-5 text-amber-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">Confirm Broadcast</h3>
+                <p className="text-[11px] text-muted-foreground">This action cannot be undone</p>
+              </div>
+            </div>
+            <div className="rounded-lg bg-white/[0.03] border border-white/10 p-3 space-y-2">
+              <p className="text-xs text-muted-foreground line-clamp-3">{message}</p>
+              <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+                <span className="flex items-center gap-1"><Users className="h-3 w-3" />{selectedGroupIds.size} group{selectedGroupIds.size !== 1 ? "s" : ""}</span>
+                {totalRecipients > 0 && <span>~{totalRecipients.toLocaleString()} recipients</span>}
+                {scheduleMode && scheduleDate && <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{scheduleDate} {scheduleTime}</span>}
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setShowConfirm(false)}>Cancel</Button>
+              <Button size="sm" onClick={handleSend}>
+                <Send className="mr-1 h-3.5 w-3.5" />
+                {scheduleMode ? "Confirm Schedule" : "Confirm Send"}
+              </Button>
             </div>
           </div>
         </div>
