@@ -27,6 +27,30 @@ type Stats = {
   onboarding: { hasBotToken: boolean; hasGroups: boolean; hasDeals: boolean; hasContacts: boolean };
 };
 
+type Analytics = {
+  winRate: number | null;
+  winRateByBoard: Record<string, number | null>;
+  wonRevenue: number;
+  lostRevenue: number;
+  pipelineValue: number;
+  weightedPipeline: number;
+  monthlyForecast: Record<string, number>;
+  lostReasons: { reason: string; count: number }[];
+  healthDistribution: { critical: number; warning: number; healthy: number; excellent: number };
+  avgDaysToClose: number | null;
+  totalWon: number;
+  totalLost: number;
+  totalOpen: number;
+};
+
+type TeamStat = {
+  id: string;
+  display_name: string;
+  avatar_url: string | null;
+  deal_count: number;
+  total_value: number;
+};
+
 type Notification = {
   id: string; type: string; title: string; body: string | null;
   tg_deep_link: string | null; pipeline_link: string | null; is_read: boolean; created_at: string;
@@ -42,6 +66,8 @@ const NOTIF_COLORS: Record<string, string> = {
 
 export default function HomePage() {
   const [stats, setStats] = React.useState<Stats | null>(null);
+  const [analytics, setAnalytics] = React.useState<Analytics | null>(null);
+  const [teamStats, setTeamStats] = React.useState<TeamStat[]>([]);
   const [notifications, setNotifications] = React.useState<Notification[]>([]);
   const [reminders, setReminders] = React.useState<{ id: string; deal_id: string; reminder_type: string; message: string; due_at: string; deal?: { deal_name: string; board_type: string } }[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -51,11 +77,15 @@ export default function HomePage() {
       fetch("/api/stats").then((r) => (r.ok ? r.json() : null)),
       fetch("/api/notifications?limit=10").then((r) => (r.ok ? r.json() : null)),
       fetch("/api/reminders").then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      fetch("/api/analytics").then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      fetch("/api/stats/team").then((r) => (r.ok ? r.json() : null)).catch(() => null),
     ])
-      .then(([statsData, notifData, reminderData]) => {
+      .then(([statsData, notifData, reminderData, analyticsData, teamData]) => {
         if (statsData) setStats(statsData);
         if (notifData) setNotifications(notifData.notifications ?? []);
         if (reminderData) setReminders(reminderData.reminders ?? []);
+        if (analyticsData) setAnalytics(analyticsData);
+        if (teamData) setTeamStats(teamData.team ?? []);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -127,6 +157,116 @@ export default function HomePage() {
         <StatCard icon={DollarSign} iconColor="text-green-400" label="Pipeline Value" value={`$${Math.round(s.totalPipelineValue).toLocaleString()}`} sub={`Weighted: $${Math.round(s.weightedPipelineValue).toLocaleString()}`} />
         <StatCard icon={TrendingUp} iconColor="text-purple-400" label="Moves This Week" value={s.velocity.movesThisWeek} sub={velocityDelta > 0 ? `+${velocityDelta}% vs last week` : velocityDelta < 0 ? `${velocityDelta}% vs last week` : "Same as last week"} />
       </div>
+
+      {/* Analytics row */}
+      {analytics && (
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <div className="rounded-xl border border-white/10 bg-white/[0.035] p-3 text-center">
+            <p className="text-lg font-semibold text-foreground">{analytics.winRate !== null ? `${analytics.winRate}%` : "--"}</p>
+            <p className="text-[10px] text-muted-foreground">Win Rate</p>
+          </div>
+          <div className="rounded-xl border border-white/10 bg-white/[0.035] p-3 text-center">
+            <p className="text-lg font-semibold text-green-400">${analytics.wonRevenue.toLocaleString()}</p>
+            <p className="text-[10px] text-muted-foreground">Won Revenue</p>
+          </div>
+          <div className="rounded-xl border border-white/10 bg-white/[0.035] p-3 text-center">
+            <p className="text-lg font-semibold text-foreground">{analytics.avgDaysToClose !== null ? `${analytics.avgDaysToClose}d` : "--"}</p>
+            <p className="text-[10px] text-muted-foreground">Avg Days to Close</p>
+          </div>
+          <div className="rounded-xl border border-white/10 bg-white/[0.035] p-3 text-center">
+            <p className="text-lg font-semibold text-foreground">{analytics.totalWon}<span className="text-muted-foreground text-xs">/{analytics.totalWon + analytics.totalLost + analytics.totalOpen}</span></p>
+            <p className="text-[10px] text-muted-foreground">Won / Total</p>
+          </div>
+          <div className="rounded-xl border border-white/10 bg-white/[0.035] p-3 text-center col-span-2 md:col-span-1">
+            <div className="flex justify-center gap-1.5">
+              {(["critical", "warning", "healthy", "excellent"] as const).map((k) => {
+                const colors = { critical: "bg-red-400", warning: "bg-yellow-400", healthy: "bg-green-400", excellent: "bg-emerald-400" };
+                const v = analytics.healthDistribution[k];
+                return v > 0 ? (
+                  <span key={k} className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
+                    <span className={cn("h-1.5 w-1.5 rounded-full", colors[k])} />{v}
+                  </span>
+                ) : null;
+              })}
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1">Deal Health</p>
+          </div>
+        </div>
+      )}
+
+      {/* Revenue by board + Win rate by board */}
+      {analytics && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {(["BD", "Marketing", "Admin"] as const).map((board) => {
+            const boardColors = { BD: "blue", Marketing: "purple", Admin: "orange" };
+            const c = boardColors[board];
+            const wr = analytics.winRateByBoard[board];
+            const bv = s.valueByBoard[board];
+            return (
+              <div key={board} className="rounded-xl border border-white/10 bg-white/[0.035] p-3">
+                <div className="flex items-center justify-between">
+                  <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium", `bg-${c}-500/20 text-${c}-400`)}>{board}</span>
+                  {wr !== null && <span className="text-xs text-muted-foreground">{wr}% win rate</span>}
+                </div>
+                <p className="mt-1.5 text-sm font-semibold text-foreground">${Math.round(bv).toLocaleString()}</p>
+                <p className="text-[10px] text-muted-foreground">{s.byBoard[board]} deal{s.byBoard[board] !== 1 ? "s" : ""}</p>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Monthly forecast */}
+      {analytics && Object.keys(analytics.monthlyForecast).length > 0 && (
+        <Widget title="Monthly Forecast" icon={DollarSign} iconColor="text-green-400" subtitle="Weighted revenue by expected close">
+          {Object.entries(analytics.monthlyForecast).sort(([a], [b]) => a.localeCompare(b)).map(([month, value]) => {
+            const maxVal = Math.max(...Object.values(analytics.monthlyForecast), 1);
+            const pct = (value / maxVal) * 100;
+            return (
+              <div key={month} className="flex items-center gap-3 py-1.5">
+                <span className="text-xs text-muted-foreground w-20">{month}</span>
+                <div className="flex-1 h-4 rounded-full bg-white/5 overflow-hidden">
+                  <div className="h-full rounded-full bg-green-500/30 transition-all" style={{ width: `${pct}%` }} />
+                </div>
+                <span className="text-xs font-medium text-foreground w-20 text-right">${Math.round(value).toLocaleString()}</span>
+              </div>
+            );
+          })}
+        </Widget>
+      )}
+
+      {/* Team leaderboard */}
+      {teamStats.length > 0 && (
+        <Widget title="Team Leaderboard" icon={Users} iconColor="text-blue-400" subtitle="Deals by assignee">
+          {teamStats.slice(0, 8).map((m, i) => (
+            <div key={m.id} className="flex items-center gap-3 py-1.5">
+              <span className="text-xs text-muted-foreground/50 w-4">{i + 1}</span>
+              <div className="h-6 w-6 rounded-full bg-white/10 overflow-hidden shrink-0 flex items-center justify-center">
+                {m.avatar_url ? (
+                  <img src={m.avatar_url} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  <span className="text-[10px] font-semibold text-muted-foreground">{m.display_name?.charAt(0)?.toUpperCase() ?? "?"}</span>
+                )}
+              </div>
+              <span className="text-xs text-foreground flex-1 truncate">{m.display_name}</span>
+              <span className="text-[10px] text-muted-foreground">{m.deal_count} deal{m.deal_count !== 1 ? "s" : ""}</span>
+              <span className="text-xs font-medium text-foreground w-20 text-right">${Math.round(m.total_value).toLocaleString()}</span>
+            </div>
+          ))}
+        </Widget>
+      )}
+
+      {/* Lost reasons */}
+      {analytics && analytics.lostReasons.length > 0 && (
+        <Widget title="Lost Deal Reasons" icon={AlertTriangle} iconColor="text-red-400" subtitle={`${analytics.totalLost} lost deal${analytics.totalLost !== 1 ? "s" : ""}`}>
+          {analytics.lostReasons.slice(0, 5).map((r) => (
+            <div key={r.reason} className="flex items-center justify-between py-1.5">
+              <span className="text-xs text-muted-foreground">{r.reason}</span>
+              <span className="rounded-full bg-red-500/20 px-2 py-0.5 text-[10px] font-medium text-red-400">{r.count}</span>
+            </div>
+          ))}
+        </Widget>
+      )}
 
       {/* Two-column layout */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

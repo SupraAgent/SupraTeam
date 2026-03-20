@@ -7,7 +7,8 @@ import { DealListView } from "@/components/pipeline/deal-list-view";
 import { CreateDealModal } from "@/components/pipeline/create-deal-modal";
 import { DealDetailPanel } from "@/components/pipeline/deal-detail-panel";
 import { Button } from "@/components/ui/button";
-import { LayoutGrid, List } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { LayoutGrid, List, Search, DollarSign } from "lucide-react";
 import { toast } from "sonner";
 import type { Deal, PipelineStage, Contact, BoardType } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -62,6 +63,7 @@ export default function PipelinePage() {
   );
   const [createOpen, setCreateOpen] = React.useState(false);
   const [selectedDeal, setSelectedDeal] = React.useState<Deal | null>(null);
+  const [search, setSearch] = React.useState("");
   const [loading, setLoading] = React.useState(true);
   const [usingSamples, setUsingSamples] = React.useState(false);
   const [highlightDealId, setHighlightDealId] = React.useState<string | null>(null);
@@ -158,6 +160,22 @@ export default function PipelinePage() {
     }
   }
 
+  // Search filter
+  const searchFiltered = search
+    ? deals.filter((d) => {
+        const q = search.toLowerCase();
+        return (
+          d.deal_name.toLowerCase().includes(q) ||
+          d.contact?.name?.toLowerCase().includes(q) ||
+          d.contact?.company?.toLowerCase().includes(q)
+        );
+      })
+    : deals;
+
+  // Pipeline summary
+  const totalValue = deals.reduce((sum, d) => sum + Number(d.value ?? 0), 0);
+  const weightedValue = deals.reduce((sum, d) => sum + Number(d.value ?? 0) * (Number(d.probability ?? 50) / 100), 0);
+
   if (loading) {
     return (
       <div className="space-y-4">
@@ -208,7 +226,7 @@ export default function PipelinePage() {
           {/* Board filter */}
           <div className="flex gap-1 overflow-x-auto">
             {BOARDS.map((tab) => {
-              const count = tab === "All" ? deals.length : deals.filter((d) => d.board_type === tab).length;
+              const count = tab === "All" ? searchFiltered.length : searchFiltered.filter((d) => d.board_type === tab).length;
               return (
                 <button
                   key={tab}
@@ -228,11 +246,32 @@ export default function PipelinePage() {
               );
             })}
           </div>
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search deals..."
+              className="h-8 w-[160px] pl-7 text-xs"
+            />
+          </div>
           <Button size="sm" onClick={() => setCreateOpen(true)}>
             Add Deal
           </Button>
         </div>
       </div>
+
+      {/* Pipeline stats bar */}
+      {!usingSamples && deals.length > 0 && (
+        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+          <span>{deals.length} deal{deals.length !== 1 ? "s" : ""}</span>
+          <span className="text-white/10">|</span>
+          <span className="flex items-center gap-1"><DollarSign className="h-3 w-3" />{Math.round(totalValue).toLocaleString()} pipeline</span>
+          <span className="text-white/10">|</span>
+          <span>${Math.round(weightedValue).toLocaleString()} weighted</span>
+          {search && <span className="text-primary ml-auto">{searchFiltered.length} match{searchFiltered.length !== 1 ? "es" : ""}</span>}
+        </div>
+      )}
 
       {usingSamples && (
         <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-2 text-sm text-muted-foreground">
@@ -243,7 +282,7 @@ export default function PipelinePage() {
       {viewMode === "kanban" ? (
         <KanbanBoard
           stages={stages}
-          deals={deals}
+          deals={searchFiltered}
           board={board}
           onMoveDeal={handleMoveDeal}
           onDealClick={setSelectedDeal}
@@ -252,7 +291,7 @@ export default function PipelinePage() {
         />
       ) : (
         <DealListView
-          deals={deals}
+          deals={searchFiltered}
           stages={stages}
           board={board}
           onDealClick={setSelectedDeal}
