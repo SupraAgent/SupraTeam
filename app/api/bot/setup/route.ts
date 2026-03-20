@@ -8,7 +8,11 @@ export async function POST(request: Request) {
 
   // Determine webhook URL
   const { url } = await request.json().catch(() => ({ url: null }));
-  const webhookUrl = url || `https://crm.supravibe.xyz/api/bot/webhook`;
+  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL;
+  if (!url && !baseUrl) {
+    return NextResponse.json({ error: "NEXT_PUBLIC_SITE_URL not set" }, { status: 503 });
+  }
+  const webhookUrl = url || `${baseUrl}/api/bot/webhook`;
 
   // Delete any existing webhook first
   await fetch(`https://api.telegram.org/bot${token}/deleteWebhook`);

@@ -1,52 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
-import { createSupabaseAdmin } from "@/lib/supabase";
 import { formatStageChangeMessage } from "@/lib/telegram-templates";
-
-const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-
-async function sendTelegramNotification(supabase: ReturnType<typeof createSupabaseAdmin>, dealId: string, fromStageId: string | null, toStageId: string, changedByName?: string) {
-  if (!BOT_TOKEN || !supabase) return;
-
-  try {
-    const { data: deal } = await supabase
-      .from("crm_deals")
-      .select("deal_name, board_type, telegram_chat_id")
-      .eq("id", dealId)
-      .single();
-
-    if (!deal?.telegram_chat_id) return;
-
-    const [fromRes, toRes] = await Promise.all([
-      fromStageId
-        ? supabase.from("pipeline_stages").select("name").eq("id", fromStageId).single()
-        : Promise.resolve({ data: null }),
-      supabase.from("pipeline_stages").select("name").eq("id", toStageId).single(),
-    ]);
-
-    const fromName = fromRes.data?.name ?? "None";
-    const toName = toRes.data?.name ?? "None";
-
-    const message = formatStageChangeMessage(deal.deal_name, fromName, toName, deal.board_type, changedByName);
-
-    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: deal.telegram_chat_id,
-        text: message,
-        parse_mode: "HTML",
-        reply_markup: {
-          inline_keyboard: [[
-            { text: "📊 Open in CRM", web_app: { url: `https://crm.supravibe.xyz/tma/deals/${dealId}` } },
-          ]],
-        },
-      }),
-    });
-  } catch (err) {
-    console.error("[move] TG notification error:", err);
-  }
-}
+import { sendTelegramWithTracking } from "@/lib/telegram-send";
+import { evaluateAutomationRules } from "@/lib/automation-engine";
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -99,9 +55,46 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "Failed to move deal" }, { status: 500 });
   }
 
-  // Send TG notification inline (non-blocking)
-  const userName = user.user_metadata?.display_name ?? user.user_metadata?.full_name ?? user.email ?? undefined;
-  sendTelegramNotification(supabase, id, current.stage_id, stage_id, userName);
+  // Fetch stage names for notification
+  const [fromRes, toRes] = await Promise.all([
+    current.stage_id
+      ? supabase.from("pipeline_stages").select("name").eq("id", current.stage_id).single()
+      : Promise.resolve({ data: null }),
+    supabase.from("pipeline_stages").select("name").eq("id", stage_id).single(),
+  ]);
+  const fromName = fromRes.data?.name ?? "None";
+  const toName = toRes.data?.name ?? "None";
+  const userName = user.user_metadata?.display_name ?? user.user_metadata?.full_name ?? user.email ?? "Unknown";
+
+  // Send TG notification with tracking (non-blocking)
+  if (deal.telegram_chat_id) {
+    const message = formatStageChangeMessage(deal.deal_name, fromName, toName, deal.board_type, userName);
+    sendTelegramWithTracking({
+      chatId: deal.telegram_chat_id,
+      text: message,
+      notificationType: "stage_change",
+      dealId: id,
+      replyMarkup: {
+        inline_keyboard: [[
+          { text: "Open in CRM", web_app: { url: `${process.env.NEXT_PUBLIC_SITE_URL}/tma/deals/${id}` } },
+        ]],
+      },
+    }).catch((err) => console.error("[move] TG send error:", err));
+  }
+
+  // Evaluate automation rules (non-blocking)
+  evaluateAutomationRules({
+    type: "stage_change",
+    dealId: id,
+    payload: {
+      from_stage_id: current.stage_id,
+      to_stage_id: stage_id,
+      from_stage_name: fromName,
+      to_stage_name: toName,
+      changed_by: userName,
+      value: deal.value,
+    },
+  }).catch((err) => console.error("[move] Automation error:", err));
 
   return NextResponse.json({ deal, ok: true, moved: true });
 }

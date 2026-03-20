@@ -99,7 +99,8 @@ export default function TelegramSettingsPage() {
     }
   }
 
-  const isConnected = webhookInfo?.url && webhookInfo.url.includes("crm.supravibe.xyz");
+  const siteHost = (process.env.NEXT_PUBLIC_SITE_URL ?? "").replace(/^https?:\/\//, "");
+  const isConnected = webhookInfo?.url && siteHost && webhookInfo.url.includes(siteHost);
 
   return (
     <div className="space-y-6">
