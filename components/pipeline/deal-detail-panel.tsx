@@ -78,6 +78,19 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
   const [taskDue, setTaskDue] = React.useState("");
   const [creatingTask, setCreatingTask] = React.useState(false);
 
+  // AI Sentiment
+  type SentimentData = {
+    overall_sentiment: string;
+    confidence: number;
+    engagement_level: string;
+    tone_keywords: string[];
+    risk_signals: string[];
+    momentum: string;
+    summary: string;
+  };
+  const [sentiment, setSentiment] = React.useState<SentimentData | null>(null);
+  const [sentimentLoading, setSentimentLoading] = React.useState(false);
+
   // Custom fields
   type CustomField = { id: string; field_name: string; label: string; field_type: string; options: string[] | null; required: boolean; board_type: string | null };
   const [customFields, setCustomFields] = React.useState<CustomField[]>([]);
@@ -102,6 +115,7 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
         fetch(`/api/docs?entity_type=deal&entity_id=${deal.id}`).then((r) => r.json()).then((d) => setLinkedDocs(d.docs ?? [])).catch(() => setLinkedDocs([])),
         fetch("/api/pipeline/fields").then((r) => r.json()).then((d) => setCustomFields(d.fields ?? [])).catch(() => {}),
         fetch(`/api/deals/${deal.id}`).then((r) => r.json()).then((d) => setCustomValues(d.custom_fields ?? {})).catch(() => {}),
+        fetch(`/api/deals/${deal.id}/sentiment`).then((r) => r.json()).then((d) => setSentiment(d.sentiment ?? null)).catch(() => setSentiment(null)),
       ]).finally(() => setLoadingContent(false));
     }
   }, [deal, open]);
@@ -400,6 +414,74 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
                 </div>
               </div>
             )}
+
+            {/* AI Sentiment */}
+            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-medium text-muted-foreground">AI Sentiment</span>
+                <button
+                  onClick={async () => {
+                    if (!deal) return;
+                    setSentimentLoading(true);
+                    try {
+                      const res = await fetch(`/api/deals/${deal.id}/sentiment`, { method: "POST" });
+                      if (res.ok) {
+                        const data = await res.json();
+                        setSentiment(data.sentiment);
+                        toast.success("Sentiment analyzed");
+                      }
+                    } finally {
+                      setSentimentLoading(false);
+                    }
+                  }}
+                  className="text-[10px] text-primary hover:underline"
+                  disabled={sentimentLoading}
+                >
+                  {sentimentLoading ? "Analyzing..." : sentiment ? "Refresh" : "Analyze"}
+                </button>
+              </div>
+              {sentiment ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    <span className={cn(
+                      "rounded-full px-2 py-0.5 text-[10px] font-medium capitalize",
+                      sentiment.overall_sentiment === "positive" ? "bg-emerald-500/20 text-emerald-400" :
+                      sentiment.overall_sentiment === "negative" ? "bg-red-500/20 text-red-400" :
+                      sentiment.overall_sentiment === "mixed" ? "bg-amber-500/20 text-amber-400" :
+                      "bg-white/10 text-muted-foreground"
+                    )}>
+                      {sentiment.overall_sentiment}
+                    </span>
+                    <span className={cn(
+                      "rounded-full px-2 py-0.5 text-[10px] font-medium capitalize",
+                      sentiment.momentum === "accelerating" ? "bg-emerald-500/10 text-emerald-400" :
+                      sentiment.momentum === "declining" ? "bg-red-500/10 text-red-400" :
+                      "bg-white/5 text-muted-foreground"
+                    )}>
+                      {sentiment.momentum}
+                    </span>
+                    <span className="text-[9px] text-muted-foreground">
+                      {sentiment.confidence}% confidence
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">{sentiment.summary}</p>
+                  {sentiment.tone_keywords.length > 0 && (
+                    <div className="flex items-center gap-1 flex-wrap">
+                      {sentiment.tone_keywords.map((kw) => (
+                        <span key={kw} className="rounded bg-white/5 px-1.5 py-0.5 text-[8px] text-muted-foreground">{kw}</span>
+                      ))}
+                    </div>
+                  )}
+                  {sentiment.risk_signals.length > 0 && (
+                    <div className="text-[9px] text-red-400">
+                      Risks: {sentiment.risk_signals.join(", ")}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="text-[10px] text-muted-foreground/50">Click Analyze to assess conversation sentiment.</p>
+              )}
+            </div>
 
             {/* Contact info (read-only for now) */}
             {deal.contact && (
