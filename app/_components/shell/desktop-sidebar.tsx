@@ -36,6 +36,7 @@ const SETTINGS_ITEMS = [
   { href: "/settings/ai-agent", label: "AI Agent" },
   { href: "/settings/automations", label: "Automations" },
   { href: "/settings/webhooks", label: "Webhooks" },
+  { href: "/settings/privacy", label: "Privacy & GDPR" },
   { href: "/settings/notifications", label: "Notification Log" },
 ] as const;
 
