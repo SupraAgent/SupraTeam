@@ -160,10 +160,13 @@ TELEGRAM_BOT_TOKEN=              # Phase 2
 | Phase | Status | Scope |
 |-------|--------|-------|
 | Phase 0: Foundation | Done | Repo, scaffold, auth, app shell, migration, page stubs |
-| Phase 1: CRM Core | Next | Kanban drag-drop, deals/contacts CRUD, board views, deal detail |
-| Phase 2: Telegram Bot | Pending | grammy bot, group registration, stage-change messages, templates |
-| Phase 3: Access Control | Pending | Slugs, matrix UI, bulk add/remove, audit log, automations, broadcasts |
-| Phase 4: Polish | Pending | Mobile, performance, error handling, onboarding |
+| Phase 1: CRM Core | Done | Kanban drag-drop, deals/contacts CRUD, board views, deal detail, tasks, custom fields, dedup, AI agent, workflows, broadcasts, sequences, GDPR, onboarding |
+| **P0: TG Moat** | **Next** | TG conversation timeline in deal detail, full TMA (tasks, AI chat, broadcasts), outreach sequence branching |
+| P1: Scale | Pending | Bot drip sequences, auto-assignment rules, engagement scoring, unified inbox, saved views |
+| P2: #1 | Pending | Payment tracking, AI chatbot flows, public REST API, TG folder sync, custom fields on deals/groups |
+| P3: Polish | Pending | AI summaries, multi-workspace, QR capture, calendar/timeline views |
+
+**Target:** CRMChat (#1 at 80.5). Current score: ~64. See `strategic-roadmap.md` for full competitive analysis.
 
 ---
 
