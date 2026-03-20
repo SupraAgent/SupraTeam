@@ -159,6 +159,35 @@ Two independent, unbiased product reviewers audited the SupraCRM codebase agains
 - Groups page: per-group bot assignment dropdown, bot filter, bulk assign bot
 - Backwards-compatible: falls back to `TELEGRAM_BOT_TOKEN` env var if no bots registered
 
+### v3 Improvements (2026-03-20) — Categories 1, 4, 15
+
+#### #15 Personalization / Merge Variables (74 → ~82, gap -8 → ~0)
+- Template engine: text transform filters (`|upper`, `|lower`, `|capitalize`, `|truncate:N`, `|currency`, `|number`)
+- Date formatting filters (`|date:short`, `|date:long`, `|date:relative`, `|date:iso`)
+- Numeric conditional blocks: `{{#ifgt var N}}...{{/ifgt}}`, `{{#iflt var N}}...{{/iflt}}`
+- Expanded merge variables from 12 to 27: deal_age_days, stage_days, probability, weighted_value, expected_close, contact_tags, group_name, group_member_count, group_slugs, sender_email, current_time, current_month, current_year
+- Broadcasts UI: categorized expandable variable picker with 5 categories + filter panel
+
+#### #1 Kanban Pipeline Management (80 → ~88, gap -10 → ~-2)
+- Weighted pipeline summary bar with colored stage segments and value/weighted totals
+- Collapsible columns with vertical label showing name, count, and abbreviated value
+- Per-column weighted value display alongside total value
+- WIP limit indicator (red badge + "WIP" tag when column exceeds 10 deals)
+- Stage legend with deal counts below pipeline bar
+
+#### #4 Task Assignment & Reminders (73 → ~83, gap -12 → ~-2)
+- Priority levels (urgent/high/normal/low) with color-coded indicators and badges
+- "My Tasks" and "Overdue" filter tabs with contextual count badges
+- Assignee display with avatar in task list rows
+- Inline priority picker dropdown on each task
+- Team member assignment dropdown in task creation form
+- Smart sorting: urgent first → overdue → by due date
+- Overdue visual highlighting (red border, red text, AlertTriangle icon)
+- New API actions: `set_priority`, `reassign`
+- Migration `032_task_priority.sql` for priority column with index
+
+**Estimated v3 weighted score: ~68-70 (up from ~64)**
+
 ---
 
 ## Scoring Methodology
