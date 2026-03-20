@@ -10,10 +10,12 @@ import { UndoSendProvider, UndoSendBar } from "@/components/email/undo-send-bar"
 import { SnoozePicker } from "@/components/email/snooze-picker";
 import { AdvancedSearch } from "@/components/email/advanced-search";
 import { KeyboardHelp } from "@/components/email/keyboard-help";
-import { useThreads, useThread, useLabels, useEmailActions, useEmailKeyboard, useEmailConnections, useSplitInbox, usePrefetchThread, useBatchPrefetch } from "@/lib/email/hooks";
+import { useThreads, useThread, useLabels, useEmailActions, useEmailKeyboard, useEmailConnections, useSplitInbox, useAICategories, usePrefetchThread, useBatchPrefetch, useGmailPush } from "@/lib/email/hooks";
 import { INBOX_CATEGORIES, type InboxCategory } from "@/lib/email/types";
 import { EmailErrorBoundary } from "@/components/email/error-boundary";
 import { toast } from "sonner";
+import { CommandPalette } from "@/components/email/command-palette";
+import { AutoDraftBanner } from "@/components/email/auto-draft";
 
 export default function EmailPage() {
   return (
@@ -50,6 +52,13 @@ function EmailPageInner() {
   const [composeThreadId, setComposeThreadId] = React.useState<string>();
   const [composeMessageId, setComposeMessageId] = React.useState<string>();
 
+  // Multi-select state
+  const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
+  const hasSelection = selectedIds.size > 0;
+
+  // Command palette state
+  const [commandPaletteOpen, setCommandPaletteOpen] = React.useState(false);
+
   // Snooze state
   const [snoozeOpen, setSnoozeOpen] = React.useState(false);
   const [snoozeThreadId, setSnoozeThreadId] = React.useState<string | null>(null);
@@ -62,11 +71,15 @@ function EmailPageInner() {
   const { thread: activeThread, loading: threadLoading } = useThread(selectedThreadId);
   const { labels, loading: labelsLoading } = useLabels();
   const { performAction, undoAction } = useEmailActions(setThreads);
-  const { split, counts } = useSplitInbox(threads);
+  const aiCategories = useAICategories(threads);
+  const { split, counts } = useSplitInbox(threads, aiCategories);
   const prefetchThread = usePrefetchThread();
 
   // Batch-prefetch first 3 threads for instant navigation
   useBatchPrefetch(threads);
+
+  // Gmail Pub/Sub push — refresh on new mail
+  useGmailPush(refresh);
 
   // Visible threads based on active category
   const visibleThreads = activeCategory === "all" ? threads : split[activeCategory];
@@ -151,6 +164,52 @@ function EmailPageInner() {
     }
   }
 
+  // Bulk actions on multi-selected threads
+  function handleBulkArchive() {
+    for (const id of selectedIds) performAction(id, "archive");
+    toast(`Archived ${selectedIds.size} threads`);
+    setSelectedIds(new Set());
+    setSelectedThreadId(null);
+  }
+
+  function handleBulkTrash() {
+    for (const id of selectedIds) performAction(id, "trash");
+    toast(`Trashed ${selectedIds.size} threads`);
+    setSelectedIds(new Set());
+    setSelectedThreadId(null);
+  }
+
+  function handleBulkStar() {
+    for (const id of selectedIds) performAction(id, "star");
+    setSelectedIds(new Set());
+  }
+
+  function handleBulkRead() {
+    for (const id of selectedIds) performAction(id, "read");
+    setSelectedIds(new Set());
+  }
+
+  function handleCommandAction(action: string) {
+    switch (action) {
+      case "archive": handleArchive(); break;
+      case "trash": handleTrash(); break;
+      case "star": handleStar(); break;
+      case "unread": handleMarkUnread(); break;
+      case "snooze": handleSnooze(); break;
+      case "reply": openCompose("reply", selectedThreadId ?? undefined); break;
+      case "replyAll": openCompose("replyAll", selectedThreadId ?? undefined); break;
+      case "forward": openCompose("forward", selectedThreadId ?? undefined); break;
+      case "compose": openCompose("compose"); break;
+      case "goInbox": setActiveLabel("INBOX"); setSelectedThreadId(null); setSearchQuery(""); break;
+      case "goStarred": setActiveLabel("STARRED"); setSelectedThreadId(null); setSearchQuery(""); break;
+      case "goSent": setActiveLabel("SENT"); setSelectedThreadId(null); setSearchQuery(""); break;
+      case "goDrafts": setActiveLabel("DRAFT"); setSelectedThreadId(null); setSearchQuery(""); break;
+      case "search": setAdvancedSearchOpen(true); break;
+      case "help": setKeyboardHelpOpen((v) => !v); break;
+      case "refresh": refresh(); break;
+    }
+  }
+
   function openCompose(mode: "compose" | "reply" | "replyAll" | "forward", threadId?: string, messageId?: string) {
     setComposeMode(mode);
     setComposeThreadId(threadId);
@@ -211,8 +270,24 @@ function EmailPageInner() {
     onGoSent: () => { setActiveLabel("SENT"); setSelectedThreadId(null); setSearchQuery(""); },
     onGoDrafts: () => { setActiveLabel("DRAFT"); setSelectedThreadId(null); setSearchQuery(""); },
     onGoAll: () => { setSearchQuery("in:anywhere"); setSelectedThreadId(null); },
+    onToggleSelect: () => {
+      const id = selectedThreadId ?? visibleThreads[selectedIndex]?.id;
+      if (id) {
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          if (next.has(id)) next.delete(id);
+          else next.add(id);
+          return next;
+        });
+      }
+    },
+    onSelectAll: () => {
+      setSelectedIds(new Set(visibleThreads.map((t) => t.id)));
+    },
+    onDeselectAll: () => setSelectedIds(new Set()),
     onShowHelp: () => setKeyboardHelpOpen((v) => !v),
-  }, !composeOpen && !snoozeOpen && !advancedSearchOpen && !keyboardHelpOpen);
+    onCommandPalette: () => setCommandPaletteOpen(true),
+  }, !composeOpen && !snoozeOpen && !advancedSearchOpen && !keyboardHelpOpen && !commandPaletteOpen);
 
   // ── Render ───────────────────────────────────────────────
 
@@ -331,9 +406,26 @@ function EmailPageInner() {
           </div>
         )}
 
+        {/* Bulk action bar */}
+        {hasSelection && (
+          <div className="px-3 py-2 border-b border-white/10 flex items-center gap-2 shrink-0" style={{ backgroundColor: "hsl(var(--surface-2))" }}>
+            <span className="text-xs text-foreground font-medium">{selectedIds.size} selected</span>
+            <div className="flex items-center gap-1 ml-auto">
+              <BulkButton label="Archive" onClick={handleBulkArchive} />
+              <BulkButton label="Trash" onClick={handleBulkTrash} />
+              <BulkButton label="Star" onClick={handleBulkStar} />
+              <BulkButton label="Read" onClick={handleBulkRead} />
+              <button onClick={() => setSelectedIds(new Set())} className="text-[10px] text-muted-foreground hover:text-foreground ml-1">
+                Clear
+              </button>
+            </div>
+          </div>
+        )}
+
         <ThreadList
           threads={visibleThreads}
           selectedId={selectedThreadId}
+          selectedIds={selectedIds}
           onSelect={(id) => {
             setSelectedThreadId(id);
             setSelectedIndex(visibleThreads.findIndex((t) => t.id === id));
@@ -341,6 +433,14 @@ function EmailPageInner() {
             setThreads((prev) =>
               prev.map((t) => (t.id === id && t.isUnread ? { ...t, isUnread: false } : t))
             );
+          }}
+          onToggleSelect={(id) => {
+            setSelectedIds((prev) => {
+              const next = new Set(prev);
+              if (next.has(id)) next.delete(id);
+              else next.add(id);
+              return next;
+            });
           }}
           loading={loading}
           onLoadMore={activeCategory === "all" ? loadMore : undefined}
@@ -363,18 +463,30 @@ function EmailPageInner() {
         !selectedThreadId && "hidden md:flex"
       )}>
         {activeThread ? (
-          <ThreadView
-            thread={activeThread}
-            loading={threadLoading}
-            onReply={() => openCompose("reply", selectedThreadId ?? undefined)}
-            onReplyAll={() => openCompose("replyAll", selectedThreadId ?? undefined)}
-            onForward={(msgId) => openCompose("forward", selectedThreadId ?? undefined, msgId)}
-            onArchive={handleArchive}
-            onTrash={handleTrash}
-            onStar={handleStar}
-            onMarkUnread={handleMarkUnread}
-            onBack={() => setSelectedThreadId(null)}
-          />
+          <>
+            <ThreadView
+              thread={activeThread}
+              loading={threadLoading}
+              onReply={() => openCompose("reply", selectedThreadId ?? undefined)}
+              onReplyAll={() => openCompose("replyAll", selectedThreadId ?? undefined)}
+              onForward={(msgId) => openCompose("forward", selectedThreadId ?? undefined, msgId)}
+              onArchive={handleArchive}
+              onTrash={handleTrash}
+              onStar={handleStar}
+              onMarkUnread={handleMarkUnread}
+              onBack={() => setSelectedThreadId(null)}
+            />
+            <AutoDraftBanner
+              threadId={selectedThreadId}
+              onUseDraft={(text) => {
+                openCompose("reply", selectedThreadId ?? undefined);
+                // Small delay to let compose modal mount, then we'd need to prefill
+                // For now, copy to clipboard as fallback
+                navigator.clipboard?.writeText(text).catch(() => {});
+                toast("Draft copied — paste into reply");
+              }}
+            />
+          </>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-2">
             <MailOpenIcon className="h-10 w-10 opacity-30" />
@@ -452,6 +564,13 @@ function EmailPageInner() {
         initialQuery={searchQuery}
       />
 
+      {/* Command palette */}
+      <CommandPalette
+        open={commandPaletteOpen}
+        onClose={() => setCommandPaletteOpen(false)}
+        onAction={handleCommandAction}
+      />
+
       {/* Compose modal */}
       <ComposeModal
         open={composeOpen}
@@ -462,9 +581,30 @@ function EmailPageInner() {
         onSent={() => {
           refresh();
         }}
+        onSentAndArchive={() => {
+          if (composeThreadId) {
+            performAction(composeThreadId, "archive");
+            toast("Sent & Archived");
+            setSelectedThreadId(null);
+          }
+          refresh();
+        }}
       />
     </div>
     </EmailErrorBoundary>
+  );
+}
+
+// ── Bulk action button ────────────────────────────────────
+
+function BulkButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="rounded-md px-2 py-1 text-[10px] font-medium text-foreground bg-white/5 hover:bg-white/10 border border-white/10 transition"
+    >
+      {label}
+    </button>
   );
 }
 

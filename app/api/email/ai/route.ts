@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { getDriverForUser } from "@/lib/email/driver";
+import { logEmailAction } from "@/lib/email/audit";
 
 /**
  * POST: AI email features
@@ -22,12 +23,13 @@ export async function POST(request: Request) {
   }
 
   let body: {
-    action: "draft" | "compose" | "summarize" | "search" | "adjust-tone";
+    action: "draft" | "compose" | "summarize" | "search" | "adjust-tone" | "categorize";
     threadId?: string;
     prompt?: string;
     tone?: string;
     text?: string;
     messages?: { role: string; content: string }[];
+    threads?: { id: string; subject: string; snippet: string; from: string }[];
   };
 
   try {
@@ -56,6 +58,13 @@ export async function POST(request: Request) {
           },
         ]);
 
+        logEmailAction(auth.admin, {
+          userId: auth.user.id,
+          action: `ai_${body.action}`,
+          threadId: body.threadId,
+          metadata: { action: body.action },
+        });
+
         return NextResponse.json({ data: { draft }, source: "ai" });
       }
 
@@ -73,6 +82,13 @@ export async function POST(request: Request) {
         // Parse subject and body
         const subjectMatch = composed.match(/SUBJECT:\s*(.+)/);
         const bodyMatch = composed.match(/BODY:\s*([\s\S]+)/);
+
+        logEmailAction(auth.admin, {
+          userId: auth.user.id,
+          action: `ai_${body.action}`,
+          threadId: body.threadId,
+          metadata: { action: body.action },
+        });
 
         return NextResponse.json({
           data: {
@@ -100,6 +116,13 @@ export async function POST(request: Request) {
           },
         ]);
 
+        logEmailAction(auth.admin, {
+          userId: auth.user.id,
+          action: `ai_${body.action}`,
+          threadId: body.threadId,
+          metadata: { action: body.action },
+        });
+
         return NextResponse.json({ data: { summary }, source: "ai" });
       }
 
@@ -114,7 +137,50 @@ export async function POST(request: Request) {
           },
         ]);
 
+        logEmailAction(auth.admin, {
+          userId: auth.user.id,
+          action: `ai_${body.action}`,
+          threadId: body.threadId,
+          metadata: { action: body.action },
+        });
+
         return NextResponse.json({ data: { query: searchQuery.trim() }, source: "ai" });
+      }
+
+      case "categorize": {
+        if (!body.threads?.length) {
+          return NextResponse.json({ error: "threads required for categorize" }, { status: 400 });
+        }
+
+        const threadSummary = body.threads
+          .map((t, i) => `${i + 1}. ID: ${t.id}\n   From: ${t.from}\n   Subject: ${t.subject}\n   Preview: ${t.snippet}`)
+          .join("\n\n");
+
+        const result = await callClaude(apiKey, [{
+          role: "user",
+          content: `Categorize each email thread into exactly one category. Categories:
+- vip: From executives, investors, key partners, or about active deals
+- action_required: Needs a reply or action from the reader
+- fyi: Informational updates, CC'd threads, status reports
+- newsletter: Marketing emails, newsletters, promotional content
+- other: Everything else
+
+Respond with ONLY a JSON object mapping thread ID to category. Example:
+{"abc123": "vip", "def456": "newsletter"}
+
+Threads to categorize:
+
+${threadSummary}`
+        }]);
+
+        // Parse the JSON response
+        try {
+          const cleaned = result.replace(/```json\n?|\n?```/g, "").trim();
+          const categories = JSON.parse(cleaned);
+          return NextResponse.json({ data: { categories }, source: "ai" });
+        } catch {
+          return NextResponse.json({ data: { categories: {} }, source: "ai" });
+        }
       }
 
       case "adjust-tone": {
@@ -127,6 +193,13 @@ export async function POST(request: Request) {
             content: `Rewrite this email in a ${body.tone} tone. Only output the rewritten text:\n\n${body.text}`,
           },
         ]);
+
+        logEmailAction(auth.admin, {
+          userId: auth.user.id,
+          action: `ai_${body.action}`,
+          threadId: body.threadId,
+          metadata: { action: body.action },
+        });
 
         return NextResponse.json({ data: { text: adjusted }, source: "ai" });
       }

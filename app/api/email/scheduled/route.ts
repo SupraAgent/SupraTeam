@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
+import { logEmailAction } from "@/lib/email/audit";
 
 /** GET: List user's scheduled email actions */
 export async function GET(request: Request) {
@@ -61,6 +62,14 @@ export async function POST(request: Request) {
   if (error) {
     return NextResponse.json({ error: "Failed to schedule" }, { status: 500 });
   }
+
+  // Audit log — fire-and-forget, don't block response
+  logEmailAction(auth.admin, {
+    userId: auth.user.id,
+    action: `email_${body.type}`,
+    threadId: body.thread_id,
+    metadata: { scheduled_for: body.scheduled_for, connection_id: body.connection_id },
+  });
 
   return NextResponse.json({ data, source: "supabase" });
 }

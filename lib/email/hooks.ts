@@ -3,13 +3,14 @@
 import * as React from "react";
 import type { Thread, ThreadList, ThreadListItem, Label, EmailConnection, InboxCategory } from "./types";
 import { cacheThreads, getCachedThreads, cacheFullThread, getCachedMessages } from "./idb-cache";
+import { createClient } from "@/lib/supabase/client";
 
 // ── Thread cache (module-level singleton) ────────────────────
 
 const threadCache = new Map<string, { data: Thread; ts: number }>();
 const listCache = new Map<string, { data: ThreadListItem[]; ts: number; nextPageToken?: string }>();
 const CACHE_TTL = 30_000; // 30s stale-while-revalidate window
-const POLL_INTERVAL = 30_000; // 30s background refresh
+const POLL_INTERVAL = 120_000; // 120s fallback polling (push handles real-time)
 const PREFETCH_BATCH = 3; // prefetch first N threads on list load
 
 function getCachedThread(id: string): Thread | null {
@@ -322,13 +323,11 @@ export function useLabels() {
 
 // Gmail category label IDs
 const CATEGORY_MAP: Record<string, InboxCategory> = {
-  CATEGORY_PERSONAL: "important",
-  CATEGORY_SOCIAL: "updates",
-  CATEGORY_PROMOTIONS: "other",
-  CATEGORY_UPDATES: "updates",
-  CATEGORY_FORUMS: "other",
-  IMPORTANT: "important",
-  STARRED: "important",
+  "CATEGORY_PERSONAL": "vip",
+  "CATEGORY_SOCIAL": "fyi",
+  "CATEGORY_PROMOTIONS": "newsletter",
+  "CATEGORY_UPDATES": "fyi",
+  "CATEGORY_FORUMS": "other",
 };
 
 // Heuristic: categorize based on labels and sender patterns
@@ -339,53 +338,124 @@ export function categorizeThread(thread: ThreadListItem): InboxCategory {
     if (cat) return cat;
   }
 
-  // Heuristic: noreply/notifications → updates
+  // Heuristic: noreply/notifications → fyi
   const senderEmail = thread.from[0]?.email ?? "";
   if (
-    senderEmail.includes("noreply") ||
-    senderEmail.includes("no-reply") ||
-    senderEmail.includes("notifications") ||
-    senderEmail.includes("notify") ||
-    senderEmail.includes("mailer-daemon") ||
-    senderEmail.includes("digest") ||
+    senderEmail.includes("noreply") || senderEmail.includes("no-reply") ||
+    senderEmail.includes("notifications") || senderEmail.includes("notify") ||
+    senderEmail.includes("mailer-daemon") || senderEmail.includes("digest") ||
     senderEmail.includes("updates@")
-  ) {
-    return "updates";
-  }
+  ) return "fyi";
 
-  // Heuristic: newsletter/marketing patterns → other
+  // Heuristic: newsletter/marketing patterns → newsletter
   if (
-    senderEmail.includes("newsletter") ||
-    senderEmail.includes("marketing") ||
-    senderEmail.includes("promo") ||
-    senderEmail.includes("info@") ||
-    senderEmail.includes("hello@") ||
-    senderEmail.includes("team@")
-  ) {
-    return "other";
-  }
+    senderEmail.includes("newsletter") || senderEmail.includes("marketing") ||
+    senderEmail.includes("promo") || senderEmail.includes("info@")
+  ) return "newsletter";
 
-  // Default: important (direct human emails)
-  return "important";
+  // Default: assume direct emails need action
+  return "action_required";
 }
 
-export function useSplitInbox(threads: ThreadListItem[]) {
+// ── AI-powered categorization ───────────────────────────────
+
+const aiCategoryCache = new Map<string, InboxCategory>();
+
+export function useAICategories(threads: ThreadListItem[]) {
+  const [categories, setCategories] = React.useState<Map<string, InboxCategory>>(new Map());
+  const fetchedRef = React.useRef(new Set<string>());
+
+  React.useEffect(() => {
+    // Find threads not yet categorized by AI
+    const uncategorized = threads.filter(t => !aiCategoryCache.has(t.id) && !fetchedRef.current.has(t.id));
+    if (uncategorized.length === 0) {
+      // Return cached results
+      const cached = new Map<string, InboxCategory>();
+      for (const t of threads) {
+        const cat = aiCategoryCache.get(t.id);
+        if (cat) cached.set(t.id, cat);
+      }
+      if (cached.size > 0) setCategories(cached);
+      return;
+    }
+
+    // Mark as in-flight
+    for (const t of uncategorized) fetchedRef.current.add(t.id);
+
+    // Batch up to 20
+    const batch = uncategorized.slice(0, 20).map(t => ({
+      id: t.id,
+      subject: t.subject,
+      snippet: t.snippet,
+      from: t.from[0]?.email ?? "",
+    }));
+
+    fetch("/api/email/ai", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "categorize", threads: batch }),
+    })
+      .then(r => r.json())
+      .then(json => {
+        const cats = json.data?.categories ?? {};
+        const updated = new Map(categories);
+        for (const [id, cat] of Object.entries(cats)) {
+          aiCategoryCache.set(id, cat as InboxCategory);
+          updated.set(id, cat as InboxCategory);
+        }
+        setCategories(updated);
+      })
+      .catch(() => {});
+  }, [threads]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return categories;
+}
+
+export function useSplitInbox(threads: ThreadListItem[], aiCategories?: Map<string, InboxCategory>) {
   return React.useMemo(() => {
     const split: Record<InboxCategory, ThreadListItem[]> = {
-      important: [],
-      updates: [],
-      other: [],
+      vip: [], action_required: [], fyi: [], newsletter: [], other: [],
     };
-    const counts: Record<InboxCategory, number> = { important: 0, updates: 0, other: 0 };
+    const counts: Record<InboxCategory, number> = {
+      vip: 0, action_required: 0, fyi: 0, newsletter: 0, other: 0,
+    };
 
     for (const thread of threads) {
-      const cat = categorizeThread(thread);
+      const cat = aiCategories?.get(thread.id) ?? categorizeThread(thread);
       split[cat].push(thread);
       if (thread.isUnread) counts[cat]++;
     }
 
     return { split, counts };
-  }, [threads]);
+  }, [threads, aiCategories]);
+}
+
+// ── Gmail Pub/Sub push notifications ────────────────────────
+
+export function useGmailPush(onNewMail: () => void) {
+  React.useEffect(() => {
+    // Register watch on mount (fire-and-forget)
+    fetch("/api/email/watch", { method: "POST" }).catch(() => {});
+
+    // Subscribe to Realtime push events via Supabase
+    const supabase = createClient();
+    if (!supabase) return;
+
+    const channel = supabase
+      .channel("gmail-push")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "crm_email_push_events" },
+        () => {
+          onNewMail();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      channel.unsubscribe();
+    };
+  }, [onNewMail]);
 }
 
 // ── Thread actions (optimistic) ─────────────────────────────
@@ -503,6 +573,9 @@ type KeyboardActions = {
   onArchivePrev: () => void;
   onSnooze: () => void;
   onSendAndArchive?: () => void;
+  onToggleSelect?: () => void;
+  onSelectAll?: () => void;
+  onDeselectAll?: () => void;
   // Vim-style g-chord navigation
   onGoInbox?: () => void;
   onGoStarred?: () => void;
@@ -510,6 +583,7 @@ type KeyboardActions = {
   onGoDrafts?: () => void;
   onGoAll?: () => void;
   onShowHelp?: () => void;
+  onCommandPalette?: () => void;
 };
 
 export function useEmailKeyboard(actions: KeyboardActions, enabled = true) {
@@ -535,7 +609,7 @@ export function useEmailKeyboard(actions: KeyboardActions, enabled = true) {
       if (e.metaKey || e.ctrlKey) {
         if (e.key === "k") {
           e.preventDefault();
-          actions.onSearch();
+          actions.onCommandPalette?.();
           return;
         }
         if (e.key === "Enter" && actions.onSendAndArchive) {
@@ -637,10 +711,20 @@ export function useEmailKeyboard(actions: KeyboardActions, enabled = true) {
           e.preventDefault();
           actions.onTrash();
           break;
+        case "x":
+          e.preventDefault();
+          actions.onToggleSelect?.();
+          break;
         case "?":
           e.preventDefault();
           actions.onShowHelp?.();
           break;
+      }
+
+      // Shift combos
+      if (e.shiftKey && e.key === "A") {
+        e.preventDefault();
+        actions.onSelectAll?.();
       }
     }
 

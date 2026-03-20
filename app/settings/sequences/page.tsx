@@ -89,9 +89,17 @@ export default function SequencesPage() {
             Multi-step outreach campaigns. Enroll contacts from deal pages.
           </p>
         </div>
-        <Button size="sm" onClick={openCreate}>
-          New Sequence
-        </Button>
+        <div className="flex items-center gap-2">
+          <a
+            href="/settings/sequences/analytics"
+            className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-white/10 transition"
+          >
+            Analytics
+          </a>
+          <Button size="sm" onClick={openCreate}>
+            New Sequence
+          </Button>
+        </div>
       </div>
 
       <div className="space-y-3">

@@ -5,17 +5,22 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
+import Image from "@tiptap/extension-image";
 import { cn } from "@/lib/utils";
 
 type RichEditorProps = {
   content: string;
   onChange: (html: string, text: string) => void;
+  onFilesAdded?: (files: File[]) => void;
   placeholder?: string;
   autoFocus?: boolean;
   className?: string;
 };
 
-export function RichEditor({ content, onChange, placeholder, autoFocus, className }: RichEditorProps) {
+export function RichEditor({ content, onChange, onFilesAdded, placeholder, autoFocus, className }: RichEditorProps) {
+  const onFilesAddedRef = React.useRef(onFilesAdded);
+  onFilesAddedRef.current = onFilesAdded;
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -31,6 +36,11 @@ export function RichEditor({ content, onChange, placeholder, autoFocus, classNam
       Placeholder.configure({
         placeholder: placeholder ?? "Write your message...",
       }),
+      Image.configure({
+        inline: true,
+        allowBase64: true,
+        HTMLAttributes: { style: "max-width:100%;border-radius:8px" },
+      }),
     ],
     content,
     autofocus: autoFocus ? "end" : false,
@@ -41,7 +51,7 @@ export function RichEditor({ content, onChange, placeholder, autoFocus, classNam
           "[&_blockquote]:border-l-2 [&_blockquote]:border-white/10 [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground " +
           "[&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 " +
           "[&_h1]:text-lg [&_h1]:font-bold [&_h2]:text-base [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold " +
-          "[&_p]:my-1",
+          "[&_p]:my-1 [&_img]:rounded-lg [&_img]:max-w-full",
       },
     },
     onUpdate: ({ editor }) => {
@@ -56,10 +66,67 @@ export function RichEditor({ content, onChange, placeholder, autoFocus, classNam
     }
   }, [content, editor]);
 
+  const [dragOver, setDragOver] = React.useState(false);
+
+  function handleFiles(files: File[]) {
+    if (files.length === 0) return;
+    const imageFiles = files.filter((f) => f.type.startsWith("image/"));
+    const otherFiles = files.filter((f) => !f.type.startsWith("image/"));
+
+    // Insert images inline as base64
+    for (const file of imageFiles) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        editor?.chain().focus().setImage({ src: reader.result as string, alt: file.name }).run();
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // Notify parent about all files (for attachment list)
+    if (files.length > 0) onFilesAddedRef.current?.(otherFiles.length > 0 ? otherFiles : []);
+    // Also add images to attachment list if parent wants them
+    if (imageFiles.length > 0) onFilesAddedRef.current?.(imageFiles);
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+    const files = Array.from(e.dataTransfer.files);
+    handleFiles(files);
+  }
+
+  function handlePaste(e: React.ClipboardEvent) {
+    const files = Array.from(e.clipboardData.files);
+    if (files.length === 0) return;
+    e.preventDefault();
+    handleFiles(files);
+  }
+
   if (!editor) return null;
 
   return (
-    <div className={cn("rounded-xl border border-white/10 bg-white/5 overflow-hidden", className)}>
+    <div
+      className={cn(
+        "rounded-xl border border-white/10 bg-white/5 overflow-hidden relative transition-colors",
+        dragOver && "border-primary/50 bg-primary/5",
+        className
+      )}
+      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(true); }}
+      onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(false); }}
+      onDrop={handleDrop}
+      onPaste={handlePaste}
+    >
+      {/* Drop overlay */}
+      {dragOver && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40 backdrop-blur-[2px] rounded-xl pointer-events-none">
+          <div className="flex flex-col items-center gap-1.5 text-primary">
+            <DropIcon className="h-8 w-8" />
+            <span className="text-xs font-medium">Drop files here</span>
+          </div>
+        </div>
+      )}
+
       {/* Toolbar */}
       <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-white/10 flex-wrap">
         <ToolbarButton
@@ -205,4 +272,8 @@ function CodeIcon({ className }: { className?: string }) {
 
 function LinkIcon({ className }: { className?: string }) {
   return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" /></svg>;
+}
+
+function DropIcon({ className }: { className?: string }) {
+  return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>;
 }
