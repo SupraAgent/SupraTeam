@@ -1,10 +1,19 @@
 import { NextResponse } from "next/server";
 
 /**
- * Verify cron requests come from Vercel or include the correct auth token.
- * Vercel cron jobs include an Authorization header with CRON_SECRET.
+ * Verify cron requests come from a trusted source.
+ * Supports:
+ *  - Railway cron services (no auth needed — internal network only)
+ *  - Vercel cron (Authorization: Bearer <CRON_SECRET>)
+ *  - External schedulers (Authorization: Bearer <CRON_SECRET>)
+ *
+ * Set CRON_SECRET env var to enable auth. Without it, all requests are allowed (dev mode).
+ * Set RAILWAY_ENVIRONMENT to skip auth for Railway internal cron calls.
  */
 export function verifyCron(request: Request): NextResponse | null {
+  // Railway cron services call via internal network — trust them
+  if (process.env.RAILWAY_ENVIRONMENT) return null;
+
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) return null; // No secret configured, allow (dev mode)
 
