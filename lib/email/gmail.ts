@@ -37,7 +37,9 @@ export class GmailDriver implements MailDriver {
       access_token: config.accessToken,
       refresh_token: config.refreshToken,
     });
-    this.gmail = google.gmail({ version: "v1", auth: this.auth });
+    // HTTP/2: multiplex all concurrent Gmail API calls over a single TCP connection
+    // On Railway's persistent process, the connection stays warm between requests
+    this.gmail = google.gmail({ version: "v1", auth: this.auth, http2: true });
 
     // Persist refreshed tokens back to database
     this.auth.on("tokens", async (tokens) => {
@@ -71,7 +73,8 @@ export class GmailDriver implements MailDriver {
       pageToken: params.pageToken,
     });
 
-    // Fetch all threads in parallel (fixes N+1)
+    // Fetch all threads in parallel with minimal fields
+    // HTTP/2 multiplexes these over a single TCP connection on Railway
     const threadData = await Promise.all(
       (res.data.threads ?? []).map((t) =>
         this.gmail.users.threads.get({
@@ -79,6 +82,7 @@ export class GmailDriver implements MailDriver {
           id: t.id!,
           format: "METADATA",
           metadataHeaders: ["Subject", "From", "To", "Date"],
+          fields: "id,snippet,messages(id,labelIds,internalDate,payload/headers)",
         })
       )
     );
@@ -130,27 +134,42 @@ export class GmailDriver implements MailDriver {
     await this.gmail.users.threads.trash({ userId: "me", id: threadId });
   }
 
-  async toggleStar(threadId: string): Promise<void> {
-    // Get current state
-    const thread = await this.gmail.users.threads.get({
-      userId: "me",
-      id: threadId,
-      format: "MINIMAL",
-    });
-    const firstMsg = thread.data.messages?.[0];
-    const isStarred = firstMsg?.labelIds?.includes("STARRED") ?? false;
+  async toggleStar(threadId: string, currentlyStarred?: boolean): Promise<void> {
+    if (currentlyStarred !== undefined) {
+      // Fast path: client tells us current state, skip the extra GET
+      // Use thread-level modify to star/unstar the first message
+      const thread = await this.gmail.users.threads.get({
+        userId: "me",
+        id: threadId,
+        format: "MINIMAL",
+        fields: "messages(id)",
+      });
+      const firstMsgId = thread.data.messages?.[0]?.id;
+      if (!firstMsgId) return;
 
-    if (isStarred) {
       await this.gmail.users.messages.modify({
         userId: "me",
-        id: firstMsg!.id!,
-        requestBody: { removeLabelIds: ["STARRED"] },
+        id: firstMsgId,
+        requestBody: currentlyStarred
+          ? { removeLabelIds: ["STARRED"] }
+          : { addLabelIds: ["STARRED"] },
       });
     } else {
+      // Fallback: fetch state then toggle
+      const thread = await this.gmail.users.threads.get({
+        userId: "me",
+        id: threadId,
+        format: "MINIMAL",
+      });
+      const firstMsg = thread.data.messages?.[0];
+      const isStarred = firstMsg?.labelIds?.includes("STARRED") ?? false;
+
       await this.gmail.users.messages.modify({
         userId: "me",
         id: firstMsg!.id!,
-        requestBody: { addLabelIds: ["STARRED"] },
+        requestBody: isStarred
+          ? { removeLabelIds: ["STARRED"] }
+          : { addLabelIds: ["STARRED"] },
       });
     }
   }

@@ -143,7 +143,7 @@ export interface MailDriver {
   markAsUnread(threadId: string): Promise<void>;
   archive(threadId: string): Promise<void>;
   trash(threadId: string): Promise<void>;
-  toggleStar(threadId: string): Promise<void>;
+  toggleStar(threadId: string, currentlyStarred?: boolean): Promise<void>;
   modifyLabels(threadId: string, add: string[], remove: string[]): Promise<void>;
 
   // Send
