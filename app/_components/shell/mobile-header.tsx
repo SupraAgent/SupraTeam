@@ -15,6 +15,7 @@ const NAV_ITEMS = [
   { href: "/contacts", label: "Contacts" },
   { href: "/groups", label: "Groups" },
   { href: "/broadcasts", label: "Broadcasts" },
+  { href: "/automations", label: "Automations" },
   { href: "/access", label: "Access Control" },
   { href: "/graph", label: "Graph" },
   { href: "/docs", label: "Docs" },
