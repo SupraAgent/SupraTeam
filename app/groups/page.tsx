@@ -1018,9 +1018,12 @@ function GroupCard({
         )}
       </div>
 
-      {/* Activity metrics */}
-      {(group.last_message_at || group.message_count_7d > 0 || group.message_count_30d > 0) && (
+      {/* Activity metrics + sparkline */}
+      {(group.last_message_at || group.message_count_7d > 0 || group.message_count_30d > 0 || (group.message_history && group.message_history.length > 0)) && (
         <div className="flex items-center gap-3 pl-[4.5rem] text-[10px] text-muted-foreground">
+          {group.message_history && group.message_history.length > 0 && (
+            <Sparkline data={group.message_history} healthStatus={group.health_status} />
+          )}
           {group.last_message_at && (
             <span>Last message: {timeAgo(group.last_message_at)}</span>
           )}
