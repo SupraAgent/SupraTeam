@@ -18,6 +18,8 @@ const NAV_ITEMS = [
   { href: "/broadcasts", label: "Broadcasts", icon: MegaphoneIcon },
   { href: "/outreach", label: "Outreach", icon: OutreachIcon },
   { href: "/automations", label: "Automations", icon: WorkflowIcon },
+  { href: "/calendar", label: "Calendar", icon: CalendarIcon },
+  { href: "/reports", label: "Reports", icon: ChartIcon },
   { href: "/access", label: "Access Control", icon: ShieldIcon },
   { href: "/graph", label: "Graph", icon: NetworkIcon },
   { href: "/docs", label: "Docs", icon: FileTextIcon },
@@ -325,6 +327,27 @@ function WorkflowIcon({ className }: { className?: string }) {
       <rect x="15" y="15" width="6" height="6" rx="1" />
       <path d="M6 9v3a3 3 0 003 3h6" />
       <path d="M15 15l-3-3" />
+    </svg>
+  );
+}
+
+function CalendarIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+      <line x1="16" y1="2" x2="16" y2="6" />
+      <line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
+    </svg>
+  );
+}
+
+function ChartIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <line x1="18" y1="20" x2="18" y2="10" />
+      <line x1="12" y1="20" x2="12" y2="4" />
+      <line x1="6" y1="20" x2="6" y2="14" />
     </svg>
   );
 }

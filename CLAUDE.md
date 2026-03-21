@@ -173,6 +173,12 @@ ANTHROPIC_API_KEY=               # Claude AI features (chat widget, sentiment, s
 | Phase 4: Polish | Done | Mobile TMA, view density, animations, onboarding wizard, privacy/GDPR, competitive scoring improvements |
 | Phase 5: AI & Automation | Done | Visual workflow builder (React Flow), AI agent, sentiment analysis, global AI chat assistant |
 | Phase 6: AI Chat & Templates | Done | Global Claude-powered chat widget on every page, per-page context, workflow templates (built-in + user-saved), AI template suggestions |
+| **P0: TG Moat** | **Next** | TG conversation timeline in deal detail, full TMA (tasks, AI chat, broadcasts), outreach sequence branching |
+| P1: Scale | Pending | Bot drip sequences, auto-assignment rules, engagement scoring, unified inbox, saved views |
+| P2: #1 | Pending | Payment tracking, AI chatbot flows, public REST API, TG folder sync, custom fields on deals/groups |
+| P3: Polish | Pending | AI summaries, multi-workspace, QR capture, calendar/timeline views |
+
+**Target:** CRMChat (#1 at 80.5). Current score: ~64. See `strategic-roadmap.md` for full competitive analysis.
 
 ---
 

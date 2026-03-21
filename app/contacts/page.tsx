@@ -5,6 +5,7 @@ import { ContactTable } from "@/components/contacts/contact-table";
 import { CreateContactModal } from "@/components/contacts/create-contact-modal";
 import { ContactDetailPanel } from "@/components/contacts/contact-detail-panel";
 import { ImportTelegramModal } from "@/components/contacts/import-telegram-modal";
+import { SavedViewsBar } from "@/components/saved-views-bar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Download, Upload, Users, MessageCircle, Building2, ArrowUpDown, Trash2, Filter, GitMerge, Sparkles, AlertTriangle } from "lucide-react";
@@ -435,6 +436,20 @@ export default function ContactsPage() {
           ))}
         </div>
       </div>
+
+      {/* Saved views */}
+      <SavedViewsBar
+        page="contacts"
+        currentFilters={{ stageFilter, lifecycleFilter, filterHasEmail, filterHasTg, filterHasDeals }}
+        onApplyView={(f) => {
+          const v = f as Record<string, unknown>;
+          setStageFilter((v.stageFilter as string) ?? "all");
+          setLifecycleFilter((v.lifecycleFilter as string) ?? "all");
+          setFilterHasEmail(!!v.filterHasEmail);
+          setFilterHasTg(!!v.filterHasTg);
+          setFilterHasDeals(!!v.filterHasDeals);
+        }}
+      />
 
       {/* Advanced filter bar */}
       {showAdvanced && (
