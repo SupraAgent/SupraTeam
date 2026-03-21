@@ -77,6 +77,17 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     }
   }
 
+  // Track old value for deal_value_change trigger
+  let oldValue: number | null = null;
+  if ("value" in body) {
+    const { data: current2 } = await supabase
+      .from("crm_deals")
+      .select("value")
+      .eq("id", id)
+      .single();
+    oldValue = current2?.value ?? null;
+  }
+
   body.updated_at = new Date().toISOString();
 
   const { data: deal, error } = await supabase
@@ -89,6 +100,21 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (error) {
     console.error("[api/deals/[id]] update error:", error);
     return NextResponse.json({ error: "Failed to update deal" }, { status: 500 });
+  }
+
+  // Fire deal_value_change automation if value changed
+  if ("value" in body && Number(body.value ?? 0) !== Number(oldValue ?? 0)) {
+    import("@/lib/automation-engine").then(({ evaluateAutomationRules }) =>
+      evaluateAutomationRules({
+        type: "deal_value_change",
+        dealId: id,
+        payload: {
+          old_value: oldValue,
+          new_value: body.value,
+          value: body.value,
+        },
+      })
+    ).catch((err) => console.error("[deal-patch] automation error:", err));
   }
 
   // Save custom field values

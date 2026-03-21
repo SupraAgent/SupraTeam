@@ -9,11 +9,88 @@ export function escapeHtml(text: string): string {
 }
 
 /**
+ * Apply text transform filters to a value.
+ * Supported: upper, lower, capitalize, truncate:N, date:format
+ */
+function applyFilters(value: string, filters: string[]): string {
+  let result = value;
+  for (const f of filters) {
+    const trimmed = f.trim();
+    if (trimmed === "upper") {
+      result = result.toUpperCase();
+    } else if (trimmed === "lower") {
+      result = result.toLowerCase();
+    } else if (trimmed === "capitalize") {
+      result = result.replace(/\b\w/g, (c) => c.toUpperCase());
+    } else if (trimmed.startsWith("truncate:")) {
+      const len = parseInt(trimmed.slice(9), 10);
+      if (!isNaN(len) && result.length > len) {
+        result = result.slice(0, len) + "…";
+      }
+    } else if (trimmed.startsWith("date:")) {
+      const fmt = trimmed.slice(5);
+      try {
+        const d = new Date(result);
+        if (!isNaN(d.getTime())) {
+          if (fmt === "short") result = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+          else if (fmt === "long") result = d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+          else if (fmt === "iso") result = d.toISOString().slice(0, 10);
+          else if (fmt === "relative") {
+            const diff = Date.now() - d.getTime();
+            const days = Math.floor(diff / 86400000);
+            if (days === 0) result = "today";
+            else if (days === 1) result = "yesterday";
+            else if (days < 7) result = `${days} days ago`;
+            else if (days < 30) result = `${Math.floor(days / 7)} weeks ago`;
+            else result = `${Math.floor(days / 30)} months ago`;
+          }
+        }
+      } catch {}
+    } else if (trimmed.startsWith("number")) {
+      const num = Number(result);
+      if (!isNaN(num)) result = num.toLocaleString();
+    } else if (trimmed === "currency") {
+      const num = Number(result);
+      if (!isNaN(num)) result = `$${num.toLocaleString()}`;
+    }
+  }
+  return result;
+}
+
+/**
+ * Parse a variable expression like "var|filter1|filter2" or "var|fallback".
+ * Returns { key, filters, fallback }.
+ * Heuristic: if first pipe segment matches a known filter name, treat all as filters.
+ * Otherwise, treat the first as fallback text (backward compatible).
+ */
+const KNOWN_FILTERS = new Set(["upper", "lower", "capitalize", "number", "currency"]);
+function parseVarExpr(expr: string): { key: string; filters: string[]; fallback: string | null } {
+  const parts = expr.split("|");
+  const key = parts[0].trim();
+  if (parts.length === 1) return { key, filters: [], fallback: null };
+  const rest = parts.slice(1);
+  // Check if first part looks like a filter
+  const firstPart = rest[0].trim();
+  const isFilter = KNOWN_FILTERS.has(firstPart) || firstPart.startsWith("truncate:") || firstPart.startsWith("date:") || firstPart === "currency";
+  if (isFilter) {
+    return { key, filters: rest, fallback: null };
+  }
+  // Backward compat: single pipe = fallback
+  return { key, filters: [], fallback: rest.join("|") };
+}
+
+/**
  * Render a template string with advanced personalization:
  * - {{var}} — basic variable substitution (HTML-escaped unless key ends with _html)
  * - {{var|fallback}} — default value if var is empty/undefined
+ * - {{var|upper}}, {{var|lower}}, {{var|capitalize}} — text transforms
+ * - {{var|truncate:N}} — truncate to N characters
+ * - {{var|date:short}}, {{var|date:long}}, {{var|date:relative}} — date formatting
+ * - {{var|number}}, {{var|currency}} — number formatting ($1,234)
  * - {{#if var}}...{{/if}} — conditional blocks (rendered only if var is truthy)
  * - {{#unless var}}...{{/unless}} — inverse conditional blocks
+ * - {{#ifgt var N}}...{{/ifgt}} — conditional: var > N (numeric comparison)
+ * - {{#iflt var N}}...{{/iflt}} — conditional: var < N (numeric comparison)
  */
 export function renderTemplate(
   template: string,
@@ -39,22 +116,41 @@ export function renderTemplate(
     }
   );
 
-  // Process {{var|fallback}} with default values
-  result = result.replace(/\{\{(\w+)\|([^}]*)\}\}/g, (_match, key: string, fallback: string) => {
-    const val = vars[key];
-    if (val === undefined || val === null || val === "") {
-      return escapeHtml(fallback);
+  // Process {{#ifgt var N}}...{{/ifgt}} blocks (greater than)
+  result = result.replace(
+    /\{\{#ifgt\s+(\w+)\s+(\d+(?:\.\d+)?)\}\}([\s\S]*?)\{\{\/ifgt\}\}/g,
+    (_match, key: string, threshold: string, content: string) => {
+      const val = Number(vars[key]);
+      return !isNaN(val) && val > Number(threshold) ? content : "";
     }
-    if (key.endsWith("_html")) return String(val);
-    return escapeHtml(String(val));
-  });
+  );
 
-  // Process basic {{var}} substitution
-  result = result.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => {
+  // Process {{#iflt var N}}...{{/iflt}} blocks (less than)
+  result = result.replace(
+    /\{\{#iflt\s+(\w+)\s+(\d+(?:\.\d+)?)\}\}([\s\S]*?)\{\{\/iflt\}\}/g,
+    (_match, key: string, threshold: string, content: string) => {
+      const val = Number(vars[key]);
+      return !isNaN(val) && val < Number(threshold) ? content : "";
+    }
+  );
+
+  // Process {{var|filters_or_fallback}} expressions
+  result = result.replace(/\{\{(\w+(?:\|[^}]+)?)\}\}/g, (_match, expr: string) => {
+    const { key, filters, fallback } = parseVarExpr(expr);
     const val = vars[key];
-    if (val === undefined || val === null) return "";
-    if (key.endsWith("_html")) return String(val);
-    return escapeHtml(String(val));
+
+    if (val === undefined || val === null || val === "") {
+      if (fallback !== null) return escapeHtml(fallback);
+      return "";
+    }
+
+    let strVal = String(val);
+    if (filters.length > 0) {
+      strVal = applyFilters(strVal, filters);
+    }
+
+    if (key.endsWith("_html")) return strVal;
+    return escapeHtml(strVal);
   });
 
   return result;
@@ -73,20 +169,50 @@ export const MERGE_VARIABLES = {
     { key: "contact_telegram", label: "TG Username", hint: "@username" },
     { key: "contact_phone", label: "Phone", hint: "Phone number" },
     { key: "contact_title", label: "Title", hint: "Job title" },
+    { key: "contact_tags", label: "Tags", hint: "Comma-separated tags" },
   ],
   deal: [
     { key: "deal_name", label: "Deal Name", hint: "Deal title" },
     { key: "stage", label: "Stage", hint: "Current pipeline stage" },
+    { key: "previous_stage", label: "Previous Stage", hint: "Stage before last move" },
     { key: "board_type", label: "Board", hint: "BD/Marketing/Admin" },
-    { key: "value", label: "Value", hint: "Deal value" },
+    { key: "value", label: "Value", hint: "Deal value (raw number)" },
+    { key: "value_formatted", label: "Value ($)", hint: "Deal value with $ and commas" },
+    { key: "probability", label: "Probability", hint: "Win probability %" },
+    { key: "weighted_value", label: "Weighted Value", hint: "Value × probability" },
+    { key: "deal_age_days", label: "Deal Age", hint: "Days since creation" },
+    { key: "stage_days", label: "Days in Stage", hint: "Days in current stage" },
+    { key: "expected_close", label: "Expected Close", hint: "Expected close date" },
+    { key: "outcome", label: "Outcome", hint: "open/won/lost" },
   ],
   sender: [
     { key: "sender_name", label: "Sender Name", hint: "Your display name" },
+    { key: "sender_email", label: "Sender Email", hint: "Your email address" },
+  ],
+  group: [
+    { key: "group_name", label: "Group Name", hint: "Telegram group name" },
+    { key: "group_member_count", label: "Member Count", hint: "Group member count" },
+    { key: "group_slugs", label: "Group Slugs", hint: "Comma-separated slug tags" },
   ],
   system: [
     { key: "today", label: "Today's Date", hint: "YYYY-MM-DD" },
+    { key: "current_time", label: "Current Time", hint: "HH:MM" },
+    { key: "current_month", label: "Current Month", hint: "e.g. March" },
+    { key: "current_year", label: "Current Year", hint: "e.g. 2026" },
   ],
 } as const;
+
+/** Available text transform filters for the template engine */
+export const TEMPLATE_FILTERS = [
+  { key: "upper", label: "UPPERCASE", hint: "Convert to uppercase", example: "{{contact_name|upper}}" },
+  { key: "lower", label: "lowercase", hint: "Convert to lowercase", example: "{{contact_name|lower}}" },
+  { key: "capitalize", label: "Capitalize", hint: "Capitalize each word", example: "{{contact_name|capitalize}}" },
+  { key: "currency", label: "Currency ($)", hint: "Format as $1,234", example: "{{value|currency}}" },
+  { key: "number", label: "Number", hint: "Format with commas", example: "{{value|number}}" },
+  { key: "truncate:30", label: "Truncate 30", hint: "Limit to 30 chars", example: "{{deal_name|truncate:30}}" },
+  { key: "date:short", label: "Date (Short)", hint: "Mar 20", example: "{{today|date:short}}" },
+  { key: "date:relative", label: "Date (Relative)", hint: "3 days ago", example: "{{expected_close|date:relative}}" },
+] as const;
 
 // ── Default templates (used as fallbacks when DB templates not loaded) ──
 
