@@ -8,6 +8,7 @@
 export type TriggerType =
   | "deal_stage_change"
   | "deal_created"
+  | "deal_value_change"
   | "email_received"
   | "tg_message"
   | "calendar_event"
@@ -63,6 +64,8 @@ export type ActionType =
   | "send_telegram"
   | "send_email"
   | "update_deal"
+  | "update_contact"
+  | "assign_deal"
   | "create_task";
 
 export interface ActionSendTelegramConfig {
@@ -82,6 +85,15 @@ export interface ActionUpdateDealConfig {
   value: string;
 }
 
+export interface ActionUpdateContactConfig {
+  field: string; // 'company', 'title', 'phone', 'email'
+  value: string;
+}
+
+export interface ActionAssignDealConfig {
+  assign_to: string; // user ID or "{{current_user}}"
+}
+
 export interface ActionCreateTaskConfig {
   title: string;
   description?: string;
@@ -92,14 +104,19 @@ export type ActionConfig =
   | ActionSendTelegramConfig
   | ActionSendEmailConfig
   | ActionUpdateDealConfig
+  | ActionUpdateContactConfig
+  | ActionAssignDealConfig
   | ActionCreateTaskConfig;
 
 // ── Logic configs ────────────────────────────────────────────────
 
 export interface ConditionConfig {
   field: string; // deal field to check
-  operator: "equals" | "not_equals" | "contains" | "gt" | "lt" | "gte" | "lte" | "is_empty" | "is_not_empty";
+  operator: "equals" | "not_equals" | "contains" | "not_contains" | "starts_with" | "gt" | "lt" | "gte" | "lte" | "is_empty" | "is_not_empty";
   value: string;
+  // Grouped conditions (AND/OR logic)
+  conditions?: { field: string; operator: string; value: string }[];
+  logic?: "and" | "or"; // defaults to "and"
 }
 
 export interface DelayConfig {
@@ -190,6 +207,7 @@ export interface NodePaletteItem {
 export const TRIGGER_PALETTE: NodePaletteItem[] = [
   { type: "trigger", subType: "deal_stage_change", label: "Deal Stage Change", description: "When a deal moves stages", icon: "ArrowRightLeft", defaultConfig: {} },
   { type: "trigger", subType: "deal_created", label: "Deal Created", description: "When a new deal is added", icon: "PlusCircle", defaultConfig: {} },
+  { type: "trigger", subType: "deal_value_change", label: "Deal Value Change", description: "When a deal's value changes", icon: "DollarSign", defaultConfig: {} },
   { type: "trigger", subType: "email_received", label: "Email Received", description: "When an email arrives", icon: "Mail", defaultConfig: {} },
   { type: "trigger", subType: "tg_message", label: "Telegram Message", description: "When a TG message matches", icon: "MessageCircle", defaultConfig: {} },
   { type: "trigger", subType: "calendar_event", label: "Calendar Event", description: "Google Calendar trigger", icon: "Calendar", defaultConfig: {} },
@@ -201,6 +219,8 @@ export const ACTION_PALETTE: NodePaletteItem[] = [
   { type: "action", subType: "send_telegram", label: "Send Telegram", description: "Send a Telegram message", icon: "Send", defaultConfig: { message: "" } },
   { type: "action", subType: "send_email", label: "Send Email", description: "Send an email", icon: "Mail", defaultConfig: { subject: "", body: "" } },
   { type: "action", subType: "update_deal", label: "Update Deal", description: "Change a deal field", icon: "Pencil", defaultConfig: { field: "stage", value: "" } },
+  { type: "action", subType: "update_contact", label: "Update Contact", description: "Change a contact field", icon: "UserCog", defaultConfig: { field: "company", value: "" } },
+  { type: "action", subType: "assign_deal", label: "Assign Deal", description: "Reassign deal owner", icon: "UserPlus", defaultConfig: { assign_to: "" } },
   { type: "action", subType: "create_task", label: "Create Task", description: "Add a CRM task", icon: "CheckSquare", defaultConfig: { title: "" } },
 ];
 

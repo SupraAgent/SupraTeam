@@ -145,6 +145,8 @@ export function AIChatWidget() {
   const [loading, setLoading] = React.useState(false);
   const [lastWorkflow, setLastWorkflow] = React.useState<WorkflowData | null>(null);
   const [applied, setApplied] = React.useState(false);
+  const [templateSuggestion, setTemplateSuggestion] = React.useState<{ id: string; name: string } | null>(null);
+  const [usingTemplate, setUsingTemplate] = React.useState(false);
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
 
@@ -193,6 +195,7 @@ export function AIChatWidget() {
     setLoading(true);
     setLastWorkflow(null);
     setApplied(false);
+    setTemplateSuggestion(null);
 
     try {
       const context: Record<string, unknown> = { page: pathname };
@@ -230,6 +233,9 @@ export function AIChatWidget() {
       if (data.workflow?.nodes?.length) {
         setLastWorkflow(data.workflow);
       }
+      if (data.templateSuggestion?.id) {
+        setTemplateSuggestion(data.templateSuggestion);
+      }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Something went wrong";
       setMessages([...newMessages, { role: "assistant", content: `Error: ${errMsg}` }]);
@@ -244,6 +250,20 @@ export function AIChatWidget() {
     setApplied(true);
   }
 
+  async function handleUseTemplate() {
+    if (!templateSuggestion) return;
+    setUsingTemplate(true);
+    try {
+      const res = await fetch(`/api/workflow-templates/${templateSuggestion.id}/use`, { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        window.location.href = `/automations/${data.workflow.id}`;
+      }
+    } finally {
+      setUsingTemplate(false);
+    }
+  }
+
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -255,6 +275,7 @@ export function AIChatWidget() {
     setMessages([]);
     setLastWorkflow(null);
     setApplied(false);
+    setTemplateSuggestion(null);
   }
 
   // Don't show on login page
@@ -392,6 +413,26 @@ export function AIChatWidget() {
               </div>
             )}
 
+            {/* Template suggestion button */}
+            {templateSuggestion && (
+              <div className="flex justify-start">
+                <button
+                  onClick={handleUseTemplate}
+                  disabled={usingTemplate}
+                  className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium bg-purple-500/20 text-purple-300 border border-purple-500/20 hover:bg-purple-500/30 transition"
+                >
+                  {usingTemplate ? (
+                    <>Loading...</>
+                  ) : (
+                    <>
+                      <BookmarkIcon className="h-3 w-3" />
+                      Use template: {templateSuggestion.name}
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+
             <div ref={messagesEndRef} />
           </div>
 
@@ -511,6 +552,14 @@ function PlusIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
       <path d="M5 12h14" /><path d="M12 5v14" />
+    </svg>
+  );
+}
+
+function BookmarkIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" />
     </svg>
   );
 }

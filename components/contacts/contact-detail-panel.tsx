@@ -32,7 +32,7 @@ const SOURCE_OPTIONS: { value: ContactSource; label: string }[] = [
   { value: "outbound", label: "Outbound" },
 ];
 
-type Duplicate = { id: string; name: string; email: string | null; company: string | null; telegram_username: string | null };
+type Duplicate = { id: string; name: string; email: string | null; company: string | null; telegram_username: string | null; phone: string | null; title: string | null; confidence: number; signals: string[] };
 
 type ContactDetailPanelProps = {
   contact: Contact | null;
@@ -194,8 +194,20 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
             </div>
             {duplicates.map((dup) => (
               <div key={dup.id} className="flex items-center justify-between rounded-lg bg-white/[0.03] px-3 py-2">
-                <div>
-                  <p className="text-xs text-foreground font-medium">{dup.name}</p>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs text-foreground font-medium">{dup.name}</p>
+                    {dup.confidence > 0 && (
+                      <span className={cn(
+                        "rounded-full px-1.5 py-0.5 text-[9px] font-medium shrink-0",
+                        dup.confidence >= 75 ? "bg-red-500/20 text-red-400" :
+                        dup.confidence >= 50 ? "bg-amber-500/20 text-amber-400" :
+                        "bg-blue-500/20 text-blue-400"
+                      )}>
+                        {dup.confidence}%
+                      </span>
+                    )}
+                  </div>
                   <p className="text-[10px] text-muted-foreground">
                     {[dup.email, dup.telegram_username && `@${dup.telegram_username}`, dup.company].filter(Boolean).join(" · ")}
                   </p>
@@ -205,7 +217,7 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
                   variant="ghost"
                   onClick={() => handleMerge(dup.id)}
                   disabled={merging}
-                  className="h-6 text-[10px] text-primary"
+                  className="h-6 text-[10px] text-primary shrink-0"
                 >
                   <GitMerge className="h-3 w-3 mr-0.5" /> Merge
                 </Button>

@@ -17,6 +17,9 @@ import {
   XCircle,
   PauseCircle,
   Clock,
+  BookmarkPlus,
+  X,
+  Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { timeAgo } from "@/lib/utils";
@@ -41,6 +44,13 @@ export default function WorkflowEditorPage() {
   const [showRuns, setShowRuns] = React.useState(false);
   const [runs, setRuns] = React.useState<WorkflowRun[]>([]);
   const [expandedRun, setExpandedRun] = React.useState<string | null>(null);
+
+  // Save as template state
+  const [showSaveTemplate, setShowSaveTemplate] = React.useState(false);
+  const [templateName, setTemplateName] = React.useState("");
+  const [templateDesc, setTemplateDesc] = React.useState("");
+  const [templateTags, setTemplateTags] = React.useState("");
+  const [savingTemplate, setSavingTemplate] = React.useState(false);
 
   const fetchWorkflow = React.useCallback(async () => {
     try {
@@ -145,6 +155,61 @@ export default function WorkflowEditorPage() {
     setShowRuns(!showRuns);
   }
 
+  function openSaveTemplate() {
+    setTemplateName(workflow?.name ?? "");
+    setTemplateDesc("");
+    setTemplateTags("");
+    setShowSaveTemplate(true);
+  }
+
+  async function handleSaveTemplate() {
+    if (!templateName.trim()) return;
+    setSavingTemplate(true);
+    try {
+      // Get current canvas state
+      const canvasState = (window as unknown as Record<string, unknown>).__supracrm_canvas_state as
+        | { nodes: unknown[]; edges: unknown[] }
+        | undefined;
+      if (!canvasState) {
+        setRunMsg("No canvas data available");
+        setTimeout(() => setRunMsg(""), 3000);
+        return;
+      }
+
+      const tags = templateTags
+        .split(",")
+        .map((t) => t.trim().toLowerCase())
+        .filter(Boolean);
+
+      const triggerNode = (canvasState.nodes as { type?: string; data?: { triggerType?: string } }[])
+        .find((n) => n.type === "trigger");
+
+      const res = await fetch("/api/workflow-templates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: templateName.trim(),
+          description: templateDesc.trim() || null,
+          tags,
+          nodes: canvasState.nodes,
+          edges: canvasState.edges,
+          trigger_type: triggerNode?.data?.triggerType ?? null,
+        }),
+      });
+
+      if (res.ok) {
+        setRunMsg("Template saved!");
+        setShowSaveTemplate(false);
+      } else {
+        const data = await res.json();
+        setRunMsg(`Error: ${data.error}`);
+      }
+    } finally {
+      setSavingTemplate(false);
+      setTimeout(() => setRunMsg(""), 3000);
+    }
+  }
+
   if (loading) {
     return (
       <div className="h-[calc(100vh-3.5rem)] flex items-center justify-center">
@@ -208,6 +273,16 @@ export default function WorkflowEditorPage() {
             )}
           </span>
 
+          {/* Save as template */}
+          <button
+            onClick={openSaveTemplate}
+            className="h-8 px-2.5 rounded-lg text-[11px] text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors flex items-center gap-1"
+            title="Save as template"
+          >
+            <BookmarkPlus className="h-3 w-3" />
+            Template
+          </button>
+
           {/* Runs toggle */}
           <button
             onClick={toggleRuns}
@@ -250,6 +325,57 @@ export default function WorkflowEditorPage() {
           </button>
         </div>
       </div>
+
+      {/* Save as template form */}
+      {showSaveTemplate && (
+        <div className="px-4 py-3 border-b border-primary/20 bg-primary/5 shrink-0">
+          <div className="flex items-start gap-3">
+            <div className="flex-1 space-y-2">
+              <div className="flex items-center gap-2">
+                <Input
+                  value={templateName}
+                  onChange={(e) => setTemplateName(e.target.value)}
+                  placeholder="Template name"
+                  className="text-sm h-8 flex-1"
+                  autoFocus
+                  onKeyDown={(e) => e.key === "Enter" && handleSaveTemplate()}
+                />
+                <Input
+                  value={templateTags}
+                  onChange={(e) => setTemplateTags(e.target.value)}
+                  placeholder="Tags (comma-separated)"
+                  className="text-sm h-8 w-48"
+                />
+              </div>
+              <Input
+                value={templateDesc}
+                onChange={(e) => setTemplateDesc(e.target.value)}
+                placeholder="Description (optional)"
+                className="text-sm h-8"
+              />
+            </div>
+            <div className="flex items-center gap-1.5 pt-0.5">
+              <Button
+                size="sm"
+                className="h-8 gap-1"
+                onClick={handleSaveTemplate}
+                disabled={!templateName.trim() || savingTemplate}
+              >
+                {savingTemplate ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                Save
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 w-8 p-0"
+                onClick={() => setShowSaveTemplate(false)}
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Canvas + optional runs panel */}
       <div className="flex-1 relative flex">

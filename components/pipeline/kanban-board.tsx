@@ -1,8 +1,10 @@
 "use client";
 
+import * as React from "react";
 import { DragDropContext, type DropResult } from "@hello-pangea/dnd";
 import type { Deal, PipelineStage, BoardType } from "@/lib/types";
 import { KanbanColumn } from "./kanban-column";
+import { cn } from "@/lib/utils";
 
 type KanbanBoardProps = {
   stages: PipelineStage[];
@@ -28,6 +30,7 @@ export function KanbanBoard({
 }: KanbanBoardProps) {
   const filteredDeals = board === "All" ? deals : deals.filter((d) => d.board_type === board);
   const allFilteredDeals = board === "All" ? allDeals : allDeals.filter((d) => d.board_type === board);
+  const [collapsedColumns, setCollapsedColumns] = React.useState<Set<string>>(new Set());
 
   function handleDragEnd(result: DropResult) {
     if (!result.destination) return;
@@ -37,31 +40,90 @@ export function KanbanBoard({
     onMoveDeal(dealId, newStageId);
   }
 
+  function toggleCollapse(stageId: string) {
+    setCollapsedColumns((prev) => {
+      const next = new Set(prev);
+      next.has(stageId) ? next.delete(stageId) : next.add(stageId);
+      return next;
+    });
+  }
+
+  // Pipeline summary: value per stage for the weighted bar
+  const totalPipelineValue = allFilteredDeals.reduce((s, d) => s + Number(d.value ?? 0), 0);
+  const stageStats = stages.map((stage) => {
+    const stageDeals = allFilteredDeals.filter((d) => d.stage_id === stage.id);
+    const value = stageDeals.reduce((s, d) => s + Number(d.value ?? 0), 0);
+    const weighted = stageDeals.reduce((s, d) => s + Number(d.value ?? 0) * (Number(d.probability ?? 50) / 100), 0);
+    return { stage, count: stageDeals.length, value, weighted };
+  });
+  const totalWeightedValue = stageStats.reduce((s, st) => s + st.weighted, 0);
+
   return (
-    <DragDropContext onDragEnd={handleDragEnd}>
-      <div className="flex gap-3 overflow-x-auto pb-4 thin-scroll">
-        {stages.map((stage) => {
-          const stageDeals = filteredDeals.filter((d) => d.stage_id === stage.id);
-          const allStageDeals = allFilteredDeals.filter((d) => d.stage_id === stage.id);
-          return (
-            <KanbanColumn
-              key={stage.id}
-              stage={stage}
-              deals={stageDeals}
-              allStageDealsCount={allStageDeals.length}
-              stages={stages}
-              onDealClick={onDealClick}
-              onQuickMove={onQuickMove}
-              onQuickOutcome={onQuickOutcome}
-              onInlineEdit={onInlineEdit}
-              selectedDealIds={selectedDealIds}
-              onToggleSelect={onToggleSelect}
-              highlightDealId={highlightDealId}
-              highlightedDealIds={highlightedDealIds}
-            />
-          );
-        })}
-      </div>
-    </DragDropContext>
+    <div className="space-y-3">
+      {/* Weighted pipeline bar */}
+      {totalPipelineValue > 0 && (
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+            <span>Pipeline: <span className="text-foreground font-medium">${Math.round(totalPipelineValue).toLocaleString()}</span></span>
+            <span>Weighted: <span className="text-emerald-400 font-medium">${Math.round(totalWeightedValue).toLocaleString()}</span></span>
+          </div>
+          <div className="flex h-2 rounded-full overflow-hidden bg-white/5 gap-px">
+            {stageStats.map((st) => {
+              const pct = totalPipelineValue > 0 ? (st.value / totalPipelineValue) * 100 : 0;
+              if (pct < 0.5) return null;
+              return (
+                <div
+                  key={st.stage.id}
+                  className="h-full transition-all duration-300 first:rounded-l-full last:rounded-r-full"
+                  style={{
+                    width: `${pct}%`,
+                    backgroundColor: st.stage.color ?? "hsl(var(--primary))",
+                    opacity: 0.6 + (st.stage.position / stages.length) * 0.4,
+                  }}
+                  title={`${st.stage.name}: $${Math.round(st.value).toLocaleString()} (${st.count} deals)`}
+                />
+              );
+            })}
+          </div>
+          <div className="flex gap-3 flex-wrap">
+            {stageStats.filter((st) => st.count > 0).map((st) => (
+              <span key={st.stage.id} className="flex items-center gap-1 text-[9px] text-muted-foreground/60">
+                <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ backgroundColor: st.stage.color ?? "hsl(var(--primary))" }} />
+                {st.stage.name}: {st.count}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <DragDropContext onDragEnd={handleDragEnd}>
+        <div className="flex gap-3 overflow-x-auto pb-4 thin-scroll">
+          {stages.map((stage) => {
+            const stageDeals = filteredDeals.filter((d) => d.stage_id === stage.id);
+            const allStageDeals = allFilteredDeals.filter((d) => d.stage_id === stage.id);
+            const isCollapsed = collapsedColumns.has(stage.id);
+            return (
+              <KanbanColumn
+                key={stage.id}
+                stage={stage}
+                deals={stageDeals}
+                allStageDealsCount={allStageDeals.length}
+                stages={stages}
+                onDealClick={onDealClick}
+                onQuickMove={onQuickMove}
+                onQuickOutcome={onQuickOutcome}
+                onInlineEdit={onInlineEdit}
+                selectedDealIds={selectedDealIds}
+                onToggleSelect={onToggleSelect}
+                highlightDealId={highlightDealId}
+                highlightedDealIds={highlightedDealIds}
+                collapsed={isCollapsed}
+                onToggleCollapse={() => toggleCollapse(stage.id)}
+              />
+            );
+          })}
+        </div>
+      </DragDropContext>
+    </div>
   );
 }

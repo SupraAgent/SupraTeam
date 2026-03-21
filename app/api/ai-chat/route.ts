@@ -38,7 +38,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "messages required" }, { status: 400 });
   }
 
-  const systemPrompt = buildSystemPrompt(body.context);
+  // Fetch templates for automation pages
+  let templateContext: string[] = [];
+  if (body.context?.page?.startsWith("/automations")) {
+    const { data: templates } = await auth.admin
+      .from("crm_workflow_templates")
+      .select("id, name, description, trigger_type, tags, category")
+      .order("use_count", { ascending: false })
+      .limit(15);
+    if (templates?.length) {
+      templateContext = templates.map(
+        (t) => `- [${t.id}] "${t.name}" (${t.category}, trigger: ${t.trigger_type ?? "none"}, tags: ${t.tags?.join(", ") || "none"})${t.description ? ` — ${t.description}` : ""}`
+      );
+    }
+  }
+
+  const systemPrompt = buildSystemPrompt(body.context, templateContext);
 
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -80,48 +95,59 @@ export async function POST(request: Request) {
 function parseAIResponse(text: string): {
   reply: string;
   workflow?: { nodes: unknown[]; edges: unknown[]; action: "add" | "replace" };
+  templateSuggestion?: { id: string; name: string };
 } {
-  // Try to find a JSON block with workflow data
-  const jsonMatch = text.match(/```json\s*([\s\S]*?)```/) || text.match(/```\s*([\s\S]*?)```/);
+  // Try to find JSON blocks
+  const jsonBlocks = text.match(/```json\s*([\s\S]*?)```/g) || text.match(/```\s*([\s\S]*?)```/g);
 
-  if (jsonMatch) {
-    try {
-      const parsed = JSON.parse(jsonMatch[1].trim());
-      if (parsed.nodes && parsed.edges) {
-        // Extract reply text from before the code block
-        const reply = text.replace(/```[\s\S]*?```/, "").trim() || parsed.reply || "Here's your workflow:";
-        return {
-          reply,
-          workflow: {
+  let workflow: { nodes: unknown[]; edges: unknown[]; action: "add" | "replace" } | undefined;
+  let templateSuggestion: { id: string; name: string } | undefined;
+  let reply = text;
+
+  if (jsonBlocks) {
+    for (const block of jsonBlocks) {
+      try {
+        const json = block.replace(/```json\n?|```\n?/g, "").trim();
+        const parsed = JSON.parse(json);
+
+        if (parsed.nodes && parsed.edges) {
+          workflow = {
             nodes: parsed.nodes,
             edges: parsed.edges,
             action: parsed.action || "replace",
-          },
-        };
+          };
+        } else if (parsed.templateSuggestion) {
+          templateSuggestion = parsed.templateSuggestion;
+        }
+      } catch {
+        // JSON parse failed, skip
       }
-    } catch {
-      // JSON parse failed, return as plain text
     }
+    reply = text.replace(/```[\s\S]*?```/g, "").trim();
+    if (!reply && workflow) reply = "Here's your workflow:";
   }
 
-  // Try parsing the entire response as JSON
-  try {
-    const parsed = JSON.parse(text);
-    if (parsed.nodes && parsed.edges) {
-      return {
-        reply: parsed.reply || "Here's your workflow:",
-        workflow: {
+  // Try parsing entire response as JSON
+  if (!workflow && !templateSuggestion) {
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed.nodes && parsed.edges) {
+        workflow = {
           nodes: parsed.nodes,
           edges: parsed.edges,
           action: parsed.action || "replace",
-        },
-      };
+        };
+        reply = parsed.reply || "Here's your workflow:";
+      } else if (parsed.templateSuggestion) {
+        templateSuggestion = parsed.templateSuggestion;
+        reply = parsed.reply || text;
+      }
+    } catch {
+      // Not JSON
     }
-  } catch {
-    // Not JSON
   }
 
-  return { reply: text };
+  return { reply: reply || text, workflow, templateSuggestion };
 }
 
 function buildSystemPrompt(context?: {
@@ -130,7 +156,7 @@ function buildSystemPrompt(context?: {
   workflowNodes?: unknown[];
   workflowEdges?: unknown[];
   pageData?: Record<string, unknown>;
-}): string {
+}, templateContext?: string[]): string {
   const page = context?.page ?? "/";
 
   let prompt = `You are SupraCRM AI, a helpful assistant for a Telegram-native CRM platform.
@@ -403,6 +429,23 @@ Edges: ${JSON.stringify(context.workflowEdges)}
 Bottom-most node Y position: ${maxY}
 When adding nodes, start at y: ${maxY + 200} to avoid overlap.`;
     }
+  }
+
+  // Add template context for automation pages
+  if (templateContext?.length && (context?.page?.startsWith("/automations"))) {
+    prompt += `
+
+AVAILABLE WORKFLOW TEMPLATES:
+When the user asks for a common automation, check if a template matches before building from scratch.
+If a template is a good match, suggest it and include the template ID in your response like this:
+"I found a matching template: [template name]. You can use it directly." and include:
+\`\`\`json
+{"templateSuggestion": {"id": "the-uuid", "name": "Template Name"}}
+\`\`\`
+The user can also save their current workflow as a template.
+
+Templates:
+${templateContext.join("\n")}`;
   }
 
   return prompt;
