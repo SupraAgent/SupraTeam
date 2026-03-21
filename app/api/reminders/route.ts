@@ -5,7 +5,7 @@ import { requireAuth } from "@/lib/auth-guard";
 export async function GET(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { admin: supabase, user } = auth;
 
   const url = new URL(request.url);
   const all = url.searchParams.get("all") === "1";
@@ -13,10 +13,10 @@ export async function GET(request: Request) {
 
   let query = supabase
     .from("crm_deal_reminders")
-    .select("*, deal:crm_deals(id, deal_name, board_type, stage:pipeline_stages(name, color))")
+    .select("*, deal:crm_deals(id, deal_name, board_type, stage:pipeline_stages(name, color)), assigned_profile:profiles!crm_deal_reminders_assigned_to_fkey(display_name, avatar_url)")
     .eq("is_dismissed", false)
     .order("due_at", { ascending: true })
-    .limit(50);
+    .limit(100);
 
   if (!all) {
     // Default: only due reminders (not snoozed)
@@ -29,7 +29,7 @@ export async function GET(request: Request) {
   }
 
   const { data: reminders } = await query;
-  return NextResponse.json({ reminders: reminders ?? [] });
+  return NextResponse.json({ reminders: reminders ?? [], current_user_id: user.id });
 }
 
 // POST: create manual task OR generate auto-reminders
@@ -51,6 +51,7 @@ export async function POST(request: Request) {
         due_at: body.due_at || new Date().toISOString(),
         assigned_to: body.assigned_to || user.id,
         created_by: user.id,
+        priority: body.priority || "normal",
       })
       .select("*, deal:crm_deals(id, deal_name, board_type, stage:pipeline_stages(name, color))")
       .single();
@@ -148,13 +149,13 @@ export async function POST(request: Request) {
   return NextResponse.json({ generated });
 }
 
-// PATCH: dismiss or snooze a reminder
+// PATCH: dismiss, snooze, set_priority, or reassign a reminder
 export async function PATCH(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
   const { admin: supabase } = auth;
 
-  const { id, action, snooze_hours } = await request.json();
+  const { id, action, snooze_hours, priority, assigned_to } = await request.json();
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
   if (action === "snooze" && snooze_hours) {
@@ -162,6 +163,16 @@ export async function PATCH(request: Request) {
     await supabase
       .from("crm_deal_reminders")
       .update({ snoozed_until: snoozedUntil, due_at: snoozedUntil })
+      .eq("id", id);
+  } else if (action === "set_priority" && priority) {
+    await supabase
+      .from("crm_deal_reminders")
+      .update({ priority })
+      .eq("id", id);
+  } else if (action === "reassign" && assigned_to) {
+    await supabase
+      .from("crm_deal_reminders")
+      .update({ assigned_to })
       .eq("id", id);
   } else {
     // Default: dismiss
