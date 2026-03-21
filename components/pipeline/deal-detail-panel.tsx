@@ -91,6 +91,10 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
   const [sentiment, setSentiment] = React.useState<SentimentData | null>(null);
   const [sentimentLoading, setSentimentLoading] = React.useState(false);
 
+  // AI Summary
+  const [aiSummary, setAiSummary] = React.useState<string | null>(null);
+  const [summaryLoading, setSummaryLoading] = React.useState(false);
+
   // Custom fields
   type CustomField = { id: string; field_name: string; label: string; field_type: string; options: string[] | null; required: boolean; board_type: string | null };
   const [customFields, setCustomFields] = React.useState<CustomField[]>([]);
@@ -116,6 +120,7 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
         fetch("/api/pipeline/fields").then((r) => r.json()).then((d) => setCustomFields(d.fields ?? [])).catch(() => {}),
         fetch(`/api/deals/${deal.id}`).then((r) => r.json()).then((d) => setCustomValues(d.custom_fields ?? {})).catch(() => {}),
         fetch(`/api/deals/${deal.id}/sentiment`).then((r) => r.json()).then((d) => setSentiment(d.sentiment ?? null)).catch(() => setSentiment(null)),
+        fetch(`/api/deals/${deal.id}/summary`).then((r) => r.json()).then((d) => setAiSummary(d.summary ?? null)).catch(() => setAiSummary(null)),
       ]).finally(() => setLoadingContent(false));
     }
   }, [deal, open]);
@@ -480,6 +485,38 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
                 </>
               ) : (
                 <p className="text-[10px] text-muted-foreground/50">Click Analyze to assess conversation sentiment.</p>
+              )}
+            </div>
+
+            {/* AI Summary */}
+            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-medium text-muted-foreground">AI Deal Summary</span>
+                <button
+                  onClick={async () => {
+                    if (!deal) return;
+                    setSummaryLoading(true);
+                    try {
+                      const res = await fetch(`/api/deals/${deal.id}/summary`, { method: "POST" });
+                      if (res.ok) {
+                        const data = await res.json();
+                        setAiSummary(data.summary ?? null);
+                        toast.success("Summary generated");
+                      }
+                    } finally {
+                      setSummaryLoading(false);
+                    }
+                  }}
+                  className="text-[10px] text-primary hover:underline"
+                  disabled={summaryLoading}
+                >
+                  {summaryLoading ? "Generating..." : aiSummary ? "Refresh" : "Generate"}
+                </button>
+              </div>
+              {aiSummary ? (
+                <p className="text-[11px] text-foreground/80 leading-relaxed">{aiSummary}</p>
+              ) : (
+                <p className="text-[10px] text-muted-foreground/50">Click Generate to create an AI summary of this deal.</p>
               )}
             </div>
 

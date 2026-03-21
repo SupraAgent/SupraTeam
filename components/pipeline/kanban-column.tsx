@@ -3,6 +3,7 @@
 import { Droppable } from "@hello-pangea/dnd";
 import type { Deal, PipelineStage } from "@/lib/types";
 import { DealCard } from "./deal-card";
+import { cn } from "@/lib/utils";
 
 type KanbanColumnProps = {
   stage: PipelineStage;
@@ -17,6 +18,8 @@ type KanbanColumnProps = {
   onToggleSelect: (dealId: string) => void;
   highlightDealId?: string | null;
   highlightedDealIds?: Set<string>;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
 };
 
 function avgDaysInStage(deals: Deal[]): number | null {
@@ -29,18 +32,59 @@ function avgDaysInStage(deals: Deal[]): number | null {
   return Math.round(total / deals.length);
 }
 
+// WIP limit — warn when column has more than this many deals
+const WIP_LIMIT = 10;
+
 export function KanbanColumn({
   stage, deals, allStageDealsCount, stages,
   onDealClick, onQuickMove, onQuickOutcome, onInlineEdit,
   selectedDealIds, onToggleSelect,
   highlightDealId, highlightedDealIds,
+  collapsed, onToggleCollapse,
 }: KanbanColumnProps) {
   const totalValue = deals.reduce((sum, d) => sum + Number(d.value ?? 0), 0);
   const avgDays = avgDaysInStage(deals);
+  const overWip = deals.length > WIP_LIMIT;
+  const weightedValue = deals.reduce((s, d) => s + Number(d.value ?? 0) * (Number(d.probability ?? 50) / 100), 0);
+
+  // Collapsed column — vertical label
+  if (collapsed) {
+    return (
+      <div
+        className="min-w-[40px] w-[40px] flex-shrink-0 rounded-xl border border-white/10 bg-white/[0.02] flex flex-col items-center cursor-pointer hover:bg-white/[0.04] transition-colors max-h-[calc(100vh-180px)]"
+        onClick={onToggleCollapse}
+        title={`Expand ${stage.name}`}
+      >
+        <div className="py-3 px-1 flex flex-col items-center gap-2">
+          {stage.color && (
+            <div className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: stage.color }} />
+          )}
+          <span className="text-[10px] font-medium text-foreground [writing-mode:vertical-rl] rotate-180">
+            {stage.name}
+          </span>
+          <span className={cn(
+            "rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+            overWip ? "bg-red-500/20 text-red-400" : "bg-white/10 text-muted-foreground"
+          )}>
+            {deals.length}
+          </span>
+          {totalValue > 0 && (
+            <span className="text-[9px] text-muted-foreground/60 [writing-mode:vertical-rl] rotate-180">
+              ${Math.round(totalValue / 1000)}k
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-w-[260px] w-[260px] flex-shrink-0 rounded-xl border border-white/10 bg-white/[0.02] flex flex-col max-h-[calc(100vh-180px)]">
-      <div className="border-b border-white/10 px-3 py-2.5">
+      <div
+        className="border-b border-white/10 px-3 py-2.5 cursor-pointer hover:bg-white/[0.02] transition-colors"
+        onClick={onToggleCollapse}
+        title="Click to collapse column"
+      >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             {stage.color && (
@@ -51,13 +95,26 @@ export function KanbanColumn({
             )}
             <span className="text-xs font-medium text-foreground">{stage.name}</span>
           </div>
-          <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-            {deals.length}
-          </span>
+          <div className="flex items-center gap-1.5">
+            {overWip && (
+              <span className="text-[9px] text-red-400 font-medium" title={`Over WIP limit of ${WIP_LIMIT}`}>
+                WIP
+              </span>
+            )}
+            <span className={cn(
+              "rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+              overWip ? "bg-red-500/20 text-red-400" : "bg-white/10 text-muted-foreground"
+            )}>
+              {deals.length}
+            </span>
+          </div>
         </div>
         <div className="flex items-center gap-2 mt-0.5">
           {totalValue > 0 && (
             <span className="text-[10px] text-muted-foreground/60">${Math.round(totalValue).toLocaleString()}</span>
+          )}
+          {weightedValue > 0 && weightedValue !== totalValue && (
+            <span className="text-[10px] text-emerald-400/50">~${Math.round(weightedValue).toLocaleString()}</span>
           )}
           {avgDays != null && avgDays > 0 && (
             <span className={`text-[10px] ${avgDays > 14 ? "text-amber-400/70" : "text-muted-foreground/40"}`}>
