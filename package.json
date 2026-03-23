@@ -58,5 +58,9 @@
     "tailwindcss": "^3.4.19",
     "tsx": "^4.21.0",
     "typescript": "5.9.3"
+  },
+  "automationBuilder": {
+    "lastSync": "2026-03-23T04:30:28Z",
+    "syncedFrom": "1d225a1e"
   }
 }
