@@ -7,7 +7,7 @@ import { createSupabaseAdmin } from "@/lib/supabase";
 import { sendTelegramWithTracking } from "@/lib/telegram-send";
 import { renderTemplate } from "@/lib/telegram-templates";
 import { executeWorkflowFromData } from "@/lib/workflow-engine";
-import type { Workflow } from "@/lib/workflow-types";
+import type { Workflow } from "@/lib/workflow-db-types";
 
 export interface AutomationEvent {
   type: "stage_change" | "deal_created" | "deal_value_change" | "tag_added";
