@@ -4,7 +4,9 @@ import * as React from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { FlowCanvas } from "@/components/workflows/flow-canvas";
+import { FlowCanvas, BuilderProvider } from "@supra/automation-builder";
+import "@xyflow/react/dist/style.css";
+import { CRM_REGISTRY, CRM_ICON_MAP } from "@/lib/workflow-registry";
 import {
   ArrowLeft,
   Zap,
@@ -23,7 +25,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { timeAgo } from "@/lib/utils";
-import type { Workflow, WorkflowRun } from "@/lib/workflow-types";
+import type { Workflow, WorkflowRun } from "@/lib/workflow-db-types";
 import type { Node, Edge } from "@xyflow/react";
 
 export default function WorkflowEditorPage() {
@@ -380,12 +382,14 @@ export default function WorkflowEditorPage() {
       {/* Canvas + optional runs panel */}
       <div className="flex-1 relative flex">
         <div className="flex-1">
-          <FlowCanvas
-            initialNodes={(workflow.nodes ?? []) as Node[]}
-            initialEdges={(workflow.edges ?? []) as Edge[]}
-            onSave={handleSave}
-            saving={saving}
-          />
+          <BuilderProvider registry={CRM_REGISTRY} iconMap={CRM_ICON_MAP}>
+            <FlowCanvas
+              initialNodes={(workflow.nodes ?? []) as Node[]}
+              initialEdges={(workflow.edges ?? []) as Edge[]}
+              onSave={handleSave}
+              saving={saving}
+            />
+          </BuilderProvider>
         </div>
 
         {/* Runs history panel */}

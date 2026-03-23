@@ -6,14 +6,40 @@ import { createSupabaseAdmin } from "@/lib/supabase";
 import { sendTelegramWithTracking } from "@/lib/telegram-send";
 import { renderTemplate } from "@/lib/telegram-templates";
 import { getDriverForUser } from "@/lib/email/driver";
-import type {
-  ActionSendTelegramConfig,
-  ActionSendEmailConfig,
-  ActionUpdateDealConfig,
-  ActionUpdateContactConfig,
-  ActionAssignDealConfig,
-  ActionCreateTaskConfig,
-} from "@/lib/workflow-types";
+// Config types are now simple Record<string, unknown> from the generic builder.
+// We define local interfaces for type safety in the executor functions.
+
+interface ActionSendTelegramConfig {
+  message: string;
+  chat_id?: string;
+}
+
+interface ActionSendEmailConfig {
+  to?: string;
+  subject: string;
+  body: string;
+  template_id?: string;
+}
+
+interface ActionUpdateDealConfig {
+  field: string;
+  value: string;
+}
+
+interface ActionUpdateContactConfig {
+  field: string;
+  value: string;
+}
+
+interface ActionAssignDealConfig {
+  assign_to: string;
+}
+
+interface ActionCreateTaskConfig {
+  title: string;
+  description?: string;
+  due_hours?: number;
+}
 
 export interface ActionContext {
   workflowId: string;
