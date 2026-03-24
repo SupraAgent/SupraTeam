@@ -93,7 +93,7 @@ function OverviewTable({
           </p>
         </div>
         <a
-          href="/settings/sequences"
+          href="/settings/automations/sequences"
           className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-white/10 transition"
         >
           Back to Sequences

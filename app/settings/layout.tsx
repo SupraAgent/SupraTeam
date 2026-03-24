@@ -9,39 +9,46 @@ const SETTINGS_GROUPS = [
   {
     label: "General",
     items: [
-      { href: "/settings", label: "General" },
-      { href: "/settings/pipeline", label: "Pipeline" },
-      { href: "/settings/contacts", label: "Contacts" },
-      { href: "/settings/privacy", label: "Privacy & GDPR" },
+      { href: "/settings", label: "Profile" },
+      { href: "/settings/team", label: "Team" },
     ],
   },
   {
-    label: "Telegram",
+    label: "Integrations",
     items: [
-      { href: "/settings/telegram", label: "Telegram Bots" },
-      { href: "/settings/telegram-connect", label: "TG Connect" },
-      { href: "/settings/templates", label: "Bot Templates" },
+      { href: "/settings/integrations", label: "Telegram Bots" },
+      { href: "/settings/integrations/connect", label: "TG Connect" },
+      { href: "/settings/integrations/email", label: "Email" },
+      { href: "/settings/integrations/webhooks", label: "Webhooks" },
     ],
   },
   {
-    label: "Outreach",
+    label: "Pipeline",
     items: [
-      { href: "/settings/email", label: "Email" },
-      { href: "/settings/sequences", label: "Sequences" },
+      { href: "/settings/pipeline", label: "Stages & Fields" },
+      { href: "/settings/pipeline/contacts", label: "Contact Fields" },
     ],
   },
   {
-    label: "Automation & AI",
+    label: "Automation",
     items: [
-      { href: "/settings/automations", label: "Automations" },
+      { href: "/settings/automations", label: "Rules" },
+      { href: "/settings/automations/sequences", label: "Sequences" },
+      { href: "/settings/automations/templates", label: "Bot Templates" },
+    ],
+  },
+  {
+    label: "AI",
+    items: [
       { href: "/settings/ai-agent", label: "AI Agent" },
-      { href: "/settings/webhooks", label: "Webhooks" },
     ],
   },
   {
-    label: "System",
+    label: "Compliance",
     items: [
-      { href: "/settings/notifications", label: "Notification Log" },
+      { href: "/settings/privacy", label: "Privacy & GDPR" },
+      { href: "/settings/privacy/notifications", label: "Notifications" },
+      { href: "/settings/privacy/audit", label: "Audit Log" },
     ],
   },
 ];

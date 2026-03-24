@@ -42,7 +42,7 @@ export function SetupChecklist({ hasBotToken, hasGroups, hasDeals, hasContacts, 
       key: "bot",
       label: "Connect Telegram Bot",
       description: "Add your bot token in Settings to enable group messaging.",
-      href: "/settings/telegram",
+      href: "/settings/integrations",
       icon: Bot,
       done: hasBotToken,
     },
@@ -74,7 +74,7 @@ export function SetupChecklist({ hasBotToken, hasGroups, hasDeals, hasContacts, 
       key: "email",
       label: "Connect Email",
       description: "Link Gmail or Outlook for integrated email tracking.",
-      href: "/settings/email",
+      href: "/settings/integrations/email",
       icon: Mail,
       done: hasEmail ?? false,
     },
@@ -131,7 +131,7 @@ export function SetupChecklist({ hasBotToken, hasGroups, hasDeals, hasContacts, 
 
             <div className="flex gap-2">
               <Link
-                href="/settings/telegram"
+                href="/settings/integrations"
                 onClick={dismissWelcome}
                 className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground px-4 py-2.5 text-sm font-medium transition hover:bg-primary/90"
               >

@@ -156,7 +156,7 @@ export function NotificationCenter() {
                 </button>
               )}
               <Link
-                href="/settings/notifications"
+                href="/settings/privacy/notifications"
                 onClick={() => setOpen(false)}
                 className="rounded-lg p-1 text-muted-foreground transition hover:bg-white/5 hover:text-foreground"
                 title="Notification preferences"
