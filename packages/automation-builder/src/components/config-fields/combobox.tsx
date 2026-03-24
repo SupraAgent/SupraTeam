@@ -15,6 +15,7 @@ function useAsyncOptions(field: ConfigFieldDef) {
   const [options, setOptions] = React.useState<OptionItem[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  const [fetchKey, setFetchKey] = React.useState(0);
 
   React.useEffect(() => {
     if (!field.optionsUrl) {
@@ -29,7 +30,6 @@ function useAsyncOptions(field: ConfigFieldDef) {
     fetch(field.optionsUrl)
       .then((res) => {
         if (!res.ok) {
-          // Degrade gracefully — show empty options, not an error
           if (!cancelled) {
             setOptions([]);
             setLoading(false);
@@ -40,7 +40,6 @@ function useAsyncOptions(field: ConfigFieldDef) {
       })
       .then((data) => {
         if (cancelled || !data) return;
-        // Support multiple response shapes
         const items: Record<string, unknown>[] =
           data.data ?? data.groups ?? data.stages ??
           data.contacts ?? data.channels ?? data.users ??
@@ -65,9 +64,11 @@ function useAsyncOptions(field: ConfigFieldDef) {
       });
 
     return () => { cancelled = true; };
-  }, [field.optionsUrl]);
+  }, [field.optionsUrl, fetchKey]);
 
-  return { options, loading, error };
+  const refetch = React.useCallback(() => setFetchKey((k) => k + 1), []);
+
+  return { options, loading, error, refetch };
 }
 
 // ── Click-outside hook ───────────────────────────────────────────
@@ -136,12 +137,75 @@ export function AsyncComboboxField({
   value: unknown;
   onChange: (value: unknown) => void;
 }) {
-  const { options, loading, error } = useAsyncOptions(field);
+  const { options, loading, error, refetch } = useAsyncOptions(field);
   const strVal = value == null ? "" : String(value);
   const [manualMode, setManualMode] = React.useState(false);
   const [manualValue, setManualValue] = React.useState(strVal);
+  const [addMode, setAddMode] = React.useState(false);
+  const [newId, setNewId] = React.useState("");
+  const [newName, setNewName] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
 
-  // If we have an error or empty options after load, show manual input
+  async function handleCreate() {
+    if (!field.createUrl || !newId.trim() || !newName.trim()) return;
+    setSaving(true);
+    try {
+      const keys = field.createFields ?? { valueKey: "channel_id", labelKey: "channel_name" };
+      await fetch(field.createUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [keys.valueKey]: newId.trim(), [keys.labelKey]: newName.trim() }),
+      });
+      onChange(newId.trim());
+      setAddMode(false);
+      setNewId("");
+      setNewName("");
+      refetch();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Add new entry form
+  if (addMode && field.createUrl) {
+    return (
+      <div className="space-y-1.5">
+        <input
+          value={newId}
+          onChange={(e) => setNewId(e.target.value)}
+          className="w-full rounded-lg border border-white/10 bg-transparent px-3 py-1.5 text-xs h-8 outline-none focus:border-white/20"
+          placeholder="ID (e.g. C06CTNC7LKU)"
+          autoFocus
+        />
+        <input
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          className="w-full rounded-lg border border-white/10 bg-transparent px-3 py-1.5 text-xs h-8 outline-none focus:border-white/20"
+          placeholder="Display name"
+          onKeyDown={(e) => e.key === "Enter" && handleCreate()}
+        />
+        <div className="flex gap-1.5">
+          <button
+            type="button"
+            onClick={handleCreate}
+            disabled={!newId.trim() || !newName.trim() || saving}
+            className="flex-1 rounded-lg bg-primary/20 text-primary text-[10px] py-1 hover:bg-primary/30 disabled:opacity-40 transition-colors"
+          >
+            {saving ? "Saving..." : "Add"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setAddMode(false)}
+            className="rounded-lg bg-white/5 text-muted-foreground text-[10px] px-3 py-1 hover:bg-white/10 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Manual input fallback
   if (manualMode || (error && !loading)) {
     return (
       <div className="space-y-1">
@@ -188,6 +252,7 @@ export function AsyncComboboxField({
           setManualMode(true);
           setManualValue(strVal);
         }}
+        onAdd={field.createUrl ? () => setAddMode(true) : undefined}
       />
     </div>
   );
@@ -252,6 +317,7 @@ function ComboboxDropdown({
   placeholder,
   loading,
   onManual,
+  onAdd,
 }: {
   options: OptionItem[];
   value: string;
@@ -259,6 +325,7 @@ function ComboboxDropdown({
   placeholder: string;
   loading: boolean;
   onManual?: () => void;
+  onAdd?: () => void;
 }) {
   const [open, setOpen] = React.useState(false);
   const [search, setSearch] = React.useState("");
@@ -349,15 +416,27 @@ function ComboboxDropdown({
                   </Command.Item>
                 ))}
             </Command.List>
-            {onManual && (
-              <div className="border-t border-white/5 p-1">
-                <button
-                  type="button"
-                  onClick={() => { setOpen(false); onManual(); }}
-                  className="w-full text-left px-2 py-1.5 rounded-md text-[10px] text-muted-foreground/50 hover:bg-white/5 hover:text-muted-foreground"
-                >
-                  Enter ID manually...
-                </button>
+            {(onAdd || onManual) && (
+              <div className="border-t border-white/5 p-1 space-y-0.5">
+                {onAdd && (
+                  <button
+                    type="button"
+                    onClick={() => { setOpen(false); onAdd(); }}
+                    className="w-full text-left px-2 py-1.5 rounded-md text-[10px] text-primary/70 hover:bg-primary/5 hover:text-primary flex items-center gap-1.5"
+                  >
+                    <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>
+                    Add new...
+                  </button>
+                )}
+                {onManual && (
+                  <button
+                    type="button"
+                    onClick={() => { setOpen(false); onManual(); }}
+                    className="w-full text-left px-2 py-1.5 rounded-md text-[10px] text-muted-foreground/50 hover:bg-white/5 hover:text-muted-foreground"
+                  >
+                    Enter ID manually...
+                  </button>
+                )}
               </div>
             )}
           </Command>

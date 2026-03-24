@@ -86,6 +86,13 @@ interface ConfigFieldDef {
         value: string;
         label: string;
     }) => void;
+    /** URL to POST new entries (enables "Add new..." in dropdown) */
+    createUrl?: string;
+    /** Map form input to POST body when creating new entries */
+    createFields?: {
+        valueKey: string;
+        labelKey: string;
+    };
 }
 /**
  * Registration for a custom trigger or action type.
