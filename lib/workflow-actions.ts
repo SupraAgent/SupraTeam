@@ -6,14 +6,49 @@ import { createSupabaseAdmin } from "@/lib/supabase";
 import { sendTelegramWithTracking } from "@/lib/telegram-send";
 import { renderTemplate } from "@/lib/telegram-templates";
 import { getDriverForUser } from "@/lib/email/driver";
-import type {
-  ActionSendTelegramConfig,
-  ActionSendEmailConfig,
-  ActionUpdateDealConfig,
-  ActionUpdateContactConfig,
-  ActionAssignDealConfig,
-  ActionCreateTaskConfig,
-} from "@/lib/workflow-types";
+// Config types are now simple Record<string, unknown> from the generic builder.
+// We define local interfaces for type safety in the executor functions.
+import { getSlackToken, sendSlackMessage } from "@/lib/slack";
+
+interface ActionSendTelegramConfig {
+  message: string;
+  chat_id?: string;
+}
+
+interface ActionSendEmailConfig {
+  to?: string;
+  subject: string;
+  body: string;
+  template_id?: string;
+}
+
+interface ActionSendSlackConfig {
+  channel_id: string;
+  channel_name?: string;
+  message: string;
+  mention_user_id?: string;
+  mention_user_name?: string;
+}
+
+interface ActionUpdateDealConfig {
+  field: string;
+  value: string;
+}
+
+interface ActionUpdateContactConfig {
+  field: string;
+  value: string;
+}
+
+interface ActionAssignDealConfig {
+  assign_to: string;
+}
+
+interface ActionCreateTaskConfig {
+  title: string;
+  description?: string;
+  due_hours?: number;
+}
 
 export interface ActionContext {
   workflowId: string;
@@ -122,6 +157,39 @@ export async function executeSendEmail(
   } catch (err) {
     return { success: false, error: String(err) };
   }
+}
+
+/**
+ * Execute a "send_slack" action.
+ * Sends a message to a Slack channel with optional @mention.
+ */
+export async function executeSendSlack(
+  config: ActionSendSlackConfig,
+  ctx: ActionContext
+): Promise<ActionResult> {
+  const token = await getSlackToken();
+  if (!token) {
+    return { success: false, error: "Slack not connected — add token in Settings" };
+  }
+
+  if (!config.channel_id) {
+    return { success: false, error: "No Slack channel selected" };
+  }
+
+  let message = renderTemplate(config.message || "{{message_text}}", ctx.vars);
+
+  // Prepend @mention if configured
+  if (config.mention_user_id) {
+    message = `<@${config.mention_user_id}> ${message}`;
+  }
+
+  const result = await sendSlackMessage(token, config.channel_id, message);
+
+  return {
+    success: result.ok,
+    output: { slackMessageTs: result.ts, channel: config.channel_id },
+    error: result.error,
+  };
 }
 
 /**

@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { timeAgo } from "@/lib/utils";
-import type { Workflow as WorkflowType } from "@/lib/workflow-types";
+import type { Workflow as WorkflowType } from "@/lib/workflow-db-types";
 
 interface WorkflowTemplate {
   id: string;

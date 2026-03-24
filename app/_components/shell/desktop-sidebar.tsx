@@ -23,21 +23,13 @@ const NAV_ITEMS = [
   { href: "/access", label: "Access Control", icon: ShieldIcon },
   { href: "/graph", label: "Graph", icon: NetworkIcon },
   { href: "/docs", label: "Docs", icon: FileTextIcon },
-] as const;
-
-const SETTINGS_ITEMS = [
-  { href: "/settings", label: "General" },
-  { href: "/settings/integrations", label: "Integrations" },
-  { href: "/settings/pipeline", label: "Pipeline" },
-  { href: "/settings/automations", label: "Automation" },
-  { href: "/settings/ai-agent", label: "AI Agent" },
-  { href: "/settings/privacy", label: "Compliance" },
+  { href: "/settings", label: "Settings", icon: SettingsIcon },
 ] as const;
 
 export function DesktopSidebar() {
   const pathname = usePathname();
   const { user, signOut } = useAuth();
-  const { sidebarCollapsed, setSidebarCollapsed } = useShell();
+  const { sidebarCollapsed, setSidebarCollapsed, crmRole } = useShell();
 
   return (
     <aside className={cn(
@@ -86,37 +78,23 @@ export function DesktopSidebar() {
           );
         })}
 
-        {/* Settings section */}
-        {!sidebarCollapsed && (
-          <div className="pt-4 pb-1 px-2.5">
-            <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/60">
-              Settings
-            </span>
-          </div>
+        {/* Admin link (only for admin_lead) */}
+        {crmRole === "admin_lead" && (
+          <Link
+            href="/admin"
+            title={sidebarCollapsed ? "Admin" : undefined}
+            className={cn(
+              "flex items-center rounded-lg py-2 text-[13px] font-medium transition-colors",
+              sidebarCollapsed ? "justify-center px-2" : "gap-2.5 px-2.5",
+              pathname.startsWith("/admin")
+                ? "bg-white/10 text-foreground"
+                : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+            )}
+          >
+            <ShieldIcon className="h-4 w-4 shrink-0" />
+            {!sidebarCollapsed && "Admin"}
+          </Link>
         )}
-        {sidebarCollapsed && <div className="pt-2 border-t border-white/10 mt-2" />}
-        {SETTINGS_ITEMS.map((item) => {
-          const active = item.href === "/settings"
-            ? (pathname === "/settings" || pathname === "/settings/team")
-            : pathname.startsWith(item.href);
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              title={sidebarCollapsed ? item.label : undefined}
-              className={cn(
-                "flex items-center rounded-lg py-2 text-[13px] font-medium transition-colors",
-                sidebarCollapsed ? "justify-center px-2" : "gap-2.5 px-2.5",
-                active
-                  ? "bg-white/10 text-foreground"
-                  : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
-              )}
-            >
-              <SettingsIcon className="h-4 w-4 shrink-0" />
-              {!sidebarCollapsed && item.label}
-            </Link>
-          );
-        })}
       </nav>
 
       {/* User or Login */}

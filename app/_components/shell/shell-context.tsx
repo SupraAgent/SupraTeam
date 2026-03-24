@@ -11,6 +11,8 @@ type ShellContextValue = {
   setSidebarCollapsed: (v: boolean) => void;
   viewDensity: ViewDensity;
   setViewDensity: (v: ViewDensity) => void;
+  crmRole: string | null;
+  setCrmRole: (v: string | null) => void;
 };
 
 const ShellContext = React.createContext<ShellContextValue | null>(null);
@@ -19,6 +21,7 @@ export function ShellProvider({ children }: { children: React.ReactNode }) {
   const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = React.useState(false);
   const [viewDensity, setViewDensityState] = React.useState<ViewDensity>("comfortable");
+  const [crmRole, setCrmRole] = React.useState<string | null>(null);
 
   // Hydrate from localStorage
   React.useEffect(() => {
@@ -34,8 +37,8 @@ export function ShellProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = React.useMemo(
-    () => ({ mobileNavOpen, setMobileNavOpen, sidebarCollapsed, setSidebarCollapsed, viewDensity, setViewDensity }),
-    [mobileNavOpen, sidebarCollapsed, viewDensity, setViewDensity]
+    () => ({ mobileNavOpen, setMobileNavOpen, sidebarCollapsed, setSidebarCollapsed, viewDensity, setViewDensity, crmRole, setCrmRole }),
+    [mobileNavOpen, sidebarCollapsed, viewDensity, setViewDensity, crmRole]
   );
   return (
     <ShellContext.Provider value={value}>{children}</ShellContext.Provider>
