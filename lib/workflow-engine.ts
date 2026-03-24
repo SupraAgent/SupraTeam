@@ -11,7 +11,7 @@ import {
   type WorkflowData,
   type FlowNode,
   type FlowEdge,
-} from "@supra/automation-builder";
+} from "../packages/automation-builder/dist/index";
 import { createSupabaseAdmin } from "@/lib/supabase";
 import { createSupabasePersistence } from "@/lib/workflow-persistence";
 import { renderTemplate } from "@/lib/telegram-templates";
@@ -28,7 +28,7 @@ import type { Workflow } from "@/lib/workflow-db-types";
 
 // Re-export for API route consumers
 export type { Workflow } from "@/lib/workflow-db-types";
-export type { WorkflowEvent, RunResult } from "@supra/automation-builder";
+export type { WorkflowEvent, RunResult } from "../packages/automation-builder/dist/index";
 
 /**
  * CRM action executor — dispatches to existing action functions.
