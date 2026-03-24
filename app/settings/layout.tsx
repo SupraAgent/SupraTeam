@@ -16,7 +16,8 @@ const SETTINGS_GROUPS = [
   {
     label: "Integrations",
     items: [
-      { href: "/settings/integrations", label: "Telegram Bots" },
+      { href: "/settings/integrations", label: "Overview" },
+      { href: "/settings/integrations/telegram", label: "Telegram Bots" },
       { href: "/settings/integrations/connect", label: "TG Connect" },
       { href: "/settings/integrations/email", label: "Email" },
       { href: "/settings/integrations/webhooks", label: "Webhooks" },
