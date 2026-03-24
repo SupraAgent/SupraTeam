@@ -16,6 +16,8 @@ import {
   CheckCircle,
   MessageCircle,
   ArrowRight,
+  GitBranch,
+  Timer,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { timeAgo } from "@/lib/utils";
@@ -41,6 +43,9 @@ type Step = {
   delay_hours: number;
   message_template: string;
   step_type: string;
+  condition_type: string | null;
+  on_true_step: number | null;
+  on_false_step: number | null;
 };
 
 export default function OutreachPage() {
@@ -55,10 +60,17 @@ export default function OutreachPage() {
   const [newName, setNewName] = React.useState("");
   const [newDesc, setNewDesc] = React.useState("");
   const [newBoard, setNewBoard] = React.useState("");
-  const [newSteps, setNewSteps] = React.useState([
-    { message_template: "", delay_hours: 0 },
-    { message_template: "", delay_hours: 24 },
-    { message_template: "", delay_hours: 48 },
+  const [newSteps, setNewSteps] = React.useState<Array<{
+    message_template: string;
+    delay_hours: number;
+    step_type: string;
+    condition_type: string;
+    on_true_step: number | null;
+    on_false_step: number | null;
+  }>>([
+    { message_template: "", delay_hours: 0, step_type: "message", condition_type: "", on_true_step: null, on_false_step: null },
+    { message_template: "", delay_hours: 24, step_type: "message", condition_type: "", on_true_step: null, on_false_step: null },
+    { message_template: "", delay_hours: 48, step_type: "message", condition_type: "", on_true_step: null, on_false_step: null },
   ]);
 
   React.useEffect(() => {
@@ -149,8 +161,8 @@ export default function OutreachPage() {
     toast.success("Sequence deleted");
   }
 
-  function addStep() {
-    setNewSteps([...newSteps, { message_template: "", delay_hours: 24 }]);
+  function addStep(type: string = "message") {
+    setNewSteps([...newSteps, { message_template: "", delay_hours: 24, step_type: type, condition_type: type === "condition" ? "reply_received" : "", on_true_step: null, on_false_step: null }]);
   }
 
   function removeStep(index: number) {
@@ -229,11 +241,23 @@ export default function OutreachPage() {
               Steps ({newSteps.length})
             </p>
             {newSteps.map((step, i) => (
-              <div key={i} className="flex items-start gap-2 rounded-lg border border-white/10 bg-white/[0.02] p-3">
-                <div className="flex items-center gap-1.5 shrink-0 pt-1">
-                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/20 text-primary text-[10px] font-bold">
+              <div key={i} className={cn(
+                "rounded-lg border p-3 space-y-2",
+                step.step_type === "condition" ? "border-yellow-500/20 bg-yellow-500/5" : "border-white/10 bg-white/[0.02]"
+              )}>
+                <div className="flex items-center gap-2">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/20 text-primary text-[10px] font-bold shrink-0">
                     {i + 1}
                   </span>
+                  <select
+                    value={step.step_type}
+                    onChange={(e) => updateStep(i, "step_type", e.target.value)}
+                    className="rounded border border-white/10 bg-transparent px-2 py-1 text-[10px]"
+                  >
+                    <option value="message">Message</option>
+                    <option value="wait">Wait</option>
+                    <option value="condition">Condition</option>
+                  </select>
                   {i > 0 && (
                     <div className="flex items-center gap-1">
                       <Clock className="h-3 w-3 text-muted-foreground" />
@@ -247,30 +271,100 @@ export default function OutreachPage() {
                       <span className="text-[9px] text-muted-foreground">hrs</span>
                     </div>
                   )}
+                  {newSteps.length > 1 && (
+                    <button
+                      onClick={() => removeStep(i)}
+                      className="text-muted-foreground hover:text-red-400 shrink-0 ml-auto"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </div>
-                <textarea
-                  value={step.message_template}
-                  onChange={(e) => updateStep(i, "message_template", e.target.value)}
-                  placeholder={`Step ${i + 1} message. Use {{contact_name}}, {{deal_name}}, {{stage}}. Defaults: {{contact_first_name|there}}`}
-                  rows={2}
-                  className="flex-1 rounded-lg border border-white/10 bg-transparent px-2 py-1.5 text-xs font-mono resize-none"
-                />
-                {newSteps.length > 1 && (
-                  <button
-                    onClick={() => removeStep(i)}
-                    className="text-muted-foreground hover:text-red-400 shrink-0 pt-1"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+
+                {step.step_type === "message" && (
+                  <textarea
+                    value={step.message_template}
+                    onChange={(e) => updateStep(i, "message_template", e.target.value)}
+                    placeholder={`Step ${i + 1} message. Use {{contact_name}}, {{deal_name}}, {{stage}}. Defaults: {{contact_first_name|there}}`}
+                    rows={2}
+                    className="w-full rounded-lg border border-white/10 bg-transparent px-2 py-1.5 text-xs font-mono resize-none"
+                  />
+                )}
+
+                {step.step_type === "condition" && (
+                  <div className="space-y-2 pl-7">
+                    <div className="flex items-center gap-2">
+                      <GitBranch className="h-3.5 w-3.5 text-yellow-400 shrink-0" />
+                      <select
+                        value={step.condition_type}
+                        onChange={(e) => updateStep(i, "condition_type", e.target.value)}
+                        className="rounded border border-white/10 bg-transparent px-2 py-1 text-xs"
+                      >
+                        <option value="reply_received">Reply received</option>
+                        <option value="no_reply_timeout">No reply (timeout)</option>
+                      </select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <span className="h-2 w-2 rounded-full bg-emerald-400 shrink-0" />
+                        <span className="text-[10px] text-emerald-400 shrink-0">If YES →</span>
+                        <select
+                          value={step.on_true_step ?? ""}
+                          onChange={(e) => updateStep(i, "on_true_step", e.target.value ? Number(e.target.value) : "")}
+                          className="rounded border border-white/10 bg-transparent px-1.5 py-0.5 text-[10px] flex-1"
+                        >
+                          <option value="">End sequence</option>
+                          {newSteps.map((_, si) => si !== i && (
+                            <option key={si} value={si + 1}>Step {si + 1}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="h-2 w-2 rounded-full bg-red-400 shrink-0" />
+                        <span className="text-[10px] text-red-400 shrink-0">If NO →</span>
+                        <select
+                          value={step.on_false_step ?? ""}
+                          onChange={(e) => updateStep(i, "on_false_step", e.target.value ? Number(e.target.value) : "")}
+                          className="rounded border border-white/10 bg-transparent px-1.5 py-0.5 text-[10px] flex-1"
+                        >
+                          <option value="">End sequence</option>
+                          {newSteps.map((_, si) => si !== i && (
+                            <option key={si} value={si + 1}>Step {si + 1}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {step.step_type === "wait" && (
+                  <div className="pl-7 text-[10px] text-muted-foreground flex items-center gap-1">
+                    <Timer className="h-3 w-3" />
+                    Wait {step.delay_hours}h before next step
+                  </div>
                 )}
               </div>
             ))}
-            <button
-              onClick={addStep}
-              className="text-xs text-primary hover:underline flex items-center gap-1"
-            >
-              <Plus className="h-3 w-3" /> Add step
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => addStep("message")}
+                className="text-xs text-primary hover:underline flex items-center gap-1"
+              >
+                <Plus className="h-3 w-3" /> Message
+              </button>
+              <button
+                onClick={() => addStep("condition")}
+                className="text-xs text-yellow-400 hover:underline flex items-center gap-1"
+              >
+                <GitBranch className="h-3 w-3" /> Condition
+              </button>
+              <button
+                onClick={() => addStep("wait")}
+                className="text-xs text-muted-foreground hover:underline flex items-center gap-1"
+              >
+                <Clock className="h-3 w-3" /> Wait
+              </button>
+            </div>
           </div>
 
           <div className="flex items-center gap-2 justify-end">
@@ -390,7 +484,12 @@ export default function OutreachPage() {
                         <div key={step.id} className="flex items-start gap-3">
                           {/* Timeline line */}
                           <div className="flex flex-col items-center shrink-0">
-                            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/20 text-primary text-[10px] font-bold">
+                            <div className={cn(
+                              "flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold",
+                              step.step_type === "condition" ? "bg-yellow-500/20 text-yellow-400" :
+                              step.step_type === "wait" ? "bg-white/10 text-muted-foreground" :
+                              "bg-primary/20 text-primary"
+                            )}>
                               {step.step_number}
                             </div>
                             {i < steps.length - 1 && (
@@ -399,21 +498,57 @@ export default function OutreachPage() {
                           </div>
                           <div className="flex-1 pb-3">
                             <div className="flex items-center gap-2 mb-1">
-                              {step.step_number > 1 && (
+                              {step.step_number > 1 && step.delay_hours > 0 && (
                                 <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
                                   <Clock className="h-3 w-3" />
                                   Wait {step.delay_hours}h
                                   <ArrowRight className="h-3 w-3" />
                                 </span>
                               )}
-                              <span className="flex items-center gap-1 text-[10px] text-primary">
-                                <Send className="h-3 w-3" />
-                                Send message
-                              </span>
+                              {step.step_type === "message" && (
+                                <span className="flex items-center gap-1 text-[10px] text-primary">
+                                  <Send className="h-3 w-3" />
+                                  Send message
+                                </span>
+                              )}
+                              {step.step_type === "condition" && (
+                                <span className="flex items-center gap-1 text-[10px] text-yellow-400">
+                                  <GitBranch className="h-3 w-3" />
+                                  {step.condition_type === "reply_received" ? "If reply received" : "If no reply (timeout)"}
+                                </span>
+                              )}
+                              {step.step_type === "wait" && (
+                                <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                                  <Timer className="h-3 w-3" />
+                                  Wait step
+                                </span>
+                              )}
                             </div>
-                            <pre className="rounded-lg bg-white/[0.03] border border-white/5 p-2 text-[10px] font-mono text-muted-foreground whitespace-pre-wrap">
-                              {step.message_template}
-                            </pre>
+
+                            {step.step_type === "message" && (
+                              <pre className="rounded-lg bg-white/[0.03] border border-white/5 p-2 text-[10px] font-mono text-muted-foreground whitespace-pre-wrap">
+                                {step.message_template}
+                              </pre>
+                            )}
+
+                            {step.step_type === "condition" && (
+                              <div className="rounded-lg bg-yellow-500/5 border border-yellow-500/10 p-2 space-y-1">
+                                <div className="flex items-center gap-1.5 text-[10px]">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                                  <span className="text-emerald-400">YES →</span>
+                                  <span className="text-muted-foreground">
+                                    {step.on_true_step ? `Go to step ${step.on_true_step}` : "End sequence"}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1.5 text-[10px]">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
+                                  <span className="text-red-400">NO →</span>
+                                  <span className="text-muted-foreground">
+                                    {step.on_false_step ? `Go to step ${step.on_false_step}` : "End sequence"}
+                                  </span>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </div>
                       ))}
