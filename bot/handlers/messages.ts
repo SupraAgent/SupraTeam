@@ -89,6 +89,25 @@ export function registerMessageHandlers(bot: Bot) {
           pipeline_link: `/pipeline?highlight=${deal.id}`,
         });
       }
+      // Check for active outreach enrollments targeting this chat (reply detection)
+      try {
+        const { data: activeEnrollments } = await supabase
+          .from("crm_outreach_enrollments")
+          .select("id, reply_count")
+          .eq("tg_chat_id", String(chatId))
+          .eq("status", "active");
+
+        if (activeEnrollments && activeEnrollments.length > 0) {
+          for (const enrollment of activeEnrollments) {
+            await supabase.from("crm_outreach_enrollments").update({
+              last_reply_at: new Date().toISOString(),
+              reply_count: (enrollment.reply_count ?? 0) + 1,
+            }).eq("id", enrollment.id);
+          }
+        }
+      } catch (replyErr) {
+        console.error("[bot/messages] reply detection error:", replyErr);
+      }
     } catch (err) {
       console.error("[bot/messages] error:", err);
     }
