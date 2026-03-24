@@ -24,7 +24,7 @@ export {
   type DelayConfig,
 } from "./core/types";
 
-export { executeWorkflow, resumeWorkflow, evaluateCondition, defaultRenderTemplate } from "./core/engine";
+export { executeWorkflow, resumeWorkflow, evaluateCondition, defaultRenderTemplate, type EngineConfig } from "./core/engine";
 export { cn } from "./core/utils";
 
 // React components
