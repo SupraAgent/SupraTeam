@@ -697,12 +697,249 @@ function RegisteredConfig({
     ))
   ] });
 }
+function AsyncSelectField({ field, value, onChange }) {
+  const [options, setOptions] = React2.useState([]);
+  const [loading, setLoading] = React2.useState(true);
+  const [error, setError] = React2.useState(null);
+  const [open, setOpen] = React2.useState(false);
+  const [search, setSearch] = React2.useState("");
+  const [manualMode, setManualMode] = React2.useState(false);
+  const [manualValue, setManualValue] = React2.useState("");
+  const containerRef = React2.useRef(null);
+  const inputRef = React2.useRef(null);
+  const strVal = value == null ? "" : String(value);
+
+  React2.useEffect(() => {
+    if (!field.optionsUrl) { setLoading(false); return; }
+    let cancelled = false;
+    setLoading(true);
+    fetch(field.optionsUrl)
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        const items = data.data ?? data.groups ?? data.stages ?? data.contacts ?? data.channels ?? data.users ?? data ?? [];
+        const mapped = items.map((item) => {
+          if (field.mapOption) return field.mapOption(item);
+          return { value: item.id ?? item.value, label: item.name ?? item.label ?? item.id };
+        });
+        setOptions(mapped);
+        setLoading(false);
+      })
+      .catch((err) => { if (!cancelled) { setError(String(err)); setLoading(false); } });
+    return () => { cancelled = true; };
+  }, [field.optionsUrl]);
+
+  // Close dropdown when clicking outside
+  React2.useEffect(() => {
+    if (!open) return;
+    function handleClick(e) {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setOpen(false);
+        setSearch("");
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  const selectedLabel = React2.useMemo(() => {
+    if (!strVal) return null;
+    const found = options.find((o) => String(o.value) === strVal);
+    return found ? found.label : strVal;
+  }, [strVal, options]);
+
+  const filtered = React2.useMemo(() => {
+    if (!search) return options;
+    const q = search.toLowerCase();
+    return options.filter((o) =>
+      String(o.label).toLowerCase().includes(q) ||
+      String(o.value).toLowerCase().includes(q)
+    );
+  }, [options, search]);
+
+  function handleSelect(opt) {
+    onChange(opt.value);
+    if (field.onSelectExtra) field.onSelectExtra(opt);
+    setOpen(false);
+    setSearch("");
+    setManualMode(false);
+  }
+
+  function handleClear(e) {
+    e.stopPropagation();
+    onChange("");
+    setSearch("");
+    setManualMode(false);
+  }
+
+  function handleManualSubmit() {
+    if (manualValue.trim()) {
+      onChange(manualValue.trim());
+      setManualMode(false);
+      setManualValue("");
+    }
+  }
+
+  if (loading) {
+    return jsx7(Field, { label: field.label, children: jsx7("div", {
+      className: "w-full rounded-lg border border-white/10 bg-transparent px-3 py-1.5 text-xs text-muted-foreground/50 flex items-center gap-2",
+      children: [
+        jsxs6("svg", { className: "h-3 w-3 animate-spin", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: [
+          jsx7("path", { d: "M21 12a9 9 0 11-6.219-8.56" })
+        ] }),
+        "Loading..."
+      ]
+    }) });
+  }
+
+  if (error) {
+    return jsx7(Field, { label: field.label, children: jsxs6("div", {
+      className: "space-y-1.5",
+      children: [
+        jsx7("div", {
+          className: "w-full rounded-lg border border-red-500/20 bg-transparent px-3 py-1.5 text-xs text-red-400",
+          children: "Failed to load options"
+        }),
+        jsx7("input", {
+          value: strVal,
+          onChange: (e) => onChange(e.target.value),
+          className: "w-full rounded-lg border border-white/10 bg-transparent px-3 py-1.5 text-xs h-8 outline-none focus:border-white/20",
+          placeholder: "Enter ID manually..."
+        })
+      ]
+    }) });
+  }
+
+  // Manual ID mode
+  if (manualMode) {
+    return jsx7(Field, { label: field.label, children: jsxs6("div", {
+      className: "space-y-1.5",
+      children: [
+        jsxs6("div", { className: "flex gap-1", children: [
+          jsx7("input", {
+            value: manualValue,
+            onChange: (e) => setManualValue(e.target.value),
+            onKeyDown: (e) => {
+              if (e.key === "Enter") handleManualSubmit();
+              if (e.key === "Escape") { setManualMode(false); setManualValue(""); }
+            },
+            className: "flex-1 rounded-lg border border-white/10 bg-transparent px-3 py-1.5 text-xs h-8 outline-none focus:border-primary/40",
+            placeholder: "Paste ID...",
+            autoFocus: true
+          }),
+          jsx7("button", {
+            onClick: handleManualSubmit,
+            className: "px-2 h-8 rounded-lg border border-white/10 text-[10px] text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors",
+            children: "Set"
+          }),
+          jsx7("button", {
+            onClick: () => { setManualMode(false); setManualValue(""); },
+            className: "px-1.5 h-8 rounded-lg text-muted-foreground/50 hover:text-foreground transition-colors",
+            children: jsxs6("svg", { className: "h-3.5 w-3.5", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", children: [
+              jsx7("line", { x1: "18", y1: "6", x2: "6", y2: "18" }),
+              jsx7("line", { x1: "6", y1: "6", x2: "18", y2: "18" })
+            ] })
+          })
+        ] }),
+        jsx7("button", {
+          onClick: () => { setManualMode(false); setManualValue(""); },
+          className: "text-[9px] text-primary/60 hover:text-primary transition-colors",
+          children: "Back to search"
+        })
+      ]
+    }) });
+  }
+
+  // Combobox mode
+  return jsx7(Field, { label: field.label, children: jsxs6("div", {
+    ref: containerRef,
+    className: "relative",
+    style: { zIndex: open ? 9999 : "auto" },
+    children: [
+      // Selected value display / trigger button
+      !open && jsx7("button", {
+        type: "button",
+        onClick: () => { setOpen(true); setTimeout(() => inputRef.current?.focus(), 0); },
+        className: "w-full rounded-lg border border-white/10 bg-transparent px-3 py-1.5 text-xs h-8 outline-none text-left flex items-center gap-1.5 hover:border-white/20 transition-colors " + (strVal ? "text-foreground" : "text-muted-foreground/50"),
+        children: jsxs6("span", { className: "flex items-center justify-between w-full", children: [
+          jsx7("span", { className: "truncate", children: selectedLabel || field.placeholder || "Select..." }),
+          jsxs6("span", { className: "flex items-center gap-0.5 shrink-0", children: [
+            strVal && jsx7("span", {
+              onClick: handleClear,
+              className: "p-0.5 hover:bg-white/10 rounded transition-colors",
+              children: jsxs6("svg", { className: "h-3 w-3 text-muted-foreground/50 hover:text-foreground", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", children: [
+                jsx7("line", { x1: "18", y1: "6", x2: "6", y2: "18" }),
+                jsx7("line", { x1: "6", y1: "6", x2: "18", y2: "18" })
+              ] })
+            }),
+            jsxs6("svg", { className: "h-3 w-3 text-muted-foreground/30", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", children: [
+              jsx7("polyline", { points: "6 9 12 15 18 9" })
+            ] })
+          ] })
+        ] })
+      }),
+
+      // Open search input
+      open && jsx7("input", {
+        ref: inputRef,
+        value: search,
+        onChange: (e) => setSearch(e.target.value),
+        onKeyDown: (e) => {
+          if (e.key === "Escape") { setOpen(false); setSearch(""); }
+          if (e.key === "Enter" && filtered.length === 1) { handleSelect(filtered[0]); }
+        },
+        className: "w-full rounded-lg border border-primary/40 bg-transparent px-3 py-1.5 text-xs h-8 outline-none",
+        placeholder: "Type to search..."
+      }),
+
+      // Dropdown list
+      open && jsx7("div", {
+        className: "absolute z-[9999] mt-1 w-full max-h-48 overflow-y-auto rounded-lg border border-white/15 shadow-2xl",
+        style: { backgroundColor: "#0d1117" },
+        children: jsxs6("div", { className: "py-1", children: [
+          filtered.length === 0 && jsx7("div", {
+            className: "px-3 py-2 text-[10px] text-muted-foreground/50",
+            children: search ? "No matches found" : "No options available"
+          }),
+          filtered.map((opt) => jsx7("button", {
+            type: "button",
+            onClick: () => handleSelect(opt),
+            className: "w-full text-left px-3 py-1.5 text-xs hover:bg-white/5 transition-colors flex items-center gap-2 " + (String(opt.value) === strVal ? "text-primary bg-primary/5" : "text-foreground"),
+            children: jsxs6("span", { className: "flex items-center justify-between w-full", children: [
+              jsx7("span", { className: "truncate", children: opt.label }),
+              String(opt.value) === strVal && jsxs6("svg", { className: "h-3 w-3 text-primary shrink-0", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", children: [
+                jsx7("polyline", { points: "20 6 9 17 4 12" })
+              ] })
+            ] })
+          }, String(opt.value))),
+          // Manual ID entry option
+          jsx7("div", { className: "border-t border-white/5 mt-1 pt-1" }),
+          jsx7("button", {
+            type: "button",
+            onClick: () => { setOpen(false); setSearch(""); setManualMode(true); setManualValue(strVal); },
+            className: "w-full text-left px-3 py-1.5 text-[10px] text-muted-foreground/60 hover:text-muted-foreground hover:bg-white/5 transition-colors flex items-center gap-1.5",
+            children: [
+              jsxs6("svg", { className: "h-3 w-3", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", children: [
+                jsx7("path", { d: "M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" }),
+                jsx7("path", { d: "M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" })
+              ] }),
+              "Enter ID manually..."
+            ]
+          })
+        ] })
+      })
+    ]
+  }) });
+}
 function ConfigField({
   field,
   value,
   onChange
 }) {
   const strVal = value == null ? "" : String(value);
+  if (field.type === "async_select") {
+    return jsx7(AsyncSelectField, { field, value, onChange });
+  }
   if (field.type === "textarea") {
     return /* @__PURE__ */ jsx7(Field, { label: field.label, children: /* @__PURE__ */ jsx7(
       "textarea",

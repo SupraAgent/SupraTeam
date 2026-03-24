@@ -67,13 +67,19 @@ interface NodePaletteItem {
 interface ConfigFieldDef {
     key: string;
     label: string;
-    type: "text" | "textarea" | "number" | "select";
+    type: "text" | "textarea" | "number" | "select" | "async_select";
     placeholder?: string;
     options?: {
         value: string;
         label: string;
     }[];
     defaultValue?: string | number;
+    /** URL to fetch options from (for async_select). Response: { data: [{id, name}] } */
+    optionsUrl?: string;
+    /** Map raw API item to {value, label} (for async_select) */
+    mapOption?: (item: Record<string, unknown>) => { value: string; label: string };
+    /** Callback when an option is selected (for async_select) */
+    onSelectExtra?: (option: { value: string; label: string }) => void;
 }
 /**
  * Registration for a custom trigger or action type.
