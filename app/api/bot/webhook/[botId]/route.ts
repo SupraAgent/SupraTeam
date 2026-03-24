@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getBotById, getDefaultBot } from "@/lib/bot-registry";
+import { triggerWorkflowsByEvent } from "@/lib/workflow-engine";
 
 export const runtime = "nodejs";
 export const maxDuration = 10;
@@ -130,6 +131,17 @@ export async function POST(request: Request, ctx: RouteContext) {
       if (!tgGroup) return NextResponse.json({ ok: true });
 
       await supabase.from("tg_groups").update({ last_message_at: new Date().toISOString() }).eq("id", tgGroup.id);
+
+      // Fire workflow automations (non-blocking)
+      triggerWorkflowsByEvent("tg_message", {
+        chat_id: String(chat.id),
+        group_name: tgGroup.group_name,
+        sender_name: senderName,
+        sender_username: from.username ?? "",
+        message_text: text,
+        message_link: `https://t.me/c/${String(chat.id).replace(/^-100/, "")}/${msgId}`,
+        tg_group_id: tgGroup.id,
+      }).catch((err: unknown) => console.error("[webhook] workflow trigger error:", err));
 
       const { data: deals } = await supabase
         .from("crm_deals")

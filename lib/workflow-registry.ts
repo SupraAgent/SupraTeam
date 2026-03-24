@@ -19,6 +19,7 @@ import {
   CheckSquare,
   GitBranch,
   Clock,
+  Hash,
 } from "lucide-react";
 
 // ── Palette items ───────────────────────────────────────────────
@@ -37,6 +38,7 @@ export const CRM_TRIGGERS: NodePaletteItem[] = [
 export const CRM_ACTIONS: NodePaletteItem[] = [
   { type: "action", subType: "send_telegram", label: "Send Telegram", description: "Send a Telegram message", icon: "Send", defaultConfig: { message: "" } },
   { type: "action", subType: "send_email", label: "Send Email", description: "Send an email", icon: "Mail", defaultConfig: { subject: "", body: "" } },
+  { type: "action", subType: "send_slack", label: "Send Slack", description: "Send a Slack message", icon: "Hash", defaultConfig: { channel_id: "", message: "*[{{group_name}}]* {{sender_name}}: {{message_text}}\n<{{message_link}}|View in Telegram>", mention_user_id: "" } },
   { type: "action", subType: "update_deal", label: "Update Deal", description: "Change a deal field", icon: "Pencil", defaultConfig: { field: "stage", value: "" } },
   { type: "action", subType: "update_contact", label: "Update Contact", description: "Change a contact field", icon: "UserCog", defaultConfig: { field: "company", value: "" } },
   { type: "action", subType: "assign_deal", label: "Assign Deal", description: "Reassign deal owner", icon: "UserPlus", defaultConfig: { assign_to: "" } },
@@ -113,6 +115,15 @@ export const CRM_REGISTRY: NodeRegistry = {
         { key: "body", label: "Body", type: "textarea", placeholder: "Email body…" },
       ],
     },
+    send_slack: {
+      subType: "send_slack",
+      configFields: [
+        { key: "channel_id", label: "Slack Channel", type: "text", placeholder: "Channel ID (from /api/slack/channels)" },
+        { key: "mention_user_id", label: "@Mention User (optional)", type: "text", placeholder: "Slack user ID" },
+        { key: "message", label: "Message template", type: "textarea", placeholder: "*[{{group_name}}]* {{sender_name}}: {{message_text}}\n<{{message_link}}|View in Telegram>" },
+      ],
+      infoText: "Variables: {{sender_name}}, {{message_text}}, {{group_name}}, {{message_link}}",
+    },
     update_deal: {
       subType: "update_deal",
       configFields: [
@@ -168,6 +179,7 @@ export const CRM_ICON_MAP: Record<string, React.ElementType> = {
   // Action icons (by subType)
   send_telegram: Send,
   send_email: Mail,
+  send_slack: Hash,
   update_deal: Pencil,
   update_contact: UserCog,
   assign_deal: UserPlus,
@@ -188,4 +200,5 @@ export const CRM_ICON_MAP: Record<string, React.ElementType> = {
   CheckSquare,
   GitBranch,
   Clock,
+  Hash,
 };
