@@ -81,6 +81,11 @@ function FlowCanvasInner({
   nodesRef.current = nodes;
   edgesRef.current = edges;
 
+  // Expose current canvas state for external consumers (e.g., save-as-template)
+  React.useEffect(() => {
+    (window as unknown as Record<string, unknown>).__supracrm_canvas_state = { nodes, edges };
+  }, [nodes, edges]);
+
   const triggerSave = React.useCallback(() => {
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(() => {

@@ -299,6 +299,7 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
                     { value: "BD", label: "BD" },
                     { value: "Marketing", label: "Marketing" },
                     { value: "Admin", label: "Admin" },
+                    { value: "Applications", label: "Applications" },
                   ]}
                   className="mt-1"
                 />

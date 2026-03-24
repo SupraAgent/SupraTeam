@@ -31,7 +31,7 @@ const EMPTY_FILTERS: PipelineFilters = {
   assignedTo: null, staleDays: null, outcome: null,
 };
 
-const BOARDS: BoardType[] = ["All", "BD", "Marketing", "Admin"];
+const BOARDS: BoardType[] = ["All", "BD", "Marketing", "Admin", "Applications"];
 
 const SAMPLE_BASE = {
   contact_id: null, assigned_to: null, telegram_chat_id: null, telegram_chat_name: null,
