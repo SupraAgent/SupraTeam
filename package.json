@@ -18,7 +18,6 @@
   },
   "dependencies": {
     "@hello-pangea/dnd": "^18.0.1",
-    "@supra/automation-builder": "file:./packages/automation-builder",
     "@supabase/ssr": "^0.9.0",
     "@supabase/supabase-js": "^2.99.2",
     "@tiptap/extension-image": "^3.20.4",

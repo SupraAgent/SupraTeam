@@ -9,6 +9,11 @@ const nextConfig: NextConfig = {
       { hostname: "t.me" },
     ],
   },
+  turbopack: {
+    resolveAlias: {
+      "@supra/automation-builder": "./packages/automation-builder/dist/index.js",
+    },
+  },
 };
 
 export default nextConfig;
