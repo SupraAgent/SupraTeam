@@ -38,7 +38,7 @@ export type Deal = {
   deal_name: string;
   contact_id: string | null;
   assigned_to: string | null;
-  board_type: "BD" | "Marketing" | "Admin";
+  board_type: "BD" | "Marketing" | "Admin" | "Applications";
   stage_id: string | null;
   value: number | null;
   probability: number | null;
@@ -61,7 +61,7 @@ export type Deal = {
   assigned_profile?: { display_name: string; avatar_url: string } | null;
 };
 
-export type BoardType = "All" | "BD" | "Marketing" | "Admin";
+export type BoardType = "All" | "BD" | "Marketing" | "Admin" | "Applications";
 
 export type Doc = {
   id: string;

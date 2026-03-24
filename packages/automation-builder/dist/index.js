@@ -1339,6 +1339,9 @@ function FlowCanvasInner({
   const edgesRef = React2.useRef(edges);
   nodesRef.current = nodes;
   edgesRef.current = edges;
+  React2.useEffect(() => {
+    window.__supracrm_canvas_state = { nodes, edges };
+  }, [nodes, edges]);
   const triggerSave = React2.useCallback(() => {
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(() => {
