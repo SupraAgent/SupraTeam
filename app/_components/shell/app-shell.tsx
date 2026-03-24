@@ -29,7 +29,18 @@ function TelegramLoginButton({ size = "sm" }: { size?: "sm" | "md" }) {
 
 function AppShellInner({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  const { sidebarCollapsed, viewDensity } = useShell();
+  const { sidebarCollapsed, viewDensity, setCrmRole } = useShell();
+
+  // Fetch user's crm_role from profile
+  React.useEffect(() => {
+    if (!user) return;
+    fetch("/api/profile")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((res) => {
+        if (res?.data?.crm_role) setCrmRole(res.data.crm_role);
+      })
+      .catch(() => {});
+  }, [user, setCrmRole]);
 
   // Apply density data attribute to html element
   React.useEffect(() => {

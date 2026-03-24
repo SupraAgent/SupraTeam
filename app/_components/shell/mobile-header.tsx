@@ -23,9 +23,11 @@ const NAV_ITEMS = [
   { href: "/settings", label: "Settings" },
 ] as const;
 
+const ADMIN_ITEM = { href: "/admin", label: "Admin" } as const;
+
 export function MobileHeader() {
   const pathname = usePathname();
-  const { mobileNavOpen, setMobileNavOpen } = useShell();
+  const { mobileNavOpen, setMobileNavOpen, crmRole } = useShell();
 
   return (
     <div className="md:hidden">
@@ -87,6 +89,20 @@ export function MobileHeader() {
               </Link>
             );
           })}
+          {crmRole === "admin_lead" && (
+            <Link
+              href={ADMIN_ITEM.href}
+              onClick={() => setMobileNavOpen(false)}
+              className={cn(
+                "block rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                pathname.startsWith("/admin")
+                  ? "bg-white/10 text-foreground"
+                  : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+              )}
+            >
+              {ADMIN_ITEM.label}
+            </Link>
+          )}
         </nav>
       )}
     </div>
