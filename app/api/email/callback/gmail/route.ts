@@ -21,13 +21,13 @@ export async function GET(request: Request) {
 
   if (error) {
     return NextResponse.redirect(
-      new URL(`/settings/email?error=${encodeURIComponent(error)}`, request.url)
+      new URL(`/settings/integrations/email?error=${encodeURIComponent(error)}`, request.url)
     );
   }
 
   if (!code || !stateParam) {
     return NextResponse.redirect(
-      new URL("/settings/email?error=missing_params", request.url)
+      new URL("/settings/integrations/email?error=missing_params", request.url)
     );
   }
 
@@ -41,12 +41,12 @@ export async function GET(request: Request) {
     // Reject if state is older than 10 minutes
     if (Date.now() - ts > 10 * 60 * 1000) {
       return NextResponse.redirect(
-        new URL("/settings/email?error=state_expired", request.url)
+        new URL("/settings/integrations/email?error=state_expired", request.url)
       );
     }
   } catch {
     return NextResponse.redirect(
-      new URL("/settings/email?error=invalid_state", request.url)
+      new URL("/settings/integrations/email?error=invalid_state", request.url)
     );
   }
 
@@ -56,7 +56,7 @@ export async function GET(request: Request) {
     const { data: { user } } = await supabase.auth.getUser();
     if (user && user.id !== userId) {
       return NextResponse.redirect(
-        new URL("/settings/email?error=user_mismatch", request.url)
+        new URL("/settings/integrations/email?error=user_mismatch", request.url)
       );
     }
   }
@@ -64,7 +64,7 @@ export async function GET(request: Request) {
   const admin = createSupabaseAdmin();
   if (!admin) {
     return NextResponse.redirect(
-      new URL("/settings/email?error=server_error", request.url)
+      new URL("/settings/integrations/email?error=server_error", request.url)
     );
   }
 
@@ -74,7 +74,7 @@ export async function GET(request: Request) {
 
     if (!tokens.access_token || !tokens.refresh_token) {
       return NextResponse.redirect(
-        new URL("/settings/email?error=no_tokens", request.url)
+        new URL("/settings/integrations/email?error=no_tokens", request.url)
       );
     }
 
@@ -86,7 +86,7 @@ export async function GET(request: Request) {
 
     if (!email) {
       return NextResponse.redirect(
-        new URL("/settings/email?error=no_email", request.url)
+        new URL("/settings/integrations/email?error=no_email", request.url)
       );
     }
 
@@ -125,12 +125,12 @@ export async function GET(request: Request) {
     });
 
     return NextResponse.redirect(
-      new URL("/settings/email?success=connected", request.url)
+      new URL("/settings/integrations/email?success=connected", request.url)
     );
   } catch (err) {
     console.error("[email/callback/gmail] error:", err);
     return NextResponse.redirect(
-      new URL("/settings/email?error=oauth_failed", request.url)
+      new URL("/settings/integrations/email?error=oauth_failed", request.url)
     );
   }
 }

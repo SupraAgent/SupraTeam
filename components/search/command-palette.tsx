@@ -84,7 +84,7 @@ export function CommandPalette() {
     { id: "nav-graph", type: "navigate", label: "Graph", icon: <Network className="h-4 w-4" />, action: () => router.push("/graph") },
     { id: "nav-docs", type: "navigate", label: "Docs", icon: <FileText className="h-4 w-4" />, action: () => router.push("/docs") },
     { id: "nav-settings", type: "navigate", label: "Settings", icon: <Settings className="h-4 w-4" />, shortcut: "g s", action: () => router.push("/settings") },
-    { id: "nav-settings-email", type: "navigate", label: "Email Settings", icon: <Settings className="h-4 w-4" />, action: () => router.push("/settings/email") },
+    { id: "nav-settings-email", type: "navigate", label: "Email Settings", icon: <Settings className="h-4 w-4" />, action: () => router.push("/settings/integrations/email") },
     { id: "nav-settings-pipeline", type: "navigate", label: "Pipeline Settings", icon: <Settings className="h-4 w-4" />, action: () => router.push("/settings/pipeline") },
     { id: "nav-settings-team", type: "navigate", label: "Team Settings", icon: <Settings className="h-4 w-4" />, action: () => router.push("/settings/team") },
   ], [router]);
