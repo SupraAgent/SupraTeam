@@ -7,7 +7,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdmin } from "@/lib/supabase";
 import { executeWorkflowFromData } from "@/lib/workflow-engine";
-import type { Workflow } from "@/lib/workflow-types";
+import type { Workflow } from "@/lib/workflow-db-types";
 
 export async function POST(
   request: Request,

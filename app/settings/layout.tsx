@@ -8,121 +8,117 @@ import { cn } from "@/lib/utils";
 const SETTINGS_GROUPS = [
   {
     label: "General",
-    href: "/settings",
-    match: (p: string) => p === "/settings" || p.startsWith("/settings/team"),
-    tabs: [
-      { label: "Profile", href: "/settings" },
-      { label: "Team", href: "/settings/team" },
+    items: [
+      { href: "/settings", label: "Profile" },
+      { href: "/settings/team", label: "Team" },
     ],
   },
   {
     label: "Integrations",
-    href: "/settings/integrations",
-    match: (p: string) => p.startsWith("/settings/integrations"),
-    tabs: [
-      { label: "Telegram Bots", href: "/settings/integrations" },
-      { label: "TG Connect", href: "/settings/integrations/connect" },
-      { label: "Email", href: "/settings/integrations/email" },
-      { label: "Webhooks", href: "/settings/integrations/webhooks" },
+    items: [
+      { href: "/settings/integrations", label: "Telegram Bots" },
+      { href: "/settings/integrations/connect", label: "TG Connect" },
+      { href: "/settings/integrations/email", label: "Email" },
+      { href: "/settings/integrations/webhooks", label: "Webhooks" },
     ],
   },
   {
     label: "Pipeline",
-    href: "/settings/pipeline",
-    match: (p: string) => p.startsWith("/settings/pipeline"),
-    tabs: [
-      { label: "Stages & Fields", href: "/settings/pipeline" },
-      { label: "Contact Fields", href: "/settings/pipeline/contacts" },
+    items: [
+      { href: "/settings/pipeline", label: "Stages & Fields" },
+      { href: "/settings/pipeline/contacts", label: "Contact Fields" },
     ],
   },
   {
     label: "Automation",
-    href: "/settings/automations",
-    match: (p: string) => p.startsWith("/settings/automations"),
-    tabs: [
-      { label: "Rules", href: "/settings/automations" },
-      { label: "Sequences", href: "/settings/automations/sequences" },
-      { label: "Bot Templates", href: "/settings/automations/templates" },
+    items: [
+      { href: "/settings/automations", label: "Rules" },
+      { href: "/settings/automations/sequences", label: "Sequences" },
+      { href: "/settings/automations/templates", label: "Bot Templates" },
     ],
   },
   {
-    label: "AI Agent",
-    href: "/settings/ai-agent",
-    match: (p: string) => p.startsWith("/settings/ai-agent"),
-    tabs: [],
+    label: "AI",
+    items: [
+      { href: "/settings/ai-agent", label: "AI Agent" },
+    ],
   },
   {
     label: "Compliance",
-    href: "/settings/privacy",
-    match: (p: string) => p.startsWith("/settings/privacy"),
-    tabs: [
-      { label: "Privacy & GDPR", href: "/settings/privacy" },
-      { label: "Notifications", href: "/settings/privacy/notifications" },
-      { label: "Audit Log", href: "/settings/privacy/audit" },
+    items: [
+      { href: "/settings/privacy", label: "Privacy & GDPR" },
+      { href: "/settings/privacy/notifications", label: "Notifications" },
+      { href: "/settings/privacy/audit", label: "Audit Log" },
     ],
   },
 ];
 
-export default function SettingsLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function SettingsLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const activeGroup = SETTINGS_GROUPS.find((g) => g.match(pathname));
 
   return (
-    <div className="space-y-0">
-      {/* Group tabs */}
-      <div className="border-b border-white/10 overflow-x-auto thin-scroll">
-        <nav className="flex gap-1 px-1 min-w-max">
-          {SETTINGS_GROUPS.map((group) => {
-            const active = group.match(pathname);
+    <div className="flex gap-6 min-h-0">
+      {/* In-page side nav */}
+      <nav className="hidden md:block w-48 shrink-0">
+        <div className="sticky top-6 space-y-4">
+          {SETTINGS_GROUPS.map((group) => (
+            <div key={group.label}>
+              <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/60 px-2 mb-1">
+                {group.label}
+              </p>
+              <div className="space-y-0.5">
+                {group.items.map((item) => {
+                  const active = item.href === "/settings"
+                    ? pathname === "/settings"
+                    : pathname.startsWith(item.href);
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={cn(
+                        "block rounded-lg px-2 py-1.5 text-[13px] font-medium transition-colors",
+                        active
+                          ? "bg-white/10 text-foreground"
+                          : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+                      )}
+                    >
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </nav>
+
+      {/* Mobile: horizontal scroll tabs */}
+      <div className="md:hidden w-full overflow-x-auto pb-3 -mt-2">
+        <div className="flex gap-1 min-w-max px-1">
+          {SETTINGS_GROUPS.flatMap((g) => g.items).map((item) => {
+            const active = item.href === "/settings"
+              ? pathname === "/settings"
+              : pathname.startsWith(item.href);
             return (
               <Link
-                key={group.href}
-                href={group.href}
+                key={item.href}
+                href={item.href}
                 className={cn(
-                  "px-3 py-2.5 text-[13px] font-medium transition-colors whitespace-nowrap border-b-2",
+                  "rounded-lg px-2.5 py-1.5 text-xs font-medium whitespace-nowrap transition-colors",
                   active
-                    ? "border-primary text-foreground"
-                    : "border-transparent text-muted-foreground hover:text-foreground"
+                    ? "bg-white/10 text-foreground"
+                    : "text-muted-foreground hover:bg-white/5"
                 )}
               >
-                {group.label}
+                {item.label}
               </Link>
             );
           })}
-        </nav>
+        </div>
       </div>
 
-      {/* Sub-tabs (if group has multiple pages) */}
-      {activeGroup && activeGroup.tabs.length > 1 && (
-        <div className="border-b border-white/5 overflow-x-auto thin-scroll">
-          <nav className="flex gap-1 px-1 min-w-max">
-            {activeGroup.tabs.map((tab) => {
-              const active = pathname === tab.href;
-              return (
-                <Link
-                  key={tab.href}
-                  href={tab.href}
-                  className={cn(
-                    "px-3 py-2 text-xs font-medium transition-colors whitespace-nowrap border-b-2",
-                    active
-                      ? "border-primary/60 text-foreground"
-                      : "border-transparent text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  {tab.label}
-                </Link>
-              );
-            })}
-          </nav>
-        </div>
-      )}
-
       {/* Page content */}
-      <div className="py-6">{children}</div>
+      <div className="flex-1 min-w-0">{children}</div>
     </div>
   );
 }
