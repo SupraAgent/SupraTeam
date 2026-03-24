@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { Command } from "cmdk";
 import type { ConfigFieldDef } from "../../core/types";
 
@@ -30,10 +31,7 @@ function useAsyncOptions(field: ConfigFieldDef) {
     fetch(field.optionsUrl)
       .then((res) => {
         if (!res.ok) {
-          if (!cancelled) {
-            setOptions([]);
-            setLoading(false);
-          }
+          if (!cancelled) { setOptions([]); setLoading(false); }
           return null;
         }
         return res.json();
@@ -56,11 +54,7 @@ function useAsyncOptions(field: ConfigFieldDef) {
         setLoading(false);
       })
       .catch((err) => {
-        if (!cancelled) {
-          setError(String(err));
-          setOptions([]);
-          setLoading(false);
-        }
+        if (!cancelled) { setError(String(err)); setOptions([]); setLoading(false); }
       });
 
     return () => { cancelled = true; };
@@ -73,16 +67,15 @@ function useAsyncOptions(field: ConfigFieldDef) {
 
 // ── Click-outside hook ───────────────────────────────────────────
 
-function useClickOutside(ref: React.RefObject<HTMLElement | null>, handler: () => void) {
+function useClickOutside(refs: React.RefObject<HTMLElement | null>[], handler: () => void) {
   React.useEffect(() => {
     function onMouseDown(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        handler();
-      }
+      const inside = refs.some((ref) => ref.current?.contains(e.target as Node));
+      if (!inside) handler();
     }
     document.addEventListener("mousedown", onMouseDown);
     return () => document.removeEventListener("mousedown", onMouseDown);
-  }, [ref, handler]);
+  }, [refs, handler]);
 }
 
 // ── Combobox for static select fields ────────────────────────────
@@ -99,7 +92,6 @@ export function ComboboxField({
   const options = field.options ?? [];
   const strVal = value == null ? "" : String(value);
 
-  // For very small option lists (< 5), use native select
   if (options.length < 5) {
     return (
       <select
@@ -166,7 +158,6 @@ export function AsyncComboboxField({
     }
   }
 
-  // Add new entry form
   if (addMode && field.createUrl) {
     return (
       <div className="space-y-1.5">
@@ -205,7 +196,6 @@ export function AsyncComboboxField({
     );
   }
 
-  // Manual input fallback
   if (manualMode || (error && !loading)) {
     return (
       <div className="space-y-1">
@@ -237,24 +227,22 @@ export function AsyncComboboxField({
   }
 
   return (
-    <div className="space-y-1">
-      <ComboboxDropdown
-        options={options}
-        value={strVal}
-        onChange={(v) => {
-          onChange(v);
-          const opt = options.find((o) => o.value === v);
-          if (opt && field.onSelectExtra) field.onSelectExtra(opt);
-        }}
-        placeholder={field.placeholder ?? "Select..."}
-        loading={loading}
-        onManual={() => {
-          setManualMode(true);
-          setManualValue(strVal);
-        }}
-        onAdd={field.createUrl ? () => setAddMode(true) : undefined}
-      />
-    </div>
+    <ComboboxDropdown
+      options={options}
+      value={strVal}
+      onChange={(v) => {
+        onChange(v);
+        const opt = options.find((o) => o.value === v);
+        if (opt && field.onSelectExtra) field.onSelectExtra(opt);
+      }}
+      placeholder={field.placeholder ?? "Select..."}
+      loading={loading}
+      onManual={() => {
+        setManualMode(true);
+        setManualValue(strVal);
+      }}
+      onAdd={field.createUrl ? () => setAddMode(true) : undefined}
+    />
   );
 }
 
@@ -308,6 +296,55 @@ export function AsyncMultiSelectField({
   );
 }
 
+// ── Portal dropdown (renders outside scroll containers) ──────────
+
+function PortalDropdown({
+  triggerRef,
+  children,
+}: {
+  triggerRef: React.RefObject<HTMLElement | null>;
+  children: React.ReactNode;
+}) {
+  const [pos, setPos] = React.useState({ top: 0, left: 0, width: 0 });
+
+  React.useEffect(() => {
+    if (!triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    setPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+  }, [triggerRef]);
+
+  // Re-position on scroll
+  React.useEffect(() => {
+    function update() {
+      if (!triggerRef.current) return;
+      const rect = triggerRef.current.getBoundingClientRect();
+      setPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+    }
+    // Listen to scroll on all ancestors
+    let el = triggerRef.current?.parentElement;
+    const scrollables: Element[] = [];
+    while (el) {
+      if (el.scrollHeight > el.clientHeight) scrollables.push(el);
+      el = el.parentElement;
+    }
+    scrollables.forEach((s) => s.addEventListener("scroll", update, { passive: true }));
+    window.addEventListener("resize", update, { passive: true });
+    return () => {
+      scrollables.forEach((s) => s.removeEventListener("scroll", update));
+      window.removeEventListener("resize", update);
+    };
+  }, [triggerRef]);
+
+  return createPortal(
+    <div
+      style={{ position: "fixed", top: pos.top, left: pos.left, width: pos.width, zIndex: 99999 }}
+    >
+      {children}
+    </div>,
+    document.body
+  );
+}
+
 // ── Core dropdown component (single select) ──────────────────────
 
 function ComboboxDropdown({
@@ -329,9 +366,10 @@ function ComboboxDropdown({
 }) {
   const [open, setOpen] = React.useState(false);
   const [search, setSearch] = React.useState("");
-  const containerRef = React.useRef<HTMLDivElement>(null);
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
+  const dropdownRef = React.useRef<HTMLDivElement>(null);
 
-  useClickOutside(containerRef, () => setOpen(false));
+  useClickOutside([triggerRef as React.RefObject<HTMLElement | null>, dropdownRef as React.RefObject<HTMLElement | null>], () => setOpen(false));
 
   const selectedLabel = options.find((o) => o.value === value)?.label;
 
@@ -347,9 +385,9 @@ function ComboboxDropdown({
   }
 
   return (
-    <div ref={containerRef} className="relative">
-      {/* Trigger button */}
+    <div className="relative">
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => { setOpen(!open); setSearch(""); }}
         className="w-full flex items-center justify-between rounded-lg border border-white/10 bg-transparent px-3 py-1.5 text-xs h-8 outline-none hover:border-white/20 transition-colors text-left"
@@ -372,75 +410,76 @@ function ComboboxDropdown({
         </span>
       </button>
 
-      {/* Dropdown */}
       {open && (
-        <div className="absolute z-[9999] mt-1 w-full rounded-lg border border-white/10 bg-[hsl(var(--card))] shadow-xl overflow-hidden">
-          <Command shouldFilter={false}>
-            <div className="px-2 py-1.5 border-b border-white/5">
-              <Command.Input
-                value={search}
-                onValueChange={setSearch}
-                placeholder="Search..."
-                className="w-full bg-transparent text-xs outline-none text-foreground placeholder:text-muted-foreground/40"
-                autoFocus
-              />
-            </div>
-            <Command.List className="max-h-48 overflow-y-auto p-1">
-              <Command.Empty className="px-3 py-2 text-[10px] text-muted-foreground/50">
-                No results found
-              </Command.Empty>
-              {options
-                .filter((opt) => {
-                  if (!search) return true;
-                  const s = search.toLowerCase();
-                  return opt.label.toLowerCase().includes(s) || opt.value.toLowerCase().includes(s);
-                })
-                .map((opt) => (
-                  <Command.Item
-                    key={opt.value}
-                    value={opt.value}
-                    onSelect={() => {
-                      onChange(opt.value);
-                      setOpen(false);
-                    }}
-                    className="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs cursor-pointer hover:bg-white/5 data-[selected=true]:bg-white/5 text-foreground"
-                  >
-                    <span className="h-3 w-3 shrink-0 flex items-center justify-center">
-                      {opt.value === value && (
-                        <svg className="h-3 w-3 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                      )}
-                    </span>
-                    <span className="truncate">{opt.label}</span>
-                  </Command.Item>
-                ))}
-            </Command.List>
-            {(onAdd || onManual) && (
-              <div className="border-t border-white/5 p-1 space-y-0.5">
-                {onAdd && (
-                  <button
-                    type="button"
-                    onClick={() => { setOpen(false); onAdd(); }}
-                    className="w-full text-left px-2 py-1.5 rounded-md text-[10px] text-primary/70 hover:bg-primary/5 hover:text-primary flex items-center gap-1.5"
-                  >
-                    <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>
-                    Add new...
-                  </button>
-                )}
-                {onManual && (
-                  <button
-                    type="button"
-                    onClick={() => { setOpen(false); onManual(); }}
-                    className="w-full text-left px-2 py-1.5 rounded-md text-[10px] text-muted-foreground/50 hover:bg-white/5 hover:text-muted-foreground"
-                  >
-                    Enter ID manually...
-                  </button>
-                )}
+        <PortalDropdown triggerRef={triggerRef as React.RefObject<HTMLElement>}>
+          <div ref={dropdownRef} className="rounded-lg border border-white/10 bg-[hsl(var(--card))] shadow-2xl overflow-hidden">
+            <Command shouldFilter={false}>
+              <div className="px-2 py-1.5 border-b border-white/5">
+                <Command.Input
+                  value={search}
+                  onValueChange={setSearch}
+                  placeholder="Search..."
+                  className="w-full bg-transparent text-xs outline-none text-foreground placeholder:text-muted-foreground/40"
+                  autoFocus
+                />
               </div>
-            )}
-          </Command>
-        </div>
+              <Command.List className="max-h-48 overflow-y-auto p-1">
+                <Command.Empty className="px-3 py-2 text-[10px] text-muted-foreground/50">
+                  No results found
+                </Command.Empty>
+                {options
+                  .filter((opt) => {
+                    if (!search) return true;
+                    const s = search.toLowerCase();
+                    return opt.label.toLowerCase().includes(s) || opt.value.toLowerCase().includes(s);
+                  })
+                  .map((opt) => (
+                    <Command.Item
+                      key={opt.value}
+                      value={opt.value}
+                      onSelect={() => {
+                        onChange(opt.value);
+                        setOpen(false);
+                      }}
+                      className="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs cursor-pointer hover:bg-white/5 data-[selected=true]:bg-white/5 text-foreground"
+                    >
+                      <span className="h-3 w-3 shrink-0 flex items-center justify-center">
+                        {opt.value === value && (
+                          <svg className="h-3 w-3 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                        )}
+                      </span>
+                      <span className="truncate">{opt.label}</span>
+                    </Command.Item>
+                  ))}
+              </Command.List>
+              {(onAdd || onManual) && (
+                <div className="border-t border-white/5 p-1 space-y-0.5">
+                  {onAdd && (
+                    <button
+                      type="button"
+                      onClick={() => { setOpen(false); onAdd(); }}
+                      className="w-full text-left px-2 py-1.5 rounded-md text-[10px] text-primary/70 hover:bg-primary/5 hover:text-primary flex items-center gap-1.5"
+                    >
+                      <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>
+                      Add new...
+                    </button>
+                  )}
+                  {onManual && (
+                    <button
+                      type="button"
+                      onClick={() => { setOpen(false); onManual(); }}
+                      className="w-full text-left px-2 py-1.5 rounded-md text-[10px] text-muted-foreground/50 hover:bg-white/5 hover:text-muted-foreground"
+                    >
+                      Enter ID manually...
+                    </button>
+                  )}
+                </div>
+              )}
+            </Command>
+          </div>
+        </PortalDropdown>
       )}
     </div>
   );
@@ -463,9 +502,10 @@ function MultiComboboxDropdown({
 }) {
   const [open, setOpen] = React.useState(false);
   const [search, setSearch] = React.useState("");
-  const containerRef = React.useRef<HTMLDivElement>(null);
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
+  const dropdownRef = React.useRef<HTMLDivElement>(null);
 
-  useClickOutside(containerRef, () => setOpen(false));
+  useClickOutside([triggerRef as React.RefObject<HTMLElement | null>, dropdownRef as React.RefObject<HTMLElement | null>], () => setOpen(false));
 
   function toggle(val: string) {
     if (value.includes(val)) {
@@ -487,39 +527,29 @@ function MultiComboboxDropdown({
   }
 
   return (
-    <div ref={containerRef} className="relative">
-      {/* Trigger */}
+    <div className="relative">
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => { setOpen(!open); setSearch(""); }}
         className="w-full flex items-center justify-between rounded-lg border border-white/10 bg-transparent px-3 py-1.5 text-xs min-h-[32px] outline-none hover:border-white/20 transition-colors text-left"
       >
         <span className={value.length > 0 ? "text-foreground" : "text-muted-foreground/50"}>
-          {value.length > 0
-            ? `${value.length} selected`
-            : placeholder}
+          {value.length > 0 ? `${value.length} selected` : placeholder}
         </span>
         <svg className="h-3 w-3 text-muted-foreground/40 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="m7 15 5 5 5-5" /><path d="m7 9 5-5 5 5" />
         </svg>
       </button>
 
-      {/* Selected badges */}
       {value.length > 0 && (
         <div className="flex flex-wrap gap-1 mt-1.5">
           {value.map((v) => {
             const label = options.find((o) => o.value === v)?.label ?? v;
             return (
-              <span
-                key={v}
-                className="inline-flex items-center gap-1 rounded-md bg-white/5 border border-white/10 px-1.5 py-0.5 text-[10px] text-foreground"
-              >
+              <span key={v} className="inline-flex items-center gap-1 rounded-md bg-white/5 border border-white/10 px-1.5 py-0.5 text-[10px] text-foreground">
                 {label}
-                <button
-                  type="button"
-                  onClick={() => toggle(v)}
-                  className="text-muted-foreground/40 hover:text-foreground"
-                >
+                <button type="button" onClick={() => toggle(v)} className="text-muted-foreground/40 hover:text-foreground">
                   <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
                 </button>
               </span>
@@ -528,49 +558,50 @@ function MultiComboboxDropdown({
         </div>
       )}
 
-      {/* Dropdown */}
       {open && (
-        <div className="absolute z-[9999] mt-1 w-full rounded-lg border border-white/10 bg-[hsl(var(--card))] shadow-xl overflow-hidden">
-          <Command shouldFilter={false}>
-            <div className="px-2 py-1.5 border-b border-white/5">
-              <Command.Input
-                value={search}
-                onValueChange={setSearch}
-                placeholder="Search..."
-                className="w-full bg-transparent text-xs outline-none text-foreground placeholder:text-muted-foreground/40"
-                autoFocus
-              />
-            </div>
-            <Command.List className="max-h-48 overflow-y-auto p-1">
-              <Command.Empty className="px-3 py-2 text-[10px] text-muted-foreground/50">
-                No results found
-              </Command.Empty>
-              {options
-                .filter((opt) => {
-                  if (!search) return true;
-                  const s = search.toLowerCase();
-                  return opt.label.toLowerCase().includes(s) || opt.value.toLowerCase().includes(s);
-                })
-                .map((opt) => (
-                  <Command.Item
-                    key={opt.value}
-                    value={opt.value}
-                    onSelect={() => toggle(opt.value)}
-                    className="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs cursor-pointer hover:bg-white/5 data-[selected=true]:bg-white/5 text-foreground"
-                  >
-                    <span className="h-3 w-3 shrink-0 flex items-center justify-center rounded-sm border border-white/20">
-                      {value.includes(opt.value) && (
-                        <svg className="h-2.5 w-2.5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                      )}
-                    </span>
-                    <span className="truncate">{opt.label}</span>
-                  </Command.Item>
-                ))}
-            </Command.List>
-          </Command>
-        </div>
+        <PortalDropdown triggerRef={triggerRef as React.RefObject<HTMLElement>}>
+          <div ref={dropdownRef} className="rounded-lg border border-white/10 bg-[hsl(var(--card))] shadow-2xl overflow-hidden">
+            <Command shouldFilter={false}>
+              <div className="px-2 py-1.5 border-b border-white/5">
+                <Command.Input
+                  value={search}
+                  onValueChange={setSearch}
+                  placeholder="Search..."
+                  className="w-full bg-transparent text-xs outline-none text-foreground placeholder:text-muted-foreground/40"
+                  autoFocus
+                />
+              </div>
+              <Command.List className="max-h-48 overflow-y-auto p-1">
+                <Command.Empty className="px-3 py-2 text-[10px] text-muted-foreground/50">
+                  No results found
+                </Command.Empty>
+                {options
+                  .filter((opt) => {
+                    if (!search) return true;
+                    const s = search.toLowerCase();
+                    return opt.label.toLowerCase().includes(s) || opt.value.toLowerCase().includes(s);
+                  })
+                  .map((opt) => (
+                    <Command.Item
+                      key={opt.value}
+                      value={opt.value}
+                      onSelect={() => toggle(opt.value)}
+                      className="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs cursor-pointer hover:bg-white/5 data-[selected=true]:bg-white/5 text-foreground"
+                    >
+                      <span className="h-3 w-3 shrink-0 flex items-center justify-center rounded-sm border border-white/20">
+                        {value.includes(opt.value) && (
+                          <svg className="h-2.5 w-2.5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                        )}
+                      </span>
+                      <span className="truncate">{opt.label}</span>
+                    </Command.Item>
+                  ))}
+              </Command.List>
+            </Command>
+          </div>
+        </PortalDropdown>
       )}
     </div>
   );
