@@ -3,6 +3,7 @@ import { twMerge } from 'tailwind-merge';
 import * as React2 from 'react';
 import { jsx, jsxs } from 'react/jsx-runtime';
 import { Handle, Position, ReactFlowProvider, useNodesState, useEdgesState, addEdge, ReactFlow, Background, BackgroundVariant, Controls, MiniMap } from '@xyflow/react';
+import { createPortal } from 'react-dom';
 import { Command } from 'cmdk';
 
 var __defProp = Object.defineProperty;
@@ -650,16 +651,18 @@ function useAsyncOptions(field) {
   const refetch = React2.useCallback(() => setFetchKey((k) => k + 1), []);
   return { options, loading, error, refetch };
 }
-function useClickOutside(ref, handler) {
+function useClickOutside(refs, handler) {
   React2.useEffect(() => {
     function onMouseDown(e) {
-      if (ref.current && !ref.current.contains(e.target)) {
-        handler();
-      }
+      const inside = refs.some((ref) => {
+        var _a;
+        return (_a = ref.current) == null ? void 0 : _a.contains(e.target);
+      });
+      if (!inside) handler();
     }
     document.addEventListener("mousedown", onMouseDown);
     return () => document.removeEventListener("mousedown", onMouseDown);
-  }, [ref, handler]);
+  }, [refs, handler]);
 }
 function ComboboxField({
   field,
@@ -801,7 +804,7 @@ function AsyncComboboxField({
       ] })
     ] });
   }
-  return /* @__PURE__ */ jsx("div", { className: "space-y-1", children: /* @__PURE__ */ jsx(
+  return /* @__PURE__ */ jsx(
     ComboboxDropdown,
     {
       options,
@@ -819,7 +822,7 @@ function AsyncComboboxField({
       },
       onAdd: field.createUrl ? () => setAddMode(true) : void 0
     }
-  ) });
+  );
 }
 function MultiSelectField({
   field,
@@ -859,6 +862,47 @@ function AsyncMultiSelectField({
     }
   );
 }
+function PortalDropdown({
+  triggerRef,
+  children
+}) {
+  const [pos, setPos] = React2.useState({ top: 0, left: 0, width: 0 });
+  React2.useEffect(() => {
+    if (!triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    setPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+  }, [triggerRef]);
+  React2.useEffect(() => {
+    var _a;
+    function update() {
+      if (!triggerRef.current) return;
+      const rect = triggerRef.current.getBoundingClientRect();
+      setPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+    }
+    let el = (_a = triggerRef.current) == null ? void 0 : _a.parentElement;
+    const scrollables = [];
+    while (el) {
+      if (el.scrollHeight > el.clientHeight) scrollables.push(el);
+      el = el.parentElement;
+    }
+    scrollables.forEach((s) => s.addEventListener("scroll", update, { passive: true }));
+    window.addEventListener("resize", update, { passive: true });
+    return () => {
+      scrollables.forEach((s) => s.removeEventListener("scroll", update));
+      window.removeEventListener("resize", update);
+    };
+  }, [triggerRef]);
+  return createPortal(
+    /* @__PURE__ */ jsx(
+      "div",
+      {
+        style: { position: "fixed", top: pos.top, left: pos.left, width: pos.width, zIndex: 99999 },
+        children
+      }
+    ),
+    document.body
+  );
+}
 function ComboboxDropdown({
   options,
   value,
@@ -871,8 +915,9 @@ function ComboboxDropdown({
   var _a;
   const [open, setOpen] = React2.useState(false);
   const [search, setSearch] = React2.useState("");
-  const containerRef = React2.useRef(null);
-  useClickOutside(containerRef, () => setOpen(false));
+  const triggerRef = React2.useRef(null);
+  const dropdownRef = React2.useRef(null);
+  useClickOutside([triggerRef, dropdownRef], () => setOpen(false));
   const selectedLabel = (_a = options.find((o) => o.value === value)) == null ? void 0 : _a.label;
   if (loading) {
     return /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground/50 border border-white/10 rounded-lg h-8", children: [
@@ -880,10 +925,11 @@ function ComboboxDropdown({
       "Loading..."
     ] });
   }
-  return /* @__PURE__ */ jsxs("div", { ref: containerRef, className: "relative", children: [
+  return /* @__PURE__ */ jsxs("div", { className: "relative", children: [
     /* @__PURE__ */ jsxs(
       "button",
       {
+        ref: triggerRef,
         type: "button",
         onClick: () => {
           setOpen(!open);
@@ -912,7 +958,7 @@ function ComboboxDropdown({
         ]
       }
     ),
-    open && /* @__PURE__ */ jsx("div", { className: "absolute z-[9999] mt-1 w-full rounded-lg border border-white/10 bg-[hsl(var(--card))] shadow-xl overflow-hidden", children: /* @__PURE__ */ jsxs(Command, { shouldFilter: false, children: [
+    open && /* @__PURE__ */ jsx(PortalDropdown, { triggerRef, children: /* @__PURE__ */ jsx("div", { ref: dropdownRef, className: "rounded-lg border border-white/10 bg-[hsl(var(--card))] shadow-2xl overflow-hidden", children: /* @__PURE__ */ jsxs(Command, { shouldFilter: false, children: [
       /* @__PURE__ */ jsx("div", { className: "px-2 py-1.5 border-b border-white/5", children: /* @__PURE__ */ jsx(
         Command.Input,
         {
@@ -975,7 +1021,7 @@ function ComboboxDropdown({
           }
         )
       ] })
-    ] }) })
+    ] }) }) })
   ] });
 }
 function MultiComboboxDropdown({
@@ -987,8 +1033,9 @@ function MultiComboboxDropdown({
 }) {
   const [open, setOpen] = React2.useState(false);
   const [search, setSearch] = React2.useState("");
-  const containerRef = React2.useRef(null);
-  useClickOutside(containerRef, () => setOpen(false));
+  const triggerRef = React2.useRef(null);
+  const dropdownRef = React2.useRef(null);
+  useClickOutside([triggerRef, dropdownRef], () => setOpen(false));
   function toggle(val) {
     if (value.includes(val)) {
       onChange(value.filter((v) => v !== val));
@@ -1002,10 +1049,11 @@ function MultiComboboxDropdown({
       "Loading..."
     ] });
   }
-  return /* @__PURE__ */ jsxs("div", { ref: containerRef, className: "relative", children: [
+  return /* @__PURE__ */ jsxs("div", { className: "relative", children: [
     /* @__PURE__ */ jsxs(
       "button",
       {
+        ref: triggerRef,
         type: "button",
         onClick: () => {
           setOpen(!open);
@@ -1024,27 +1072,12 @@ function MultiComboboxDropdown({
     value.length > 0 && /* @__PURE__ */ jsx("div", { className: "flex flex-wrap gap-1 mt-1.5", children: value.map((v) => {
       var _a, _b;
       const label = (_b = (_a = options.find((o) => o.value === v)) == null ? void 0 : _a.label) != null ? _b : v;
-      return /* @__PURE__ */ jsxs(
-        "span",
-        {
-          className: "inline-flex items-center gap-1 rounded-md bg-white/5 border border-white/10 px-1.5 py-0.5 text-[10px] text-foreground",
-          children: [
-            label,
-            /* @__PURE__ */ jsx(
-              "button",
-              {
-                type: "button",
-                onClick: () => toggle(v),
-                className: "text-muted-foreground/40 hover:text-foreground",
-                children: /* @__PURE__ */ jsx("svg", { className: "h-2.5 w-2.5", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: /* @__PURE__ */ jsx("path", { d: "M18 6 6 18M6 6l12 12" }) })
-              }
-            )
-          ]
-        },
-        v
-      );
+      return /* @__PURE__ */ jsxs("span", { className: "inline-flex items-center gap-1 rounded-md bg-white/5 border border-white/10 px-1.5 py-0.5 text-[10px] text-foreground", children: [
+        label,
+        /* @__PURE__ */ jsx("button", { type: "button", onClick: () => toggle(v), className: "text-muted-foreground/40 hover:text-foreground", children: /* @__PURE__ */ jsx("svg", { className: "h-2.5 w-2.5", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: /* @__PURE__ */ jsx("path", { d: "M18 6 6 18M6 6l12 12" }) }) })
+      ] }, v);
     }) }),
-    open && /* @__PURE__ */ jsx("div", { className: "absolute z-[9999] mt-1 w-full rounded-lg border border-white/10 bg-[hsl(var(--card))] shadow-xl overflow-hidden", children: /* @__PURE__ */ jsxs(Command, { shouldFilter: false, children: [
+    open && /* @__PURE__ */ jsx(PortalDropdown, { triggerRef, children: /* @__PURE__ */ jsx("div", { ref: dropdownRef, className: "rounded-lg border border-white/10 bg-[hsl(var(--card))] shadow-2xl overflow-hidden", children: /* @__PURE__ */ jsxs(Command, { shouldFilter: false, children: [
       /* @__PURE__ */ jsx("div", { className: "px-2 py-1.5 border-b border-white/5", children: /* @__PURE__ */ jsx(
         Command.Input,
         {
@@ -1075,7 +1108,7 @@ function MultiComboboxDropdown({
           opt.value
         ))
       ] })
-    ] }) })
+    ] }) }) })
   ] });
 }
 function NodeConfigPanel({ node, onDataChange, onDelete }) {
