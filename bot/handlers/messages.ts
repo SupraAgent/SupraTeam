@@ -1,6 +1,19 @@
 import type { Bot } from "grammy";
 import { supabase } from "../lib/supabase.js";
 
+/**
+ * Fire workflow automations for tg_message triggers.
+ * Uses dynamic import to avoid bundling the workflow engine in the bot process.
+ */
+async function fireWorkflowTriggers(payload: Record<string, unknown>) {
+  try {
+    const { triggerWorkflowsByEvent } = await import("@/lib/workflow-engine");
+    await triggerWorkflowsByEvent("tg_message", payload);
+  } catch (err) {
+    console.error("[bot/messages] workflow trigger error:", err);
+  }
+}
+
 export function registerMessageHandlers(bot: Bot) {
   // Listen for all text messages in groups
   bot.on("message:text", async (ctx) => {
@@ -12,7 +25,12 @@ export function registerMessageHandlers(bot: Bot) {
     const chatId = chat.id;
     const messageId = ctx.message.message_id;
     const senderName = ctx.from.first_name + (ctx.from.last_name ? ` ${ctx.from.last_name}` : "");
+    const senderUsername = ctx.from.username ?? "";
     const messageText = ctx.message.text;
+
+    // Build deep link
+    const privateChatId = String(chatId).replace(/^-100/, "");
+    const tgDeepLink = `https://t.me/c/${privateChatId}/${messageId}`;
 
     try {
       // Find the tg_group record
@@ -24,6 +42,17 @@ export function registerMessageHandlers(bot: Bot) {
 
       if (!tgGroup) return; // Not a registered group
 
+      // Fire workflow automations (non-blocking)
+      fireWorkflowTriggers({
+        chat_id: String(chatId),
+        group_name: tgGroup.group_name,
+        sender_name: senderName,
+        sender_username: senderUsername,
+        message_text: messageText,
+        message_link: tgDeepLink,
+        tg_group_id: tgGroup.id,
+      });
+
       // Find deals linked to this telegram chat
       const { data: deals } = await supabase
         .from("crm_deals")
@@ -34,10 +63,6 @@ export function registerMessageHandlers(bot: Bot) {
 
       // Create a notification for each linked deal
       for (const deal of deals) {
-        // Build deep link: t.me/c/{chat_id without -100 prefix}/{message_id}
-        const privateChatId = String(chatId).replace(/^-100/, "");
-        const tgDeepLink = `https://t.me/c/${privateChatId}/${messageId}`;
-
         await supabase.from("crm_notifications").insert({
           type: "tg_message",
           deal_id: deal.id,

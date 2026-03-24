@@ -18,6 +18,7 @@ import { renderTemplate } from "@/lib/telegram-templates";
 import {
   executeSendTelegram,
   executeSendEmail,
+  executeSendSlack,
   executeUpdateDeal,
   executeUpdateContact,
   executeAssignDeal,
@@ -52,6 +53,8 @@ async function crmActionExecutor(
       return executeSendTelegram(config as unknown as Parameters<typeof executeSendTelegram>[0], crmCtx);
     case "send_email":
       return executeSendEmail(config as unknown as Parameters<typeof executeSendEmail>[0], crmCtx);
+    case "send_slack":
+      return executeSendSlack(config as unknown as Parameters<typeof executeSendSlack>[0], crmCtx);
     case "update_deal":
       return executeUpdateDeal(config as unknown as Parameters<typeof executeUpdateDeal>[0], crmCtx);
     case "update_contact":
@@ -228,4 +231,51 @@ export async function resumeWorkflowRun(runId: string) {
     },
     getEngineConfig()
   );
+}
+
+/**
+ * Find and execute all active workflows matching a trigger type + event payload.
+ * Used by the bot message handler to fire tg_message workflows.
+ */
+export async function triggerWorkflowsByEvent(
+  triggerType: string,
+  payload: Record<string, unknown>
+): Promise<void> {
+  const supabase = createSupabaseAdmin();
+  if (!supabase) return;
+
+  const { data: workflows } = await supabase
+    .from("crm_workflows")
+    .select("*")
+    .eq("is_active", true)
+    .eq("trigger_type", triggerType);
+
+  if (!workflows || workflows.length === 0) return;
+
+  for (const wf of workflows) {
+    const nodes = (wf.nodes ?? []) as FlowNode[];
+    const triggerNode = nodes.find((n) => (n as unknown as { type: string }).type === "trigger");
+    if (!triggerNode) continue;
+
+    const triggerData = (triggerNode as unknown as { data: { config: Record<string, string> } }).data;
+    const cfg = triggerData.config;
+
+    // Match trigger config against event payload
+    if (triggerType === "tg_message") {
+      if (cfg.chat_id && String(cfg.chat_id) !== String(payload.chat_id)) continue;
+      if (cfg.keyword && typeof payload.message_text === "string") {
+        if (!payload.message_text.toLowerCase().includes(cfg.keyword.toLowerCase())) continue;
+      }
+    }
+
+    const event: CrmWorkflowEvent = {
+      type: triggerType,
+      dealId: payload.deal_id as string | undefined,
+      payload,
+    };
+
+    executeWorkflowFromData(wf as unknown as Workflow, event, supabase).catch((err) => {
+      console.error(`[workflow-engine] Error executing workflow ${wf.id}:`, err);
+    });
+  }
 }
