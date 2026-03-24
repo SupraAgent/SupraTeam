@@ -305,38 +305,52 @@ function PortalDropdown({
   triggerRef: React.RefObject<HTMLElement | null>;
   children: React.ReactNode;
 }) {
-  const [pos, setPos] = React.useState({ top: 0, left: 0, width: 0 });
+  const [pos, setPos] = React.useState({ top: 0, left: 0, width: 0, flipUp: false });
+  const dropdownInnerRef = React.useRef<HTMLDivElement>(null);
 
-  React.useEffect(() => {
+  const computePos = React.useCallback(() => {
     if (!triggerRef.current) return;
     const rect = triggerRef.current.getBoundingClientRect();
-    setPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const dropdownHeight = dropdownInnerRef.current?.offsetHeight ?? 220;
+    const flipUp = spaceBelow < dropdownHeight + 8 && rect.top > dropdownHeight + 8;
+    setPos({
+      top: flipUp ? rect.top - dropdownHeight - 4 : rect.bottom + 4,
+      left: rect.left,
+      width: rect.width,
+      flipUp,
+    });
   }, [triggerRef]);
+
+  React.useEffect(() => {
+    computePos();
+  }, [computePos]);
+
+  // Re-measure after first render so we have actual dropdown height
+  React.useEffect(() => {
+    const frame = requestAnimationFrame(computePos);
+    return () => cancelAnimationFrame(frame);
+  }, [computePos]);
 
   // Re-position on scroll
   React.useEffect(() => {
-    function update() {
-      if (!triggerRef.current) return;
-      const rect = triggerRef.current.getBoundingClientRect();
-      setPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
-    }
-    // Listen to scroll on all ancestors
     let el = triggerRef.current?.parentElement;
     const scrollables: Element[] = [];
     while (el) {
       if (el.scrollHeight > el.clientHeight) scrollables.push(el);
       el = el.parentElement;
     }
-    scrollables.forEach((s) => s.addEventListener("scroll", update, { passive: true }));
-    window.addEventListener("resize", update, { passive: true });
+    scrollables.forEach((s) => s.addEventListener("scroll", computePos, { passive: true }));
+    window.addEventListener("resize", computePos, { passive: true });
     return () => {
-      scrollables.forEach((s) => s.removeEventListener("scroll", update));
-      window.removeEventListener("resize", update);
+      scrollables.forEach((s) => s.removeEventListener("scroll", computePos));
+      window.removeEventListener("resize", computePos);
     };
-  }, [triggerRef]);
+  }, [triggerRef, computePos]);
 
   return createPortal(
     <div
+      ref={dropdownInnerRef}
       style={{ position: "fixed", top: pos.top, left: pos.left, width: pos.width, zIndex: 99999 }}
     >
       {children}
@@ -412,7 +426,7 @@ function ComboboxDropdown({
 
       {open && (
         <PortalDropdown triggerRef={triggerRef as React.RefObject<HTMLElement>}>
-          <div ref={dropdownRef} className="rounded-lg border border-white/10 bg-[hsl(var(--card))] shadow-2xl overflow-hidden">
+          <div ref={dropdownRef} className="rounded-lg border border-white/15 bg-[hsl(var(--card))] shadow-2xl shadow-black/40 overflow-hidden ring-1 ring-white/5">
             <Command shouldFilter={false}>
               <div className="px-2 py-1.5 border-b border-white/5">
                 <Command.Input
@@ -560,7 +574,7 @@ function MultiComboboxDropdown({
 
       {open && (
         <PortalDropdown triggerRef={triggerRef as React.RefObject<HTMLElement>}>
-          <div ref={dropdownRef} className="rounded-lg border border-white/10 bg-[hsl(var(--card))] shadow-2xl overflow-hidden">
+          <div ref={dropdownRef} className="rounded-lg border border-white/15 bg-[hsl(var(--card))] shadow-2xl shadow-black/40 overflow-hidden ring-1 ring-white/5">
             <Command shouldFilter={false}>
               <div className="px-2 py-1.5 border-b border-white/5">
                 <Command.Input
