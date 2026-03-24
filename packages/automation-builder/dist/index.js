@@ -1,6 +1,6 @@
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import * as React3 from 'react';
+import * as React2 from 'react';
 import { jsx, jsxs } from 'react/jsx-runtime';
 import { Handle, Position, ReactFlowProvider, useNodesState, useEdgesState, addEdge, ReactFlow, Background, BackgroundVariant, Controls, MiniMap } from '@xyflow/react';
 import { Command } from 'cmdk';
@@ -319,16 +319,16 @@ var DEFAULT_LOGIC = [
     defaultConfig: { duration: 1, unit: "hours" }
   }
 ];
-var BuilderContext = React3.createContext(null);
+var BuilderContext = React2.createContext(null);
 function useBuilderContext() {
-  const ctx = React3.useContext(BuilderContext);
+  const ctx = React2.useContext(BuilderContext);
   if (!ctx) {
     throw new Error("useBuilderContext must be used within <AutomationBuilder>");
   }
   return ctx;
 }
 function BuilderProvider({ registry, iconMap = {}, children }) {
-  const value = React3.useMemo(
+  const value = React2.useMemo(
     () => {
       var _a;
       return {
@@ -601,10 +601,11 @@ function NodeSidebar() {
   ] });
 }
 function useAsyncOptions(field) {
-  const [options, setOptions] = React3.useState([]);
-  const [loading, setLoading] = React3.useState(true);
-  const [error, setError] = React3.useState(null);
-  React3.useEffect(() => {
+  const [options, setOptions] = React2.useState([]);
+  const [loading, setLoading] = React2.useState(true);
+  const [error, setError] = React2.useState(null);
+  const [fetchKey, setFetchKey] = React2.useState(0);
+  React2.useEffect(() => {
     if (!field.optionsUrl) {
       setLoading(false);
       return;
@@ -645,11 +646,12 @@ function useAsyncOptions(field) {
     return () => {
       cancelled = true;
     };
-  }, [field.optionsUrl]);
-  return { options, loading, error };
+  }, [field.optionsUrl, fetchKey]);
+  const refetch = React2.useCallback(() => setFetchKey((k) => k + 1), []);
+  return { options, loading, error, refetch };
 }
 function useClickOutside(ref, handler) {
-  React3.useEffect(() => {
+  React2.useEffect(() => {
     function onMouseDown(e) {
       if (ref.current && !ref.current.contains(e.target)) {
         handler();
@@ -698,10 +700,79 @@ function AsyncComboboxField({
   onChange
 }) {
   var _a, _b;
-  const { options, loading, error } = useAsyncOptions(field);
+  const { options, loading, error, refetch } = useAsyncOptions(field);
   const strVal = value == null ? "" : String(value);
-  const [manualMode, setManualMode] = React3.useState(false);
-  const [manualValue, setManualValue] = React3.useState(strVal);
+  const [manualMode, setManualMode] = React2.useState(false);
+  const [manualValue, setManualValue] = React2.useState(strVal);
+  const [addMode, setAddMode] = React2.useState(false);
+  const [newId, setNewId] = React2.useState("");
+  const [newName, setNewName] = React2.useState("");
+  const [saving, setSaving] = React2.useState(false);
+  async function handleCreate() {
+    var _a2;
+    if (!field.createUrl || !newId.trim() || !newName.trim()) return;
+    setSaving(true);
+    try {
+      const keys = (_a2 = field.createFields) != null ? _a2 : { valueKey: "channel_id", labelKey: "channel_name" };
+      await fetch(field.createUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [keys.valueKey]: newId.trim(), [keys.labelKey]: newName.trim() })
+      });
+      onChange(newId.trim());
+      setAddMode(false);
+      setNewId("");
+      setNewName("");
+      refetch();
+    } finally {
+      setSaving(false);
+    }
+  }
+  if (addMode && field.createUrl) {
+    return /* @__PURE__ */ jsxs("div", { className: "space-y-1.5", children: [
+      /* @__PURE__ */ jsx(
+        "input",
+        {
+          value: newId,
+          onChange: (e) => setNewId(e.target.value),
+          className: "w-full rounded-lg border border-white/10 bg-transparent px-3 py-1.5 text-xs h-8 outline-none focus:border-white/20",
+          placeholder: "ID (e.g. C06CTNC7LKU)",
+          autoFocus: true
+        }
+      ),
+      /* @__PURE__ */ jsx(
+        "input",
+        {
+          value: newName,
+          onChange: (e) => setNewName(e.target.value),
+          className: "w-full rounded-lg border border-white/10 bg-transparent px-3 py-1.5 text-xs h-8 outline-none focus:border-white/20",
+          placeholder: "Display name",
+          onKeyDown: (e) => e.key === "Enter" && handleCreate()
+        }
+      ),
+      /* @__PURE__ */ jsxs("div", { className: "flex gap-1.5", children: [
+        /* @__PURE__ */ jsx(
+          "button",
+          {
+            type: "button",
+            onClick: handleCreate,
+            disabled: !newId.trim() || !newName.trim() || saving,
+            className: "flex-1 rounded-lg bg-primary/20 text-primary text-[10px] py-1 hover:bg-primary/30 disabled:opacity-40 transition-colors",
+            children: saving ? "Saving..." : "Add"
+          }
+        ),
+        /* @__PURE__ */ jsx(
+          "button",
+          {
+            type: "button",
+            onClick: () => setAddMode(false),
+            className: "rounded-lg bg-white/5 text-muted-foreground text-[10px] px-3 py-1 hover:bg-white/10 transition-colors",
+            children: "Cancel"
+          }
+        )
+      ] })
+    ] });
+  }
   if (manualMode || error && !loading) {
     return /* @__PURE__ */ jsxs("div", { className: "space-y-1", children: [
       error && /* @__PURE__ */ jsx("p", { className: "text-[9px] text-yellow-400/70", children: "Could not load options \u2014 enter manually" }),
@@ -745,7 +816,8 @@ function AsyncComboboxField({
       onManual: () => {
         setManualMode(true);
         setManualValue(strVal);
-      }
+      },
+      onAdd: field.createUrl ? () => setAddMode(true) : void 0
     }
   ) });
 }
@@ -793,12 +865,13 @@ function ComboboxDropdown({
   onChange,
   placeholder,
   loading,
-  onManual
+  onManual,
+  onAdd
 }) {
   var _a;
-  const [open, setOpen] = React3.useState(false);
-  const [search, setSearch] = React3.useState("");
-  const containerRef = React3.useRef(null);
+  const [open, setOpen] = React2.useState(false);
+  const [search, setSearch] = React2.useState("");
+  const containerRef = React2.useRef(null);
   useClickOutside(containerRef, () => setOpen(false));
   const selectedLabel = (_a = options.find((o) => o.value === value)) == null ? void 0 : _a.label;
   if (loading) {
@@ -873,18 +946,35 @@ function ComboboxDropdown({
           opt.value
         ))
       ] }),
-      onManual && /* @__PURE__ */ jsx("div", { className: "border-t border-white/5 p-1", children: /* @__PURE__ */ jsx(
-        "button",
-        {
-          type: "button",
-          onClick: () => {
-            setOpen(false);
-            onManual();
-          },
-          className: "w-full text-left px-2 py-1.5 rounded-md text-[10px] text-muted-foreground/50 hover:bg-white/5 hover:text-muted-foreground",
-          children: "Enter ID manually..."
-        }
-      ) })
+      (onAdd || onManual) && /* @__PURE__ */ jsxs("div", { className: "border-t border-white/5 p-1 space-y-0.5", children: [
+        onAdd && /* @__PURE__ */ jsxs(
+          "button",
+          {
+            type: "button",
+            onClick: () => {
+              setOpen(false);
+              onAdd();
+            },
+            className: "w-full text-left px-2 py-1.5 rounded-md text-[10px] text-primary/70 hover:bg-primary/5 hover:text-primary flex items-center gap-1.5",
+            children: [
+              /* @__PURE__ */ jsx("svg", { className: "h-3 w-3", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: /* @__PURE__ */ jsx("path", { d: "M12 5v14M5 12h14" }) }),
+              "Add new..."
+            ]
+          }
+        ),
+        onManual && /* @__PURE__ */ jsx(
+          "button",
+          {
+            type: "button",
+            onClick: () => {
+              setOpen(false);
+              onManual();
+            },
+            className: "w-full text-left px-2 py-1.5 rounded-md text-[10px] text-muted-foreground/50 hover:bg-white/5 hover:text-muted-foreground",
+            children: "Enter ID manually..."
+          }
+        )
+      ] })
     ] }) })
   ] });
 }
@@ -895,9 +985,9 @@ function MultiComboboxDropdown({
   placeholder,
   loading
 }) {
-  const [open, setOpen] = React3.useState(false);
-  const [search, setSearch] = React3.useState("");
-  const containerRef = React3.useRef(null);
+  const [open, setOpen] = React2.useState(false);
+  const [search, setSearch] = React2.useState("");
+  const containerRef = React2.useRef(null);
   useClickOutside(containerRef, () => setOpen(false));
   function toggle(val) {
     if (value.includes(val)) {
@@ -1237,29 +1327,29 @@ function FlowCanvasInner({
 }) {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
-  const [selectedNode, setSelectedNode] = React3.useState(null);
-  const reactFlowWrapper = React3.useRef(null);
-  const [reactFlowInstance, setReactFlowInstance] = React3.useState(null);
-  const mergedNodeTypes = React3.useMemo(
+  const [selectedNode, setSelectedNode] = React2.useState(null);
+  const reactFlowWrapper = React2.useRef(null);
+  const [reactFlowInstance, setReactFlowInstance] = React2.useState(null);
+  const mergedNodeTypes = React2.useMemo(
     () => __spreadValues(__spreadValues({}, nodeTypes), customNodeTypes),
     [customNodeTypes]
   );
-  const saveTimeoutRef = React3.useRef(null);
-  const nodesRef = React3.useRef(nodes);
-  const edgesRef = React3.useRef(edges);
+  const saveTimeoutRef = React2.useRef(null);
+  const nodesRef = React2.useRef(nodes);
+  const edgesRef = React2.useRef(edges);
   nodesRef.current = nodes;
   edgesRef.current = edges;
-  const triggerSave = React3.useCallback(() => {
+  const triggerSave = React2.useCallback(() => {
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(() => {
       onSave(nodesRef.current, edgesRef.current);
     }, autoSaveDelay);
   }, [onSave, autoSaveDelay]);
-  React3.useEffect(() => {
+  React2.useEffect(() => {
     if (nodes === initialNodes && edges === initialEdges) return;
     triggerSave();
   }, [nodes, edges, triggerSave, initialNodes, initialEdges]);
-  const onConnect = React3.useCallback(
+  const onConnect = React2.useCallback(
     (connection) => {
       const sourceNode = nodes.find((n) => n.id === connection.source);
       const targetNode = nodes.find((n) => n.id === connection.target);
@@ -1275,11 +1365,11 @@ function FlowCanvasInner({
     },
     [nodes, setEdges]
   );
-  const onDragOver = React3.useCallback((event) => {
+  const onDragOver = React2.useCallback((event) => {
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
   }, []);
-  const onDrop = React3.useCallback(
+  const onDrop = React2.useCallback(
     (event) => {
       var _a;
       event.preventDefault();
@@ -1312,13 +1402,13 @@ function FlowCanvasInner({
     },
     [reactFlowInstance, setNodes]
   );
-  const onNodeClick = React3.useCallback((_event, node) => {
+  const onNodeClick = React2.useCallback((_event, node) => {
     setSelectedNode(node);
   }, []);
-  const onPaneClick = React3.useCallback(() => {
+  const onPaneClick = React2.useCallback(() => {
     setSelectedNode(null);
   }, []);
-  const onNodeDataChange = React3.useCallback(
+  const onNodeDataChange = React2.useCallback(
     (nodeId2, newData) => {
       setNodes(
         (nds) => nds.map(
@@ -1331,7 +1421,7 @@ function FlowCanvasInner({
     },
     [setNodes]
   );
-  const onDeleteNode = React3.useCallback(
+  const onDeleteNode = React2.useCallback(
     (nodeId2) => {
       setNodes((nds) => nds.filter((n) => n.id !== nodeId2));
       setEdges((eds) => eds.filter((e) => e.source !== nodeId2 && e.target !== nodeId2));

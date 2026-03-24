@@ -102,6 +102,10 @@ export interface ConfigFieldDef {
   mapOption?: (item: Record<string, unknown>) => { value: string; label: string };
   /** Callback when an option is selected */
   onSelectExtra?: (option: { value: string; label: string }) => void;
+  /** URL to POST new entries (enables "Add new..." in dropdown) */
+  createUrl?: string;
+  /** Map form input to POST body when creating new entries */
+  createFields?: { valueKey: string; labelKey: string };
 }
 
 /**
