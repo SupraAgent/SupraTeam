@@ -1,7 +1,7 @@
 import { ClassValue } from 'clsx';
 import * as react_jsx_runtime from 'react/jsx-runtime';
-import { Node, Edge, NodeTypes, NodeProps } from '@xyflow/react';
 import * as React from 'react';
+import { Node, Edge, NodeTypes, NodeProps } from '@xyflow/react';
 
 /**
  * Core type definitions for the automation builder.
@@ -67,19 +67,25 @@ interface NodePaletteItem {
 interface ConfigFieldDef {
     key: string;
     label: string;
-    type: "text" | "textarea" | "number" | "select" | "async_select";
+    type: "text" | "textarea" | "number" | "select" | "async_select" | "multi_select" | "async_multi_select";
     placeholder?: string;
     options?: {
         value: string;
         label: string;
     }[];
-    defaultValue?: string | number;
-    /** URL to fetch options from (for async_select). Response: { data: [{id, name}] } */
+    defaultValue?: string | number | string[];
+    /** URL to fetch options from (for async_select, async_multi_select) */
     optionsUrl?: string;
-    /** Map raw API item to {value, label} (for async_select) */
-    mapOption?: (item: Record<string, unknown>) => { value: string; label: string };
-    /** Callback when an option is selected (for async_select) */
-    onSelectExtra?: (option: { value: string; label: string }) => void;
+    /** Map raw API item to {value, label} */
+    mapOption?: (item: Record<string, unknown>) => {
+        value: string;
+        label: string;
+    };
+    /** Callback when an option is selected */
+    onSelectExtra?: (option: {
+        value: string;
+        label: string;
+    }) => void;
 }
 /**
  * Registration for a custom trigger or action type.
@@ -208,31 +214,6 @@ declare function evaluateCondition(data: ConditionNodeData, ctx: ActionContext):
 
 declare function cn(...inputs: ClassValue[]): string;
 
-interface FlowCanvasProps {
-    initialNodes: Node[];
-    initialEdges: Edge[];
-    onSave: (nodes: Node[], edges: Edge[]) => void;
-    saving?: boolean;
-    /** Auto-save debounce in ms. Default: 1000 */
-    autoSaveDelay?: number;
-    /** Custom node types to merge with defaults */
-    customNodeTypes?: NodeTypes;
-    /** Hide the node sidebar */
-    hideSidebar?: boolean;
-    /** Hide the config panel */
-    hideConfigPanel?: boolean;
-}
-declare function FlowCanvas(props: FlowCanvasProps): react_jsx_runtime.JSX.Element;
-
-declare function NodeSidebar(): react_jsx_runtime.JSX.Element;
-
-interface NodeConfigPanelProps {
-    node: Node;
-    onDataChange: (nodeId: string, data: WorkflowNodeData) => void;
-    onDelete: (nodeId: string) => void;
-}
-declare function NodeConfigPanel({ node, onDataChange, onDelete }: NodeConfigPanelProps): react_jsx_runtime.JSX.Element;
-
 interface BuilderContextValue {
     registry: NodeRegistry;
     iconMap: Record<string, React.ElementType>;
@@ -249,6 +230,31 @@ interface BuilderProviderProps {
 }
 declare function BuilderProvider({ registry, iconMap, children }: BuilderProviderProps): react_jsx_runtime.JSX.Element;
 
+interface FlowCanvasProps {
+    initialNodes: Node[];
+    initialEdges: Edge[];
+    onSave: (nodes: Node[], edges: Edge[]) => void;
+    saving?: boolean;
+    /** Auto-save debounce in ms. Default: 1000 */
+    autoSaveDelay?: number;
+    /** Custom node types to merge with defaults */
+    customNodeTypes?: NodeTypes;
+    /** Hide the node sidebar */
+    hideSidebar?: boolean;
+    /** Hide the config panel */
+    hideConfigPanel?: boolean;
+}
+declare function FlowCanvas(props: FlowCanvasProps): react_jsx_runtime.JSX.Element;
+
+interface NodeConfigPanelProps {
+    node: Node;
+    onDataChange: (nodeId: string, data: WorkflowNodeData) => void;
+    onDelete: (nodeId: string) => void;
+}
+declare function NodeConfigPanel({ node, onDataChange, onDelete }: NodeConfigPanelProps): react_jsx_runtime.JSX.Element;
+
+declare function NodeSidebar(): react_jsx_runtime.JSX.Element;
+
 declare function TriggerNode({ data, selected }: NodeProps): react_jsx_runtime.JSX.Element;
 
 declare function ActionNode({ data, selected }: NodeProps): react_jsx_runtime.JSX.Element;
@@ -257,4 +263,4 @@ declare function ConditionNode({ data, selected }: NodeProps): react_jsx_runtime
 
 declare function DelayNode({ data, selected }: NodeProps): react_jsx_runtime.JSX.Element;
 
-export { type ActionContext, type ActionExecutor, ActionNode, type ActionNodeData, type ActionResult, BuilderProvider, type BuilderProviderProps, type ConditionConfig, ConditionNode, type ConditionNodeData, type ConditionOperator, type ConfigFieldDef, DEFAULT_OPERATORS, type DelayConfig, DelayNode, type DelayNodeData, type EngineConfig, FlowCanvas, type FlowCanvasProps, type FlowEdge, type FlowNode, NodeConfigPanel, type NodePaletteItem, type NodeRegistry, NodeSidebar, type NodeTypeRegistration, type PersistenceAdapter, type RunResult, TriggerNode, type TriggerNodeData, type WorkflowData, type WorkflowEvent, type WorkflowNodeData, type WorkflowNodeType, cn, defaultRenderTemplate, evaluateCondition, executeWorkflow, resumeWorkflow, useBuilderContext };
+export { type ActionContext, type ActionExecutor, ActionNode, type ActionNodeData, type ActionResult, BuilderProvider, type ConditionConfig, ConditionNode, type ConditionNodeData, type ConditionOperator, type ConfigFieldDef, DEFAULT_OPERATORS, type DelayConfig, DelayNode, type DelayNodeData, FlowCanvas, type FlowEdge, type FlowNode, NodeConfigPanel, type NodePaletteItem, type NodeRegistry, NodeSidebar, type NodeTypeRegistration, type PersistenceAdapter, type RunResult, TriggerNode, type TriggerNodeData, type WorkflowData, type WorkflowEvent, type WorkflowNodeData, cn, defaultRenderTemplate, evaluateCondition, executeWorkflow, resumeWorkflow, useBuilderContext };
