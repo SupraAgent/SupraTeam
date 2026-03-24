@@ -426,7 +426,7 @@ function ComboboxDropdown({
 
       {open && (
         <PortalDropdown triggerRef={triggerRef as React.RefObject<HTMLElement>}>
-          <div ref={dropdownRef} className="rounded-lg border border-white/15 bg-[hsl(var(--card))] shadow-2xl shadow-black/40 overflow-hidden ring-1 ring-white/5">
+          <div ref={dropdownRef} className="rounded-lg border border-white/20 bg-[hsl(220,20%,10%)] shadow-2xl shadow-black/60 overflow-hidden ring-1 ring-white/10">
             <Command shouldFilter={false}>
               <div className="px-2 py-1.5 border-b border-white/5">
                 <Command.Input
@@ -574,7 +574,7 @@ function MultiComboboxDropdown({
 
       {open && (
         <PortalDropdown triggerRef={triggerRef as React.RefObject<HTMLElement>}>
-          <div ref={dropdownRef} className="rounded-lg border border-white/15 bg-[hsl(var(--card))] shadow-2xl shadow-black/40 overflow-hidden ring-1 ring-white/5">
+          <div ref={dropdownRef} className="rounded-lg border border-white/20 bg-[hsl(220,20%,10%)] shadow-2xl shadow-black/60 overflow-hidden ring-1 ring-white/10">
             <Command shouldFilter={false}>
               <div className="px-2 py-1.5 border-b border-white/5">
                 <Command.Input

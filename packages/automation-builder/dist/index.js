@@ -971,7 +971,7 @@ function ComboboxDropdown({
         ]
       }
     ),
-    open && /* @__PURE__ */ jsx(PortalDropdown, { triggerRef, children: /* @__PURE__ */ jsx("div", { ref: dropdownRef, className: "rounded-lg border border-white/15 bg-[hsl(var(--card))] shadow-2xl shadow-black/40 overflow-hidden ring-1 ring-white/5", children: /* @__PURE__ */ jsxs(Command, { shouldFilter: false, children: [
+    open && /* @__PURE__ */ jsx(PortalDropdown, { triggerRef, children: /* @__PURE__ */ jsx("div", { ref: dropdownRef, className: "rounded-lg border border-white/20 bg-[hsl(220,20%,10%)] shadow-2xl shadow-black/60 overflow-hidden ring-1 ring-white/10", children: /* @__PURE__ */ jsxs(Command, { shouldFilter: false, children: [
       /* @__PURE__ */ jsx("div", { className: "px-2 py-1.5 border-b border-white/5", children: /* @__PURE__ */ jsx(
         Command.Input,
         {
@@ -1090,7 +1090,7 @@ function MultiComboboxDropdown({
         /* @__PURE__ */ jsx("button", { type: "button", onClick: () => toggle(v), className: "text-muted-foreground/40 hover:text-foreground", children: /* @__PURE__ */ jsx("svg", { className: "h-2.5 w-2.5", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: /* @__PURE__ */ jsx("path", { d: "M18 6 6 18M6 6l12 12" }) }) })
       ] }, v);
     }) }),
-    open && /* @__PURE__ */ jsx(PortalDropdown, { triggerRef, children: /* @__PURE__ */ jsx("div", { ref: dropdownRef, className: "rounded-lg border border-white/15 bg-[hsl(var(--card))] shadow-2xl shadow-black/40 overflow-hidden ring-1 ring-white/5", children: /* @__PURE__ */ jsxs(Command, { shouldFilter: false, children: [
+    open && /* @__PURE__ */ jsx(PortalDropdown, { triggerRef, children: /* @__PURE__ */ jsx("div", { ref: dropdownRef, className: "rounded-lg border border-white/20 bg-[hsl(220,20%,10%)] shadow-2xl shadow-black/60 overflow-hidden ring-1 ring-white/10", children: /* @__PURE__ */ jsxs(Command, { shouldFilter: false, children: [
       /* @__PURE__ */ jsx("div", { className: "px-2 py-1.5 border-b border-white/5", children: /* @__PURE__ */ jsx(
         Command.Input,
         {
