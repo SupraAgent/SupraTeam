@@ -17,6 +17,8 @@ import {
   Bot,
   ChevronDown,
   ChevronUp,
+  Hash,
+  Unplug,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -53,6 +55,16 @@ export default function TelegramSettingsPage() {
   const [expandedBot, setExpandedBot] = React.useState<string | null>(null);
   const [webhookInfos, setWebhookInfos] = React.useState<Record<string, WebhookInfo>>({});
 
+  // Slack state
+  const [slackConnected, setSlackConnected] = React.useState(false);
+  const [slackTeam, setSlackTeam] = React.useState<string | null>(null);
+  const [slackBotUser, setSlackBotUser] = React.useState<string | null>(null);
+  const [slackLoading, setSlackLoading] = React.useState(true);
+  const [slackToken, setSlackToken] = React.useState("");
+  const [slackSaving, setSlackSaving] = React.useState(false);
+  const [slackError, setSlackError] = React.useState("");
+  const [slackDisconnecting, setSlackDisconnecting] = React.useState(false);
+
   async function fetchBots() {
     setLoading(true);
     try {
@@ -67,6 +79,55 @@ export default function TelegramSettingsPage() {
   }
 
   React.useEffect(() => { fetchBots(); }, []);
+
+  // Slack: check connection status
+  React.useEffect(() => {
+    fetch("/api/slack")
+      .then((r) => r.ok ? r.json() : { connected: false })
+      .then((data) => {
+        setSlackConnected(data.connected);
+        setSlackTeam(data.team ?? null);
+        setSlackBotUser(data.bot_user ?? null);
+      })
+      .finally(() => setSlackLoading(false));
+  }, []);
+
+  async function handleSlackConnect() {
+    if (!slackToken.trim()) return;
+    setSlackSaving(true);
+    setSlackError("");
+    try {
+      const res = await fetch("/api/slack", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: slackToken.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        setSlackConnected(true);
+        setSlackTeam(data.team);
+        setSlackBotUser(data.bot_user);
+        setSlackToken("");
+      } else {
+        setSlackError(data.error ?? "Failed to connect");
+      }
+    } finally {
+      setSlackSaving(false);
+    }
+  }
+
+  async function handleSlackDisconnect() {
+    if (!confirm("Disconnect Slack? Workflow actions that send to Slack will stop working.")) return;
+    setSlackDisconnecting(true);
+    try {
+      await fetch("/api/slack", { method: "DELETE" });
+      setSlackConnected(false);
+      setSlackTeam(null);
+      setSlackBotUser(null);
+    } finally {
+      setSlackDisconnecting(false);
+    }
+  }
 
   async function handleAddBot() {
     if (!newToken.trim()) return;
@@ -383,6 +444,90 @@ export default function TelegramSettingsPage() {
           <li>Add bots as admin to Telegram groups — groups auto-register and link to that bot</li>
           <li>In the Groups page, you can reassign groups between bots</li>
         </ol>
+      </div>
+      {/* ─── Slack Integration ─── */}
+      <div id="slack" className="border-t border-white/5 pt-8 space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold text-foreground">Slack</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Connect a Slack Bot to send messages from workflow automations.
+          </p>
+        </div>
+
+        {slackLoading ? (
+          <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-8 text-center text-sm text-muted-foreground">
+            Checking Slack connection...
+          </div>
+        ) : slackConnected ? (
+          <div className="rounded-2xl border border-emerald-500/20 bg-white/[0.035] p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-xl bg-[#4A154B]/20 flex items-center justify-center">
+                  <Hash className="h-5 w-5 text-[#E01E5A]" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-foreground">Connected to Slack</p>
+                  <p className="text-xs text-muted-foreground">
+                    {slackTeam && <span>Workspace: <span className="text-foreground">{slackTeam}</span></span>}
+                    {slackBotUser && <span> · Bot: <span className="text-foreground">{slackBotUser}</span></span>}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-400">
+                  Connected
+                </span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-red-400 hover:text-red-300"
+                  onClick={handleSlackDisconnect}
+                  disabled={slackDisconnecting}
+                >
+                  <Unplug className="h-3.5 w-3.5 mr-1" />
+                  {slackDisconnecting ? "Disconnecting..." : "Disconnect"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5 space-y-4">
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs text-muted-foreground mb-1.5">Slack Bot Token</label>
+                <Input
+                  type="password"
+                  value={slackToken}
+                  onChange={(e) => setSlackToken(e.target.value)}
+                  placeholder="xoxb-..."
+                  className="font-mono text-xs"
+                />
+              </div>
+              <div className="flex items-center gap-3">
+                <Button size="sm" onClick={handleSlackConnect} disabled={slackSaving || !slackToken.trim()}>
+                  {slackSaving ? "Verifying..." : "Connect Slack"}
+                </Button>
+                {slackError && <p className="text-xs text-red-400">{slackError}</p>}
+              </div>
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              The token is verified with Slack, then encrypted (AES-256-GCM) before storage.
+            </p>
+          </div>
+        )}
+
+        {/* Slack Setup Guide */}
+        <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5 space-y-3">
+          <h3 className="text-sm font-medium text-foreground">Slack Setup Guide</h3>
+          <ol className="space-y-2 text-xs text-muted-foreground list-decimal list-inside">
+            <li>Go to <a href="https://api.slack.com/apps" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">api.slack.com/apps</a> and create a new app</li>
+            <li>Under <strong>OAuth &amp; Permissions</strong>, add these Bot Token Scopes: <code className="rounded bg-white/5 px-1 py-0.5">chat:write</code>, <code className="rounded bg-white/5 px-1 py-0.5">channels:read</code>, <code className="rounded bg-white/5 px-1 py-0.5">users:read</code></li>
+            <li>Install the app to your workspace</li>
+            <li>Copy the <strong>Bot User OAuth Token</strong> (starts with <code className="rounded bg-white/5 px-1 py-0.5">xoxb-</code>) and paste it above</li>
+            <li>Invite the bot to channels you want it to post in: <code className="rounded bg-white/5 px-1 py-0.5">/invite @YourBot</code></li>
+          </ol>
+        </div>
       </div>
     </div>
   );
