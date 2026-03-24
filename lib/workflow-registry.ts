@@ -43,7 +43,7 @@ import {
 
 const BOARD_OPTIONS = [{ value: "", label: "Any" }, { value: "BD", label: "BD" }, { value: "Marketing", label: "Marketing" }, { value: "Admin", label: "Admin" }];
 const stageMapOption = (item: Record<string, unknown>) => ({ value: String((item as { name?: string }).name ?? ""), label: String((item as { name?: string }).name ?? "") });
-const groupMapOption = (item: Record<string, unknown>) => ({ value: String((item as { chat_id?: unknown }).chat_id ?? ""), label: String((item as { group_name?: string }).group_name ?? "Unknown group") });
+const groupMapOption = (item: Record<string, unknown>) => ({ value: String((item as { telegram_group_id?: unknown }).telegram_group_id ?? (item as { chat_id?: unknown }).chat_id ?? ""), label: String((item as { group_name?: string }).group_name ?? "Unknown group") });
 const teamMapOption = (item: Record<string, unknown>) => { const u = item as { id?: string; display_name?: string; email?: string; crm_role?: string }; return { value: u.id || "", label: `${u.display_name || u.email || "Unknown"}${u.crm_role ? ` (${u.crm_role})` : ""}` }; };
 const contactMapOption = (item: Record<string, unknown>) => { const c = item as { email?: string; name?: string; company?: string }; return { value: c.email || "", label: `${c.name || "Unknown"}${c.email ? ` (${c.email})` : ""}${c.company ? ` — ${c.company}` : ""}` }; };
 const slackChannelMapOption = (item: Record<string, unknown>) => ({ value: String((item as { id?: string }).id ?? ""), label: `#${(item as { name?: string }).name ?? "unknown"}` });
