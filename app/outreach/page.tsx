@@ -133,9 +133,9 @@ export default function OutreachPage() {
       setNewDesc("");
       setNewBoard("");
       setNewSteps([
-        { message_template: "", delay_hours: 0 },
-        { message_template: "", delay_hours: 24 },
-        { message_template: "", delay_hours: 48 },
+        { message_template: "", delay_hours: 0, step_type: "message", condition_type: "", on_true_step: null, on_false_step: null },
+        { message_template: "", delay_hours: 24, step_type: "message", condition_type: "", on_true_step: null, on_false_step: null },
+        { message_template: "", delay_hours: 48, step_type: "message", condition_type: "", on_true_step: null, on_false_step: null },
       ]);
       fetchSequences();
     }
