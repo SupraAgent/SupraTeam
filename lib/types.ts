@@ -54,6 +54,7 @@ export type Deal = {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  ai_sentiment?: Record<string, unknown> | null;
   // Joined fields
   contact?: Contact | null;
   stage?: PipelineStage | null;
