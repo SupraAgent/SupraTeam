@@ -19,7 +19,8 @@
       }
     ],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@supra/automation-builder": ["./packages/automation-builder/dist/index"]
     }
   },
   "include": [
