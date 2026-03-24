@@ -91,7 +91,7 @@ export default function SequencesPage() {
         </div>
         <div className="flex items-center gap-2">
           <a
-            href="/settings/sequences/analytics"
+            href="/settings/automations/sequences/analytics"
             className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-white/10 transition"
           >
             Analytics

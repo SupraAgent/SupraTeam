@@ -151,7 +151,7 @@ export default function ConversationsPage() {
             Your Telegram account is not connected.
           </p>
           <a
-            href="/settings/telegram-connect"
+            href="/settings/integrations/connect"
             className="inline-flex items-center justify-center rounded-md bg-primary text-primary-foreground text-sm font-medium h-9 px-3 hover:brightness-110 transition-all"
           >
             Connect Telegram

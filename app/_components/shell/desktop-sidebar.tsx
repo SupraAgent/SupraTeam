@@ -27,19 +27,11 @@ const NAV_ITEMS = [
 
 const SETTINGS_ITEMS = [
   { href: "/settings", label: "General" },
+  { href: "/settings/integrations", label: "Integrations" },
   { href: "/settings/pipeline", label: "Pipeline" },
-  { href: "/settings/contacts", label: "Contacts" },
-  { href: "/settings/team", label: "Team" },
-  { href: "/settings/telegram", label: "Telegram" },
-  { href: "/settings/email", label: "Email" },
-  { href: "/settings/sequences", label: "Sequences" },
-  { href: "/settings/telegram-connect", label: "TG Connect" },
-  { href: "/settings/templates", label: "Bot Templates" },
+  { href: "/settings/automations", label: "Automation" },
   { href: "/settings/ai-agent", label: "AI Agent" },
-  { href: "/settings/automations", label: "Automations" },
-  { href: "/settings/webhooks", label: "Webhooks" },
-  { href: "/settings/privacy", label: "Privacy & GDPR" },
-  { href: "/settings/notifications", label: "Notification Log" },
+  { href: "/settings/privacy", label: "Compliance" },
 ] as const;
 
 export function DesktopSidebar() {
@@ -104,7 +96,9 @@ export function DesktopSidebar() {
         )}
         {sidebarCollapsed && <div className="pt-2 border-t border-white/10 mt-2" />}
         {SETTINGS_ITEMS.map((item) => {
-          const active = item.href === "/settings" ? pathname === "/settings" : pathname.startsWith(item.href);
+          const active = item.href === "/settings"
+            ? (pathname === "/settings" || pathname === "/settings/team")
+            : pathname.startsWith(item.href);
           return (
             <Link
               key={item.href}
