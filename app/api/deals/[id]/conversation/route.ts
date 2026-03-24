@@ -151,9 +151,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   if (session) {
     try {
-      const { getConnectedClient, sendMessage } = await import("@/lib/telegram-client");
+      const { getConnectedClient, sendMessage, buildPeer } = await import("@/lib/telegram-client");
       const client = await getConnectedClient(user.id, session.session_encrypted);
-      await sendMessage(client, chatId, body.message.trim());
+      // Negative IDs = supergroup/channel, positive = regular chat
+      const peer = chatId < 0
+        ? buildPeer("channel", Math.abs(chatId) - 1000000000000, 0)
+        : buildPeer("chat", chatId);
+      await sendMessage(client, peer, body.message.trim());
       return NextResponse.json({ ok: true, via: "user_client" });
     } catch (err) {
       console.error("[conversation] MTProto send failed, falling back to bot:", err);
@@ -172,8 +176,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
 
   try {
-    const { decrypt } = await import("@/lib/crypto");
-    const token = decrypt(botToken.token_encrypted);
+    const { decryptToken } = await import("@/lib/crypto");
+    const token = decryptToken(botToken.token_encrypted);
     const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
