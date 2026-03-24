@@ -61,6 +61,21 @@ export function registerMessageHandlers(bot: Bot) {
 
       if (!deals || deals.length === 0) return; // No deals linked to this chat
 
+      // Store full message in tg_group_messages for conversation timeline
+      await supabase.from("tg_group_messages").upsert({
+        tg_group_id: tgGroup.id,
+        telegram_message_id: messageId,
+        telegram_chat_id: chatId,
+        sender_telegram_id: ctx.from.id,
+        sender_name: senderName,
+        sender_username: senderUsername || null,
+        message_text: messageText,
+        message_type: "text",
+        reply_to_message_id: ctx.message.reply_to_message?.message_id ?? null,
+        sent_at: new Date(ctx.message.date * 1000).toISOString(),
+        is_from_bot: false,
+      }, { onConflict: "telegram_chat_id,telegram_message_id" });
+
       // Create a notification for each linked deal
       for (const deal of deals) {
         await supabase.from("crm_notifications").insert({

@@ -12,6 +12,7 @@ import {
   MessageCircle, Save, Trash2, Send, GitBranch, StickyNote, ExternalLink, FileText, Plus, Clock,
 } from "lucide-react";
 import Link from "next/link";
+import { ConversationTimeline } from "./conversation-timeline";
 
 type Note = {
   id: string;
@@ -232,7 +233,7 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
 
   const TABS: { key: Tab; label: string }[] = [
     { key: "details", label: "Details" },
-    { key: "conversation", label: "Notes" },
+    { key: "conversation", label: "Chat" },
     { key: "activity", label: "Activity" },
     { key: "docs", label: `Docs${linkedDocs.length > 0 ? ` (${linkedDocs.length})` : ""}` },
   ];
@@ -620,31 +621,35 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
           </div>
         )}
 
-        {/* Notes tab */}
+        {/* Chat tab */}
         {!loadingContent && tab === "conversation" && (
-          <div className="space-y-3">
-            {/* Add note */}
-            <div className="flex gap-2">
-              <Input
-                value={newNote}
-                onChange={(e) => setNewNote(e.target.value)}
-                placeholder="Add a note..."
-                className="flex-1"
-                onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleAddNote()}
-              />
-              <Button size="sm" onClick={handleAddNote} disabled={sendingNote || !newNote.trim()}>
-                <Send className="h-3.5 w-3.5" />
-              </Button>
-            </div>
+          <div className="space-y-4">
+            {/* Conversation timeline */}
+            <ConversationTimeline
+              dealId={deal.id}
+              telegramChatId={deal.telegram_chat_id ? Number(deal.telegram_chat_id) : null}
+              telegramChatLink={deal.telegram_chat_link || tgLink || null}
+            />
 
-            {/* Notes list */}
-            {notes.length === 0 ? (
-              <div className="text-center py-8">
-                <StickyNote className="mx-auto h-6 w-6 text-muted-foreground/20" />
-                <p className="mt-2 text-xs text-muted-foreground">No notes yet</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
+            {/* Notes section (collapsed) */}
+            <details className="group">
+              <summary className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer hover:text-foreground transition-colors">
+                <StickyNote className="h-3 w-3" />
+                Internal Notes ({notes.length})
+              </summary>
+              <div className="mt-2 space-y-2">
+                <div className="flex gap-2">
+                  <Input
+                    value={newNote}
+                    onChange={(e) => setNewNote(e.target.value)}
+                    placeholder="Add a note..."
+                    className="flex-1"
+                    onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleAddNote()}
+                  />
+                  <Button size="sm" onClick={handleAddNote} disabled={sendingNote || !newNote.trim()}>
+                    <Send className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
                 {notes.map((note) => (
                   <div key={note.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
                     <p className="text-sm text-foreground whitespace-pre-wrap">{note.text}</p>
@@ -652,7 +657,7 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
                   </div>
                 ))}
               </div>
-            )}
+            </details>
           </div>
         )}
 

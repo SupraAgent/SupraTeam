@@ -47,7 +47,7 @@ export default function IntegrationsOverviewPage() {
       key: "slack",
       label: "Slack",
       description: "Send messages to Slack channels from workflow automations",
-      href: "/settings/integrations/telegram#slack",
+      href: "/settings/integrations/slack",
       icon: <Hash className="h-5 w-5 text-[#E01E5A]" />,
       iconBg: "bg-[#4A154B]/20",
       connected: null,
