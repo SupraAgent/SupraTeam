@@ -42,6 +42,16 @@ export async function PUT(
   if (body.is_active !== undefined) updates.is_active = body.is_active;
   if (body.trigger_type !== undefined) updates.trigger_type = body.trigger_type;
 
+  // Bump version when workflow definition changes (nodes or edges)
+  if (body.nodes !== undefined || body.edges !== undefined) {
+    const { data: current } = await supabase
+      .from("crm_workflows")
+      .select("version")
+      .eq("id", id)
+      .single();
+    updates.version = (current?.version ?? 0) + 1;
+  }
+
   const { data, error } = await supabase
     .from("crm_workflows")
     .update(updates)
