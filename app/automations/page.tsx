@@ -117,41 +117,71 @@ export default function AutomationsPage() {
 
   async function deleteTemplate(templateId: string, e: React.MouseEvent) {
     e.stopPropagation();
-    await fetch(`/api/workflow-templates/${templateId}`, { method: "DELETE" });
-    setTemplates((prev) => prev.filter((t) => t.id !== templateId));
-    showMsg("Template deleted");
+    try {
+      const res = await fetch(`/api/workflow-templates/${templateId}`, { method: "DELETE" });
+      if (res.ok) {
+        setTemplates((prev) => prev.filter((t) => t.id !== templateId));
+        showMsg("Template deleted");
+      } else {
+        showMsg("Failed to delete template");
+      }
+    } catch {
+      showMsg("Network error");
+    }
   }
 
   async function handleCreate() {
     if (!newName.trim()) return;
-    const res = await fetch("/api/workflows", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: newName.trim() }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      router.push(`/automations/${data.workflow.id}`);
+    try {
+      const res = await fetch("/api/workflows", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newName.trim() }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        router.push(`/automations/${data.workflow.id}`);
+      } else {
+        showMsg("Failed to create workflow");
+      }
+    } catch {
+      showMsg("Network error");
     }
   }
 
   async function handleDelete(id: string, e: React.MouseEvent) {
     e.stopPropagation();
-    await fetch(`/api/workflows/${id}`, { method: "DELETE" });
-    setWorkflows((prev) => prev.filter((w) => w.id !== id));
-    showMsg("Workflow deleted");
+    try {
+      const res = await fetch(`/api/workflows/${id}`, { method: "DELETE" });
+      if (res.ok) {
+        setWorkflows((prev) => prev.filter((w) => w.id !== id));
+        showMsg("Workflow deleted");
+      } else {
+        showMsg("Failed to delete workflow");
+      }
+    } catch {
+      showMsg("Network error");
+    }
   }
 
   async function toggleActive(id: string, isActive: boolean, e: React.MouseEvent) {
     e.stopPropagation();
-    await fetch(`/api/workflows/${id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ is_active: !isActive }),
-    });
-    setWorkflows((prev) =>
-      prev.map((w) => (w.id === id ? { ...w, is_active: !isActive } : w))
-    );
+    try {
+      const res = await fetch(`/api/workflows/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_active: !isActive }),
+      });
+      if (res.ok) {
+        setWorkflows((prev) =>
+          prev.map((w) => (w.id === id ? { ...w, is_active: !isActive } : w))
+        );
+      } else {
+        showMsg("Failed to toggle workflow");
+      }
+    } catch {
+      showMsg("Network error");
+    }
   }
 
   if (loading) {

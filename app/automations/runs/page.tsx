@@ -107,27 +107,43 @@ export default function AutomationRunsDashboard() {
   const [loading, setLoading] = React.useState(true);
   const [retrying, setRetrying] = React.useState(false);
   const [retryMsg, setRetryMsg] = React.useState("");
+  const [error, setError] = React.useState<string | null>(null);
+  const [debouncedSearch, setDebouncedSearch] = React.useState("");
 
   const pollRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Debounce search input — 300ms delay
+  React.useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
   const fetchData = React.useCallback(async () => {
+    setError(null);
     const params = new URLSearchParams({
       time_range: timeRange,
       status: statusFilter,
-      search,
+      search: debouncedSearch,
       sort,
       sort_dir: sortDir,
       limit: "100",
     });
-    const res = await fetch(`/api/workflows/runs?${params}`);
-    if (res.ok) {
+    try {
+      const res = await fetch(`/api/workflows/runs?${params}`);
+      if (!res.ok) {
+        setError(`Failed to load runs (${res.status})`);
+        setLoading(false);
+        return;
+      }
       const data = await res.json();
       setRuns(data.runs ?? []);
       setStats(data.stats ?? null);
       setComparison(data.comparison ?? null);
+    } catch {
+      setError("Network error — could not load runs");
     }
     setLoading(false);
-  }, [timeRange, statusFilter, search, sort, sortDir]);
+  }, [timeRange, statusFilter, debouncedSearch, sort, sortDir]);
 
   React.useEffect(() => {
     setLoading(true);
@@ -359,6 +375,15 @@ export default function AutomationRunsDashboard() {
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground/30 mx-auto" />
                 </td>
               </tr>
+            ) : error ? (
+              <tr>
+                <td colSpan={6} className="px-4 py-12 text-center">
+                  <p className="text-xs text-red-400">{error}</p>
+                  <button onClick={fetchData} className="text-[10px] text-primary mt-2 hover:underline">
+                    Retry
+                  </button>
+                </td>
+              </tr>
             ) : runs.length === 0 ? (
               <tr>
                 <td colSpan={6} className="px-4 py-12 text-center text-xs text-muted-foreground/50">
@@ -469,7 +494,7 @@ function StatCard({ label, value, comparison, suffix, negative }: {
     <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
       <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{label}</p>
       <p className="text-2xl font-semibold text-foreground mt-1">
-        {value != null ? (typeof value === "number" ? value.toLocaleString() : value) : "—"}{suffix}
+        {value != null ? <>{typeof value === "number" ? value.toLocaleString() : value}{suffix}</> : "—"}
       </p>
       {pctChange !== null && (
         <p className={cn("text-xs mt-1", isPositive ? "text-emerald-400" : "text-red-400")}>

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 
+const MAX_RETRY_BATCH = 20;
+
 export async function GET(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
@@ -39,16 +41,31 @@ export async function GET(request: Request) {
     compareTo = new Date(rangeFrom.getTime());
   }
 
-  // Build main query
-  let query = supabase
-    .from("crm_workflow_runs")
-    .select("id, workflow_id, status, trigger_event, error, started_at, completed_at, node_outputs, crm_workflows!workflow_id(id, name, trigger_type)")
-    .gte("started_at", rangeFrom.toISOString())
-    .lte("started_at", rangeTo.toISOString());
+  // Helper: apply shared filters to a query
+  function applyFilters(query: ReturnType<typeof supabase.from>) {
+    let q = query
+      .gte("started_at", rangeFrom.toISOString())
+      .lte("started_at", rangeTo.toISOString());
 
-  if (status && status !== "all") {
-    query = query.eq("status", status);
+    if (status && status !== "all") {
+      q = q.eq("status", status);
+    }
+    if (triggerType && triggerType !== "all") {
+      q = q.eq("crm_workflows.trigger_type", triggerType);
+    }
+    if (search) {
+      // Search across workflow name, error, and run ID using Supabase or filter
+      q = q.or(`error.ilike.%${search}%,id.ilike.%${search}%`);
+    }
+    return q;
   }
+
+  // Build main query (without node_outputs to reduce payload)
+  let query = applyFilters(
+    supabase
+      .from("crm_workflow_runs")
+      .select("id, workflow_id, status, trigger_event, error, started_at, completed_at, duration_ms, failure_type, retry_count, workflow_version, crm_workflows!workflow_id(id, name, trigger_type)")
+  );
 
   // Sort
   const validSorts = ["started_at", "completed_at", "status"];
@@ -62,65 +79,57 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: runsErr.message }, { status: 500 });
   }
 
-  // Post-filter by trigger_type and search (join fields)
-  let filtered = (runs ?? []).map((r: Record<string, unknown>) => {
+  // Map to response shape
+  const mapped = (runs ?? []).map((r: Record<string, unknown>) => {
     const wf = r.crm_workflows as { id: string; name: string; trigger_type: string | null } | null;
-    const id = r.id as string;
     const error = (r.error as string | null) ?? null;
-    const startedAt = r.started_at as string;
-    const completedAt = r.completed_at as string | null;
     return {
-      id,
+      id: r.id as string,
       workflow_id: r.workflow_id as string,
       workflow_name: wf?.name ?? "Unknown",
       trigger_type: wf?.trigger_type ?? null,
       status: r.status as string,
       trigger_event: r.trigger_event,
       error,
-      error_type: classifyError(error),
-      started_at: startedAt,
-      completed_at: completedAt,
-      duration_ms: completedAt && startedAt
-        ? new Date(completedAt).getTime() - new Date(startedAt).getTime()
-        : null,
-      node_outputs: r.node_outputs,
+      error_type: error ? classifyError(error) : (r.failure_type as string | null),
+      started_at: r.started_at as string,
+      completed_at: r.completed_at as string | null,
+      duration_ms: r.duration_ms as number | null,
+      retry_count: r.retry_count as number,
+      workflow_version: r.workflow_version as number | null,
     };
   });
 
-  if (triggerType && triggerType !== "all") {
-    filtered = filtered.filter((r) => r.trigger_type === triggerType);
-  }
-
-  if (search) {
-    const q = search.toLowerCase();
-    filtered = filtered.filter((r) =>
-      r.workflow_name.toLowerCase().includes(q) ||
-      (r.error && r.error.toLowerCase().includes(q)) ||
-      r.id.toLowerCase().includes(q)
-    );
-  }
-
-  // Aggregate stats for current period (from all matching runs, not just the page)
-  const { data: allRuns } = await supabase
-    .from("crm_workflow_runs")
-    .select("status, started_at, completed_at")
-    .gte("started_at", rangeFrom.toISOString())
-    .lte("started_at", rangeTo.toISOString());
-
+  // Aggregate stats for current period — with same filters applied
+  const statsQuery = applyFilters(
+    supabase
+      .from("crm_workflow_runs")
+      .select("status, started_at, completed_at, duration_ms, crm_workflows!workflow_id(trigger_type)")
+  );
+  const { data: allRuns } = await statsQuery;
   const stats = computeStats(allRuns ?? []);
 
   // Comparison period stats
   let comparison = null;
   if (compareFrom && compareTo) {
-    const { data: compRuns } = await supabase
+    let compQuery = supabase
       .from("crm_workflow_runs")
-      .select("status, started_at, completed_at")
+      .select("status, started_at, completed_at, duration_ms, crm_workflows!workflow_id(trigger_type)")
       .gte("started_at", compareFrom.toISOString())
       .lte("started_at", compareTo.toISOString());
+
+    if (status && status !== "all") {
+      compQuery = compQuery.eq("status", status);
+    }
+    if (triggerType && triggerType !== "all") {
+      compQuery = compQuery.eq("crm_workflows.trigger_type", triggerType);
+    }
+
+    const { data: compRuns } = await compQuery;
     comparison = computeStats(compRuns ?? []);
   }
 
-  return NextResponse.json({ runs: filtered, stats, comparison });
+  return NextResponse.json({ runs: mapped, stats, comparison });
 }
 
 export async function POST(request: Request) {
@@ -128,12 +137,26 @@ export async function POST(request: Request) {
   if ("error" in auth) return auth.error;
   const { admin: supabase } = auth;
 
-  const body = await request.json();
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
 
   if (body.action === "retry_failed") {
-    const runIds: string[] = body.run_ids ?? [];
+    const rawIds = body.run_ids;
+    if (!Array.isArray(rawIds) || rawIds.length === 0) {
+      return NextResponse.json({ error: "run_ids must be a non-empty array" }, { status: 400 });
+    }
+
+    // Validate and cap the batch size
+    const runIds = rawIds
+      .filter((id): id is string => typeof id === "string")
+      .slice(0, MAX_RETRY_BATCH);
+
     if (runIds.length === 0) {
-      return NextResponse.json({ error: "No run IDs provided" }, { status: 400 });
+      return NextResponse.json({ error: "No valid run IDs provided" }, { status: 400 });
     }
 
     // Fetch failed runs with their workflow IDs and trigger events
@@ -153,7 +176,7 @@ export async function POST(request: Request) {
     // Dynamic import to avoid client component bundling issue
     const { executeWorkflow } = await import("@/lib/workflow-engine");
 
-    // Process sequentially to avoid rate limits
+    // Process sequentially to avoid rate limits (capped at MAX_RETRY_BATCH)
     for (const run of failedRuns) {
       try {
         const event = (run.trigger_event as Record<string, unknown>) ?? { type: "manual" };
@@ -174,7 +197,7 @@ export async function POST(request: Request) {
   return NextResponse.json({ error: "Unknown action" }, { status: 400 });
 }
 
-function computeStats(runs: { status: unknown; started_at: unknown; completed_at: unknown }[]) {
+function computeStats(runs: Record<string, unknown>[]) {
   const total = runs.length;
   const completed = runs.filter((r) => r.status === "completed").length;
   const failed = runs.filter((r) => r.status === "failed").length;
@@ -182,8 +205,15 @@ function computeStats(runs: { status: unknown; started_at: unknown; completed_at
   const paused = runs.filter((r) => r.status === "paused").length;
 
   const durations = runs
-    .filter((r) => r.completed_at && r.started_at)
-    .map((r) => new Date(r.completed_at as string).getTime() - new Date(r.started_at as string).getTime());
+    .filter((r) => r.duration_ms != null)
+    .map((r) => r.duration_ms as number)
+    .concat(
+      // Fallback to computed duration for rows without duration_ms
+      runs
+        .filter((r) => r.duration_ms == null && r.completed_at && r.started_at)
+        .map((r) => new Date(r.completed_at as string).getTime() - new Date(r.started_at as string).getTime())
+    );
+
   const avgDurationMs = durations.length > 0
     ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length)
     : null;
