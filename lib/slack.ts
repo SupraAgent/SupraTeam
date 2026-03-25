@@ -18,7 +18,7 @@ export async function getSlackToken(): Promise<string | null> {
     const { data } = await supabase
       .from("user_tokens")
       .select("encrypted_token")
-      .eq("provider", "slack_bot")
+      .eq("provider", "slack")
       .limit(1)
       .single();
 

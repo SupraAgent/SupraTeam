@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { triggerWorkflowsByEvent } from "@/lib/workflow-engine";
 
 export const runtime = "nodejs";
 export const maxDuration = 10;
@@ -129,6 +130,19 @@ export async function POST(request: Request) {
         .single();
 
       if (!tgGroup) return NextResponse.json({ ok: true });
+
+      // Trigger matching workflows (non-blocking)
+      const privateChatIdForLink = String(chat.id).replace(/^-100/, "");
+      const tgMessageLink = `https://t.me/c/${privateChatIdForLink}/${msgId}`;
+      triggerWorkflowsByEvent("tg_message", {
+        chat_id: String(chat.id),
+        group_name: tgGroup.group_name,
+        sender_name: senderName,
+        sender_username: senderUsername,
+        message_text: text,
+        message_link: tgMessageLink,
+        tg_group_id: tgGroup.id,
+      }).catch((err) => console.error("[webhook] workflow trigger error:", err));
 
       // Update last_message_at in real-time
       await supabase
