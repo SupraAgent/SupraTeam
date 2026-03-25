@@ -8,26 +8,31 @@ import { decryptToken } from "@/lib/crypto";
 const SLACK_API = "https://slack.com/api";
 
 /**
- * Fetch and decrypt the Slack Bot Token from user_tokens.
+ * Fetch the Slack Bot Token.
+ * Priority: 1) DB (encrypted in user_tokens)  2) SLACK_BOT_TOKEN env var
  */
 export async function getSlackToken(): Promise<string | null> {
+  // Try DB first
   const supabase = createSupabaseAdmin();
-  if (!supabase) return null;
+  if (supabase) {
+    const { data } = await supabase
+      .from("user_tokens")
+      .select("encrypted_token")
+      .eq("provider", "slack_bot")
+      .limit(1)
+      .single();
 
-  const { data } = await supabase
-    .from("user_tokens")
-    .select("encrypted_token")
-    .eq("provider", "slack_bot")
-    .limit(1)
-    .single();
-
-  if (!data?.encrypted_token) return null;
-
-  try {
-    return decryptToken(data.encrypted_token);
-  } catch {
-    return null;
+    if (data?.encrypted_token) {
+      try {
+        return decryptToken(data.encrypted_token);
+      } catch {
+        // Fall through to env var
+      }
+    }
   }
+
+  // Fallback to env var
+  return process.env.SLACK_BOT_TOKEN || null;
 }
 
 /**
