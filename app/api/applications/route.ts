@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdmin } from "@/lib/supabase";
-import { createSupabaseServer } from "@/lib/supabase/server";
+import { createClient as createSupabaseServer } from "@/lib/supabase/server";
 import { validateTelegramInitData } from "@/lib/telegram-auth";
 import { getBotById } from "@/lib/bot-registry";
 
@@ -81,6 +81,9 @@ export async function POST(request: Request) {
   } else {
     // Web mode: check for authenticated session
     const supabase = await createSupabaseServer();
+    if (!supabase) {
+      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+    }
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
       const { data: profile } = await admin
