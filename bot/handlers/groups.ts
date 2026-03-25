@@ -2,6 +2,96 @@ import type { Bot } from "grammy";
 import { supabase } from "../lib/supabase.js";
 
 export function registerGroupHandlers(bot: Bot) {
+  // Handle group → supergroup migration
+  // When a group is converted, Telegram sends migrate_to_chat_id in the old group
+  bot.on("message", async (ctx, next) => {
+    const msg = ctx.message;
+    if (!msg) return next();
+
+    // Old group sends migrate_to_chat_id with the new supergroup ID
+    if ("migrate_to_chat_id" in msg && msg.migrate_to_chat_id) {
+      const oldChatId = msg.chat.id;
+      const newChatId = msg.migrate_to_chat_id;
+      const chatTitle = "title" in msg.chat ? msg.chat.title : `Chat ${oldChatId}`;
+
+      console.log(`[bot/groups] Migration: ${chatTitle} ${oldChatId} → ${newChatId}`);
+
+      // Update the existing record with the new supergroup ID
+      const { error } = await supabase
+        .from("tg_groups")
+        .update({
+          telegram_group_id: newChatId,
+          group_type: "supergroup",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("telegram_group_id", oldChatId);
+
+      if (error) {
+        // Record might not exist for old ID — create new one
+        await supabase.from("tg_groups").upsert({
+          telegram_group_id: newChatId,
+          group_name: chatTitle,
+          group_type: "supergroup",
+          bot_is_admin: true,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "telegram_group_id" });
+      }
+
+      // Generate invite link for the new supergroup
+      try {
+        const inviteLink = await ctx.api.exportChatInviteLink(newChatId);
+        await supabase
+          .from("tg_groups")
+          .update({ invite_link: inviteLink, updated_at: new Date().toISOString() })
+          .eq("telegram_group_id", newChatId);
+        console.log(`[bot/groups] Migrated invite link: ${inviteLink}`);
+      } catch {
+        try {
+          const result = await ctx.api.createChatInviteLink(newChatId, { name: "SupraCRM" });
+          await supabase
+            .from("tg_groups")
+            .update({ invite_link: result.invite_link, updated_at: new Date().toISOString() })
+            .eq("telegram_group_id", newChatId);
+        } catch (e) {
+          console.error("[bot/groups] Could not generate invite link after migration:", e);
+        }
+      }
+
+      // Update any workflows that reference the old chat_id
+      const { data: workflows } = await supabase
+        .from("crm_workflows")
+        .select("id, nodes")
+        .eq("is_active", true);
+
+      if (workflows) {
+        for (const wf of workflows) {
+          const nodes = (wf.nodes ?? []) as { data?: { config?: { chat_id?: string } } }[];
+          let changed = false;
+          for (const node of nodes) {
+            if (node.data?.config?.chat_id === String(oldChatId)) {
+              node.data.config.chat_id = String(newChatId);
+              changed = true;
+            }
+          }
+          if (changed) {
+            await supabase.from("crm_workflows").update({ nodes }).eq("id", wf.id);
+            console.log(`[bot/groups] Updated workflow ${wf.id} chat_id ${oldChatId} → ${newChatId}`);
+          }
+        }
+      }
+
+      // Update any deals linked to the old chat
+      await supabase
+        .from("crm_deals")
+        .update({ telegram_chat_id: newChatId })
+        .eq("telegram_chat_id", oldChatId);
+
+      return; // Don't process as a regular message
+    }
+
+    return next();
+  });
+
   // Fires when the bot's membership status in a chat changes
   bot.on("my_chat_member", async (ctx) => {
     const chat = ctx.myChatMember.chat;
