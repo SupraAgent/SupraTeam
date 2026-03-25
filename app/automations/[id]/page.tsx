@@ -205,10 +205,14 @@ export default function WorkflowEditorPage() {
   }
 
   async function fetchRuns() {
-    const res = await fetch(`/api/workflows/${id}/runs`);
-    if (res.ok) {
-      const data = await res.json();
-      setRuns(data.runs ?? []);
+    try {
+      const res = await fetch(`/api/workflows/${id}/runs`);
+      if (res.ok) {
+        const data = await res.json();
+        setRuns(data.runs ?? []);
+      }
+    } catch {
+      // Network error — silently skip, user can refresh
     }
   }
 
@@ -218,57 +222,84 @@ export default function WorkflowEditorPage() {
   }
 
   async function fetchAlerts() {
-    const res = await fetch(`/api/workflows/alerts?workflow_id=${id}`);
-    if (res.ok) {
-      const data = await res.json();
-      setAlerts(data.alerts ?? []);
+    try {
+      const res = await fetch(`/api/workflows/alerts?workflow_id=${id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setAlerts(data.alerts ?? []);
+      }
+    } catch {
+      // Network error — silently skip
     }
   }
 
   async function createAlert() {
-    const res = await fetch("/api/workflows/alerts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ workflow_id: id, alert_type: newAlertType, channel: newAlertChannel }),
-    });
-    if (res.ok) {
-      fetchAlerts();
-      setShowAlerts(false);
+    try {
+      const res = await fetch("/api/workflows/alerts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workflow_id: id, alert_type: newAlertType, channel: newAlertChannel }),
+      });
+      if (res.ok) {
+        fetchAlerts();
+        setShowAlerts(false);
+      } else {
+        const data = await res.json();
+        setRunMsg(`Alert error: ${data.error}`);
+        setTimeout(() => setRunMsg(""), 3000);
+      }
+    } catch {
+      setRunMsg("Failed to create alert");
+      setTimeout(() => setRunMsg(""), 3000);
     }
   }
 
   async function deleteAlert(alertId: string) {
-    const res = await fetch(`/api/workflows/alerts?id=${alertId}`, { method: "DELETE" });
-    if (res.ok) {
-      setAlerts((prev) => prev.filter((a) => a.id !== alertId));
+    try {
+      const res = await fetch(`/api/workflows/alerts?id=${alertId}`, { method: "DELETE" });
+      if (res.ok) {
+        setAlerts((prev) => prev.filter((a) => a.id !== alertId));
+      }
+    } catch {
+      // Network error
     }
   }
 
   async function deleteRun(runId: string) {
-    const res = await fetch(`/api/workflows/${id}/runs?run_id=${runId}`, { method: "DELETE" });
-    if (res.ok) {
-      setRuns((prev) => prev.filter((r) => r.id !== runId));
-      setConfirmDelete(null);
-      setPinnedRuns((prev) => { const next = new Set(prev); next.delete(runId); return next; });
+    try {
+      const res = await fetch(`/api/workflows/${id}/runs?run_id=${runId}`, { method: "DELETE" });
+      if (res.ok) {
+        setRuns((prev) => prev.filter((r) => r.id !== runId));
+        setConfirmDelete(null);
+        setPinnedRuns((prev) => { const next = new Set(prev); next.delete(runId); return next; });
+      }
+    } catch {
+      // Network error
     }
   }
 
   async function bulkDelete(mode: "all" | "failed") {
-    const res = await fetch(`/api/workflows/${id}/runs?mode=${mode}`, { method: "DELETE" });
-    if (res.ok) {
-      if (mode === "all") {
-        setRuns([]);
-        setPinnedRuns(new Set());
-      } else {
-        setRuns((prev) => prev.filter((r) => r.status !== "failed"));
+    try {
+      const res = await fetch(`/api/workflows/${id}/runs?mode=${mode}`, { method: "DELETE" });
+      if (res.ok) {
+        if (mode === "all") {
+          setRuns([]);
+          setPinnedRuns(new Set());
+        } else {
+          setRuns((prev) => prev.filter((r) => r.status !== "failed"));
+        }
+        setConfirmBulkDelete(null);
       }
-      setConfirmBulkDelete(null);
+    } catch {
+      // Network error
     }
   }
 
   function rerunFromHistory(run: WorkflowRun) {
     const triggerEvent = run.trigger_event as Record<string, unknown> | null;
-    handleRun(triggerEvent ? { deal_id: triggerEvent.dealId } : undefined);
+    // trigger_event stores deal_id in both camelCase (dealId) and snake_case (deal_id) depending on source
+    const dealId = triggerEvent?.deal_id ?? triggerEvent?.dealId;
+    handleRun(triggerEvent ? { deal_id: dealId as string | undefined } : undefined);
   }
 
   function togglePin(runId: string) {
@@ -1019,7 +1050,7 @@ function DurationSparkline({ data }: { data: { id: string; ms: number; status: s
             key={d.id}
             className="flex-1 rounded-t-sm transition-all"
             style={{ height: `${heightPct}%` }}
-            title={`${getDuration("1970-01-01T00:00:00Z", new Date(d.ms).toISOString())} — ${d.status}`}
+            title={`${formatMs(d.ms)} — ${d.status}`}
           >
             <div
               className={cn(
