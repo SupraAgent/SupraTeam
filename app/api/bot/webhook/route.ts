@@ -40,39 +40,58 @@ export async function POST(request: Request) {
 
       if ((command === "/start" || command === "/help") && chatType === "private") {
         await sendMessage(token, chatId, "Welcome to SupraCRM Bot!\n\nCommands:\n/help - Show commands\n/status - Bot status\n/deals - Pipeline summary\n/deal - Show deal for this group (in groups)");
-      } else if (command === "/deal" && (chatType === "group" || chatType === "supergroup")) {
-        // Show deal linked to this group with Mini App button
+      } else if (command === "/contact" && (chatType === "group" || chatType === "supergroup")) {
+        // Show assigned Supra team member for this group
         const { data: tgGroup } = await supabase.from("tg_groups").select("id").eq("telegram_group_id", chatId).single();
         if (tgGroup) {
-          const { data: linkedDeals } = await supabase.from("crm_deals").select("id, deal_name, board_type, value, stage:pipeline_stages(name)").eq("tg_group_id", tgGroup.id).limit(3);
+          const { data: linkedDeals } = await supabase
+            .from("crm_deals")
+            .select("deal_name, board_type, assigned_to")
+            .eq("tg_group_id", tgGroup.id)
+            .not("assigned_to", "is", null)
+            .limit(5);
+
           if (linkedDeals && linkedDeals.length > 0) {
+            const assignedIds = [...new Set(linkedDeals.map((d) => d.assigned_to).filter(Boolean))];
+            const { data: profiles } = await supabase
+              .from("profiles")
+              .select("id, display_name, crm_role")
+              .in("id", assignedIds);
+
+            const profileMap: Record<string, { display_name: string; crm_role: string | null }> = {};
+            if (profiles) {
+              for (const p of profiles) profileMap[p.id] = { display_name: p.display_name, crm_role: p.crm_role };
+            }
+
+            const roleLabels: Record<string, string> = { bd_lead: "BD", marketing_lead: "Marketing", admin_lead: "Admin" };
+            const seen = new Set<string>();
+            const contactLines: string[] = [];
             for (const d of linkedDeals) {
-              const stageName = (d.stage as unknown as { name: string } | null)?.name ?? "Unknown";
-              await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  chat_id: chatId,
-                  text: `${d.deal_name}\nBoard: ${d.board_type} | Stage: ${stageName}${d.value ? ` | $${Number(d.value).toLocaleString()}` : ""}`,
-                  reply_markup: {
-                    inline_keyboard: [[
-                      { text: "📊 Open in CRM", web_app: { url: `${process.env.NEXT_PUBLIC_SITE_URL}/tma/deals/${d.id}` } },
-                    ]],
-                  },
-                }),
-              });
+              if (!d.assigned_to || seen.has(d.assigned_to)) continue;
+              seen.add(d.assigned_to);
+              const profile = profileMap[d.assigned_to];
+              if (profile) {
+                const role = profile.crm_role ? ` (${roleLabels[profile.crm_role] ?? profile.crm_role})` : "";
+                contactLines.push(`• ${profile.display_name}${role}`);
+              }
+            }
+
+            if (contactLines.length > 0) {
+              await sendMessage(token, chatId, `Your Supra point of contact:\n\n${contactLines.join("\n")}`);
+            } else {
+              await sendMessage(token, chatId, "No team member assigned yet. We'll get someone connected shortly.");
             }
           } else {
-            await sendMessage(token, chatId, "No deals linked to this group. Create one in the CRM and link this group.");
+            await sendMessage(token, chatId, "No team member assigned yet. We'll get someone connected shortly.");
           }
         }
-      } else if (command === "/status") {
+      } else if (command === "/status" && chatType === "private") {
         const [g, d] = await Promise.all([
           supabase.from("tg_groups").select("id", { count: "exact", head: true }).eq("bot_is_admin", true),
           supabase.from("crm_deals").select("id", { count: "exact", head: true }),
         ]);
         await sendMessage(token, chatId, `SupraCRM Bot Status\n\nGroups: ${g.count ?? 0}\nDeals: ${d.count ?? 0}`);
-      } else if (command === "/deals") {
+      } else if (command === "/deals" && chatType === "private") {
         const { data: stages } = await supabase.from("pipeline_stages").select("id, name, position").order("position");
         const { data: deals } = await supabase.from("crm_deals").select("stage_id");
         if (!stages || !deals || deals.length === 0) {
