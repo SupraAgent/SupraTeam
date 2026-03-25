@@ -7,7 +7,7 @@ import { supabase } from "../lib/supabase.js";
  */
 async function fireWorkflowTriggers(payload: Record<string, unknown>) {
   try {
-    const { triggerWorkflowsByEvent } = await import("@/lib/workflow-engine");
+    const { triggerWorkflowsByEvent } = await import("../../lib/workflow-engine");
     await triggerWorkflowsByEvent("tg_message", payload);
   } catch (err) {
     console.error("[bot/messages] workflow trigger error:", err);
