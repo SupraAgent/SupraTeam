@@ -35,7 +35,10 @@ export async function updateSession(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
   const isPublicRoute =
-    pathname === "/login" || pathname.startsWith("/auth/");
+    pathname === "/login" ||
+    pathname.startsWith("/auth/") ||
+    pathname.startsWith("/apply") ||
+    pathname.startsWith("/tma");
 
   // Dev access bypass: cookie set by /api/auth/dev-login
   const hasDevAuth =
