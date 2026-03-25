@@ -28,9 +28,15 @@ export function registerMessageHandlers(bot: Bot) {
     const senderUsername = ctx.from.username ?? "";
     const messageText = ctx.message.text;
 
-    // Build deep link
-    const privateChatId = String(chatId).replace(/^-100/, "");
-    const tgDeepLink = `https://t.me/c/${privateChatId}/${messageId}`;
+    // Build deep link — only works for supergroups (-100XXXX format)
+    const chatIdStr = String(chatId);
+    let tgDeepLink = "";
+    if (chatIdStr.startsWith("-100")) {
+      const supergroupId = chatIdStr.slice(4); // strip "-100"
+      tgDeepLink = `https://t.me/c/${supergroupId}/${messageId}`;
+    } else if (chat.type === "supergroup" && "username" in chat && chat.username) {
+      tgDeepLink = `https://t.me/${chat.username}/${messageId}`;
+    }
 
     try {
       // Find the tg_group record
