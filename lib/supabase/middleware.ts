@@ -37,12 +37,16 @@ export async function updateSession(request: NextRequest) {
   const isPublicRoute =
     pathname === "/login" || pathname.startsWith("/auth/");
 
-  if (user && pathname === "/login") {
+  // Dev access bypass: cookie set by /api/auth/dev-login
+  const hasDevAuth =
+    process.env.DEV_ACCESS_PASSWORD && request.cookies.get("dev-auth")?.value === "true";
+
+  if ((user || hasDevAuth) && pathname === "/login") {
     return NextResponse.redirect(new URL("/", request.url));
   }
 
   // Unauthenticated users on non-public routes: redirect to login
-  if (!user && !isPublicRoute && !pathname.startsWith("/api/")) {
+  if (!user && !hasDevAuth && !isPublicRoute && !pathname.startsWith("/api/")) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 

@@ -235,6 +235,12 @@ export default function PipelinePage() {
     return result;
   }, [deals, search, filters]);
 
+  // Filter stages by active board (Applications has its own stages, others share legacy stages)
+  const activeStages = React.useMemo(() => {
+    if (board === "Applications") return stages.filter((s) => s.board_type === "Applications");
+    return stages.filter((s) => !s.board_type);
+  }, [stages, board]);
+
   // Pipeline summary
   const totalValue = deals.reduce((sum, d) => sum + Number(d.value ?? 0), 0);
   const weightedValue = deals.reduce((sum, d) => sum + Number(d.value ?? 0) * (Number(d.probability ?? 50) / 100), 0);
@@ -544,7 +550,7 @@ export default function PipelinePage() {
       {selectedDealIds.size > 0 && (
         <BulkActionBar
           count={selectedDealIds.size}
-          stages={stages}
+          stages={activeStages}
           onMove={handleBulkMove}
           onDelete={handleBulkDelete}
           onOutcome={handleBulkOutcome}
@@ -572,7 +578,7 @@ export default function PipelinePage() {
 
       {viewMode === "kanban" ? (
         <KanbanBoard
-          stages={stages}
+          stages={activeStages}
           deals={searchFiltered}
           allDeals={deals}
           board={board}
@@ -589,7 +595,7 @@ export default function PipelinePage() {
       ) : (
         <DealListView
           deals={searchFiltered}
-          stages={stages}
+          stages={activeStages}
           board={board}
           onDealClick={setSelectedDeal}
           selectedDealIds={selectedDealIds}

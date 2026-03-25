@@ -22,7 +22,7 @@ type TelegramUser = {
   hash: string;
 };
 
-type LoginMethod = "widget" | "phone" | "qr";
+type LoginMethod = "widget" | "phone" | "qr" | "dev";
 type PhoneStep = "input" | "code" | "2fa";
 
 export default function LoginPage() {
@@ -38,6 +38,9 @@ export default function LoginPage() {
   const [code, setCode] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [phoneCodeHash, setPhoneCodeHash] = React.useState("");
+
+  // Dev login state
+  const [devPassword, setDevPassword] = React.useState("");
 
   // QR login state
   const [qrUrl, setQrUrl] = React.useState("");
@@ -100,6 +103,32 @@ export default function LoginPage() {
     }
     router.push("/");
     router.refresh();
+  }
+
+  // ── Dev login handler ──
+
+  async function handleDevLogin() {
+    if (!devPassword.trim()) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/auth/dev-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: devPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Invalid password");
+        return;
+      }
+      router.push("/");
+      router.refresh();
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   // ── Phone login handlers ──
@@ -246,6 +275,7 @@ export default function LoginPage() {
             ["phone", "Phone"],
             ["qr", "QR Code"],
             ["widget", "Widget"],
+            ["dev", "Dev"],
           ] as [LoginMethod, string][]).map(([key, label]) => (
             <button
               key={key}
@@ -408,6 +438,34 @@ export default function LoginPage() {
             <p className="text-[11px] text-muted-foreground/60">
               Requires bot domain configured in BotFather.
             </p>
+          </div>
+        )}
+
+        {/* ── Dev Access ── */}
+        {method === "dev" && (
+          <div className="space-y-4 text-left">
+            <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5 space-y-4">
+              <div>
+                <h2 className="text-sm font-medium text-foreground">Dev Access</h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Enter the dev password to bypass Telegram auth.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  type="password"
+                  value={devPassword}
+                  onChange={(e) => setDevPassword(e.target.value)}
+                  placeholder="Dev password"
+                  className="flex-1"
+                  autoFocus
+                  onKeyDown={(e) => e.key === "Enter" && handleDevLogin()}
+                />
+                <Button size="sm" onClick={handleDevLogin} disabled={loading || !devPassword.trim()}>
+                  {loading ? "..." : "Enter"}
+                </Button>
+              </div>
+            </div>
           </div>
         )}
 

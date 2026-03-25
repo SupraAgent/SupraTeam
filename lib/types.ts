@@ -3,6 +3,7 @@ export type PipelineStage = {
   name: string;
   position: number;
   color: string | null;
+  board_type: string | null;
 };
 
 export type LifecycleStage = "prospect" | "lead" | "opportunity" | "customer" | "churned" | "inactive";

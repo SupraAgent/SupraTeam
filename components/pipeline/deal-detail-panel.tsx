@@ -114,7 +114,7 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
       setLoadingContent(true);
 
       Promise.all([
-        fetch("/api/pipeline").then((r) => r.json()).then((d) => setStages(d.stages ?? [])).catch(() => {}),
+        fetch(`/api/pipeline?board_type=${deal.board_type}`).then((r) => r.json()).then((d) => setStages(d.stages ?? [])).catch(() => {}),
         fetch(`/api/deals/${deal.id}/notes`).then((r) => r.json()).then((d) => setNotes(d.notes ?? [])).catch(() => setNotes([])),
         fetch(`/api/deals/${deal.id}/activity`).then((r) => r.json()).then((d) => setActivities(d.activities ?? [])).catch(() => setActivities([])),
         fetch(`/api/docs?entity_type=deal&entity_id=${deal.id}`).then((r) => r.json()).then((d) => setLinkedDocs(d.docs ?? [])).catch(() => setLinkedDocs([])),

@@ -23,3 +23,37 @@ export async function GET(
 
   return NextResponse.json({ runs: data ?? [] });
 }
+
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+  const { admin: supabase } = auth;
+  const { id } = await params;
+
+  const url = new URL(request.url);
+  const runId = url.searchParams.get("run_id");
+  const mode = url.searchParams.get("mode"); // "all" | "failed" | single
+
+  let query = supabase.from("crm_workflow_runs").delete().eq("workflow_id", id);
+
+  if (mode === "all") {
+    // Delete all runs for this workflow
+  } else if (mode === "failed") {
+    query = query.eq("status", "failed");
+  } else if (runId) {
+    query = query.eq("id", runId);
+  } else {
+    return NextResponse.json({ error: "Provide run_id or mode" }, { status: 400 });
+  }
+
+  const { error } = await query;
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true });
+}

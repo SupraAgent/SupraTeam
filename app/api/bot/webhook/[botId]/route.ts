@@ -38,7 +38,27 @@ export async function POST(request: Request, ctx: RouteContext) {
       const command = update.message.text.split(" ")[0].split("@")[0];
 
       if ((command === "/start" || command === "/help") && chatType === "private") {
-        await sendMessage(token, chatId, `Welcome to SupraCRM Bot (${bot.label})!\n\nCommands:\n/help - Show commands\n/status - Bot status\n/deals - Pipeline summary\n/deal - Show deal for this group (in groups)`);
+        // SuperDapp bot: show Apply Now button instead of CRM commands
+        const superdappBotId = process["env"]["SUPERDAPP_BOT_ID"];
+        if (superdappBotId && bot.id === superdappBotId) {
+          const siteUrl = process["env"]["NEXT_PUBLIC_SITE_URL"] || "";
+          await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: "Welcome to the SuperDapp Competition!\n\nShowcase what you've built on Supra and apply for grants, funding, or marketing support.\n\nTap the button below to get started.",
+              reply_markup: {
+                inline_keyboard: [[{
+                  text: "Apply Now",
+                  web_app: { url: `${siteUrl}/tma/apply` },
+                }]],
+              },
+            }),
+          });
+        } else {
+          await sendMessage(token, chatId, `Welcome to SupraCRM Bot (${bot.label})!\n\nCommands:\n/help - Show commands\n/status - Bot status\n/deals - Pipeline summary\n/deal - Show deal for this group (in groups)`);
+        }
       } else if (command === "/deal" && (chatType === "group" || chatType === "supergroup")) {
         const { data: tgGroup } = await supabase.from("tg_groups").select("id").eq("telegram_group_id", chatId).single();
         if (tgGroup) {

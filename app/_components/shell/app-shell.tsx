@@ -8,6 +8,7 @@ import { MobileHeader } from "./mobile-header";
 import { NotificationCenter } from "@/components/notifications/notification-center";
 import { CommandPalette } from "@/components/search/command-palette";
 import { AIChatWidget } from "@/components/ai-chat-widget";
+import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { useShell } from "./shell-context";
 
@@ -30,6 +31,11 @@ function TelegramLoginButton({ size = "sm" }: { size?: "sm" | "md" }) {
 function AppShellInner({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const { sidebarCollapsed, viewDensity, setCrmRole } = useShell();
+  const pathname = usePathname();
+
+  // TMA routes render without the CRM shell (sidebar, topbar, etc.)
+  const isTMA = pathname.startsWith("/tma");
+  if (isTMA) return <>{children}</>;
 
   // Fetch user's crm_role from profile
   React.useEffect(() => {
