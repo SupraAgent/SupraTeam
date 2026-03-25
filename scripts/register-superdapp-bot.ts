@@ -5,6 +5,7 @@
  *   npx tsx scripts/register-superdapp-bot.ts
  *
  * Requires these env vars (loaded from your local env):
+ *   - SUPERDAPP_BOT_TOKEN (Telegram bot token from @BotFather)
  *   - NEXT_PUBLIC_SUPABASE_URL
  *   - SUPABASE_SERVICE_ROLE_KEY
  *   - TOKEN_ENCRYPTION_KEY
@@ -14,11 +15,15 @@ import "dotenv/config";
 import { createClient } from "@supabase/supabase-js";
 import { encryptToken } from "../lib/crypto";
 
-const BOT_TOKEN = "***REMOVED***";
-const BOT_TELEGRAM_ID = 8604735026;
-const BOT_USERNAME = "suprafund_bot";
-const BOT_FIRST_NAME = "SupraFund";
-const BOT_LABEL = "SuperDapp Fund";
+const BOT_TOKEN = process.env.SUPERDAPP_BOT_TOKEN;
+if (!BOT_TOKEN) {
+  console.error("Missing SUPERDAPP_BOT_TOKEN env var");
+  process.exit(1);
+}
+const BOT_TELEGRAM_ID = Number(BOT_TOKEN.split(":")[0]);
+const BOT_USERNAME = process.env.SUPERDAPP_BOT_USERNAME || "suprafund_bot";
+const BOT_FIRST_NAME = process.env.SUPERDAPP_BOT_FIRST_NAME || "SupraFund";
+const BOT_LABEL = process.env.SUPERDAPP_BOT_LABEL || "SuperDapp Fund";
 
 async function main() {
   const url = process["env"]["NEXT_PUBLIC_SUPABASE_URL"];
