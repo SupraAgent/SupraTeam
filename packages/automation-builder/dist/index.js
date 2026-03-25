@@ -3,7 +3,6 @@ import { twMerge } from 'tailwind-merge';
 import * as React2 from 'react';
 import { jsx, jsxs } from 'react/jsx-runtime';
 import { Handle, Position, ReactFlowProvider, useNodesState, useEdgesState, addEdge, ReactFlow, Background, BackgroundVariant, Controls, MiniMap } from '@xyflow/react';
-import { createPortal } from 'react-dom';
 import { Command } from 'cmdk';
 
 var __defProp = Object.defineProperty;
@@ -862,60 +861,6 @@ function AsyncMultiSelectField({
     }
   );
 }
-function PortalDropdown({
-  triggerRef,
-  children
-}) {
-  const [pos, setPos] = React2.useState({ top: 0, left: 0, width: 0, flipUp: false });
-  const dropdownInnerRef = React2.useRef(null);
-  const computePos = React2.useCallback(() => {
-    var _a, _b;
-    if (!triggerRef.current) return;
-    const rect = triggerRef.current.getBoundingClientRect();
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const dropdownHeight = (_b = (_a = dropdownInnerRef.current) == null ? void 0 : _a.offsetHeight) != null ? _b : 220;
-    const flipUp = spaceBelow < dropdownHeight + 8 && rect.top > dropdownHeight + 8;
-    setPos({
-      top: flipUp ? rect.top - dropdownHeight - 4 : rect.bottom + 4,
-      left: rect.left,
-      width: rect.width,
-      flipUp
-    });
-  }, [triggerRef]);
-  React2.useEffect(() => {
-    computePos();
-  }, [computePos]);
-  React2.useEffect(() => {
-    const frame = requestAnimationFrame(computePos);
-    return () => cancelAnimationFrame(frame);
-  }, [computePos]);
-  React2.useEffect(() => {
-    var _a;
-    let el = (_a = triggerRef.current) == null ? void 0 : _a.parentElement;
-    const scrollables = [];
-    while (el) {
-      if (el.scrollHeight > el.clientHeight) scrollables.push(el);
-      el = el.parentElement;
-    }
-    scrollables.forEach((s) => s.addEventListener("scroll", computePos, { passive: true }));
-    window.addEventListener("resize", computePos, { passive: true });
-    return () => {
-      scrollables.forEach((s) => s.removeEventListener("scroll", computePos));
-      window.removeEventListener("resize", computePos);
-    };
-  }, [triggerRef, computePos]);
-  return createPortal(
-    /* @__PURE__ */ jsx(
-      "div",
-      {
-        ref: dropdownInnerRef,
-        style: { position: "fixed", top: pos.top, left: pos.left, width: pos.width, zIndex: 99999 },
-        children
-      }
-    ),
-    document.body
-  );
-}
 function ComboboxDropdown({
   options,
   value,
@@ -971,7 +916,7 @@ function ComboboxDropdown({
         ]
       }
     ),
-    open && /* @__PURE__ */ jsx(PortalDropdown, { triggerRef, children: /* @__PURE__ */ jsx("div", { ref: dropdownRef, className: "rounded-lg border border-white/20 bg-[hsl(220,20%,10%)] shadow-2xl shadow-black/60 overflow-hidden ring-1 ring-white/10", children: /* @__PURE__ */ jsxs(Command, { shouldFilter: false, children: [
+    open && /* @__PURE__ */ jsx("div", { ref: dropdownRef, className: "mt-1 rounded-lg border border-white/20 bg-[hsl(220,20%,10%)] shadow-2xl shadow-black/60 overflow-hidden ring-1 ring-white/10", children: /* @__PURE__ */ jsxs(Command, { shouldFilter: false, children: [
       /* @__PURE__ */ jsx("div", { className: "px-2 py-1.5 border-b border-white/5", children: /* @__PURE__ */ jsx(
         Command.Input,
         {
@@ -1034,7 +979,7 @@ function ComboboxDropdown({
           }
         )
       ] })
-    ] }) }) })
+    ] }) })
   ] });
 }
 function MultiComboboxDropdown({
@@ -1090,7 +1035,7 @@ function MultiComboboxDropdown({
         /* @__PURE__ */ jsx("button", { type: "button", onClick: () => toggle(v), className: "text-muted-foreground/40 hover:text-foreground", children: /* @__PURE__ */ jsx("svg", { className: "h-2.5 w-2.5", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", children: /* @__PURE__ */ jsx("path", { d: "M18 6 6 18M6 6l12 12" }) }) })
       ] }, v);
     }) }),
-    open && /* @__PURE__ */ jsx(PortalDropdown, { triggerRef, children: /* @__PURE__ */ jsx("div", { ref: dropdownRef, className: "rounded-lg border border-white/20 bg-[hsl(220,20%,10%)] shadow-2xl shadow-black/60 overflow-hidden ring-1 ring-white/10", children: /* @__PURE__ */ jsxs(Command, { shouldFilter: false, children: [
+    open && /* @__PURE__ */ jsx("div", { ref: dropdownRef, className: "mt-1 rounded-lg border border-white/20 bg-[hsl(220,20%,10%)] shadow-2xl shadow-black/60 overflow-hidden ring-1 ring-white/10", children: /* @__PURE__ */ jsxs(Command, { shouldFilter: false, children: [
       /* @__PURE__ */ jsx("div", { className: "px-2 py-1.5 border-b border-white/5", children: /* @__PURE__ */ jsx(
         Command.Input,
         {
@@ -1121,7 +1066,7 @@ function MultiComboboxDropdown({
           opt.value
         ))
       ] })
-    ] }) }) })
+    ] }) })
   ] });
 }
 function NodeConfigPanel({ node, onDataChange, onDelete }) {
