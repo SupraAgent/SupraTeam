@@ -36,8 +36,31 @@ export function registerGroupHandlers(bot: Bot) {
       } else {
         console.log(`[bot/groups] ${isAdmin ? "Admin" : "Member"} in: ${chatTitle} (${chatId})`);
 
-        // Send welcome message when bot is added as admin
+        // When bot is made admin: generate invite link + send welcome
         if (isAdmin) {
+          // Generate invite link and save to DB
+          try {
+            const inviteLink = await ctx.api.exportChatInviteLink(chatId);
+            await supabase
+              .from("tg_groups")
+              .update({ invite_link: inviteLink, updated_at: new Date().toISOString() })
+              .eq("telegram_group_id", chatId);
+            console.log(`[bot/groups] Invite link for ${chatTitle}: ${inviteLink}`);
+          } catch (linkErr) {
+            // Try createChatInviteLink as fallback
+            try {
+              const result = await ctx.api.createChatInviteLink(chatId, { name: "SupraCRM" });
+              await supabase
+                .from("tg_groups")
+                .update({ invite_link: result.invite_link, updated_at: new Date().toISOString() })
+                .eq("telegram_group_id", chatId);
+              console.log(`[bot/groups] Created invite link for ${chatTitle}: ${result.invite_link}`);
+            } catch {
+              console.error("[bot/groups] Could not generate invite link:", linkErr);
+            }
+          }
+
+          // Send welcome message
           try {
             const { data: tpl } = await supabase
               .from("crm_bot_templates")
