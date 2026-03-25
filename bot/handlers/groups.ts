@@ -160,7 +160,7 @@ export function registerGroupHandlers(bot: Bot) {
               .single();
 
             const welcomeMsg = tpl?.body_template ??
-              "SupraCRM Bot is now active in this group.\n\nI'll send deal updates and pipeline notifications here. Use /deal to see linked deals.";
+              "SupraCRM Bot is now active in this group.";
             await ctx.reply(welcomeMsg);
           } catch {
             // Non-critical — don't block group registration
