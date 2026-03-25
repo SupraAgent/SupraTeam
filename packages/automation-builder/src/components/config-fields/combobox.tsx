@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { createPortal } from "react-dom";
 import { Command } from "cmdk";
 import type { ConfigFieldDef } from "../../core/types";
 
@@ -296,69 +295,6 @@ export function AsyncMultiSelectField({
   );
 }
 
-// ── Portal dropdown (renders outside scroll containers) ──────────
-
-function PortalDropdown({
-  triggerRef,
-  children,
-}: {
-  triggerRef: React.RefObject<HTMLElement | null>;
-  children: React.ReactNode;
-}) {
-  const [pos, setPos] = React.useState({ top: 0, left: 0, width: 0, flipUp: false });
-  const dropdownInnerRef = React.useRef<HTMLDivElement>(null);
-
-  const computePos = React.useCallback(() => {
-    if (!triggerRef.current) return;
-    const rect = triggerRef.current.getBoundingClientRect();
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const dropdownHeight = dropdownInnerRef.current?.offsetHeight ?? 220;
-    const flipUp = spaceBelow < dropdownHeight + 8 && rect.top > dropdownHeight + 8;
-    setPos({
-      top: flipUp ? rect.top - dropdownHeight - 4 : rect.bottom + 4,
-      left: rect.left,
-      width: rect.width,
-      flipUp,
-    });
-  }, [triggerRef]);
-
-  React.useEffect(() => {
-    computePos();
-  }, [computePos]);
-
-  // Re-measure after first render so we have actual dropdown height
-  React.useEffect(() => {
-    const frame = requestAnimationFrame(computePos);
-    return () => cancelAnimationFrame(frame);
-  }, [computePos]);
-
-  // Re-position on scroll
-  React.useEffect(() => {
-    let el = triggerRef.current?.parentElement;
-    const scrollables: Element[] = [];
-    while (el) {
-      if (el.scrollHeight > el.clientHeight) scrollables.push(el);
-      el = el.parentElement;
-    }
-    scrollables.forEach((s) => s.addEventListener("scroll", computePos, { passive: true }));
-    window.addEventListener("resize", computePos, { passive: true });
-    return () => {
-      scrollables.forEach((s) => s.removeEventListener("scroll", computePos));
-      window.removeEventListener("resize", computePos);
-    };
-  }, [triggerRef, computePos]);
-
-  return createPortal(
-    <div
-      ref={dropdownInnerRef}
-      style={{ position: "fixed", top: pos.top, left: pos.left, width: pos.width, zIndex: 99999 }}
-    >
-      {children}
-    </div>,
-    document.body
-  );
-}
-
 // ── Core dropdown component (single select) ──────────────────────
 
 function ComboboxDropdown({
@@ -425,75 +361,73 @@ function ComboboxDropdown({
       </button>
 
       {open && (
-        <PortalDropdown triggerRef={triggerRef as React.RefObject<HTMLElement>}>
-          <div ref={dropdownRef} className="rounded-lg border border-white/20 bg-[hsl(220,20%,10%)] shadow-2xl shadow-black/60 overflow-hidden ring-1 ring-white/10">
-            <Command shouldFilter={false}>
-              <div className="px-2 py-1.5 border-b border-white/5">
-                <Command.Input
-                  value={search}
-                  onValueChange={setSearch}
-                  placeholder="Search..."
-                  className="w-full bg-transparent text-xs outline-none text-foreground placeholder:text-muted-foreground/40"
-                  autoFocus
-                />
+        <div ref={dropdownRef} className="mt-1 rounded-lg border border-white/20 bg-[hsl(220,20%,10%)] shadow-2xl shadow-black/60 overflow-hidden ring-1 ring-white/10">
+          <Command shouldFilter={false}>
+            <div className="px-2 py-1.5 border-b border-white/5">
+              <Command.Input
+                value={search}
+                onValueChange={setSearch}
+                placeholder="Search..."
+                className="w-full bg-transparent text-xs outline-none text-foreground placeholder:text-muted-foreground/40"
+                autoFocus
+              />
+            </div>
+            <Command.List className="max-h-48 overflow-y-auto p-1">
+              <Command.Empty className="px-3 py-2 text-[10px] text-muted-foreground/50">
+                No results found
+              </Command.Empty>
+              {options
+                .filter((opt) => {
+                  if (!search) return true;
+                  const s = search.toLowerCase();
+                  return opt.label.toLowerCase().includes(s) || opt.value.toLowerCase().includes(s);
+                })
+                .map((opt) => (
+                  <Command.Item
+                    key={opt.value}
+                    value={opt.value}
+                    onSelect={() => {
+                      onChange(opt.value);
+                      setOpen(false);
+                    }}
+                    className="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs cursor-pointer hover:bg-white/5 data-[selected=true]:bg-white/5 text-foreground"
+                  >
+                    <span className="h-3 w-3 shrink-0 flex items-center justify-center">
+                      {opt.value === value && (
+                        <svg className="h-3 w-3 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      )}
+                    </span>
+                    <span className="truncate">{opt.label}</span>
+                  </Command.Item>
+                ))}
+            </Command.List>
+            {(onAdd || onManual) && (
+              <div className="border-t border-white/5 p-1 space-y-0.5">
+                {onAdd && (
+                  <button
+                    type="button"
+                    onClick={() => { setOpen(false); onAdd(); }}
+                    className="w-full text-left px-2 py-1.5 rounded-md text-[10px] text-primary/70 hover:bg-primary/5 hover:text-primary flex items-center gap-1.5"
+                  >
+                    <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>
+                    Add new...
+                  </button>
+                )}
+                {onManual && (
+                  <button
+                    type="button"
+                    onClick={() => { setOpen(false); onManual(); }}
+                    className="w-full text-left px-2 py-1.5 rounded-md text-[10px] text-muted-foreground/50 hover:bg-white/5 hover:text-muted-foreground"
+                  >
+                    Enter ID manually...
+                  </button>
+                )}
               </div>
-              <Command.List className="max-h-48 overflow-y-auto p-1">
-                <Command.Empty className="px-3 py-2 text-[10px] text-muted-foreground/50">
-                  No results found
-                </Command.Empty>
-                {options
-                  .filter((opt) => {
-                    if (!search) return true;
-                    const s = search.toLowerCase();
-                    return opt.label.toLowerCase().includes(s) || opt.value.toLowerCase().includes(s);
-                  })
-                  .map((opt) => (
-                    <Command.Item
-                      key={opt.value}
-                      value={opt.value}
-                      onSelect={() => {
-                        onChange(opt.value);
-                        setOpen(false);
-                      }}
-                      className="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs cursor-pointer hover:bg-white/5 data-[selected=true]:bg-white/5 text-foreground"
-                    >
-                      <span className="h-3 w-3 shrink-0 flex items-center justify-center">
-                        {opt.value === value && (
-                          <svg className="h-3 w-3 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <polyline points="20 6 9 17 4 12" />
-                          </svg>
-                        )}
-                      </span>
-                      <span className="truncate">{opt.label}</span>
-                    </Command.Item>
-                  ))}
-              </Command.List>
-              {(onAdd || onManual) && (
-                <div className="border-t border-white/5 p-1 space-y-0.5">
-                  {onAdd && (
-                    <button
-                      type="button"
-                      onClick={() => { setOpen(false); onAdd(); }}
-                      className="w-full text-left px-2 py-1.5 rounded-md text-[10px] text-primary/70 hover:bg-primary/5 hover:text-primary flex items-center gap-1.5"
-                    >
-                      <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>
-                      Add new...
-                    </button>
-                  )}
-                  {onManual && (
-                    <button
-                      type="button"
-                      onClick={() => { setOpen(false); onManual(); }}
-                      className="w-full text-left px-2 py-1.5 rounded-md text-[10px] text-muted-foreground/50 hover:bg-white/5 hover:text-muted-foreground"
-                    >
-                      Enter ID manually...
-                    </button>
-                  )}
-                </div>
-              )}
-            </Command>
-          </div>
-        </PortalDropdown>
+            )}
+          </Command>
+        </div>
       )}
     </div>
   );
@@ -573,49 +507,47 @@ function MultiComboboxDropdown({
       )}
 
       {open && (
-        <PortalDropdown triggerRef={triggerRef as React.RefObject<HTMLElement>}>
-          <div ref={dropdownRef} className="rounded-lg border border-white/20 bg-[hsl(220,20%,10%)] shadow-2xl shadow-black/60 overflow-hidden ring-1 ring-white/10">
-            <Command shouldFilter={false}>
-              <div className="px-2 py-1.5 border-b border-white/5">
-                <Command.Input
-                  value={search}
-                  onValueChange={setSearch}
-                  placeholder="Search..."
-                  className="w-full bg-transparent text-xs outline-none text-foreground placeholder:text-muted-foreground/40"
-                  autoFocus
-                />
-              </div>
-              <Command.List className="max-h-48 overflow-y-auto p-1">
-                <Command.Empty className="px-3 py-2 text-[10px] text-muted-foreground/50">
-                  No results found
-                </Command.Empty>
-                {options
-                  .filter((opt) => {
-                    if (!search) return true;
-                    const s = search.toLowerCase();
-                    return opt.label.toLowerCase().includes(s) || opt.value.toLowerCase().includes(s);
-                  })
-                  .map((opt) => (
-                    <Command.Item
-                      key={opt.value}
-                      value={opt.value}
-                      onSelect={() => toggle(opt.value)}
-                      className="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs cursor-pointer hover:bg-white/5 data-[selected=true]:bg-white/5 text-foreground"
-                    >
-                      <span className="h-3 w-3 shrink-0 flex items-center justify-center rounded-sm border border-white/20">
-                        {value.includes(opt.value) && (
-                          <svg className="h-2.5 w-2.5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <polyline points="20 6 9 17 4 12" />
-                          </svg>
-                        )}
-                      </span>
-                      <span className="truncate">{opt.label}</span>
-                    </Command.Item>
-                  ))}
-              </Command.List>
-            </Command>
-          </div>
-        </PortalDropdown>
+        <div ref={dropdownRef} className="mt-1 rounded-lg border border-white/20 bg-[hsl(220,20%,10%)] shadow-2xl shadow-black/60 overflow-hidden ring-1 ring-white/10">
+          <Command shouldFilter={false}>
+            <div className="px-2 py-1.5 border-b border-white/5">
+              <Command.Input
+                value={search}
+                onValueChange={setSearch}
+                placeholder="Search..."
+                className="w-full bg-transparent text-xs outline-none text-foreground placeholder:text-muted-foreground/40"
+                autoFocus
+              />
+            </div>
+            <Command.List className="max-h-48 overflow-y-auto p-1">
+              <Command.Empty className="px-3 py-2 text-[10px] text-muted-foreground/50">
+                No results found
+              </Command.Empty>
+              {options
+                .filter((opt) => {
+                  if (!search) return true;
+                  const s = search.toLowerCase();
+                  return opt.label.toLowerCase().includes(s) || opt.value.toLowerCase().includes(s);
+                })
+                .map((opt) => (
+                  <Command.Item
+                    key={opt.value}
+                    value={opt.value}
+                    onSelect={() => toggle(opt.value)}
+                    className="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs cursor-pointer hover:bg-white/5 data-[selected=true]:bg-white/5 text-foreground"
+                  >
+                    <span className="h-3 w-3 shrink-0 flex items-center justify-center rounded-sm border border-white/20">
+                      {value.includes(opt.value) && (
+                        <svg className="h-2.5 w-2.5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      )}
+                    </span>
+                    <span className="truncate">{opt.label}</span>
+                  </Command.Item>
+                ))}
+            </Command.List>
+          </Command>
+        </div>
       )}
     </div>
   );
