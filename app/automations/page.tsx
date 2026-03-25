@@ -178,6 +178,10 @@ export default function AutomationsPage() {
         </div>
         <div className="flex items-center gap-2">
           {msg && <span className="text-xs text-primary">{msg}</span>}
+          <Button size="sm" variant="outline" onClick={() => router.push("/automations/runs")}>
+            <Clock className="mr-1 h-3.5 w-3.5" />
+            All Runs
+          </Button>
           <Button size="sm" variant="outline" onClick={toggleTemplates}>
             <BookTemplate className="mr-1 h-3.5 w-3.5" />
             Templates
