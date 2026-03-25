@@ -1,31 +1,54 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdmin } from "@/lib/supabase";
 import { createClient } from "@/lib/supabase/server";
-import { encryptToken } from "@/lib/crypto";
+import { encryptToken, decryptToken } from "@/lib/crypto";
 import { verifySlackToken } from "@/lib/slack";
 
 /** GET — Check if Slack is connected and return workspace info */
 export async function GET() {
+  // Check DB first
   const admin = createSupabaseAdmin();
-  if (!admin) return NextResponse.json({ connected: false });
+  if (admin) {
+    const { data } = await admin
+      .from("user_tokens")
+      .select("encrypted_token")
+      .eq("provider", "slack")
+      .limit(1)
+      .single();
 
-  const { data } = await admin
-    .from("user_tokens")
-    .select("encrypted_token, metadata")
-    .eq("provider", "slack_bot")
-    .limit(1)
-    .single();
-
-  if (!data?.encrypted_token) {
-    return NextResponse.json({ connected: false });
+    if (data?.encrypted_token) {
+      // Verify token is still valid and get workspace info
+      try {
+        const token = decryptToken(data.encrypted_token);
+        const verification = await verifySlackToken(token);
+        if (verification.ok) {
+          return NextResponse.json({
+            connected: true,
+            team: verification.team ?? null,
+            bot_user: verification.bot_user ?? null,
+          });
+        }
+      } catch {
+        // Token exists but can't decrypt or verify — still show as connected
+      }
+      return NextResponse.json({
+        connected: true,
+        team: null,
+        bot_user: null,
+      });
+    }
   }
 
-  const meta = (data.metadata ?? {}) as Record<string, unknown>;
-  return NextResponse.json({
-    connected: true,
-    team: meta.team ?? null,
-    bot_user: meta.bot_user ?? null,
-  });
+  // Fallback: check env var
+  if (process.env.SLACK_BOT_TOKEN) {
+    return NextResponse.json({
+      connected: true,
+      team: "(env var)",
+      bot_user: null,
+    });
+  }
+
+  return NextResponse.json({ connected: false });
 }
 
 /** POST — Save Slack Bot Token (verifies with Slack first) */
@@ -57,7 +80,7 @@ export async function POST(request: Request) {
   const { data: existing } = await admin
     .from("user_tokens")
     .select("id")
-    .eq("provider", "slack_bot")
+    .eq("provider", "slack")
     .limit(1)
     .single();
 
@@ -66,16 +89,14 @@ export async function POST(request: Request) {
       .from("user_tokens")
       .update({
         encrypted_token: encrypted,
-        metadata: { team: verification.team, bot_user: verification.bot_user },
         updated_at: new Date().toISOString(),
       })
       .eq("id", existing.id);
   } else {
     await admin.from("user_tokens").insert({
       user_id: user.id,
-      provider: "slack_bot",
+      provider: "slack",
       encrypted_token: encrypted,
-      metadata: { team: verification.team, bot_user: verification.bot_user },
     });
   }
 
@@ -93,6 +114,6 @@ export async function DELETE() {
     return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
   }
 
-  await admin.from("user_tokens").delete().eq("provider", "slack_bot");
+  await admin.from("user_tokens").delete().eq("provider", "slack");
   return NextResponse.json({ ok: true });
 }
