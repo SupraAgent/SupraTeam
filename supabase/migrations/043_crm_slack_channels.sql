@@ -16,5 +16,5 @@ CREATE TABLE IF NOT EXISTS crm_slack_users (
   created_at timestamptz DEFAULT now()
 );
 
--- Seed the first channel
-INSERT INTO crm_slack_channels (channel_id, channel_name) VALUES ('C06CTNC7LKU', 'Node-Operation') ON CONFLICT DO NOTHING;
+-- Note: Seed channels via the Settings > Integrations UI or by running:
+--   INSERT INTO crm_slack_channels (channel_id, channel_name) VALUES ('<id>', '<name>');

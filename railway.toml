@@ -8,7 +8,7 @@
 
 # ─── Web Service (Next.js) ────────────────────────────────────
 [services.web]
-builder = "NIXPACKS"
+builder = "RAILPACK"
 startCommand = "npm start"
 healthcheckPath = "/api/health"
 healthcheckTimeout = 10
@@ -21,7 +21,7 @@ restartPolicyMaxRetries = 10
 # Long-polling bot process — runs separately from the web service
 # Shares the same env vars but runs bot/index.ts directly
 [services.bot]
-builder = "NIXPACKS"
+builder = "RAILPACK"
 startCommand = "npx tsx bot/index.ts"
 
 [services.bot.deploy]
