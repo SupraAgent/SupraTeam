@@ -36,7 +36,7 @@ async function main() {
   const supabase = createClient(url, key, { auth: { persistSession: false } });
 
   // 1. Encrypt and store token
-  const encrypted = encryptToken(BOT_TOKEN);
+  const encrypted = encryptToken(BOT_TOKEN!);
   const providerKey = `telegram_bot_${BOT_TELEGRAM_ID}`;
 
   const { data: tokenRow, error: tokenErr } = await supabase

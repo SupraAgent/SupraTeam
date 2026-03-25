@@ -42,7 +42,8 @@ export async function GET(request: Request) {
   }
 
   // Helper: apply shared filters to a query
-  function applyFilters(query: ReturnType<typeof supabase.from>) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function applyFilters(query: any) {
     let q = query
       .gte("started_at", rangeFrom.toISOString())
       .lte("started_at", rangeTo.toISOString());
