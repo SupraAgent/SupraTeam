@@ -27,10 +27,13 @@ import {
   Copy,
   Search,
   Star,
+  Bell,
+  BellOff,
+  Plus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { timeAgo } from "@/lib/utils";
-import type { Workflow, WorkflowRun } from "@/lib/workflow-db-types";
+import type { Workflow, WorkflowRun, WorkflowAlert } from "@/lib/workflow-db-types";
 import type { Node, Edge } from "@xyflow/react";
 
 type StatusFilter = "all" | "completed" | "failed" | "running" | "paused";
@@ -78,6 +81,12 @@ export default function WorkflowEditorPage() {
   const [templateDesc, setTemplateDesc] = React.useState("");
   const [templateTags, setTemplateTags] = React.useState("");
   const [savingTemplate, setSavingTemplate] = React.useState(false);
+
+  // Alerts state
+  const [alerts, setAlerts] = React.useState<WorkflowAlert[]>([]);
+  const [showAlerts, setShowAlerts] = React.useState(false);
+  const [newAlertType, setNewAlertType] = React.useState<string>("failure");
+  const [newAlertChannel, setNewAlertChannel] = React.useState<string>("in_app");
 
   // Auto-refresh polling ref
   const pollRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
@@ -204,8 +213,35 @@ export default function WorkflowEditorPage() {
   }
 
   function toggleRuns() {
-    if (!showRuns) fetchRuns();
+    if (!showRuns) { fetchRuns(); fetchAlerts(); }
     setShowRuns(!showRuns);
+  }
+
+  async function fetchAlerts() {
+    const res = await fetch(`/api/workflows/alerts?workflow_id=${id}`);
+    if (res.ok) {
+      const data = await res.json();
+      setAlerts(data.alerts ?? []);
+    }
+  }
+
+  async function createAlert() {
+    const res = await fetch("/api/workflows/alerts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workflow_id: id, alert_type: newAlertType, channel: newAlertChannel }),
+    });
+    if (res.ok) {
+      fetchAlerts();
+      setShowAlerts(false);
+    }
+  }
+
+  async function deleteAlert(alertId: string) {
+    const res = await fetch(`/api/workflows/alerts?id=${alertId}`, { method: "DELETE" });
+    if (res.ok) {
+      setAlerts((prev) => prev.filter((a) => a.id !== alertId));
+    }
   }
 
   async function deleteRun(runId: string) {
@@ -689,6 +725,68 @@ export default function WorkflowEditorPage() {
                   ))}
                 </div>
               )}
+
+              {/* Alerts section */}
+              <div className="border-t border-white/10 shrink-0">
+                <button
+                  onClick={() => { setShowAlerts(!showAlerts); if (!showAlerts) fetchAlerts(); }}
+                  className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-white/[0.02] transition-colors"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <Bell className="h-3 w-3 text-muted-foreground/50" />
+                    <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Alerts</span>
+                    {alerts.length > 0 && (
+                      <span className="text-[9px] bg-white/10 px-1.5 py-0.5 rounded">{alerts.length}</span>
+                    )}
+                  </div>
+                  {showAlerts ? <ChevronUp className="h-3 w-3 text-muted-foreground/30" /> : <ChevronDown className="h-3 w-3 text-muted-foreground/30" />}
+                </button>
+                {showAlerts && (
+                  <div className="px-4 pb-3 space-y-2">
+                    {alerts.map((alert) => (
+                      <div key={alert.id} className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white/[0.03] text-[10px]">
+                        <div className="flex items-center gap-1.5">
+                          {alert.is_active ? <Bell className="h-3 w-3 text-primary" /> : <BellOff className="h-3 w-3 text-muted-foreground/30" />}
+                          <span className="text-muted-foreground">
+                            {alert.alert_type === "failure" ? "On failure" : alert.alert_type === "slow_run" ? "Slow run" : "Consecutive failures"}
+                          </span>
+                          <span className="text-muted-foreground/50">via {alert.channel}</span>
+                        </div>
+                        <button onClick={() => deleteAlert(alert.id)} className="text-muted-foreground/30 hover:text-red-400 transition-colors">
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                    {/* Add alert form */}
+                    <div className="flex items-center gap-1.5">
+                      <select
+                        value={newAlertType}
+                        onChange={(e) => setNewAlertType(e.target.value)}
+                        className="h-6 rounded bg-white/5 border border-white/10 text-[9px] text-muted-foreground px-1"
+                      >
+                        <option value="failure">On failure</option>
+                        <option value="slow_run">Slow run</option>
+                        <option value="consecutive_failures">3x failures</option>
+                      </select>
+                      <select
+                        value={newAlertChannel}
+                        onChange={(e) => setNewAlertChannel(e.target.value)}
+                        className="h-6 rounded bg-white/5 border border-white/10 text-[9px] text-muted-foreground px-1"
+                      >
+                        <option value="in_app">In-app</option>
+                        <option value="telegram">Telegram</option>
+                        <option value="slack">Slack</option>
+                      </select>
+                      <button
+                        onClick={createAlert}
+                        className="h-6 px-2 rounded bg-primary/20 text-primary text-[9px] hover:bg-primary/30 transition-colors flex items-center gap-0.5"
+                      >
+                        <Plus className="h-2.5 w-2.5" /> Add
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
