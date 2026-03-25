@@ -33,9 +33,9 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
   const { sidebarCollapsed, viewDensity, setCrmRole } = useShell();
   const pathname = usePathname();
 
-  // TMA routes render without the CRM shell (sidebar, topbar, etc.)
-  const isTMA = pathname.startsWith("/tma");
-  if (isTMA) return <>{children}</>;
+  // TMA and public routes render without the CRM shell (sidebar, topbar, etc.)
+  const isMinimalLayout = pathname.startsWith("/tma") || pathname.startsWith("/apply");
+  if (isMinimalLayout) return <>{children}</>;
 
   // Fetch user's crm_role from profile
   React.useEffect(() => {

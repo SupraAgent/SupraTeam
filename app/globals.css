@@ -77,6 +77,13 @@ body {
 .animate-dropdown-in {
   animation: dropdown-in 120ms ease-out;
 }
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.8); }
+  to { opacity: 1; transform: scale(1); }
+}
+.animate-scale-in {
+  animation: scale-in 150ms ease-out;
+}
 .animate-fade-in {
   animation: fade-in 150ms ease-out;
 }
@@ -86,6 +93,22 @@ body {
 }
 .animate-slide-up {
   animation: slide-up 250ms ease-out;
+}
+
+/* Form section slide transitions */
+@keyframes slide-left-in {
+  from { opacity: 0; transform: translateX(60px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes slide-right-in {
+  from { opacity: 0; transform: translateX(-60px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.animate-slide-left-in {
+  animation: slide-left-in 280ms ease-out;
+}
+.animate-slide-right-in {
+  animation: slide-right-in 280ms ease-out;
 }
 
 /* Depth-based surface utilities */
