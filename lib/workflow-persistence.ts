@@ -2,7 +2,7 @@
  * Supabase persistence adapter for the automation builder engine.
  * Implements PersistenceAdapter from @supra/automation-builder.
  */
-import type { PersistenceAdapter, WorkflowEvent } from "../packages/automation-builder/dist/index";
+import type { PersistenceAdapter, WorkflowEvent } from "@supra/automation-builder";
 import { createSupabaseAdmin } from "@/lib/supabase";
 import { checkWorkflowAlerts } from "@/lib/workflow-alerts";
 
