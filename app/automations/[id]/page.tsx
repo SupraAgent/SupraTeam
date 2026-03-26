@@ -4,7 +4,7 @@ import * as React from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { FlowCanvas, BuilderProvider } from "../../../packages/automation-builder/dist/index";
+import { FlowCanvas, BuilderProvider } from "@supra/automation-builder";
 import "@xyflow/react/dist/style.css";
 import { CRM_REGISTRY, CRM_ICON_MAP } from "@/lib/workflow-registry";
 import {

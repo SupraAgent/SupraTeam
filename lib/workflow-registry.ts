@@ -2,7 +2,7 @@
  * CRM-specific node registry for the automation builder.
  * Defines SupraTeam's triggers, actions, config schemas, and icons.
  */
-import type { NodeRegistry, NodePaletteItem, ConfigFieldDef } from "../packages/automation-builder/dist/index";
+import type { NodeRegistry, NodePaletteItem, ConfigFieldDef } from "@supra/automation-builder";
 import {
   ArrowRightLeft,
   PlusCircle,
@@ -42,12 +42,15 @@ import {
 // ConfigFieldDef now natively supports optionsUrl + mapOption — no cast needed
 
 const BOARD_OPTIONS = [{ value: "", label: "Any" }, { value: "BD", label: "BD" }, { value: "Marketing", label: "Marketing" }, { value: "Admin", label: "Admin" }];
-const stageMapOption = (item: Record<string, unknown>) => ({ value: String((item as { name?: string }).name ?? ""), label: String((item as { name?: string }).name ?? "") });
-const groupMapOption = (item: Record<string, unknown>) => ({ value: String((item as { telegram_group_id?: unknown }).telegram_group_id ?? (item as { chat_id?: unknown }).chat_id ?? ""), label: String((item as { group_name?: string }).group_name ?? "Unknown group") });
-const teamMapOption = (item: Record<string, unknown>) => { const u = item as { id?: string; display_name?: string; email?: string; crm_role?: string }; return { value: u.id || "", label: `${u.display_name || u.email || "Unknown"}${u.crm_role ? ` (${u.crm_role})` : ""}` }; };
-const contactMapOption = (item: Record<string, unknown>) => { const c = item as { email?: string; name?: string; company?: string }; return { value: c.email || "", label: `${c.name || "Unknown"}${c.email ? ` (${c.email})` : ""}${c.company ? ` — ${c.company}` : ""}` }; };
-const slackChannelMapOption = (item: Record<string, unknown>) => ({ value: String((item as { channel_id?: string }).channel_id ?? (item as { id?: string }).id ?? ""), label: `#${(item as { channel_name?: string }).channel_name ?? (item as { name?: string }).name ?? "unknown"}` });
-const slackUserMapOption = (item: Record<string, unknown>) => ({ value: String((item as { user_id?: string }).user_id ?? (item as { id?: string }).id ?? ""), label: `@${(item as { display_name?: string }).display_name ?? (item as { name?: string }).name ?? "unknown"}` });
+// Null-safe mapOption helpers — guard against null/undefined fields from Supabase
+const safeStr = (v: unknown, fallback = ""): string => (v != null ? String(v) : fallback);
+
+const stageMapOption = (item: Record<string, unknown>) => ({ value: safeStr(item.name), label: safeStr(item.name) });
+const groupMapOption = (item: Record<string, unknown>) => ({ value: safeStr(item.telegram_group_id || item.chat_id), label: safeStr(item.group_name, "Unknown group") });
+const teamMapOption = (item: Record<string, unknown>) => ({ value: safeStr(item.id), label: `${safeStr(item.display_name || item.email, "Unknown")}${item.crm_role ? ` (${safeStr(item.crm_role)})` : ""}` });
+const contactMapOption = (item: Record<string, unknown>) => ({ value: safeStr(item.email), label: `${safeStr(item.name, "Unknown")}${item.email ? ` (${safeStr(item.email)})` : ""}${item.company ? ` — ${safeStr(item.company)}` : ""}` });
+const slackChannelMapOption = (item: Record<string, unknown>) => ({ value: safeStr(item.channel_id || item.id), label: `#${safeStr(item.channel_name || item.name, "unknown")}` });
+const slackUserMapOption = (item: Record<string, unknown>) => ({ value: safeStr(item.user_id || item.id), label: `@${safeStr(item.display_name || item.name, "unknown")}` });
 
 // ── Palette items ───────────────────────────────────────────────
 

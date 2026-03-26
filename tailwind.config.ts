@@ -5,7 +5,8 @@ export default {
   content: [
     "./app/**/*.{ts,tsx}",
     "./components/**/*.{ts,tsx}",
-    "./lib/**/*.{ts,tsx}"
+    "./lib/**/*.{ts,tsx}",
+    "./node_modules/@supra/automation-builder/dist/**/*.js"
   ],
   theme: {
     extend: {

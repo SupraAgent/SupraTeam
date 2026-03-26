@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "next dev",
     "dev:app": "next dev -p 3002",
-    "build": "cd packages/automation-builder && npm install --ignore-scripts && npm run build && cd ../.. && next build",
+    "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "bot": "DOTENV_CONFIG_PATH=.env.local tsx --require dotenv/config bot/index.ts",
@@ -20,6 +20,7 @@
     "@hello-pangea/dnd": "^18.0.1",
     "@supabase/ssr": "^0.9.0",
     "@supabase/supabase-js": "^2.99.2",
+    "@supra/automation-builder": "github:SupraAgent/Supra-Automation-Builder",
     "@tiptap/extension-image": "^3.20.4",
     "@tiptap/extension-link": "^3.20.4",
     "@tiptap/extension-placeholder": "^3.20.4",
@@ -59,7 +60,6 @@
     "typescript": "5.9.3"
   },
   "automationBuilder": {
-    "lastSync": "2026-03-23T04:30:28Z",
-    "syncedFrom": "1d225a1e"
+    "source": "github:SupraAgent/Supra-Automation-Builder"
   }
 }
