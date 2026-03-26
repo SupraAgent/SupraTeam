@@ -595,7 +595,7 @@ export default function WorkflowEditorPage() {
       )}
 
       {/* Canvas + optional runs panel */}
-      <div className="flex-1 relative flex">
+      <div className="flex-1 relative flex overflow-hidden">
         <div className="flex-1">
           <BuilderProvider registry={CRM_REGISTRY} iconMap={CRM_ICON_MAP}>
             <FlowCanvas
@@ -603,6 +603,8 @@ export default function WorkflowEditorPage() {
               initialEdges={(workflow.edges ?? []) as Edge[]}
               onSave={handleSave}
               saving={saving}
+              canvasStateKey="__supracrm_canvas_state"
+              disableAutoLayout
             />
           </BuilderProvider>
         </div>
