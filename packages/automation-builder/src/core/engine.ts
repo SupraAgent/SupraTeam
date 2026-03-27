@@ -27,6 +27,9 @@ export interface EngineConfig {
   renderTemplate?: (template: string, vars: Record<string, string | number | undefined>) => string;
   /** Max retries for failed actions. Default: 2 */
   maxRetries?: number;
+  /** Dry-run mode: traverses the graph, evaluates conditions, but skips actual action execution.
+   *  Actions return simulated success with `{ dryRun: true }` output. */
+  dryRun?: boolean;
 }
 
 /**
@@ -140,7 +143,7 @@ export async function executeWorkflow(
         continue;
       }
 
-      // ── Delay: pause the run ──
+      // ── Delay: pause the run (or skip in dry-run) ──
       if (data.nodeType === "delay") {
         const delayData = data as DelayNodeData;
         const cfg = delayData.config;
@@ -150,6 +153,14 @@ export async function executeWorkflow(
 
         const resumeAt = new Date(Date.now() + delayMs).toISOString();
         nodeOutputs[nodeId] = { delay: true, resumeAt, unit: cfg.unit, duration: cfg.duration };
+
+        // Dry-run: skip actual pause, continue traversal
+        if (config.dryRun) {
+          (nodeOutputs[nodeId] as Record<string, unknown>).dryRun = true;
+          const nextEdges = outEdges.get(nodeId) ?? [];
+          for (const e of nextEdges) queue.push(e.target);
+          continue;
+        }
 
         const nextEdges = outEdges.get(nodeId) ?? [];
         const nextNodeIds = nextEdges.map((e) => e.target);
@@ -315,6 +326,14 @@ async function executeActionWithRetry(
   ctx: ActionContext,
   engineConfig: EngineConfig
 ): Promise<ActionResult> {
+  // Dry-run: skip actual execution, return simulated success
+  if (engineConfig.dryRun) {
+    return {
+      success: true,
+      output: { dryRun: true, actionType, config, skipped: true },
+    };
+  }
+
   const maxRetries = engineConfig.maxRetries ?? 2;
   let lastResult: ActionResult = { success: false, error: "Unknown action" };
 

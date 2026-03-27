@@ -25,6 +25,8 @@ export type Contact = {
   source: ContactSource;
   last_activity_at: string | null;
   quality_score: number;
+  engagement_score: number;
+  engagement_updated_at: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;

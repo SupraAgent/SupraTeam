@@ -24,6 +24,23 @@ function QualityDots({ score }: { score: number }) {
   );
 }
 
+function EngagementBadge({ score }: { score: number }) {
+  const label = score >= 70 ? "Hot" : score >= 40 ? "Warm" : score > 0 ? "Cool" : "-";
+  const color = score >= 70
+    ? "bg-red-500/20 text-red-400"
+    : score >= 40
+    ? "bg-amber-500/20 text-amber-400"
+    : score > 0
+    ? "bg-blue-500/20 text-blue-400"
+    : "text-muted-foreground/30";
+  if (score === 0) return <span className="text-muted-foreground/30 text-[10px]">-</span>;
+  return (
+    <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-medium", color)} title={`Engagement: ${score}`}>
+      {label}
+    </span>
+  );
+}
+
 type ContactTableProps = {
   contacts: Contact[];
   onRowClick: (contact: Contact) => void;
@@ -69,6 +86,7 @@ export function ContactTable({ contacts, onRowClick, dealCountMap, selected, onT
               <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Telegram</th>
               <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Email</th>
               <th className="text-center px-4 py-2.5 text-xs font-medium text-muted-foreground">Quality</th>
+              <th className="text-center px-4 py-2.5 text-xs font-medium text-muted-foreground">Engagement</th>
               {dealCountMap && <th className="text-center px-4 py-2.5 text-xs font-medium text-muted-foreground">Deals</th>}
               <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Created</th>
             </tr>
@@ -118,6 +136,11 @@ export function ContactTable({ contacts, onRowClick, dealCountMap, selected, onT
                 <td className="px-4 py-3" onClick={() => onRowClick(contact)}>
                   <div className="flex justify-center">
                     <QualityDots score={contact.quality_score} />
+                  </div>
+                </td>
+                <td className="px-4 py-3" onClick={() => onRowClick(contact)}>
+                  <div className="flex justify-center">
+                    <EngagementBadge score={contact.engagement_score ?? 0} />
                   </div>
                 </td>
                 {dealCountMap && (

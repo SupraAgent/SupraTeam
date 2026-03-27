@@ -11,8 +11,9 @@ import { verifyCron } from "@/lib/cron-auth";
  *   - daily-digest        (weekdays 9am) — pipeline summary to TG groups
  *   - sequence-worker     (every 5 min)  — process email sequences + scheduled sends
  *   - deal-intelligence   (daily)        — health scores, sentiment, AI summaries
+ *   - engagement-scoring  (hourly)       — recalculate contact engagement scores
  *
- * Without ?job param, runs all frequent jobs (poll-notifications + sequence-worker + deal-intelligence).
+ * Without ?job param, runs all frequent jobs (poll-notifications + sequence-worker + deal-intelligence + engagement-scoring).
  */
 export async function GET(request: Request) {
   const cronErr = verifyCron(request);
@@ -57,6 +58,9 @@ export async function GET(request: Request) {
       case "deal-intelligence":
         await runJob("deal-intelligence", "/api/cron/deal-intelligence");
         break;
+      case "engagement-scoring":
+        await runJob("engagement-scoring", "/api/contacts/engagement");
+        break;
       default:
         return NextResponse.json({ error: `Unknown job: ${job}` }, { status: 400 });
     }
@@ -66,6 +70,7 @@ export async function GET(request: Request) {
       runJob("poll-notifications", "/api/bot/poll-notifications"),
       runJob("sequence-worker", "/api/cron/sequences"),
       runJob("deal-intelligence", "/api/cron/deal-intelligence"),
+      runJob("engagement-scoring", "/api/contacts/engagement"),
     ]);
   }
 
