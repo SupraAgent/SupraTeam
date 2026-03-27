@@ -13,7 +13,8 @@ import { verifyCron } from "@/lib/cron-auth";
  *   - deal-intelligence   (daily)        — health scores, sentiment, AI summaries
  *   - engagement-scoring  (hourly)       — recalculate contact engagement scores
  *
- * Without ?job param, runs all frequent jobs (poll-notifications + sequence-worker + deal-intelligence + engagement-scoring).
+ * Without ?job param, runs only frequent jobs (poll-notifications + sequence-worker).
+ * deal-intelligence (daily) and engagement-scoring (hourly) must use explicit ?job= params.
  */
 export async function GET(request: Request) {
   const cronErr = verifyCron(request);
@@ -65,12 +66,11 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: `Unknown job: ${job}` }, { status: 400 });
     }
   } else {
-    // Default: run all frequent jobs in parallel
+    // Default: run only frequent jobs (every 5 min)
+    // deal-intelligence (daily) and engagement-scoring (hourly) have their own cron schedules
     await Promise.all([
       runJob("poll-notifications", "/api/bot/poll-notifications"),
       runJob("sequence-worker", "/api/cron/sequences"),
-      runJob("deal-intelligence", "/api/cron/deal-intelligence"),
-      runJob("engagement-scoring", "/api/contacts/engagement"),
     ]);
   }
 

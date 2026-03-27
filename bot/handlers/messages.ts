@@ -55,18 +55,35 @@ function isBotMentioned(
   messageText: string,
   entities: Array<{ type: string; offset: number; length: number; user?: { id: number } }> | undefined,
   botId: number,
-  replyToMessage: { from?: { id: number } } | undefined
+  replyToMessage: { from?: { id: number } } | undefined,
+  botUsername?: string
 ): boolean {
   // Direct reply to bot
   if (replyToMessage?.from?.id === botId) return true;
   // @mention in message entities
   if (entities) {
     for (const e of entities) {
-      if (e.type === "mention" && e.user?.id === botId) return true;
+      // text_mention includes user object
       if (e.type === "text_mention" && e.user?.id === botId) return true;
+      // Standard @username mention: extract text and compare to bot username
+      if (e.type === "mention" && botUsername) {
+        const mentionText = messageText.substring(e.offset, e.offset + e.length);
+        if (mentionText.toLowerCase() === `@${botUsername.toLowerCase()}`) return true;
+      }
     }
   }
   return false;
+}
+
+// ── Rate limiter for group AI responses (per-chat cooldown) ──────
+const groupResponseCooldowns = new Map<number, number>();
+const GROUP_RESPONSE_COOLDOWN_MS = 60_000; // 1 response per 60s per chat
+
+function canRespondInGroup(chatId: number): boolean {
+  const lastResponse = groupResponseCooldowns.get(chatId) ?? 0;
+  if (Date.now() - lastResponse < GROUP_RESPONSE_COOLDOWN_MS) return false;
+  groupResponseCooldowns.set(chatId, Date.now());
+  return true;
 }
 
 /**
@@ -414,14 +431,15 @@ export function registerMessageHandlers(bot: Bot) {
           messageText,
           ctx.message.entities as Array<{ type: string; offset: number; length: number; user?: { id: number } }>,
           botInfo.id,
-          ctx.message.reply_to_message
+          ctx.message.reply_to_message,
+          botInfo.username
         );
 
         const shouldRespond =
           (config.respond_to_mentions && mentioned) ||
-          (config.respond_to_groups && !ctx.from.is_bot);
+          (config.respond_to_groups && mentioned && !ctx.from.is_bot);
 
-        if (shouldRespond) {
+        if (shouldRespond && canRespondInGroup(chatId)) {
           const linkedDealId = deals?.[0]?.id;
           // Non-blocking: don't hold up message processing
           handleAIResponse(

@@ -7,11 +7,25 @@
 
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
+import { verifyCron } from "@/lib/cron-auth";
+import { createSupabaseAdmin } from "@/lib/supabase";
 
-export async function POST() {
-  const auth = await requireAuth();
-  if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+export async function POST(request: Request) {
+  // Support both cron (Bearer token) and user (session cookie) auth
+  const cronErr = verifyCron(request);
+  let supabase: NonNullable<ReturnType<typeof createSupabaseAdmin>>;
+
+  if (!cronErr) {
+    // Cron-authenticated
+    const admin = createSupabaseAdmin();
+    if (!admin) return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
+    supabase = admin;
+  } else {
+    // Fall back to user auth
+    const auth = await requireAuth();
+    if ("error" in auth) return auth.error;
+    supabase = auth.admin;
+  }
 
   // 1. Get all contacts
   const { data: contacts } = await supabase
