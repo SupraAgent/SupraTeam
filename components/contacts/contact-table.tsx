@@ -192,6 +192,7 @@ export function ContactTable({ contacts, onRowClick, dealCountMap, selected, onT
               </div>
               <div className="flex items-center gap-2">
                 <QualityDots score={contact.quality_score} />
+                <EngagementBadge score={contact.engagement_score ?? 0} />
                 {dealCountMap && dealCountMap[contact.id] && (
                   <span className="rounded-full bg-primary/20 px-1.5 py-0.5 text-[10px] font-medium text-primary">
                     {dealCountMap[contact.id]} deal{dealCountMap[contact.id] !== 1 ? "s" : ""}

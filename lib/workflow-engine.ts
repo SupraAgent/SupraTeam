@@ -74,10 +74,20 @@ async function crmActionExecutor(
   }
 }
 
+/** No-op persistence for dry-run: no database writes, generates a fake run ID. */
+function createDryRunPersistence(): import("@supra/automation-builder").PersistenceAdapter {
+  return {
+    createRun: async () => `dry-run-${Date.now()}`,
+    updateRun: async () => {},
+    scheduleResume: async () => {},
+    onWorkflowComplete: async () => {},
+  };
+}
+
 function getEngineConfig(dryRun = false): EngineConfig {
   return {
     executeAction: crmActionExecutor,
-    persistence: createSupabasePersistence(),
+    persistence: dryRun ? createDryRunPersistence() : createSupabasePersistence(),
     renderTemplate: (template, vars) => renderTemplate(template, vars),
     dryRun,
   };

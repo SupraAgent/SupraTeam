@@ -15,5 +15,18 @@ alter table crm_contacts
 create index if not exists idx_contacts_engagement
   on crm_contacts (engagement_score desc);
 
--- Add lead_qualified trigger type to workflow index coverage
--- (workflows table already stores trigger_type as text, no schema change needed)
+-- Atomic reply count increment (avoids read-modify-write race)
+create or replace function increment_enrollment_reply(p_enrollment_id uuid)
+returns void
+language sql
+as $$
+  update crm_outreach_enrollments
+  set reply_count = coalesce(reply_count, 0) + 1,
+      last_reply_at = now()
+  where id = p_enrollment_id;
+$$;
+
+-- Unique constraint on telegram_user_id for upsert safety
+create unique index if not exists idx_contacts_telegram_user_id_unique
+  on crm_contacts (telegram_user_id)
+  where telegram_user_id is not null;

@@ -92,11 +92,12 @@ async function handleAIResponse(
   const escalationKeywords: string[] = config.escalation_keywords ?? [];
   const shouldEscalate = escalationKeywords.some((kw) => lowerMsg.includes(kw.toLowerCase()));
 
-  // Get conversation history (last 5 messages in this chat)
+  // Get conversation history — scoped by user AND chat to avoid mixing contexts in groups
   const { data: history } = await supabase
     .from("crm_ai_conversations")
     .select("user_message, ai_response")
     .eq("tg_chat_id", chatId)
+    .eq("tg_user_id", userId)
     .order("created_at", { ascending: false })
     .limit(5);
 
@@ -129,15 +130,17 @@ async function handleAIResponse(
     systemPrompt += `\n\nIMPORTANT: The user's message contains an escalation keyword. Acknowledge their request and let them know a team member will follow up shortly. Do NOT try to handle the request yourself.`;
   }
   systemPrompt += dealContext;
-  systemPrompt += `\n\nThe user's name is: ${userName}. Keep responses concise (max 2-3 paragraphs). Use plain text, no markdown.`;
+  systemPrompt += `\n\nKeep responses concise (max 2-3 paragraphs). Use plain text, no markdown.`;
 
-  // Build messages array
+  // Build messages array — userName goes in user message context, NOT system prompt
   const messages: { role: string; content: string }[] = [];
   for (const h of conversationHistory) {
     messages.push({ role: "user", content: h.user_message });
     messages.push({ role: "assistant", content: h.ai_response });
   }
-  messages.push({ role: "user", content: messageText });
+  // Prefix the user message with their name as context (safe: in user role, not system)
+  const sanitizedName = userName.replace(/[<>{}]/g, "").slice(0, 64);
+  messages.push({ role: "user", content: `[${sanitizedName}]: ${messageText}` });
 
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -220,46 +223,26 @@ async function autoCreateDealFromQualification(
   qualificationData: Record<string, string>
 ): Promise<void> {
   try {
-    // Check if contact already exists by telegram_user_id
-    const { data: existingContact } = await supabase
+    // Upsert contact by telegram_user_id (race-safe: DB constraint handles concurrency)
+    const { data: upsertedContact, error: contactErr } = await supabase
       .from("crm_contacts")
+      .upsert({
+        name: userName,
+        telegram_user_id: userId,
+        company: qualificationData.company || null,
+        title: qualificationData.role || null,
+        source: "telegram_bot",
+        lifecycle_stage: "lead",
+        last_activity_at: new Date().toISOString(),
+      }, { onConflict: "telegram_user_id" })
       .select("id")
-      .eq("telegram_user_id", userId)
-      .limit(1)
       .single();
 
-    let contactId: string;
-    if (existingContact) {
-      contactId = existingContact.id;
-      // Update with new qualification data
-      await supabase.from("crm_contacts").update({
-        company: qualificationData.company || undefined,
-        title: qualificationData.role || undefined,
-        last_activity_at: new Date().toISOString(),
-        lifecycle_stage: "lead",
-      }).eq("id", contactId);
-    } else {
-      // Create new contact
-      const { data: newContact, error } = await supabase
-        .from("crm_contacts")
-        .insert({
-          name: userName,
-          telegram_user_id: userId,
-          company: qualificationData.company || null,
-          title: qualificationData.role || null,
-          source: "telegram_bot",
-          lifecycle_stage: "lead",
-          last_activity_at: new Date().toISOString(),
-        })
-        .select("id")
-        .single();
-
-      if (error || !newContact) {
-        console.error("[bot/ai-agent] contact creation error:", error);
-        return;
-      }
-      contactId = newContact.id;
+    if (contactErr || !upsertedContact) {
+      console.error("[bot/ai-agent] contact upsert error:", contactErr);
+      return;
     }
+    const contactId = upsertedContact.id;
 
     // Check if there's already an open deal for this contact in this chat
     const { data: existingDeal } = await supabase
@@ -484,19 +467,23 @@ export function registerMessageHandlers(bot: Bot) {
       }
 
       // Check for active outreach enrollments targeting this chat (reply detection)
+      // Uses RPC for atomic increment to avoid read-modify-write race condition
       try {
         const { data: activeEnrollments } = await supabase
           .from("crm_outreach_enrollments")
-          .select("id, reply_count")
+          .select("id")
           .eq("tg_chat_id", String(chatId))
           .eq("status", "active");
 
         if (activeEnrollments && activeEnrollments.length > 0) {
           for (const enrollment of activeEnrollments) {
-            await supabase.from("crm_outreach_enrollments").update({
-              last_reply_at: new Date().toISOString(),
-              reply_count: (enrollment.reply_count ?? 0) + 1,
-            }).eq("id", enrollment.id);
+            // Atomic increment via RPC (defined in migration 048)
+            const { error: rpcErr } = await supabase.rpc("increment_enrollment_reply", {
+              p_enrollment_id: enrollment.id,
+            });
+            if (rpcErr) {
+              console.error("[bot/messages] reply increment error:", rpcErr);
+            }
           }
         }
       } catch (replyErr) {

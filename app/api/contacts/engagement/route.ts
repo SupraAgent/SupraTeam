@@ -72,9 +72,9 @@ export async function POST() {
     if (d.contact_id) dealCountMap[d.contact_id] = (dealCountMap[d.contact_id] ?? 0) + 1;
   }
 
-  // 5. Calculate engagement score per contact
+  // 5. Calculate engagement score per contact, then batch update
   const now = Date.now();
-  let updated = 0;
+  const updates: { id: string; score: number }[] = [];
 
   for (const contact of contacts) {
     const member = memberScores[contact.id];
@@ -82,29 +82,24 @@ export async function POST() {
     const dealCount = dealCountMap[contact.id] ?? 0;
 
     // Component 1: TG message activity (35%)
-    // Cap at 100: 10+ messages in 7 days = max score
     const msg7d = member?.msg7d ?? 0;
     const msg30d = member?.msg30d ?? 0;
     const activityScore = Math.min(100, msg7d * 10 + msg30d * 2);
 
     // Component 2: Outreach responsiveness (25%)
-    // Any replies = high engagement signal
     const totalReplies = replies?.totalReplies ?? 0;
     const replyScore = Math.min(100, totalReplies * 25);
 
     // Component 3: Recency (20%)
-    // How recently were they active?
     const lastActivity = contact.last_activity_at
       ? new Date(contact.last_activity_at).getTime()
       : new Date(contact.created_at).getTime();
     const daysSinceActivity = (now - lastActivity) / 86400000;
-    const recencyScore = Math.max(0, 100 - daysSinceActivity * 5); // Loses 5pts/day
+    const recencyScore = Math.max(0, 100 - daysSinceActivity * 5);
 
     // Component 4: Deal engagement (20%)
-    // Active deals = engaged
     const dealScore = Math.min(100, dealCount * 40);
 
-    // Weighted average
     const engagement = Math.round(
       activityScore * 0.35 +
       replyScore * 0.25 +
@@ -112,16 +107,28 @@ export async function POST() {
       dealScore * 0.20
     );
 
-    const clampedScore = Math.max(0, Math.min(100, engagement));
-
-    await supabase.from("crm_contacts").update({
-      engagement_score: clampedScore,
-      engagement_updated_at: new Date().toISOString(),
-    }).eq("id", contact.id);
-    updated++;
+    updates.push({ id: contact.id, score: Math.max(0, Math.min(100, engagement)) });
   }
 
-  return NextResponse.json({ updated });
+  // Batch update in chunks of 50 (parallel within each batch)
+  const BATCH_SIZE = 50;
+  let updated = 0;
+  const timestamp = new Date().toISOString();
+
+  for (let i = 0; i < updates.length; i += BATCH_SIZE) {
+    const batch = updates.slice(i, i + BATCH_SIZE);
+    const results = await Promise.allSettled(
+      batch.map((u) =>
+        supabase.from("crm_contacts").update({
+          engagement_score: u.score,
+          engagement_updated_at: timestamp,
+        }).eq("id", u.id)
+      )
+    );
+    updated += results.filter((r) => r.status === "fulfilled").length;
+  }
+
+  return NextResponse.json({ updated, total: updates.length });
 }
 
 /**

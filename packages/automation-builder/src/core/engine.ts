@@ -123,6 +123,8 @@ export async function executeWorkflow(
 
         if (!result.success) {
           console.error(`[automation-builder] Action node ${nodeId} failed: ${result.error}`);
+          // Failed actions halt downstream execution — don't enqueue children
+          continue;
         }
 
         const nextEdges = outEdges.get(nodeId) ?? [];
@@ -257,6 +259,7 @@ export async function resumeWorkflow(
           config
         );
         nodeOutputs[nodeId] = result;
+        if (!result.success) continue; // Failed actions halt downstream
         const nextEdges = outEdges.get(nodeId) ?? [];
         for (const e of nextEdges) queue.push(e.target);
         continue;
