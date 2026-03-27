@@ -95,6 +95,29 @@ export function registerMessageHandlers(bot: Bot) {
           pipeline_link: `/pipeline?highlight=${deal.id}`,
         });
       }
+      // Mark deals for AI refresh if significant new messages accumulated
+      // The cron job will pick up deals with stale/null sentiment
+      try {
+        const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+        const { count } = await supabase
+          .from("tg_group_messages")
+          .select("id", { count: "exact", head: true })
+          .eq("telegram_chat_id", chatId)
+          .gte("sent_at", fiveMinAgo);
+
+        if (count && count >= 10) {
+          // 10+ messages in 5 min — flag for sentiment refresh
+          for (const deal of deals) {
+            await supabase.from("crm_deals").update({
+              ai_sentiment_at: null,
+              ai_summary_at: null,
+            }).eq("id", deal.id);
+          }
+        }
+      } catch (refreshErr) {
+        console.error("[bot/messages] refresh flag error:", refreshErr);
+      }
+
       // Check for active outreach enrollments targeting this chat (reply detection)
       try {
         const { data: activeEnrollments } = await supabase

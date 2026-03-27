@@ -145,7 +145,9 @@ The slug access control, workflow builder, and broadcast system are already stro
 
 ---
 
-## 5-Stage Implementation Plan
+## 5-Stage Implementation Plan (v2 — Hardened)
+
+> **Post-audit correction:** Deep codebase exploration revealed the conversation timeline, message sync, sentiment analysis, and deal summaries are **already fully implemented**. Stage 1 shifts from "build" to "harden + wire up the intelligence layer." This accelerates the timeline significantly.
 
 ### Guiding Principle
 
@@ -157,24 +159,38 @@ Each stage has a **competitive milestone** — a score target that unlocks a new
 
 ### Stage 1: "Own the Conversation" (Target: 69+ → Pass Entergram)
 
-**Theme:** Make SupraCRM the only CRM where reps see Telegram messages inside deal context.
+**Theme:** The conversation timeline exists but the intelligence layer is disconnected. Wire it all together so opening a deal gives instant, actionable context.
 
-| # | Feature | Type | What to Build | Score Impact |
-|---|---------|------|---------------|-------------|
-| 1 | **TG Conversation Timeline** | Build | Fetch TG message history via bot API, cache in `crm_tg_messages`, render as scrollable timeline in deal detail panel. Search, @-mention highlighting, "open in Telegram" deep links, reply-from-CRM. | +5-7 |
-| 2 | **AI Conversation Summaries** | Build | After syncing messages, run Claude summarization per conversation. Auto-generate 3-line summary on deal open. Surface key topics, action items, risk signals. Wire up the existing `crm_deal_sentiment` and `crm_deal_highlights` tables (currently at 22/100). | +2-3 |
-| 3 | **Slug-Based Access Control** (harden) | Existing | Stress-test bulk operations at 50+ groups. Add progress indicators, error recovery for partial failures, and "undo last bulk action" capability. This is the moat — make it bulletproof. | Defend moat |
+**What already works:**
+- `tg_group_messages` table with real-time bot capture + manual MTProto sync
+- `ConversationTimeline` component (303 lines): pagination, search, reply, deep links
+- `deal-detail-panel.tsx` Chat tab: embedded timeline with notes
+- Sentiment analysis API: Claude-powered, caches to `crm_deals.ai_sentiment`
+- Deal summary API: Claude-powered, caches to `crm_deals.ai_summary`
+- Health score calculation: weighted formula with TG activity factor
+- Highlights system: `crm_highlights` table with 24h auto-expiry
+
+**What's broken or missing:**
+
+| # | Task | File(s) | What Specifically | Score Impact |
+|---|------|---------|-------------------|-------------|
+| 1a | **Auto-refresh AI on conversation sync** | `bot/handlers/messages.ts`, new `/api/deals/[id]/conversation/summary` | When bot captures a new batch of messages (e.g., 10+ in a deal-linked group), auto-trigger sentiment + summary refresh. Currently both are manual button-clicks only. Add a new **conversation summarization** route (separate from deal summary) that produces 3-5 bullet points from the TG thread: key topics, action items, blockers. | +3-4 |
+| 1b | **Scheduled health + sentiment jobs** | New `app/api/cron/deal-intelligence/route.ts` | Daily cron: recalculate health scores for all open deals, refresh sentiment for deals with stale analysis (>3 days), generate summaries for deals that have none. The `bulk-sentiment` route exists but nothing calls it. | +1-2 |
+| 1c | **Fix TypeScript types** | `lib/types.ts` | `Deal` type is missing `ai_summary`, `ai_summary_at`. Causes `any` casts in deal-detail-panel.tsx. Fix the type, remove the casts. | 0 (quality) |
+| 1d | **Harden slug access control** | `app/api/access/route.ts`, `app/api/access/bulk/route.ts`, `app/access/page.tsx` | **Security:** Add role-based checks (only `admin_lead` can grant/revoke). **Audit:** Add `logAudit()` calls to individual grant/revoke (currently only bulk operations log). **UX:** Add progress counter for bulk ops ("Adding 3/7..."), per-user success/fail status, retry button for failures. **Reliability:** Validate bot admin status before attempting TG API calls, add exponential backoff for rate limits. | Defend moat |
+| 1e | **Surface highlights on dashboard** | `app/page.tsx` | Highlights only show on pipeline cards. Add a "Needs Attention" section to the dashboard showing active TG highlights with deal links — same data, new surface. | +1 |
 
 **Deliverables:**
-- `crm_tg_messages` table with message sync pipeline (bot API polling + webhook push)
-- `ConversationTimeline` component in deal detail panel (Chat tab)
-- Auto-summary generation on conversation sync
-- Sentiment/highlights wired to actual conversation data (not stubs)
-- Slug bulk operations hardened with progress UI and rollback
+- New route: `POST /api/deals/[id]/conversation/summary` — Claude summarizes the TG thread into bullets
+- Auto-trigger: bot message handler fires summary refresh after 10+ messages in a deal-linked chat
+- Cron route: daily deal intelligence sweep (health + sentiment + summary)
+- Fixed `Deal` TypeScript type with `ai_summary` fields
+- Slug access: role-based RLS, audit logging on all operations, progress UI, bot-admin pre-check
+- Dashboard "Needs Attention" widget showing TG highlights
 
-**Exit criteria:** BD rep opens a deal → sees last 50 TG messages inline → gets an AI summary → never opens Telegram separately. Score: ~69-71.
+**Exit criteria:** BD rep opens deal → sees last 50 messages → reads auto-generated conversation summary → sees sentiment/health without clicking anything. Slugs are hardened with role checks and audit trail. Score: ~69-71.
 
-**Estimated effort:** 2-3 weeks
+**Estimated effort:** 1-2 weeks (accelerated — most infrastructure exists)
 
 ---
 
@@ -182,21 +198,32 @@ Each stage has a **competitive milestone** — a score target that unlocks a new
 
 **Theme:** Turn passive Telegram conversations into active pipeline automatically.
 
-| # | Feature | Type | What to Build | Score Impact |
-|---|---------|------|---------------|-------------|
-| 4 | **AI Lead Qualification** | Build | Enhance `/api/ai-agent/respond` to score every conversation turn. Extract structured data (budget, timeline, decision-maker, project type) into `qualification_data`. When score > threshold, auto-create deal at correct stage and notify assigned rep. | +4-5 |
-| 5 | **Contact Engagement Scoring** | Build | Passive scoring from TG activity: message frequency, response time, group participation, @-mention density. Store on contact record. Surface as "engagement heat" on contact cards and deal list. Feed into workflow triggers. | +3-5 |
-| 6 | **Visual Workflow Builder** (harden) | Existing | Add retry logic on failed nodes, real-time execution status in the canvas, better error messages, and a "test run" mode that simulates without sending. The builder is 78/100 — push it to 90. | Defend moat |
+**What already exists:**
+- AI agent with role prompts, qualification fields config, escalation keywords
+- `crm_ai_conversations` table with `qualification_data` JSONB column
+- Workflow engine with triggers: `stage_change`, `deal_created`, `webhook`, `scheduled`
+- Contact quality score (data completeness based)
+
+**What to build:**
+
+| # | Task | File(s) | What Specifically | Score Impact |
+|---|------|---------|-------------------|-------------|
+| 2a | **Qualification scoring engine** | `app/api/ai-agent/respond/route.ts` | After each AI conversation turn, run a second Claude call to score qualification (0-100) based on configurable fields from `crm_ai_agent_config.qualification_fields`. Extract structured data: `{ budget, timeline, decision_maker, project_type, urgency }`. Store in `qualification_data`. When score > threshold (configurable, default 70), fire `lead_qualified` event. | +4-5 |
+| 2b | **Auto-deal creation pipeline** | New `app/api/ai-agent/qualify/route.ts` | When `lead_qualified` fires: (1) Create or find contact by TG username, (2) Create deal at Stage 1 with extracted qualification data as custom fields, (3) Link to TG chat, (4) Assign to rep via round-robin or keyword match, (5) Fire `deal_created` workflow trigger, (6) Notify assigned rep via TG message. | +2-3 |
+| 2c | **Contact engagement scoring** | New `app/api/contacts/engagement/route.ts`, migration | Add `engagement_score` (0-100) to `crm_contacts`. Calculate from: message frequency in linked groups (40%), response time to outreach (20%), group participation breadth (20%), @-mention density (10%), recency (10%). Run hourly via cron. Surface as heat badge (flame icon, color-coded) on contact cards and pipeline deal cards. | +3-5 |
+| 2d | **Workflow builder hardening** | `app/automations/[id]/page.tsx`, `app/api/workflows/[id]/run/route.ts` | Add node-level retry (max 3, exponential backoff). Show real-time execution status on canvas nodes (green check, red X, spinning). Add "Test Run" mode that simulates execution without sending TG messages. Add new trigger type: `lead_qualified`. Better error messages: show which node failed, why, and what data was passed. | Defend moat |
+| 2e | **Qualification dashboard** | `app/page.tsx` or new widget | Show qualification pipeline: conversations in progress → qualified → deal created → assigned. Real-time counter of leads being qualified by the AI agent. | +1 |
 
 **Deliverables:**
-- Qualification scoring engine in AI agent (configurable fields per `crm_ai_agent_config`)
-- Auto-deal creation pipeline: qualified lead → deal at Stage 1 → workflow trigger → rep notification
-- `engagement_score` column on `crm_contacts` with calculation job (hourly)
-- Engagement heat badges on contact cards and pipeline cards
-- Workflow execution monitoring: live node status, retry on failure, test mode
-- New workflow trigger: `lead_qualified` (fires when AI qualification threshold met)
+- Qualification scoring runs after every AI conversation turn
+- Structured data extraction (budget, timeline, etc.) into JSONB
+- Auto-deal creation with TG linking and rep assignment
+- `engagement_score` on contacts with hourly cron recalculation
+- Heat badges on contact cards and deal cards
+- Workflow test mode, node retry, live status, `lead_qualified` trigger
+- Qualification funnel widget on dashboard
 
-**Exit criteria:** Prospect messages bot in TG group → AI qualifies them → deal auto-created at correct stage → assigned rep gets notified → workflow fires follow-up sequence. Score: ~73-75.
+**Exit criteria:** Prospect messages bot in TG → AI qualifies over 2-3 turns → deal auto-created at Stage 1 → assigned rep notified → workflow fires follow-up. Engagement scores visible on all contact/deal surfaces. Score: ~73-75.
 
 **Estimated effort:** 3-4 weeks
 
@@ -206,22 +233,29 @@ Each stage has a **competitive milestone** — a score target that unlocks a new
 
 **Theme:** The TMA becomes the primary mobile CRM. BD reps manage everything without leaving Telegram.
 
-| # | Feature | Type | What to Build | Score Impact |
-|---|---------|------|---------------|-------------|
-| 7 | **Full TMA Mobile CRM** | Build | Upgrade all 8 existing TMA pages: swipe-to-change-stage on deals, pull-to-refresh everywhere, haptic feedback, push notifications for stage changes and new messages, quick-reply to broadcasts, offline deal viewing with sync-on-reconnect. | +4-6 |
-| 8 | **Outreach Sequence Branching** | Build | Add reply detection (auto-pause on response), conditional branches (if replied → path A, if no reply after 48h → path B), and merge with engagement scoring (if engagement > X → skip to path C). | +2-3 |
-| 9 | **Multi-Bot Broadcasting** (harden) | Existing | Add broadcast analytics dashboard: delivery rates per bot, per slug, per group. Response tracking (did recipient reply within 24h?). A/B message testing (send variant A to 50%, variant B to 50%, track which gets more replies). | Defend moat |
+**What already exists:**
+- 8 TMA pages: home, deals, deal detail, contacts, tasks, AI chat, broadcasts, apply
+- Outreach sequences with linear steps, delay-based, separate workers
+- Broadcasting with slug-filtered targeting, scheduling, merge variables, delivery tracking
+
+**What to build:**
+
+| # | Task | What Specifically | Score Impact |
+|---|------|-------------------|-------------|
+| 3a | **TMA deal gestures** | Swipe-to-change-stage on deal cards (left = prev, right = next). Pull-to-refresh on all list pages. Haptic feedback via `window.Telegram.WebApp.HapticFeedback`. Tap-and-hold for quick actions (assign, note, call). | +2-3 |
+| 3b | **TMA push notifications** | When a deal stage changes or a TG highlight fires, send a notification via the bot to the assigned rep with a deep link back into the TMA. Use `Bot.sendMessage` with `web_app_data` button linking to `/tma/deals/[id]`. | +1-2 |
+| 3c | **TMA offline mode** | Cache last 50 deals + contacts in localStorage. Show cached data when offline with "Offline" indicator. Sync on reconnect. Queue actions (stage changes, notes) and replay when back online. | +1 |
+| 3d | **Outreach sequence branching** | Add `condition` step type to sequence builder. Reply detection: `outreach-worker.ts` checks `last_reply_at` on enrollment — if replied since last step, follow `true` branch. Time branch: if no reply after X hours, follow `false` branch. Engagement branch: if contact `engagement_score > threshold`, follow priority path. Visual branch editor in outreach UI. | +2-3 |
+| 3e | **Broadcast analytics** | New analytics tab on broadcasts page: delivery rate per bot/slug/group, response tracking (did recipient send a message in the group within 24h of broadcast?), A/B testing (split recipients 50/50 between two message variants, track response rates). Store variant assignment in `crm_broadcast_recipients`. | +2 |
 
 **Deliverables:**
-- TMA deal cards with swipe gestures (left = prev stage, right = next stage)
-- TMA push notifications via Telegram Bot API `answerWebAppQuery` / notification system
-- TMA offline mode: cache last 50 deals in localStorage, sync on reconnect
-- Outreach branching UI in sequence editor (visual branch nodes)
-- Reply detection in `outreach-worker.ts` (check for inbound messages between steps)
-- Broadcast analytics page: delivery funnel, reply rates, A/B variant comparison
-- Broadcast response tracking: link inbound messages to broadcast campaigns
+- TMA gesture system: swipe stages, pull-to-refresh, haptic, long-press menus
+- TMA notification pipeline: bot → rep with TMA deep links
+- Offline cache layer with action queue and sync
+- Outreach branching: reply/time/engagement conditions with visual editor
+- Broadcast analytics: delivery funnel, response tracking, A/B variant comparison
 
-**Exit criteria:** BD rep manages full pipeline from phone inside Telegram. Outreach sequences auto-pause when prospect replies. Broadcast campaigns show delivery + response analytics. Score: ~76-78.
+**Exit criteria:** BD rep manages full pipeline from phone inside Telegram — swipes deals between stages, gets push notifications, works offline. Outreach auto-pauses on reply. Broadcasts show which messages drive engagement. Score: ~76-78.
 
 **Estimated effort:** 3-4 weeks
 
@@ -231,22 +265,28 @@ Each stage has a **competitive milestone** — a score target that unlocks a new
 
 **Theme:** Automation that runs itself. The CRM works while the team sleeps.
 
-| # | Feature | Type | What to Build | Score Impact |
-|---|---------|------|---------------|-------------|
-| 10 | **Bot Drip Sequences** | Build | Time-based auto follow-ups triggered by TG events: group join → welcome + qualify after 24h → check-in after 72h → escalate if no response. Different from outreach sequences (which are rep-initiated) — these are fully automated bot-driven flows. | +3-4 |
-| 11 | **Unified Inbox** | Build | Single timeline view across all bots, all groups, all DMs. Filter by bot, group, contact, slug. Thread detection (group conversations into deal-linked threads). Quick actions: create deal, assign contact, add note — all from the inbox. | +4-5 |
-| 12 | **Kanban Pipeline** (harden) | Existing | Saved views with shareable URLs. Custom board creation (beyond BD/Marketing/Admin). Pipeline conversion analytics: time-in-stage averages, stage-to-stage conversion rates, forecasting based on historical velocity. | Defend position |
+**What already exists:**
+- Bot message handler with workflow trigger on every message
+- Outreach sequences (manual enrollment) and outreach-worker (60s polling)
+- Conversations page (MTProto-based, separate from deal conversations)
+- Pipeline with saved views table (`crm_saved_views`) but minimal UI
+
+**What to build:**
+
+| # | Task | What Specifically | Score Impact |
+|---|------|-------------------|-------------|
+| 4a | **Bot drip sequences** | New entity separate from outreach sequences. Triggered by TG events (not manual enrollment). Events: `group_join`, `first_message`, `keyword_match`, `silence_48h`, `engagement_drop`. Builder UI similar to outreach but with event trigger selector. New `crm_drip_sequences` + `crm_drip_enrollments` tables. Worker runs alongside outreach-worker on 60s poll. Key difference: fully automated, bot-initiated, no rep action needed. | +3-4 |
+| 4b | **Unified inbox** | Rebuild `/conversations` page as unified inbox across all bots + groups. Show all `tg_group_messages` in a single timeline, grouped by chat. Filter by: bot, group, slug, contact, has-deal, unread. Thread detection: cluster messages by sender + time window. Quick actions from inbox: create deal, assign contact, add note, reply. Real-time updates via Supabase realtime subscription on `tg_group_messages`. | +4-5 |
+| 4c | **Pipeline analytics + saved views** | Promote `crm_saved_views` to first-class UI: save button on pipeline, sidebar list of saved views, shareable URLs (`/pipeline?view=abc`). Add analytics tab to pipeline: conversion funnel (stage-to-stage rates), velocity metrics (avg days per stage), win rate by board, forecast chart based on weighted pipeline value × historical conversion. | +2-3 |
 
 **Deliverables:**
-- Drip sequence builder (separate from outreach sequences — triggered by events, not manual enrollment)
-- Drip trigger types: `group_join`, `first_message`, `keyword_match`, `silence_48h`, `engagement_drop`
-- `/conversations` page: unified inbox with real-time message streaming
-- Inbox → Deal linking: select messages → "Create deal from conversation"
-- Inbox thread detection: group related messages by contact + time window
-- Saved views on pipeline: save filter combos, share via URL, pin to sidebar
-- Pipeline analytics tab: conversion funnel, velocity metrics, forecast chart
+- Drip sequence builder with event triggers and bot-initiated messaging
+- Drip worker running on 60s poll alongside outreach-worker
+- Unified inbox with cross-bot timeline, thread detection, quick actions
+- Saved views with sidebar pinning and shareable URLs
+- Pipeline analytics: conversion funnel, velocity, forecast
 
-**Exit criteria:** Prospect joins TG group → bot drip qualifies over 72h → auto-creates deal → lands in unified inbox → rep takes over with full context. Pipeline shows conversion forecasting. Score: ~79-80.
+**Exit criteria:** Prospect joins TG group → bot drip qualifies over 72h → auto-creates deal → lands in unified inbox → rep takes over with full context. Pipeline shows conversion forecasting and saved views. Score: ~79-80.
 
 **Estimated effort:** 4-5 weeks
 
@@ -256,21 +296,21 @@ Each stage has a **competitive milestone** — a score target that unlocks a new
 
 **Theme:** Intelligence layer that no competitor can replicate. The CRM predicts, not just records.
 
-This stage pulls from features beyond the original 12 — the final push requires combining what's built with new intelligence.
+**What to build:**
 
-| # | Feature | What to Build | Score Impact |
-|---|---------|---------------|-------------|
-| Bonus | **AI Deal Prediction** | Use conversation timeline + engagement scoring + stage velocity to predict: deal close probability (dynamic, not manual), estimated close date, risk of stalling. Surface as "Deal Intelligence" card in deal detail. | +2-3 |
-| Bonus | **Auto-Assignment Rules** | Round-robin by board, by slug, by engagement score. Load-balance across team. When AI qualifies a lead, auto-assign based on rules instead of defaulting to unassigned. | +3-4 |
-| Bonus | **Campaign Intelligence** | Cross-reference broadcast campaigns with deal outcomes. "Deals that received Campaign X converted 2.3x faster." Attribution tracking from first TG message to deal close. | +2-3 |
+| # | Task | What Specifically | Score Impact |
+|---|------|-------------------|-------------|
+| 5a | **AI Deal Prediction** | New route: `POST /api/deals/[id]/predict`. Inputs: conversation timeline (message count, sentiment trend, last activity), engagement score trend (improving/declining), stage velocity (faster/slower than avg), historical data from `crm_deal_stage_history`. Output: dynamic win probability (not the manual field), estimated close date, risk factors, recommended next action. Surface as "Deal Intelligence" card in deal detail replacing static health score. Run prediction on every stage change + daily cron. | +2-3 |
+| 5b | **Auto-assignment rules** | New table `crm_assignment_rules` with configurable rules: round-robin by board, assign by slug expertise, assign by capacity (least active deals), assign by engagement match. When AI qualification creates a deal or a deal enters Stage 1, evaluate rules and auto-assign. Settings UI in Settings > Team. Support override (manual assignment always wins). | +3-4 |
+| 5c | **Campaign intelligence** | Add `source_campaign_id` to `crm_deals`. When a deal is created from a broadcast interaction, tag it. Track: broadcasts → conversations → qualified leads → deals → won deals → value. New page or dashboard widget: "Campaign ROI" showing which broadcasts drove the most pipeline value. Attribution model: first-touch (first broadcast the contact received) and last-touch (most recent before deal creation). | +2-3 |
 
 **Deliverables:**
-- Deal prediction model: train on stage history, time-in-stage, engagement scores, conversation sentiment
-- "Deal Intelligence" card: predicted close date, win probability, risk factors, recommended actions
-- Auto-assignment engine: configurable rules (round-robin, weighted by capacity, by expertise tag)
+- AI deal prediction with dynamic probability, close date estimate, risk factors
+- "Deal Intelligence" card replacing static health score in deal detail
+- Auto-assignment engine with configurable rules and capacity balancing
 - Assignment rules UI in Settings > Team
-- Campaign attribution: tag deals with source campaign, track conversion through pipeline
-- Campaign ROI dashboard: broadcasts → deals created → deals closed → value attributed
+- Campaign attribution tagging on deals
+- Campaign ROI dashboard with first-touch/last-touch attribution
 
 **Exit criteria:** The CRM tells reps what to do next, assigns work automatically, and proves which campaigns drive revenue. Score: 81+. Rank: #1.
 
@@ -282,13 +322,13 @@ This stage pulls from features beyond the original 12 — the final push require
 
 | Stage | Theme | Score Target | Rank | Key Unlock | Effort |
 |-------|-------|-------------|------|-----------|--------|
-| **1** | Own the Conversation | 69+ | #3 | TG messages in deal detail + AI summaries | 2-3 wks |
-| **2** | Automate the Intake | 73+ | #2 | AI qualification + auto-deal creation | 3-4 wks |
+| **1** | Own the Conversation | 69+ | #3 | Wire up intelligence layer + harden slugs | 1-2 wks |
+| **2** | Automate the Intake | 73+ | #2 | AI qualification + engagement scoring | 3-4 wks |
 | **3** | Live in Telegram | 76+ | #2 (buffer) | TMA as primary mobile + sequence branching | 3-4 wks |
 | **4** | Scale the Machine | 79+ | #2 (close) | Bot drips + unified inbox + saved views | 4-5 wks |
 | **5** | Take the Crown | 81+ | **#1** | AI prediction + auto-assignment + attribution | 4-5 wks |
 
-**Total timeline: ~16-21 weeks (4-5 months)**
+**Total timeline: ~15-20 weeks (4-5 months)**
 
 ### Rules of Engagement
 

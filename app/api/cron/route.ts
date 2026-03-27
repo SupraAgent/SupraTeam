@@ -10,8 +10,9 @@ import { verifyCron } from "@/lib/cron-auth";
  *   - poll-notifications  (every 5 min)  — send TG messages for stage changes
  *   - daily-digest        (weekdays 9am) — pipeline summary to TG groups
  *   - sequence-worker     (every 5 min)  — process email sequences + scheduled sends
+ *   - deal-intelligence   (daily)        — health scores, sentiment, AI summaries
  *
- * Without ?job param, runs all frequent jobs (poll-notifications + sequence-worker).
+ * Without ?job param, runs all frequent jobs (poll-notifications + sequence-worker + deal-intelligence).
  */
 export async function GET(request: Request) {
   const cronErr = verifyCron(request);
@@ -53,6 +54,9 @@ export async function GET(request: Request) {
       case "sequence-worker":
         await runJob("sequence-worker", "/api/cron/sequences");
         break;
+      case "deal-intelligence":
+        await runJob("deal-intelligence", "/api/cron/deal-intelligence");
+        break;
       default:
         return NextResponse.json({ error: `Unknown job: ${job}` }, { status: 400 });
     }
@@ -61,6 +65,7 @@ export async function GET(request: Request) {
     await Promise.all([
       runJob("poll-notifications", "/api/bot/poll-notifications"),
       runJob("sequence-worker", "/api/cron/sequences"),
+      runJob("deal-intelligence", "/api/cron/deal-intelligence"),
     ]);
   }
 
