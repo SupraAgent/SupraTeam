@@ -31,9 +31,10 @@ export async function GET(request: Request) {
   const results: Record<string, unknown> = {};
 
   // Helper to call internal API routes
-  async function runJob(name: string, path: string) {
+  async function runJob(name: string, path: string, method: "GET" | "POST" = "GET") {
     try {
       const res = await fetch(`${baseUrl}${path}`, {
+        method,
         headers: process.env.CRON_SECRET
           ? { Authorization: `Bearer ${process.env.CRON_SECRET}` }
           : {},
@@ -60,7 +61,7 @@ export async function GET(request: Request) {
         await runJob("deal-intelligence", "/api/cron/deal-intelligence");
         break;
       case "engagement-scoring":
-        await runJob("engagement-scoring", "/api/contacts/engagement");
+        await runJob("engagement-scoring", "/api/contacts/engagement", "POST");
         break;
       default:
         return NextResponse.json({ error: `Unknown job: ${job}` }, { status: 400 });
