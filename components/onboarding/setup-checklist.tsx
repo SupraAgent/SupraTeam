@@ -129,7 +129,13 @@ export function SetupChecklist({ hasBotToken, hasGroups, hasDeals, hasContacts, 
               </div>
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex flex-col-reverse sm:flex-row gap-2">
+              <button
+                onClick={dismissWelcome}
+                className="rounded-xl border border-white/10 px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground transition"
+              >
+                Skip
+              </button>
               <Link
                 href="/settings/integrations"
                 onClick={dismissWelcome}
@@ -137,28 +143,22 @@ export function SetupChecklist({ hasBotToken, hasGroups, hasDeals, hasContacts, 
               >
                 Start Setup <ArrowRight className="h-4 w-4" />
               </Link>
-              <button
-                onClick={dismissWelcome}
-                className="rounded-xl border border-white/10 px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground transition"
-              >
-                Skip
-              </button>
             </div>
           </div>
         </div>
       )}
 
     <div className="rounded-2xl border border-primary/20 bg-primary/[0.03] overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-primary/10">
-        <div>
-          <h2 className="text-sm font-medium text-foreground">Get Started with SupraCRM</h2>
+      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-primary/10">
+        <div className="min-w-0">
+          <h2 className="text-sm font-medium text-foreground truncate">Get Started with SupraCRM</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
             {completedCount}/{items.length} steps completed
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           {/* Progress bar */}
-          <div className="w-24 h-1.5 rounded-full bg-white/10 overflow-hidden">
+          <div className="w-16 sm:w-24 h-1.5 rounded-full bg-white/10 overflow-hidden">
             <div
               className="h-full rounded-full bg-primary transition-all"
               style={{ width: `${(completedCount / items.length) * 100}%` }}

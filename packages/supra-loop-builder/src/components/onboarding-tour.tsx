@@ -72,11 +72,29 @@ export function OnboardingTour({ onComplete, onSkip }: OnboardingTourProps) {
 
   React.useEffect(() => {
     const styles: React.CSSProperties = {};
+    const isMobile = window.innerWidth < 640;
+    const cardWidth = isMobile ? window.innerWidth - 32 : 320;
+    const pad = 16;
 
     if (current.position === "center" || current.target === "center") {
-      styles.top = "50%";
-      styles.left = "50%";
-      styles.transform = "translate(-50%, -50%)";
+      if (isMobile) {
+        styles.bottom = `${pad}px`;
+        styles.left = `${pad}px`;
+        styles.right = `${pad}px`;
+      } else {
+        styles.top = "50%";
+        styles.left = "50%";
+        styles.transform = "translate(-50%, -50%)";
+      }
+      setPositionStyles(styles);
+      return;
+    }
+
+    // On mobile, always position card at the bottom of the viewport
+    if (isMobile) {
+      styles.bottom = `${pad}px`;
+      styles.left = `${pad}px`;
+      styles.right = `${pad}px`;
       setPositionStyles(styles);
       return;
     }
@@ -96,17 +114,17 @@ export function OnboardingTour({ onComplete, onSkip }: OnboardingTourProps) {
     if (el) {
       const rect = el.getBoundingClientRect();
       if (current.position === "right") {
-        styles.top = `${rect.top + 20}px`;
-        styles.left = `${rect.right + 16}px`;
+        styles.top = `${Math.min(Math.max(pad, rect.top + 20), window.innerHeight - 300)}px`;
+        styles.left = `${Math.min(rect.right + pad, window.innerWidth - cardWidth - pad)}px`;
       } else if (current.position === "left") {
-        styles.top = `${rect.top + 20}px`;
-        styles.right = `${window.innerWidth - rect.left + 16}px`;
+        styles.top = `${Math.min(Math.max(pad, rect.top + 20), window.innerHeight - 300)}px`;
+        styles.right = `${Math.max(pad, window.innerWidth - rect.left + pad)}px`;
       } else if (current.position === "bottom") {
-        styles.top = `${rect.bottom + 12}px`;
-        styles.right = `${window.innerWidth - rect.right}px`;
+        styles.top = `${Math.min(rect.bottom + 12, window.innerHeight - 300)}px`;
+        styles.right = `${Math.max(pad, window.innerWidth - rect.right)}px`;
       } else if (current.position === "top") {
-        styles.bottom = `${window.innerHeight - rect.top + 12}px`;
-        styles.left = `${rect.left}px`;
+        styles.bottom = `${Math.max(pad, window.innerHeight - rect.top + 12)}px`;
+        styles.left = `${Math.min(rect.left, window.innerWidth - cardWidth - pad)}px`;
       }
     } else {
       // Fallback: reasonable defaults based on target name
@@ -135,10 +153,10 @@ export function OnboardingTour({ onComplete, onSkip }: OnboardingTourProps) {
 
       {/* Tour card */}
       <div
-        className="absolute z-50 w-80 pointer-events-auto"
+        className="absolute z-50 w-[calc(100vw-2rem)] sm:w-80 pointer-events-auto"
         style={positionStyles}
       >
-        <div className="rounded-xl border border-primary/30 bg-neutral-900/98 p-5 shadow-2xl backdrop-blur-md">
+        <div className="rounded-xl border border-primary/30 bg-neutral-900/98 p-4 sm:p-5 shadow-2xl backdrop-blur-md">
           {/* Progress dots */}
           <div className="flex items-center gap-1.5 mb-3">
             {TOUR_STEPS.map((_, i) => (
