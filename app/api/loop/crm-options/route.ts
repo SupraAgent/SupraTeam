@@ -3,7 +3,7 @@ import { requireAuth } from "@/lib/auth-guard";
 
 /** Strip characters that could break PostgREST filter syntax */
 function sanitizeSearch(raw: string): string {
-  return raw.replace(/[%(),.*\\:_"']/g, "").trim().slice(0, 100);
+  return raw.replace(/[%(),.*\\:"']/g, "").trim().slice(0, 100);
 }
 
 /**

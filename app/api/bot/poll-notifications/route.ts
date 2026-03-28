@@ -123,18 +123,83 @@ export async function GET(request: Request) {
     console.error("[poll-notifications] reminder generation error:", err);
   }
 
-  // 5. Trigger scheduled Loop Builder workflows
+  // 5. Trigger scheduled Loop Builder workflows (match cron expressions)
   let scheduledWorkflows = 0;
   try {
-    const { triggerLoopWorkflowsByEvent } = await import("@/lib/loop-workflow-engine");
-    await triggerLoopWorkflowsByEvent("scheduled", {
-      triggered_at: new Date().toISOString(),
-      source: "cron",
-    });
-    scheduledWorkflows = 1; // flag that we ran the check
+    const { executeLoopWorkflow, isLoopBuilderWorkflow } = await import("@/lib/loop-workflow-engine");
+    const { data: schedWfs } = await supabase
+      .from("crm_workflows")
+      .select("*")
+      .eq("is_active", true)
+      .eq("trigger_type", "scheduled");
+
+    const now = new Date();
+    for (const wf of schedWfs ?? []) {
+      if (!isLoopBuilderWorkflow(wf.nodes ?? [])) continue;
+      // Find the trigger node and check cron config
+      const nodes = (wf.nodes ?? []) as Array<Record<string, unknown>>;
+      const triggerNode = nodes.find((n) => n.type === "crmTriggerNode");
+      if (!triggerNode) continue;
+      const triggerData = (triggerNode.data ?? {}) as Record<string, unknown>;
+      const config = (triggerData.config ?? {}) as Record<string, string>;
+      const cronExpr = config.cron;
+      if (!cronExpr) continue;
+      // Simple cron check: match minute and hour fields against current time
+      // Full cron parsing would require a library; this handles common patterns
+      if (!matchesCronWindow(cronExpr, now)) continue;
+      try {
+        await executeLoopWorkflow(wf.id, {
+          type: "scheduled",
+          payload: { triggered_at: now.toISOString(), cron: cronExpr },
+        });
+        scheduledWorkflows++;
+      } catch (err) {
+        console.error(`[poll-notifications] Scheduled workflow ${wf.id} error:`, err);
+      }
+    }
   } catch (err) {
     console.error("[poll-notifications] Scheduled workflow error:", err);
   }
 
   return NextResponse.json({ processed, retried, scheduled, remindersGenerated, scheduledWorkflows });
+}
+
+/**
+ * Simple cron expression matcher for minute/hour/day-of-week fields.
+ * Supports: *, specific values, and comma-separated lists.
+ * Cron runs ~every 5 minutes, so we check if the current time is within
+ * a 5-minute window of the cron spec.
+ */
+function matchesCronWindow(cron: string, now: Date): boolean {
+  const parts = cron.trim().split(/\s+/);
+  if (parts.length < 5) return false;
+  const [minField, hourField, , , dowField] = parts;
+  const min = now.getMinutes();
+  const hour = now.getHours();
+  const dow = now.getDay();
+
+  if (!matchesCronField(hourField, hour)) return false;
+  if (!matchesCronField(dowField, dow)) return false;
+  // For minutes, allow a 5-minute window (since cron polls every ~5 min)
+  if (minField === "*") return true;
+  const allowedMins = parseCronField(minField);
+  return allowedMins.some((m) => Math.abs(m - min) <= 5 || Math.abs(m + 60 - min) <= 5);
+}
+
+function matchesCronField(field: string, value: number): boolean {
+  if (field === "*") return true;
+  return parseCronField(field).includes(value);
+}
+
+function parseCronField(field: string): number[] {
+  if (field === "*") return [];
+  // Handle ranges like 1-5
+  if (field.includes("-")) {
+    const [start, end] = field.split("-").map(Number);
+    const result: number[] = [];
+    for (let i = start; i <= end; i++) result.push(i);
+    return result;
+  }
+  // Handle comma-separated values
+  return field.split(",").map(Number).filter((n) => !isNaN(n));
 }

@@ -47,34 +47,6 @@ function useCrmOptions(type: string, params?: Record<string, string>, enabled = 
   return { options, loading };
 }
 
-/** Searchable async select — fetches on search input change */
-function useSearchableCrmOptions(type: string) {
-  const [options, setOptions] = React.useState<CrmOption[]>([]);
-  const [loading, setLoading] = React.useState(false);
-  const timerRef = React.useRef<ReturnType<typeof setTimeout>>(undefined);
-
-  const search = React.useCallback((query: string) => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(async () => {
-      setLoading(true);
-      try {
-        const qs = new URLSearchParams({ type, search: query });
-        const res = await fetch(`/api/loop/crm-options?${qs}`);
-        if (res.ok) {
-          const data = await res.json();
-          setOptions(data.options ?? []);
-        }
-      } catch { /* ignore */ }
-      setLoading(false);
-    }, 300);
-  }, [type]);
-
-  // Initial fetch
-  React.useEffect(() => { search(""); }, [search]);
-
-  return { options, loading, search };
-}
-
 /** Reusable async select component */
 function AsyncSelect({
   label: selectLabel,
@@ -138,8 +110,10 @@ const TRIGGER_OPTIONS = [
 const CrmTriggerEditor: CustomNodeEditor = ({ data, onChange }) => {
   const d = data as Partial<CrmTriggerNodeData>;
   const config = (d.config ?? {}) as Record<string, string>;
-  const { options: stageOptions, loading: stagesLoading } = useCrmOptions("stages");
-  const { options: groupOptions, loading: groupsLoading } = useCrmOptions("groups");
+  const needsStages = d.crmTrigger === "deal_stage_change";
+  const needsGroups = d.crmTrigger === "tg_message" || d.crmTrigger === "tg_member_joined" || d.crmTrigger === "tg_member_left";
+  const { options: stageOptions, loading: stagesLoading } = useCrmOptions("stages", undefined, needsStages);
+  const { options: groupOptions, loading: groupsLoading } = useCrmOptions("groups", undefined, needsGroups);
 
   return (
     <div className="space-y-3">

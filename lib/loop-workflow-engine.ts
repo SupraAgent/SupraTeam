@@ -248,8 +248,9 @@ async function executeExtendedAction(
       if (!config.url) return { success: false, error: "url required" };
       try {
         const parsed = new URL(config.url);
-        if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1"))) {
-          return { success: false, error: "Only HTTPS allowed (except localhost)" };
+        const allowLocalhost = process.env.NODE_ENV === "development";
+        if (parsed.protocol !== "https:" && !(allowLocalhost && parsed.protocol === "http:" && (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1"))) {
+          return { success: false, error: "Only HTTPS allowed" };
         }
         // Block private/internal IPs to prevent SSRF
         const host = parsed.hostname;
@@ -386,9 +387,18 @@ function createDryRunPersistence() {
   };
 }
 
+/** Mock action executor for dry-run mode — returns success without side effects */
+async function dryRunActionExecutor(
+  actionType: string,
+  config: Record<string, unknown>,
+  _ctx: ActionContext
+): Promise<ActionResult> {
+  return { success: true, output: { dry_run: true, action: actionType, config } };
+}
+
 function getEngineConfig(dryRun = false): EngineConfig {
   return {
-    executeAction: loopActionExecutor,
+    executeAction: dryRun ? dryRunActionExecutor : loopActionExecutor,
     persistence: dryRun ? createDryRunPersistence() : createSupabasePersistence(),
     renderTemplate: (template, vars) => renderTemplate(template, vars),
   };
@@ -640,12 +650,14 @@ export async function triggerLoopWorkflowsByEvent(
         if (triggerType === "deal_stage_change" && triggerConfig.stage_name) {
           if (triggerConfig.stage_name !== payload.to_stage_name) return;
         }
-        if (triggerType === "tg_message" && triggerConfig.group_id) {
+        if ((triggerType === "tg_message" || triggerType === "tg_member_joined" || triggerType === "tg_member_left") && triggerConfig.group_id) {
           if (String(triggerConfig.group_id) !== String(payload.chat_id)) return;
         }
         if (triggerType === "deal_created" && triggerConfig.board_type) {
           if (triggerConfig.board_type !== payload.board_type) return;
         }
+        // Skip scheduled workflows here — they are handled by cron matching
+        if (triggerType === "scheduled") return;
 
         const event: LoopWorkflowEvent = {
           type: triggerType,

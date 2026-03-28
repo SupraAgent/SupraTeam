@@ -16,13 +16,23 @@ export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
 
-  const url = new URL(request.url);
-  const dryRun = url.searchParams.get("dry_run") === "true";
-
   const supabase = createSupabaseAdmin();
   if (!supabase) {
     return NextResponse.json({ error: "Supabase not configured" }, { status: 500 });
   }
+
+  // Admin-only: check crm_role
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("crm_role")
+    .eq("id", auth.user.id)
+    .single();
+  if (profile?.crm_role !== "admin_lead") {
+    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+  }
+
+  const url = new URL(request.url);
+  const dryRun = url.searchParams.get("dry_run") === "true";
 
   // Find classic workflows (builder_type is null or 'classic')
   const { data: workflows, error } = await supabase

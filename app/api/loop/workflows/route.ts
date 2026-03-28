@@ -25,7 +25,8 @@ export async function GET() {
     .from("crm_workflows")
     .select("id, name, description, is_active, trigger_type, last_run_at, run_count, version, created_by, created_at, updated_at")
     .eq("builder_type", "loop")
-    .order("updated_at", { ascending: false });
+    .order("updated_at", { ascending: false })
+    .limit(100);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
