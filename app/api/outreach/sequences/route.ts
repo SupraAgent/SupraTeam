@@ -100,7 +100,12 @@ export async function POST(request: Request) {
       on_false_step: s.on_false_step ?? null,
     }));
 
-    await supabase.from("crm_outreach_steps").insert(stepRows);
+    const { error: stepError } = await supabase.from("crm_outreach_steps").insert(stepRows);
+    if (stepError) {
+      // Clean up orphaned sequence
+      await supabase.from("crm_outreach_sequences").delete().eq("id", sequence.id);
+      return NextResponse.json({ error: `Steps failed: ${stepError.message}` }, { status: 500 });
+    }
   }
 
   return NextResponse.json({ sequence, ok: true });

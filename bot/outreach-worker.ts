@@ -36,8 +36,19 @@ type Step = {
 };
 
 const POLL_INTERVAL_MS = 60_000; // 1 minute
+let isProcessing = false;
 
 async function processEnrollments(bot: Bot) {
+  if (isProcessing) return;
+  isProcessing = true;
+  try {
+    await doProcessEnrollments(bot);
+  } finally {
+    isProcessing = false;
+  }
+}
+
+async function doProcessEnrollments(bot: Bot) {
   try {
     // Find due enrollments
     const { data: enrollments, error } = await supabase

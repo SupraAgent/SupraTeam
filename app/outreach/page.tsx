@@ -13,7 +13,6 @@ import {
   Send,
   Clock,
   Users,
-  CheckCircle,
   MessageCircle,
   ArrowRight,
   GitBranch,
@@ -113,9 +112,9 @@ export default function OutreachPage() {
 
   async function handleCreate() {
     if (!newName.trim()) return;
-    const validSteps = newSteps.filter((s) => s.message_template.trim());
-    if (validSteps.length === 0) {
-      toast.error("Add at least one step with a message");
+    const validSteps = newSteps.filter((s) => s.step_type !== "message" || s.message_template.trim());
+    if (validSteps.length === 0 || !validSteps.some((s) => s.step_type === "message")) {
+      toast.error("Add at least one message step");
       return;
     }
 
@@ -173,7 +172,7 @@ export default function OutreachPage() {
     setNewSteps(newSteps.filter((_, i) => i !== index));
   }
 
-  function updateStep(index: number, field: string, value: string | number | Record<string, unknown>) {
+  function updateStep(index: number, field: string, value: string | number | null | Record<string, unknown>) {
     setNewSteps(newSteps.map((s, i) => (i === index ? { ...s, [field]: value } : s)));
   }
 
@@ -308,8 +307,9 @@ export default function OutreachPage() {
                       <select
                         value={step.condition_type}
                         onChange={(e) => {
-                          updateStep(i, "condition_type", e.target.value);
-                          updateStep(i, "condition_config", {});
+                          setNewSteps((prev) => prev.map((s, idx) => idx === i
+                            ? { ...s, condition_type: e.target.value, condition_config: {} }
+                            : s));
                         }}
                         className="rounded border border-white/10 bg-transparent px-2 py-1 text-xs"
                       >
@@ -358,7 +358,7 @@ export default function OutreachPage() {
                         <span className="text-[10px] text-emerald-400 shrink-0">If YES →</span>
                         <select
                           value={step.on_true_step ?? ""}
-                          onChange={(e) => updateStep(i, "on_true_step", e.target.value ? Number(e.target.value) : "")}
+                          onChange={(e) => updateStep(i, "on_true_step", e.target.value ? Number(e.target.value) : null)}
                           className="rounded border border-white/10 bg-transparent px-1.5 py-0.5 text-[10px] flex-1"
                         >
                           <option value="">End sequence</option>
@@ -372,7 +372,7 @@ export default function OutreachPage() {
                         <span className="text-[10px] text-red-400 shrink-0">If NO →</span>
                         <select
                           value={step.on_false_step ?? ""}
-                          onChange={(e) => updateStep(i, "on_false_step", e.target.value ? Number(e.target.value) : "")}
+                          onChange={(e) => updateStep(i, "on_false_step", e.target.value ? Number(e.target.value) : null)}
                           className="rounded border border-white/10 bg-transparent px-1.5 py-0.5 text-[10px] flex-1"
                         >
                           <option value="">End sequence</option>
@@ -422,7 +422,7 @@ export default function OutreachPage() {
             <Button
               size="sm"
               onClick={handleCreate}
-              disabled={!newName.trim() || newSteps.every((s) => !s.message_template.trim())}
+              disabled={!newName.trim() || !newSteps.some((s) => s.step_type === "message" && s.message_template.trim())}
             >
               Create Sequence
             </Button>
