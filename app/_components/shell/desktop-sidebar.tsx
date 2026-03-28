@@ -15,7 +15,6 @@ const NAV_ITEMS = [
   { href: "/email", label: "Email", icon: MailIcon },
   { href: "/contacts", label: "Contacts", icon: UsersIcon },
   { href: "/groups", label: "TG Groups", icon: MessageCircleIcon },
-  { href: "/conversations", label: "Conversations", icon: ChatBubblesIcon },
   { href: "/broadcasts", label: "Broadcasts", icon: MegaphoneIcon },
   { href: "/outreach", label: "Outreach", icon: OutreachIcon },
   { href: "/drip", label: "Drip Sequences", icon: DripIcon },
