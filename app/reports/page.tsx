@@ -451,6 +451,161 @@ export default function ReportsPage() {
           <p className="text-xs text-muted-foreground">No team data available</p>
         )}
       </div>
+
+      {/* Forecast Analytics */}
+      <ForecastSection />
+    </div>
+  );
+}
+
+// ── Forecast Analytics Section ────────────────────────────────────
+
+interface ForecastData {
+  monthlyForecast: Record<string, { count: number; totalValue: number; weightedValue: number }>;
+  stageVelocity: Record<string, { avgDays: number; dealCount: number }>;
+  forecastConfidence: { accuracy: number; avgLagDays: number; onTimeCount: number; totalClosed: number };
+  weeklyTrend: Array<{ week: string; created: number; won: number; lost: number }>;
+}
+
+function ForecastSection() {
+  const [data, setData] = React.useState<ForecastData | null>(null);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    fetch("/api/forecast")
+      .then((r) => r.json())
+      .then(setData)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 animate-pulse h-40" />
+    );
+  }
+
+  if (!data) return null;
+
+  const months = Object.entries(data.monthlyForecast).sort(([a], [b]) => a.localeCompare(b));
+  const maxWeighted = Math.max(...months.map(([, v]) => v.weightedValue), 1);
+  const velocityEntries = Object.entries(data.stageVelocity).sort(([, a], [, b]) => a.avgDays - b.avgDays);
+  const maxVelocity = Math.max(...velocityEntries.map(([, v]) => v.avgDays), 1);
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-lg font-semibold text-foreground">Forecast Analytics</h2>
+
+      {/* Confidence KPIs */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+          <p className="text-[10px] text-muted-foreground uppercase">Forecast Accuracy</p>
+          <p className={cn("text-2xl font-bold", data.forecastConfidence.accuracy >= 60 ? "text-emerald-400" : data.forecastConfidence.accuracy >= 40 ? "text-yellow-400" : "text-red-400")}>
+            {data.forecastConfidence.accuracy}%
+          </p>
+          <p className="text-[10px] text-muted-foreground">{data.forecastConfidence.onTimeCount}/{data.forecastConfidence.totalClosed} deals on time</p>
+        </div>
+        <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+          <p className="text-[10px] text-muted-foreground uppercase">Avg Close Lag</p>
+          <p className="text-2xl font-bold text-foreground">{data.forecastConfidence.avgLagDays}d</p>
+          <p className="text-[10px] text-muted-foreground">{data.forecastConfidence.avgLagDays > 0 ? "Late" : data.forecastConfidence.avgLagDays < 0 ? "Early" : "On time"} vs forecast</p>
+        </div>
+        <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+          <p className="text-[10px] text-muted-foreground uppercase">Forecast Months</p>
+          <p className="text-2xl font-bold text-foreground">{months.length}</p>
+          <p className="text-[10px] text-muted-foreground">With open deals</p>
+        </div>
+        <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+          <p className="text-[10px] text-muted-foreground uppercase">Pipeline Stages Tracked</p>
+          <p className="text-2xl font-bold text-foreground">{velocityEntries.length}</p>
+          <p className="text-[10px] text-muted-foreground">With velocity data</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Monthly Forecast */}
+        <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
+          <h3 className="text-sm font-medium text-foreground mb-3">Monthly Revenue Forecast</h3>
+          {months.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No deals with expected close dates.</p>
+          ) : (
+            <div className="space-y-2">
+              {months.map(([month, vals]) => (
+                <div key={month}>
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <span className="text-muted-foreground">{month}</span>
+                    <span className="text-foreground font-medium">
+                      ${Math.round(vals.weightedValue).toLocaleString()}
+                      <span className="text-muted-foreground/50 ml-1">({vals.count} deals)</span>
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full bg-white/5 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-primary/60"
+                      style={{ width: `${(vals.weightedValue / maxWeighted) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Stage Velocity */}
+        <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
+          <h3 className="text-sm font-medium text-foreground mb-3">Stage Velocity (avg days)</h3>
+          {velocityEntries.length === 0 ? (
+            <p className="text-xs text-muted-foreground">Not enough stage history data (last 90 days).</p>
+          ) : (
+            <div className="space-y-2">
+              {velocityEntries.map(([stage, vals]) => (
+                <div key={stage}>
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <span className="text-muted-foreground">{stage}</span>
+                    <span className="text-foreground font-medium">
+                      {vals.avgDays}d
+                      <span className="text-muted-foreground/50 ml-1">({vals.dealCount} deals)</span>
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full bg-white/5 overflow-hidden">
+                    <div
+                      className={cn("h-full rounded-full", vals.avgDays > 14 ? "bg-red-400/60" : vals.avgDays > 7 ? "bg-yellow-400/60" : "bg-emerald-400/60")}
+                      style={{ width: `${(vals.avgDays / maxVelocity) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Weekly Pipeline Trend */}
+      {data.weeklyTrend.length > 0 && (
+        <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
+          <h3 className="text-sm font-medium text-foreground mb-3">Weekly Pipeline Trend (12 weeks)</h3>
+          <div className="flex items-end gap-1 h-24">
+            {data.weeklyTrend.map((w) => {
+              const max = Math.max(...data.weeklyTrend.map((t) => Math.max(t.created, t.won + t.lost)), 1);
+              return (
+                <div key={w.week} className="flex-1 flex flex-col items-center gap-0.5" title={`${w.week}: ${w.created} created, ${w.won} won, ${w.lost} lost`}>
+                  <div className="w-full flex flex-col-reverse gap-px">
+                    <div className="bg-primary/40 rounded-t" style={{ height: `${(w.created / max) * 80}px` }} />
+                    {w.won > 0 && <div className="bg-emerald-400/60 rounded-t" style={{ height: `${(w.won / max) * 80}px` }} />}
+                    {w.lost > 0 && <div className="bg-red-400/40 rounded-t" style={{ height: `${(w.lost / max) * 80}px` }} />}
+                  </div>
+                  <span className="text-[8px] text-muted-foreground/40 truncate w-full text-center">{w.week.slice(5)}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex items-center gap-4 mt-2 text-[10px] text-muted-foreground">
+            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded bg-primary/40" /> Created</span>
+            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded bg-emerald-400/60" /> Won</span>
+            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded bg-red-400/40" /> Lost</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

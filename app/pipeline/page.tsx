@@ -98,6 +98,72 @@ export default function PipelinePage() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
+  // ── Sync filters from URL on mount ──────────────────────────────
+  const initializedFromUrl = React.useRef(false);
+  React.useEffect(() => {
+    if (initializedFromUrl.current) return;
+    initializedFromUrl.current = true;
+
+    const urlBoard = searchParams.get("board");
+    if (urlBoard && BOARDS.includes(urlBoard as BoardType)) {
+      setBoard(urlBoard as BoardType);
+    }
+    const urlSearch = searchParams.get("q");
+    if (urlSearch) setSearch(urlSearch);
+
+    const parsed: Partial<PipelineFilters> = {};
+    const minV = searchParams.get("minValue");
+    const maxV = searchParams.get("maxValue");
+    const minP = searchParams.get("minProbability");
+    const maxP = searchParams.get("maxProbability");
+    const assigned = searchParams.get("assignedTo");
+    const stale = searchParams.get("staleDays");
+    const outcome = searchParams.get("outcome");
+    if (minV) parsed.minValue = Number(minV);
+    if (maxV) parsed.maxValue = Number(maxV);
+    if (minP) parsed.minProbability = Number(minP);
+    if (maxP) parsed.maxProbability = Number(maxP);
+    if (assigned) parsed.assignedTo = assigned;
+    if (stale) parsed.staleDays = Number(stale);
+    if (outcome) parsed.outcome = outcome;
+
+    if (Object.keys(parsed).length > 0) {
+      setFilters({ ...EMPTY_FILTERS, ...parsed });
+      setShowFilters(true);
+    }
+  }, [searchParams]);
+
+  // ── Sync filters to URL ─────────────────────────────────────────
+  const syncFiltersToUrl = React.useCallback((f: PipelineFilters, b: BoardType, q: string) => {
+    const params = new URLSearchParams();
+    if (b !== "All") params.set("board", b);
+    if (q) params.set("q", q);
+    if (f.minValue != null) params.set("minValue", String(f.minValue));
+    if (f.maxValue != null) params.set("maxValue", String(f.maxValue));
+    if (f.minProbability != null) params.set("minProbability", String(f.minProbability));
+    if (f.maxProbability != null) params.set("maxProbability", String(f.maxProbability));
+    if (f.assignedTo) params.set("assignedTo", f.assignedTo);
+    if (f.staleDays != null) params.set("staleDays", String(f.staleDays));
+    if (f.outcome) params.set("outcome", f.outcome);
+    const qs = params.toString();
+    router.replace(qs ? `/pipeline?${qs}` : "/pipeline", { scroll: false });
+  }, [router]);
+
+  function setFiltersAndSync(f: PipelineFilters) {
+    setFilters(f);
+    syncFiltersToUrl(f, board, search);
+  }
+
+  function setBoardAndSync(b: BoardType) {
+    setBoard(b);
+    syncFiltersToUrl(filters, b, search);
+  }
+
+  function setSearchAndSync(q: string) {
+    setSearch(q);
+    syncFiltersToUrl(filters, board, q);
+  }
+
   // Unique assigned profiles for filter dropdown
   const assignedProfiles = React.useMemo(() => {
     const map = new Map<string, { id: string; display_name: string }>();
@@ -125,10 +191,13 @@ export default function PipelinePage() {
           el.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
         }
       }, 500);
-      // Clear highlight after 4 seconds
+      // Clear highlight after 4 seconds (preserve other params)
       setTimeout(() => {
         setHighlightDealId(null);
-        router.replace("/pipeline", { scroll: false });
+        const params = new URLSearchParams(window.location.search);
+        params.delete("highlight");
+        const qs = params.toString();
+        router.replace(qs ? `/pipeline?${qs}` : "/pipeline", { scroll: false });
       }, 4000);
     }
   }, [searchParams, router]);
@@ -394,7 +463,7 @@ export default function PipelinePage() {
               return (
                 <button
                   key={tab}
-                  onClick={() => setBoard(tab)}
+                  onClick={() => setBoardAndSync(tab)}
                   className={cn(
                     "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap",
                     board === tab
@@ -426,7 +495,7 @@ export default function PipelinePage() {
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50" />
             <Input
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => setSearchAndSync(e.target.value)}
               placeholder="Search deals..."
               className="h-8 w-[160px] pl-7 text-xs"
             />
@@ -540,8 +609,8 @@ export default function PipelinePage() {
       {showFilters && (
         <PipelineFilterBar
           filters={filters}
-          onChange={setFilters}
-          onClear={() => setFilters(EMPTY_FILTERS)}
+          onChange={setFiltersAndSync}
+          onClear={() => setFiltersAndSync(EMPTY_FILTERS)}
           assignedProfiles={assignedProfiles}
         />
       )}
@@ -565,8 +634,11 @@ export default function PipelinePage() {
         currentFilters={filters}
         currentBoard={board}
         onApplyView={(f, b) => {
-          setFilters({ ...EMPTY_FILTERS, ...f } as PipelineFilters);
-          if (b) setBoard(b as BoardType);
+          const newFilters = { ...EMPTY_FILTERS, ...f } as PipelineFilters;
+          const newBoard = (b as BoardType) ?? board;
+          setFilters(newFilters);
+          if (b) setBoard(newBoard);
+          syncFiltersToUrl(newFilters, newBoard, search);
         }}
       />
 
