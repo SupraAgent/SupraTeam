@@ -69,10 +69,22 @@ export async function GET(request: Request) {
 
   // Build OR conditions for candidate matches
   const conditions: string[] = [];
-  if (name && name.length >= 2) conditions.push(`name.ilike.%${sanitizePostgrestValue(name)}%`);
-  if (email) conditions.push(`email.ilike.%${sanitizePostgrestValue(email)}%`);
-  if (telegram) conditions.push(`telegram_username.ilike.%${sanitizePostgrestValue(telegram)}%`);
-  if (phone) conditions.push(`phone.ilike.%${sanitizePostgrestValue(phone)}%`);
+  if (name && name.length >= 2) {
+    const s = sanitizePostgrestValue(name);
+    if (s) conditions.push(`name.ilike.%${s}%`);
+  }
+  if (email) {
+    const s = sanitizePostgrestValue(email);
+    if (s) conditions.push(`email.ilike.%${s}%`);
+  }
+  if (telegram) {
+    const s = sanitizePostgrestValue(telegram);
+    if (s) conditions.push(`telegram_username.ilike.%${s}%`);
+  }
+  if (phone) {
+    const s = sanitizePostgrestValue(phone);
+    if (s) conditions.push(`phone.ilike.%${s}%`);
+  }
 
   if (conditions.length === 0) {
     return NextResponse.json({ duplicates: [] });

@@ -1,15 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
-
-function escapeCSV(val: string): string {
-  // Escape double quotes by doubling them
-  let escaped = val.replace(/"/g, '""');
-  // Prevent formula injection in spreadsheets
-  if (/^[=+\-@\t\r]/.test(escaped)) {
-    escaped = "'" + escaped;
-  }
-  return `"${escaped}"`;
-}
+import { escapeCSV } from "@/lib/utils";
 
 export async function GET() {
   const auth = await requireAuth();
