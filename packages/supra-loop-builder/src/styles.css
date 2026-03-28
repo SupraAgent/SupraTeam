@@ -1,0 +1,107 @@
+/* @supra/loop-builder theme + base styles (Tailwind v3 compatible) */
+/* Import React Flow base styles */
+@import "@xyflow/react/dist/style.css";
+
+/*
+ * Bridge: The builder source was written for Tailwind v4 which resolves
+ * utility classes to --color-* CSS variables. SupraTeam uses Tailwind v3
+ * with hsl(var(--name)) convention. The Tailwind v3 theme config handles
+ * the utility class resolution, but some builder code may reference
+ * --color-* directly in inline styles. This bridge maps them.
+ */
+:root {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-border: hsl(var(--border));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+}
+
+/* ── Mobile touch: prevent iOS Safari rubber-band / back-swipe on canvas ── */
+.react-flow {
+  overscroll-behavior: none;
+}
+.react-flow__pane {
+  touch-action: none;
+}
+
+/* ── Executing node highlight ─────────────────────────────────── */
+.react-flow__node.node-executing {
+  box-shadow: 0 0 0 2px hsl(158 64% 52% / 0.6), 0 0 16px 2px hsl(158 64% 52% / 0.2);
+  animation: node-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes node-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px hsl(158 64% 52% / 0.6), 0 0 16px 2px hsl(158 64% 52% / 0.2); }
+  50% { box-shadow: 0 0 0 3px hsl(158 64% 52% / 0.9), 0 0 24px 4px hsl(158 64% 52% / 0.35); }
+}
+
+/* ── Touch-friendly handles on mobile ─────────────────────────── */
+@media (pointer: coarse) {
+  .react-flow__handle {
+    width: 16px !important;
+    height: 16px !important;
+    /* Invisible larger hit area via pseudo-element */
+  }
+  .react-flow__handle::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 44px;
+    height: 44px;
+    transform: translate(-50%, -50%);
+  }
+  /* Slightly larger nodes for easier grabbing */
+  .react-flow__node {
+    min-width: 160px;
+  }
+  /* Hide minimap on mobile — takes too much space */
+  .react-flow__minimap {
+    display: none;
+  }
+  /* Larger control buttons for touch */
+  .react-flow__controls button {
+    width: 36px !important;
+    height: 36px !important;
+  }
+}
+
+/* ── Combobox dropdown animation ─────────────────────────────── */
+@keyframes combobox-in {
+  from { opacity: 0; transform: scale(0.97) translateY(-2px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes combobox-out {
+  from { opacity: 1; transform: scale(1) translateY(0); }
+  to   { opacity: 0; transform: scale(0.97) translateY(-2px); }
+}
+
+/* ── Reduced motion ───────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .react-flow__node.node-executing {
+    animation: none;
+    box-shadow: 0 0 0 3px hsl(158 64% 52% / 0.9);
+  }
+
+  .animate-pulse {
+    animation: none !important;
+  }
+
+  .react-flow__edge.animated path {
+    animation: none !important;
+  }
+
+  /* Disable decorative animations but preserve focus/transition affordances */
+  .react-flow__node,
+  .react-flow__edge path {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

@@ -7,6 +7,7 @@
 import type { Bot } from "grammy";
 import { supabase } from "./lib/supabase.js";
 import { renderTemplate, buildOutreachVars } from "../lib/outreach-templates.js";
+import { getOptimalSendTime } from "./lib/send-time-optimizer.js";
 
 type Enrollment = {
   id: string;
@@ -29,10 +30,12 @@ type Step = {
   step_type: string; // 'message' | 'wait' | 'condition'
   delay_hours: number;
   message_template: string;
+  step_label: string | null;
   condition_type: string | null;
   condition_config: Record<string, unknown> | null;
   on_true_step: number | null;
   on_false_step: number | null;
+  split_percentage: number | null;
 };
 
 const POLL_INTERVAL_MS = 60_000; // 1 minute
@@ -197,6 +200,40 @@ async function evaluateCondition(step: Step, enrollment: Enrollment): Promise<bo
       return deal?.stage_id === targetStageId;
     }
 
+    case "message_keyword": {
+      // Check if any recent reply contains specific keywords
+      const keywords = (step.condition_config?.keywords as string[]) ?? [];
+      if (keywords.length === 0 || !enrollment.tg_chat_id) return false;
+      const { data: messages } = await supabase
+        .from("tg_group_messages")
+        .select("message_text")
+        .eq("telegram_chat_id", enrollment.tg_chat_id)
+        .eq("is_from_bot", false)
+        .order("sent_at", { ascending: false })
+        .limit(10);
+      if (!messages || messages.length === 0) return false;
+      const allText = messages.map((m) => (m.message_text ?? "").toLowerCase()).join(" ");
+      return keywords.some((kw) => allText.includes(kw.toLowerCase()));
+    }
+
+    case "days_since_enroll": {
+      const threshold = (step.condition_config?.days as number) ?? 7;
+      const enrolledAt = new Date(enrollment.enrolled_at).getTime();
+      const daysSince = (Date.now() - enrolledAt) / 86400000;
+      return daysSince >= threshold;
+    }
+
+    case "ab_split": {
+      // Randomly assign A or B based on split_percentage (% that goes to true branch)
+      const splitPct = step.split_percentage ?? 50;
+      const isA = Math.random() * 100 < splitPct;
+      // Persist the variant assignment
+      await supabase.from("crm_outreach_enrollments").update({
+        ab_variant: isA ? "A" : "B",
+      }).eq("id", enrollment.id);
+      return isA;
+    }
+
     default:
       return false;
   }
@@ -210,9 +247,23 @@ async function advanceToNextStep(enrollment: Enrollment, steps: Step[], currentS
     return;
   }
 
+  // Use send-time optimization for message steps with delay > 1 hour
+  let nextSendAt: string;
+  if (nextStep.step_type === "message" && nextStep.delay_hours >= 1) {
+    // Resolve tg_group_id from telegram_chat_id for optimization lookup
+    const { data: group } = await supabase
+      .from("tg_groups")
+      .select("id")
+      .eq("telegram_group_id", Number(enrollment.tg_chat_id))
+      .maybeSingle();
+    nextSendAt = await getOptimalSendTime(group?.id ?? null, nextStep.delay_hours);
+  } else {
+    nextSendAt = new Date(Date.now() + (nextStep.delay_hours || 0) * 3600000).toISOString();
+  }
+
   await supabase.from("crm_outreach_enrollments").update({
     current_step: nextStep.step_number,
-    next_send_at: new Date(Date.now() + (nextStep.delay_hours || 0) * 3600000).toISOString(),
+    next_send_at: nextSendAt,
   }).eq("id", enrollment.id);
 }
 
@@ -220,6 +271,15 @@ async function markCompleted(enrollmentId: string) {
   await supabase.from("crm_outreach_enrollments").update({
     status: "completed",
   }).eq("id", enrollmentId);
+
+  // Fire sequence.completed webhook (non-blocking)
+  try {
+    const { dispatchWebhook } = await import("../lib/webhooks");
+    dispatchWebhook("sequence.completed", {
+      enrollment_id: enrollmentId,
+      type: "outreach",
+    }).catch(() => {});
+  } catch { /* ignore */ }
 }
 
 async function fetchTemplateVars(enrollment: Enrollment): Promise<Record<string, string>> {

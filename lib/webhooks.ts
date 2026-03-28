@@ -14,7 +14,12 @@ export type WebhookEvent =
   | "deal.lost"
   | "contact.created"
   | "contact.updated"
-  | "note.created";
+  | "note.created"
+  | "group.message"
+  | "group.member_joined"
+  | "group.member_left"
+  | "broadcast.sent"
+  | "sequence.completed";
 
 /**
  * Dispatch a webhook event to all active endpoints subscribed to this event type.

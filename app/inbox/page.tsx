@@ -121,12 +121,26 @@ export default function InboxPage() {
   const [showSnooze, setShowSnooze] = React.useState<number | null>(null);
   const snoozeRef = React.useRef<HTMLDivElement>(null);
 
+  // Bot filter
+  const [bots, setBots] = React.useState<{ id: string; label: string }[]>([]);
+  const [selectedBotId, setSelectedBotId] = React.useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    return localStorage.getItem("inbox_bot_filter") ?? "";
+  });
+
+  React.useEffect(() => {
+    fetch("/api/bots").then((r) => r.ok ? r.json() : null).then((d) => {
+      if (d?.bots) setBots(d.bots.map((b: { id: string; label: string }) => ({ id: b.id, label: b.label })));
+    }).catch(() => {});
+  }, []);
+
   // ── Data Fetching ──────────────────────────────────────────
 
   const fetchInbox = React.useCallback(async () => {
     try {
+      const params = selectedBotId ? `?bot_id=${selectedBotId}` : "";
       const [inboxRes, statusRes, cannedRes, seenRes] = await Promise.all([
-        fetch("/api/inbox"),
+        fetch(`/api/inbox${params}`),
         fetch("/api/inbox/status"),
         fetch("/api/inbox/canned"),
         fetch("/api/inbox/seen"),
@@ -134,7 +148,6 @@ export default function InboxPage() {
 
       if (inboxRes.ok) {
         const data = await inboxRes.json();
-        // Replace conversations, dropping any optimistic messages from previous sends
         setConversations((data.conversations ?? []).map((c: Conversation) => ({
           ...c,
           messages: c.messages.filter((m: ThreadMessage) => !String(m.id).startsWith("optimistic-")),
@@ -157,7 +170,7 @@ export default function InboxPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [selectedBotId]);
 
   // Get current user ID + team members
   React.useEffect(() => {
@@ -567,7 +580,7 @@ export default function InboxPage() {
         </div>
       </div>
 
-      {/* Tabs + Search */}
+      {/* Tabs + Search + Bot Filter */}
       <div className="flex items-center gap-3">
         <div className="flex gap-1">
           {([
@@ -607,6 +620,22 @@ export default function InboxPage() {
             className="pl-8 h-8 text-xs"
           />
         </div>
+        {bots.length > 1 && (
+          <select
+            value={selectedBotId}
+            onChange={(e) => {
+              setSelectedBotId(e.target.value);
+              localStorage.setItem("inbox_bot_filter", e.target.value);
+              setLoading(true);
+            }}
+            className="h-8 rounded-lg border border-white/10 bg-transparent px-2 text-xs text-foreground"
+          >
+            <option value="">All Bots</option>
+            {bots.map((b) => (
+              <option key={b.id} value={b.id}>{b.label}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       {/* Main layout */}

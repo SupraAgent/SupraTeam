@@ -28,6 +28,12 @@ import {
   Search,
   AlertTriangle,
   Save,
+  Image,
+  Paperclip,
+  Link,
+  Trash2,
+  Plus,
+  Upload,
 } from "lucide-react";
 import { MERGE_VARIABLES, TEMPLATE_FILTERS } from "@/lib/telegram-templates";
 import { cn } from "@/lib/utils";
@@ -94,6 +100,21 @@ export default function BroadcastsPage() {
   const [scheduleDate, setScheduleDate] = React.useState("");
   const [scheduleTime, setScheduleTime] = React.useState("");
 
+  // Suppression rules
+  const [suppressionHours, setSuppressionHours] = React.useState<number | null>(null);
+  const [excludeStageIds, setExcludeStageIds] = React.useState<Set<string>>(new Set());
+  const [pipelineStages, setPipelineStages] = React.useState<Array<{ id: string; name: string }>>([]);
+
+  // Rich media
+  const [mediaType, setMediaType] = React.useState<"photo" | "document" | null>(null);
+  const [mediaFileId, setMediaFileId] = React.useState<string | null>(null);
+  const [mediaFilename, setMediaFilename] = React.useState<string | null>(null);
+  const [uploading, setUploading] = React.useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  // Inline buttons
+  const [inlineButtons, setInlineButtons] = React.useState<Array<{ text: string; url: string }>>([]);
+
   // History
   const [broadcasts, setBroadcasts] = React.useState<Broadcast[]>([]);
   const [showHistory, setShowHistory] = React.useState(false);
@@ -101,12 +122,20 @@ export default function BroadcastsPage() {
   const [historyLoading, setHistoryLoading] = React.useState(false);
 
   // Analytics
+  type AbResult = {
+    broadcast_id: string;
+    message_preview: string;
+    variant_a: { sent: number; responded: number; rate: number };
+    variant_b: { sent: number; responded: number; rate: number };
+  };
   type AnalyticsData = {
     overview: { totalBroadcasts: number; totalSent: number; totalFailed: number; deliveryRate: number; thisWeek: number; lastWeek: number; weeklyChange: number };
     byStatus: Record<string, number>;
     slugStats: { slug: string; count: number; sent: number; failed: number; deliveryRate: number }[];
     senderStats: { name: string; count: number }[];
     dailyVolume: { date: string; count: number }[];
+    abResults?: AbResult[];
+    bestSendTime?: { hour: number; sent: number; responded: number; responseRate: number }[];
   };
   const [analytics, setAnalytics] = React.useState<AnalyticsData | null>(null);
   const [showAnalytics, setShowAnalytics] = React.useState(false);
@@ -156,6 +185,7 @@ export default function BroadcastsPage() {
   }, [message, scheduleDate, scheduleTime]);
 
   React.useEffect(() => {
+    fetch("/api/pipeline").then((r) => r.json()).then((d) => setPipelineStages(d.stages ?? [])).catch(() => {});
     Promise.all([
       fetch("/api/groups").then((r) => r.json()).catch(() => ({ groups: [] })),
       fetch("/api/groups/slugs").then((r) => r.json()).catch(() => ({ slugs: [] })),
@@ -276,6 +306,47 @@ export default function BroadcastsPage() {
     }
   }
 
+  async function handleMediaUpload(file: File, type: "photo" | "document") {
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("media_type", type);
+      const res = await fetch("/api/broadcasts/upload-media", { method: "POST", body: form });
+      const data = await res.json();
+      if (data.ok) {
+        setMediaType(type);
+        setMediaFileId(data.file_id);
+        setMediaFilename(data.filename);
+        toast.success(`${type === "photo" ? "Photo" : "Document"} uploaded`);
+      } else {
+        toast.error(data.error ?? "Upload failed");
+      }
+    } catch {
+      toast.error("Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function removeMedia() {
+    setMediaType(null);
+    setMediaFileId(null);
+    setMediaFilename(null);
+  }
+
+  function addInlineButton() {
+    setInlineButtons((prev) => [...prev, { text: "", url: "" }]);
+  }
+
+  function updateInlineButton(idx: number, field: "text" | "url", value: string) {
+    setInlineButtons((prev) => prev.map((b, i) => i === idx ? { ...b, [field]: value } : b));
+  }
+
+  function removeInlineButton(idx: number) {
+    setInlineButtons((prev) => prev.filter((_, i) => i !== idx));
+  }
+
   function requestSend() {
     if (!message.trim() || selectedGroupIds.size === 0) return;
     setShowConfirm(true);
@@ -296,6 +367,15 @@ export default function BroadcastsPage() {
       if (scheduleMode && scheduleDate && scheduleTime) {
         body.scheduled_at = new Date(`${scheduleDate}T${scheduleTime}`).toISOString();
       }
+      if (suppressionHours) body.suppression_hours = suppressionHours;
+      if (excludeStageIds.size > 0) body.exclude_stage_ids = [...excludeStageIds];
+      if (mediaType && mediaFileId) {
+        body.media_type = mediaType;
+        body.media_file_id = mediaFileId;
+        body.media_filename = mediaFilename;
+      }
+      const validButtons = inlineButtons.filter((b) => b.text.trim() && b.url.trim());
+      if (validButtons.length > 0) body.inline_buttons = validButtons;
 
       const res = await fetch("/api/broadcasts/send", {
         method: "POST",
@@ -314,7 +394,11 @@ export default function BroadcastsPage() {
         } else {
           setResults(data.results);
           toast.success(`Sent to ${data.sent}/${data.total} groups`);
-          if (data.sent === data.total) setMessage("");
+          if (data.sent === data.total) {
+            setMessage("");
+            removeMedia();
+            setInlineButtons([]);
+          }
         }
         // Refresh history if visible
         if (showHistory) fetchHistory();
@@ -499,6 +583,68 @@ export default function BroadcastsPage() {
                   </div>
                 </div>
               )}
+
+              {/* A/B test results with winner auto-send */}
+              {analytics.abResults && analytics.abResults.length > 0 && (
+                <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4 space-y-3">
+                  <h3 className="text-sm font-medium text-foreground">A/B Test Results</h3>
+                  {analytics.abResults.map((ab) => (
+                    <AbResultCard key={ab.broadcast_id} result={ab} />
+                  ))}
+                </div>
+              )}
+
+              {/* Engagement heatmap — best send times */}
+              {analytics.bestSendTime && analytics.bestSendTime.length > 0 && (() => {
+                const hours = Array.from({ length: 24 }, (_, i) => i);
+                const hourMap = new Map(analytics.bestSendTime!.map((h) => [h.hour, h]));
+                const maxRate = Math.max(...analytics.bestSendTime!.map((h) => h.responseRate), 1);
+                const bestHour = analytics.bestSendTime!.reduce((best, h) => h.responseRate > best.responseRate ? h : best, analytics.bestSendTime![0]);
+
+                return (
+                  <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-medium text-foreground">Best Send Times</h3>
+                      {bestHour && (
+                        <span className="text-[10px] text-emerald-400">
+                          Peak: {bestHour.hour.toString().padStart(2, "0")}:00 UTC ({bestHour.responseRate}% response rate)
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-12 gap-1">
+                      {hours.map((hour) => {
+                        const data = hourMap.get(hour);
+                        const rate = data?.responseRate ?? 0;
+                        const intensity = maxRate > 0 ? rate / maxRate : 0;
+                        const bg = rate === 0 ? "bg-white/5"
+                          : intensity >= 0.75 ? "bg-emerald-500/60"
+                          : intensity >= 0.5 ? "bg-emerald-500/40"
+                          : intensity >= 0.25 ? "bg-emerald-500/20"
+                          : "bg-emerald-500/10";
+                        return (
+                          <div
+                            key={hour}
+                            className={cn("rounded aspect-square flex flex-col items-center justify-center transition-colors hover:ring-1 hover:ring-white/20", bg)}
+                            title={`${hour.toString().padStart(2, "0")}:00 UTC — ${data?.sent ?? 0} sent, ${data?.responded ?? 0} responses (${rate}%)`}
+                          >
+                            <span className="text-[8px] text-muted-foreground leading-none">{hour.toString().padStart(2, "0")}</span>
+                            {data && data.sent > 0 && (
+                              <span className="text-[8px] font-medium text-foreground leading-none mt-0.5">{rate}%</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="flex items-center gap-2 justify-end">
+                      <span className="text-[9px] text-muted-foreground">Response rate:</span>
+                      {["bg-white/5", "bg-emerald-500/10", "bg-emerald-500/20", "bg-emerald-500/40", "bg-emerald-500/60"].map((bg, i) => (
+                        <div key={i} className={cn("h-2.5 w-5 rounded", bg)} />
+                      ))}
+                      <span className="text-[9px] text-muted-foreground">high</span>
+                    </div>
+                  </div>
+                );
+              })()}
             </>
           )}
         </div>
@@ -758,25 +904,25 @@ export default function BroadcastsPage() {
               <div className="flex items-center gap-1 border-b border-white/5 pb-2">
                 <button
                   onClick={() => insertFormatting("b")}
-                  className="rounded px-2 py-1 text-xs font-bold text-muted-foreground hover:bg-white/5 hover:text-foreground transition"
+                  className="rounded px-3 py-2 min-h-[44px] text-xs font-bold text-muted-foreground hover:bg-white/5 hover:text-foreground active:bg-white/10 transition"
                 >
                   B
                 </button>
                 <button
                   onClick={() => insertFormatting("i")}
-                  className="rounded px-2 py-1 text-xs italic text-muted-foreground hover:bg-white/5 hover:text-foreground transition"
+                  className="rounded px-3 py-2 min-h-[44px] text-xs italic text-muted-foreground hover:bg-white/5 hover:text-foreground active:bg-white/10 transition"
                 >
                   I
                 </button>
                 <button
                   onClick={() => insertFormatting("u")}
-                  className="rounded px-2 py-1 text-xs underline text-muted-foreground hover:bg-white/5 hover:text-foreground transition"
+                  className="rounded px-3 py-2 min-h-[44px] text-xs underline text-muted-foreground hover:bg-white/5 hover:text-foreground active:bg-white/10 transition"
                 >
                   U
                 </button>
                 <button
                   onClick={() => insertFormatting("code")}
-                  className="rounded px-2 py-1 text-xs font-mono text-muted-foreground hover:bg-white/5 hover:text-foreground transition"
+                  className="rounded px-3 py-2 min-h-[44px] text-xs font-mono text-muted-foreground hover:bg-white/5 hover:text-foreground active:bg-white/10 transition"
                 >
                   {"</>"}
                 </button>
@@ -784,13 +930,13 @@ export default function BroadcastsPage() {
                 <button
                   onClick={() => setShowPreview(!showPreview)}
                   className={cn(
-                    "rounded px-2 py-1 text-xs flex items-center gap-1 transition",
+                    "rounded px-3 py-2 min-h-[44px] text-xs flex items-center gap-1.5 transition",
                     showPreview
                       ? "bg-primary/20 text-primary"
                       : "text-muted-foreground hover:bg-white/5"
                   )}
                 >
-                  <Eye className="h-3 w-3" />
+                  <Eye className="h-3.5 w-3.5" />
                   Preview
                 </button>
               </div>
@@ -829,6 +975,85 @@ export default function BroadcastsPage() {
                 />
               )}
 
+              {/* Media attachment */}
+              <div className="space-y-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  accept={mediaType === "document" ? "*/*" : "image/*"}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const type = file.type.startsWith("image/") ? "photo" as const : "document" as const;
+                    handleMediaUpload(file, type);
+                    e.target.value = "";
+                  }}
+                />
+                {mediaFileId ? (
+                  <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2">
+                    {mediaType === "photo" ? <Image className="h-4 w-4 text-blue-400 shrink-0" /> : <Paperclip className="h-4 w-4 text-emerald-400 shrink-0" />}
+                    <span className="text-xs text-foreground truncate flex-1">{mediaFilename ?? "Attached file"}</span>
+                    <span className="text-[10px] text-muted-foreground uppercase">{mediaType}</span>
+                    <button onClick={removeMedia} className="text-muted-foreground hover:text-red-400 transition-colors p-1">
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => { fileInputRef.current?.setAttribute("accept", "image/*"); fileInputRef.current?.click(); }}
+                      disabled={uploading}
+                      className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-muted-foreground hover:bg-white/5 transition-colors"
+                    >
+                      {uploading ? <Upload className="h-3 w-3 animate-pulse" /> : <Image className="h-3 w-3" />}
+                      Photo
+                    </button>
+                    <button
+                      onClick={() => { fileInputRef.current?.setAttribute("accept", "*/*"); fileInputRef.current?.click(); }}
+                      disabled={uploading}
+                      className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-muted-foreground hover:bg-white/5 transition-colors"
+                    >
+                      {uploading ? <Upload className="h-3 w-3 animate-pulse" /> : <Paperclip className="h-3 w-3" />}
+                      Document
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Inline buttons builder */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+                    <Link className="h-3 w-3" /> Inline Buttons
+                  </span>
+                  {inlineButtons.length < 3 && (
+                    <button onClick={addInlineButton} className="flex items-center gap-1 text-[10px] text-primary hover:text-primary/80 transition-colors">
+                      <Plus className="h-3 w-3" /> Add Button
+                    </button>
+                  )}
+                </div>
+                {inlineButtons.map((btn, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <Input
+                      value={btn.text}
+                      onChange={(e) => updateInlineButton(idx, "text", e.target.value)}
+                      placeholder="Button text"
+                      className="h-7 text-xs flex-1"
+                    />
+                    <Input
+                      value={btn.url}
+                      onChange={(e) => updateInlineButton(idx, "url", e.target.value)}
+                      placeholder="https://..."
+                      className="h-7 text-xs flex-1"
+                    />
+                    <button onClick={() => removeInlineButton(idx)} className="text-muted-foreground hover:text-red-400 transition-colors p-1">
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
               {/* Schedule toggle */}
               <div className="flex items-center gap-3">
                 <button
@@ -862,13 +1087,105 @@ export default function BroadcastsPage() {
                 )}
               </div>
 
+              {/* Suppression rules */}
+              <div className="flex items-center gap-3 flex-wrap">
+                <select
+                  value={suppressionHours ?? ""}
+                  onChange={(e) => setSuppressionHours(e.target.value ? Number(e.target.value) : null)}
+                  className="rounded-lg border border-white/10 bg-transparent px-2 py-1 text-[11px] text-muted-foreground"
+                  title="Skip groups that received a broadcast within this window"
+                >
+                  <option value="">No suppression</option>
+                  <option value="12">Suppress 12h</option>
+                  <option value="24">Suppress 24h</option>
+                  <option value="48">Suppress 48h</option>
+                  <option value="72">Suppress 72h</option>
+                </select>
+                {pipelineStages.length > 0 && (
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        setExcludeStageIds((prev) => new Set([...prev, e.target.value]));
+                        e.target.value = "";
+                      }
+                    }}
+                    className="rounded-lg border border-white/10 bg-transparent px-2 py-1 text-[11px] text-muted-foreground"
+                    title="Exclude groups linked to deals at these stages"
+                  >
+                    <option value="">Exclude stage...</option>
+                    {pipelineStages.filter((s) => !excludeStageIds.has(s.id)).map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                )}
+                {[...excludeStageIds].map((sid) => {
+                  const stage = pipelineStages.find((s) => s.id === sid);
+                  return stage ? (
+                    <span key={sid} className="flex items-center gap-1 rounded bg-red-500/10 text-red-400 px-2 py-0.5 text-[10px]">
+                      {stage.name}
+                      <button onClick={() => setExcludeStageIds((prev) => { const n = new Set(prev); n.delete(sid); return n; })} className="hover:text-red-300">
+                        <X className="h-2.5 w-2.5" />
+                      </button>
+                    </span>
+                  ) : null;
+                })}
+              </div>
+
+              {/* Audience preview panel */}
+              {selectedGroupIds.size > 0 && (() => {
+                const selectedGroups = groups.filter((g) => selectedGroupIds.has(g.id));
+                const notAdmin = selectedGroups.filter((g) => !g.bot_is_admin);
+                const noMembers = selectedGroups.filter((g) => !g.member_count);
+                return (
+                  <div className={cn(
+                    "rounded-lg border p-2.5 text-xs space-y-1.5",
+                    notAdmin.length > 0 ? "border-amber-500/30 bg-amber-500/5" : "border-white/10 bg-white/[0.02]"
+                  )}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground font-medium flex items-center gap-1.5">
+                        <Users className="h-3 w-3" /> Audience Preview
+                      </span>
+                      <span className="text-foreground font-medium">
+                        {selectedGroupIds.size} group{selectedGroupIds.size !== 1 ? "s" : ""} &middot; ~{totalRecipients.toLocaleString()} recipients
+                      </span>
+                    </div>
+                    {notAdmin.length > 0 && (
+                      <p className="text-[10px] text-amber-400 flex items-center gap-1">
+                        <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
+                        Bot is not admin in {notAdmin.length} group{notAdmin.length !== 1 ? "s" : ""} — delivery will fail: {notAdmin.slice(0, 3).map((g) => g.group_name).join(", ")}{notAdmin.length > 3 ? ` +${notAdmin.length - 3} more` : ""}
+                      </p>
+                    )}
+                    {noMembers.length > 0 && noMembers.length < selectedGroups.length && (
+                      <p className="text-[10px] text-muted-foreground/60">
+                        {noMembers.length} group{noMembers.length !== 1 ? "s" : ""} with unknown member count — recipient estimate may be low
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
+
               <div className="flex items-center justify-between">
                 <div className="text-xs text-muted-foreground space-y-0.5">
-                  <p>{message.length} chars | {selectedGroupIds.size} group{selectedGroupIds.size !== 1 ? "s" : ""} selected</p>
-                  {totalRecipients > 0 && (
-                    <p className="text-[10px] flex items-center gap-1">
-                      <Users className="h-2.5 w-2.5" />
-                      ~{totalRecipients.toLocaleString()} total recipients
+                  <p className="flex items-center gap-1.5">
+                    {(() => {
+                      const charLimit = mediaFileId ? 1024 : 4096;
+                      const warnAt = mediaFileId ? 900 : 3600;
+                      return (
+                        <span className={cn(
+                          message.length > charLimit ? "text-red-400 font-medium" : message.length > warnAt ? "text-amber-400" : ""
+                        )}>
+                          {message.length.toLocaleString()}/{charLimit.toLocaleString()}
+                          {mediaFileId && <span className="text-muted-foreground/60 ml-1">(caption)</span>}
+                        </span>
+                      );
+                    })()}
+                    <span className="text-white/20">|</span>
+                    {selectedGroupIds.size} group{selectedGroupIds.size !== 1 ? "s" : ""} selected
+                  </p>
+                  {message.length > (mediaFileId ? 1024 : 4096) && (
+                    <p className="text-[10px] text-red-400 flex items-center gap-1">
+                      <AlertTriangle className="h-2.5 w-2.5" /> Exceeds Telegram&apos;s {mediaFileId ? "1024 caption" : "4096 character"} limit
                     </p>
                   )}
                   {message.trim() && (
@@ -882,6 +1199,7 @@ export default function BroadcastsPage() {
                   disabled={
                     sending ||
                     !message.trim() ||
+                    message.length > (mediaFileId ? 1024 : 4096) ||
                     selectedGroupIds.size === 0 ||
                     (scheduleMode && (!scheduleDate || !scheduleTime))
                   }
@@ -1093,34 +1411,122 @@ export default function BroadcastsPage() {
 
       {/* Send confirmation modal */}
       {showConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[hsl(225,35%,8%)] p-6 shadow-xl space-y-4">
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 sm:backdrop-blur-sm"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowConfirm(false); }}
+        >
+          <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl border border-white/10 bg-[hsl(225,35%,8%)] p-5 sm:p-6 shadow-xl space-y-4 safe-area-bottom">
             <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-xl bg-amber-500/10 flex items-center justify-center">
+              <div className="h-10 w-10 rounded-xl bg-amber-500/10 flex items-center justify-center shrink-0">
                 <AlertTriangle className="h-5 w-5 text-amber-400" />
               </div>
               <div>
                 <h3 className="text-sm font-semibold text-foreground">Confirm Broadcast</h3>
-                <p className="text-[11px] text-muted-foreground">This action cannot be undone</p>
+                <p className="text-xs text-muted-foreground">This action cannot be undone</p>
               </div>
             </div>
             <div className="rounded-lg bg-white/[0.03] border border-white/10 p-3 space-y-2">
               <p className="text-xs text-muted-foreground line-clamp-3">{message}</p>
-              <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+              <div className="flex items-center gap-3 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1"><Users className="h-3 w-3" />{selectedGroupIds.size} group{selectedGroupIds.size !== 1 ? "s" : ""}</span>
                 {totalRecipients > 0 && <span>~{totalRecipients.toLocaleString()} recipients</span>}
                 {scheduleMode && scheduleDate && <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{scheduleDate} {scheduleTime}</span>}
               </div>
             </div>
-            <div className="flex items-center justify-end gap-2">
-              <Button variant="ghost" size="sm" onClick={() => setShowConfirm(false)}>Cancel</Button>
-              <Button size="sm" onClick={handleSend}>
-                <Send className="mr-1 h-3.5 w-3.5" />
+            <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2">
+              <Button variant="ghost" className="min-h-[44px]" onClick={() => setShowConfirm(false)}>Cancel</Button>
+              <Button className="min-h-[44px]" onClick={handleSend}>
+                <Send className="mr-1.5 h-4 w-4" />
                 {scheduleMode ? "Confirm Schedule" : "Confirm Send"}
               </Button>
             </div>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+// ── A/B Result Card with Winner Auto-Send ──
+
+function AbResultCard({ result }: { result: { broadcast_id: string; message_preview: string; variant_a: { sent: number; responded: number; rate: number }; variant_b: { sent: number; responded: number; rate: number } } }) {
+  const [sending, setSending] = React.useState(false);
+  const [sent, setSent] = React.useState(false);
+  const [winnerData, setWinnerData] = React.useState<{ winner: string | null; already_sent: boolean } | null>(null);
+
+  React.useEffect(() => {
+    fetch(`/api/broadcasts/ab-winner?broadcast_id=${result.broadcast_id}`)
+      .then((r) => r.json())
+      .then((d) => setWinnerData({ winner: d.winner, already_sent: d.already_sent }))
+      .catch(() => {});
+  }, [result.broadcast_id]);
+
+  async function sendWinner(winner: string) {
+    setSending(true);
+    try {
+      const res = await fetch("/api/broadcasts/ab-winner", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ broadcast_id: result.broadcast_id, winner }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setSent(true);
+        toast.success(`Winner variant ${winner} sent to ${data.sent} groups`);
+      } else {
+        toast.error(data.error ?? "Failed to send winner");
+      }
+    } finally {
+      setSending(false);
+    }
+  }
+
+  const aWins = result.variant_a.rate > result.variant_b.rate;
+  const bWins = result.variant_b.rate > result.variant_a.rate;
+  const winner = winnerData?.winner;
+  const alreadySent = winnerData?.already_sent || sent;
+
+  return (
+    <div className="rounded-lg border border-white/5 bg-white/[0.02] p-3 space-y-2">
+      <p className="text-xs text-muted-foreground truncate">{result.message_preview || "Broadcast"}</p>
+      <div className="grid grid-cols-2 gap-3">
+        <div className={cn("rounded-lg p-2 border", aWins ? "border-emerald-500/30 bg-emerald-500/5" : "border-white/5")}>
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-medium text-foreground">Variant A</span>
+            {aWins && <span className="text-[9px] text-emerald-400 font-medium">Winner</span>}
+          </div>
+          <p className={cn("text-lg font-bold", aWins ? "text-emerald-400" : "text-foreground")}>{result.variant_a.rate}%</p>
+          <p className="text-[10px] text-muted-foreground">{result.variant_a.responded}/{result.variant_a.sent} responses</p>
+        </div>
+        <div className={cn("rounded-lg p-2 border", bWins ? "border-emerald-500/30 bg-emerald-500/5" : "border-white/5")}>
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-medium text-foreground">Variant B</span>
+            {bWins && <span className="text-[9px] text-emerald-400 font-medium">Winner</span>}
+          </div>
+          <p className={cn("text-lg font-bold", bWins ? "text-emerald-400" : "text-foreground")}>{result.variant_b.rate}%</p>
+          <p className="text-[10px] text-muted-foreground">{result.variant_b.responded}/{result.variant_b.sent} responses</p>
+        </div>
+      </div>
+      {winner && !alreadySent && (
+        <Button
+          size="sm"
+          onClick={() => sendWinner(winner)}
+          disabled={sending}
+          className="w-full"
+        >
+          <Send className="mr-1.5 h-3.5 w-3.5" />
+          {sending ? "Sending..." : `Send Variant ${winner} to remaining groups`}
+        </Button>
+      )}
+      {alreadySent && (
+        <p className="text-[10px] text-emerald-400/60 text-center flex items-center justify-center gap-1">
+          <Check className="h-3 w-3" /> Winner sent to remaining groups
+        </p>
+      )}
+      {!winner && !alreadySent && (
+        <p className="text-[10px] text-muted-foreground/60 text-center">
+          Need more data to determine winner (min 3 recipients + 2 responses per variant)
+        </p>
       )}
     </div>
   );
@@ -1156,7 +1562,7 @@ function MergeVariablePicker({ onInsert }: { onInsert: (token: string) => void }
           <button
             key={v.key}
             onClick={() => onInsert(`{{${v.key}}}`)}
-            className="rounded-md border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-[9px] font-mono text-primary hover:bg-primary/20 transition-colors cursor-pointer"
+            className="rounded-md border border-primary/20 bg-primary/10 px-2 py-1 min-h-[32px] text-[11px] font-mono text-primary hover:bg-primary/20 active:bg-primary/30 transition-colors cursor-pointer"
             title={v.hint}
           >
             {`{{${v.key}}}`}
@@ -1165,17 +1571,17 @@ function MergeVariablePicker({ onInsert }: { onInsert: (token: string) => void }
         <button
           onClick={() => setExpanded(!expanded)}
           className={cn(
-            "rounded-md px-1.5 py-0.5 text-[9px] font-medium transition-colors flex items-center gap-0.5",
+            "rounded-md px-2 py-1 min-h-[32px] text-[11px] font-medium transition-colors flex items-center gap-0.5",
             expanded ? "bg-primary/20 text-primary" : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
           )}
         >
           {expanded ? "Less" : "All Variables"}
-          <ChevronDown className={cn("h-2.5 w-2.5 transition-transform", expanded && "rotate-180")} />
+          <ChevronDown className={cn("h-3 w-3 transition-transform", expanded && "rotate-180")} />
         </button>
         <button
           onClick={() => { setShowFilters(!showFilters); if (!showFilters) setExpanded(false); }}
           className={cn(
-            "rounded-md px-1.5 py-0.5 text-[9px] font-medium transition-colors",
+            "rounded-md px-2 py-1 min-h-[32px] text-[11px] font-medium transition-colors",
             showFilters ? "bg-amber-500/20 text-amber-400" : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
           )}
         >
@@ -1190,13 +1596,13 @@ function MergeVariablePicker({ onInsert }: { onInsert: (token: string) => void }
             const cfg = CATEGORY_LABELS[cat] ?? { label: cat, color: "text-muted-foreground" };
             return (
               <div key={cat}>
-                <p className={cn("text-[10px] font-medium mb-1", cfg.color)}>{cfg.label}</p>
+                <p className={cn("text-xs font-medium mb-1", cfg.color)}>{cfg.label}</p>
                 <div className="flex flex-wrap gap-1">
                   {vars.map((v) => (
                     <button
                       key={v.key}
                       onClick={() => onInsert(`{{${v.key}}}`)}
-                      className="rounded-md border border-white/10 bg-white/[0.03] px-1.5 py-0.5 text-[9px] font-mono text-foreground hover:bg-white/10 transition-colors"
+                      className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 min-h-[32px] text-[11px] font-mono text-foreground hover:bg-white/10 active:bg-white/15 transition-colors"
                       title={v.hint}
                     >
                       {v.label}
@@ -1207,10 +1613,10 @@ function MergeVariablePicker({ onInsert }: { onInsert: (token: string) => void }
             );
           })}
           <div className="border-t border-white/5 pt-1.5">
-            <p className="text-[10px] text-muted-foreground">
-              Conditionals: <code className="text-[9px] bg-white/5 px-1 rounded">{`{{#if var}}...{{/if}}`}</code>{" "}
-              <code className="text-[9px] bg-white/5 px-1 rounded">{`{{#unless var}}...{{/unless}}`}</code>{" "}
-              <code className="text-[9px] bg-white/5 px-1 rounded">{`{{#ifgt value 1000}}...{{/ifgt}}`}</code>
+            <p className="text-xs text-muted-foreground">
+              Conditionals: <code className="text-[11px] bg-white/5 px-1 rounded">{`{{#if var}}...{{/if}}`}</code>{" "}
+              <code className="text-[11px] bg-white/5 px-1 rounded">{`{{#unless var}}...{{/unless}}`}</code>{" "}
+              <code className="text-[11px] bg-white/5 px-1 rounded">{`{{#ifgt value 1000}}...{{/ifgt}}`}</code>
             </p>
           </div>
         </div>
@@ -1219,20 +1625,20 @@ function MergeVariablePicker({ onInsert }: { onInsert: (token: string) => void }
       {/* Filters panel */}
       {showFilters && (
         <div className="rounded-lg border border-white/10 bg-white/[0.02] p-2.5 space-y-1.5">
-          <p className="text-[10px] text-muted-foreground">Transform filters — append with <code className="bg-white/5 px-1 rounded">|</code></p>
+          <p className="text-xs text-muted-foreground">Transform filters — append with <code className="bg-white/5 px-1 rounded">|</code></p>
           <div className="flex flex-wrap gap-1">
             {TEMPLATE_FILTERS.map((f) => (
               <button
                 key={f.key}
                 onClick={() => onInsert(`|${f.key}`)}
-                className="rounded-md border border-amber-500/20 bg-amber-500/5 px-1.5 py-0.5 text-[9px] font-mono text-amber-400 hover:bg-amber-500/15 transition-colors"
+                className="rounded-md border border-amber-500/20 bg-amber-500/5 px-2 py-1 min-h-[32px] text-[11px] font-mono text-amber-400 hover:bg-amber-500/15 active:bg-amber-500/25 transition-colors"
                 title={`${f.hint} — ${f.example}`}
               >
                 |{f.key}
               </button>
             ))}
           </div>
-          <p className="text-[9px] text-muted-foreground/60">
+          <p className="text-xs text-muted-foreground/60">
             Example: <code className="bg-white/5 px-1 rounded">{`{{contact_name|upper}}`}</code> or <code className="bg-white/5 px-1 rounded">{`{{value|currency}}`}</code>
           </p>
         </div>

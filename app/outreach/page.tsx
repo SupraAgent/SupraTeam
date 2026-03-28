@@ -17,6 +17,9 @@ import {
   ArrowRight,
   GitBranch,
   Timer,
+  Copy,
+  BarChart3,
+  TrendingUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { timeAgo } from "@/lib/utils";
@@ -42,10 +45,37 @@ type Step = {
   delay_hours: number;
   message_template: string;
   step_type: string;
+  step_label: string | null;
   condition_type: string | null;
   condition_config: Record<string, unknown> | null;
   on_true_step: number | null;
   on_false_step: number | null;
+  split_percentage: number | null;
+};
+
+type SequenceAnalytics = {
+  id: string;
+  name: string;
+  status: string;
+  step_count: number;
+  total: number;
+  active: number;
+  completed: number;
+  replied: number;
+  paused: number;
+  reply_rate: number;
+  completion_rate: number;
+};
+
+type SequenceDetail = {
+  sequence: { id: string; name: string; status: string } | null;
+  total: number;
+  replied: number;
+  reply_rate: number;
+  completion_rate: number;
+  status_counts: Record<string, number>;
+  step_stats: Array<{ step_number: number; step_label: string; step_type: string; delay_hours: number; sent: number; preview: string }>;
+  daily_enrollments: Array<{ date: string; count: number }>;
 };
 
 export default function OutreachPage() {
@@ -55,23 +85,32 @@ export default function OutreachPage() {
   const [steps, setSteps] = React.useState<Step[]>([]);
   const [stepsLoading, setStepsLoading] = React.useState(false);
   const [showCreate, setShowCreate] = React.useState(false);
+  const [showAnalytics, setShowAnalytics] = React.useState(false);
+  const [analyticsData, setAnalyticsData] = React.useState<SequenceAnalytics[] | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = React.useState(false);
+  const [detailData, setDetailData] = React.useState<SequenceDetail | null>(null);
+  const [detailLoading, setDetailLoading] = React.useState(false);
+  const [selectedSeqId, setSelectedSeqId] = React.useState<string | null>(null);
 
   // Create form
   const [newName, setNewName] = React.useState("");
   const [newDesc, setNewDesc] = React.useState("");
   const [newBoard, setNewBoard] = React.useState("");
+  const [newGoalStage, setNewGoalStage] = React.useState("");
   const [newSteps, setNewSteps] = React.useState<Array<{
     message_template: string;
     delay_hours: number;
     step_type: string;
+    step_label: string;
     condition_type: string;
     condition_config: Record<string, unknown>;
     on_true_step: number | null;
     on_false_step: number | null;
+    split_percentage: number | null;
   }>>([
-    { message_template: "", delay_hours: 0, step_type: "message", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null },
-    { message_template: "", delay_hours: 24, step_type: "message", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null },
-    { message_template: "", delay_hours: 48, step_type: "message", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null },
+    { message_template: "", delay_hours: 0, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
+    { message_template: "", delay_hours: 24, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
+    { message_template: "", delay_hours: 48, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
   ]);
   const [pipelineStages, setPipelineStages] = React.useState<Array<{ id: string; name: string }>>([]);
 
@@ -110,6 +149,33 @@ export default function OutreachPage() {
     }
   }
 
+  async function fetchAnalytics() {
+    setAnalyticsLoading(true);
+    try {
+      const res = await fetch("/api/outreach/analytics");
+      if (res.ok) {
+        const data = await res.json();
+        setAnalyticsData(data.sequences ?? []);
+      }
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  }
+
+  async function fetchSequenceDetail(seqId: string) {
+    setSelectedSeqId(seqId);
+    setDetailLoading(true);
+    try {
+      const res = await fetch(`/api/outreach/analytics?sequence_id=${seqId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setDetailData(data);
+      }
+    } finally {
+      setDetailLoading(false);
+    }
+  }
+
   async function handleCreate() {
     if (!newName.trim()) return;
     const validSteps = newSteps.filter((s) => s.step_type !== "message" || s.message_template.trim());
@@ -125,6 +191,7 @@ export default function OutreachPage() {
         name: newName.trim(),
         description: newDesc || undefined,
         board_type: newBoard || undefined,
+        goal_stage_id: newGoalStage || undefined,
         steps: validSteps,
       }),
     });
@@ -136,9 +203,9 @@ export default function OutreachPage() {
       setNewDesc("");
       setNewBoard("");
       setNewSteps([
-        { message_template: "", delay_hours: 0, step_type: "message", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null },
-        { message_template: "", delay_hours: 24, step_type: "message", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null },
-        { message_template: "", delay_hours: 48, step_type: "message", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null },
+        { message_template: "", delay_hours: 0, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
+        { message_template: "", delay_hours: 24, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
+        { message_template: "", delay_hours: 48, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
       ]);
       fetchSequences();
     }
@@ -164,8 +231,23 @@ export default function OutreachPage() {
     toast.success("Sequence deleted");
   }
 
+  async function cloneSequence(id: string) {
+    const res = await fetch("/api/outreach/sequences/clone", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sequence_id: id }),
+    });
+    if (res.ok) {
+      toast.success("Sequence cloned");
+      fetchSequences();
+    } else {
+      const data = await res.json();
+      toast.error(data.error ?? "Clone failed");
+    }
+  }
+
   function addStep(type: string = "message") {
-    setNewSteps([...newSteps, { message_template: "", delay_hours: 24, step_type: type, condition_type: type === "condition" ? "reply_received" : "", condition_config: {}, on_true_step: null, on_false_step: null }]);
+    setNewSteps([...newSteps, { message_template: "", delay_hours: 24, step_type: type, step_label: "", condition_type: type === "condition" ? "reply_received" : "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: type === "condition" ? 50 : null }]);
   }
 
   function removeStep(index: number) {
@@ -207,11 +289,256 @@ export default function OutreachPage() {
             Multi-step automated messaging campaigns for Telegram outreach.
           </p>
         </div>
-        <Button size="sm" onClick={() => setShowCreate(!showCreate)}>
-          <Plus className="mr-1 h-3.5 w-3.5" />
-          New Sequence
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setShowAnalytics(!showAnalytics);
+              if (!showAnalytics && !analyticsData) fetchAnalytics();
+            }}
+          >
+            <BarChart3 className="mr-1 h-3.5 w-3.5" />
+            {showAnalytics ? "Sequences" : "Analytics"}
+          </Button>
+          {!showAnalytics && (
+            <Button size="sm" onClick={() => setShowCreate(!showCreate)}>
+              <Plus className="mr-1 h-3.5 w-3.5" />
+              New Sequence
+            </Button>
+          )}
+        </div>
       </div>
+
+      {/* Analytics view */}
+      {showAnalytics ? (
+        <div className="space-y-4">
+          {analyticsLoading || !analyticsData ? (
+            <div className="space-y-3">
+              {[1, 2, 3].map((i) => <div key={i} className="h-24 rounded-xl bg-white/[0.02] animate-pulse" />)}
+            </div>
+          ) : selectedSeqId && detailData ? (
+            // Detail view for selected sequence
+            <div className="space-y-4">
+              <button onClick={() => { setSelectedSeqId(null); setDetailData(null); }} className="text-xs text-primary hover:underline">&larr; Back to overview</button>
+
+              {detailLoading ? (
+                <div className="h-40 rounded-xl bg-white/[0.02] animate-pulse" />
+              ) : (
+                <>
+                  <div className="flex items-center gap-3">
+                    <h3 className="text-sm font-medium text-foreground">{detailData.sequence?.name ?? "Sequence"}</h3>
+                    <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] capitalize">{detailData.sequence?.status}</span>
+                  </div>
+
+                  {/* Summary cards */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {[
+                      { label: "Enrolled", value: detailData.total, color: "text-foreground" },
+                      { label: "Replied", value: detailData.replied, color: "text-purple-400" },
+                      { label: "Reply Rate", value: `${detailData.reply_rate}%`, color: detailData.reply_rate >= 20 ? "text-emerald-400" : "text-amber-400" },
+                      { label: "Completion", value: `${detailData.completion_rate}%`, color: "text-blue-400" },
+                    ].map((c) => (
+                      <div key={c.label} className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{c.label}</p>
+                        <p className={cn("text-xl font-semibold mt-0.5", c.color)}>{c.value}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Status breakdown */}
+                  {Object.keys(detailData.status_counts).length > 0 && (
+                    <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-2">
+                      <h4 className="text-xs font-medium text-muted-foreground">Enrollment Status</h4>
+                      <div className="flex items-center gap-3 flex-wrap">
+                        {Object.entries(detailData.status_counts).map(([status, count]) => (
+                          <span key={status} className="rounded-lg bg-white/5 border border-white/10 px-3 py-1.5 text-xs">
+                            <span className="text-foreground font-medium capitalize">{status}</span>
+                            <span className="text-muted-foreground ml-1.5">{count}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Step funnel */}
+                  {detailData.step_stats.length > 0 && (
+                    <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-3">
+                      <h4 className="text-xs font-medium text-muted-foreground">Step Funnel</h4>
+                      <div className="space-y-2">
+                        {detailData.step_stats.map((step, i) => {
+                          const maxSent = Math.max(...detailData.step_stats.map((s) => s.sent), 1);
+                          const pct = (step.sent / maxSent) * 100;
+                          const dropoff = i > 0 && detailData.step_stats[i - 1].sent > 0
+                            ? Math.round(((detailData.step_stats[i - 1].sent - step.sent) / detailData.step_stats[i - 1].sent) * 100)
+                            : 0;
+                          return (
+                            <div key={step.step_number} className="space-y-1">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/20 text-primary text-[10px] font-bold">{step.step_number}</span>
+                                  <span className="text-xs text-foreground">{step.step_label}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs text-muted-foreground">{step.sent} sent</span>
+                                  {dropoff > 0 && <span className="text-[10px] text-red-400">-{dropoff}%</span>}
+                                </div>
+                              </div>
+                              <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+                                <div className="h-full rounded-full bg-primary/50 transition-all" style={{ width: `${Math.max(pct, 2)}%` }} />
+                              </div>
+                              <p className="text-[10px] text-muted-foreground/60 truncate">{step.preview}</p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Daily enrollment chart */}
+                  {detailData.daily_enrollments.length > 0 && (
+                    <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-3">
+                      <h4 className="text-xs font-medium text-muted-foreground">Daily Enrollments (30d)</h4>
+                      <div className="flex items-end gap-0.5 h-16">
+                        {detailData.daily_enrollments.map((d) => {
+                          const max = Math.max(...detailData.daily_enrollments.map((v) => v.count));
+                          const height = max > 0 ? (d.count / max) * 100 : 0;
+                          return (
+                            <div
+                              key={d.date}
+                              className="flex-1 bg-primary/40 rounded-t hover:bg-primary/60 transition-colors"
+                              style={{ height: `${Math.max(height, 4)}%` }}
+                              title={`${d.date}: ${d.count}`}
+                            />
+                          );
+                        })}
+                      </div>
+                      <div className="flex justify-between text-[9px] text-muted-foreground">
+                        <span>{detailData.daily_enrollments[0]?.date}</span>
+                        <span>{detailData.daily_enrollments[detailData.daily_enrollments.length - 1]?.date}</span>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          ) : (
+            // Overview: all sequences analytics
+            <div className="space-y-3">
+              {analyticsData.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-8">No sequence data yet.</p>
+              ) : (
+                <>
+                  {/* Aggregate cards */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {(() => {
+                      const totals = analyticsData.reduce((acc, s) => {
+                        acc.total += s.total; acc.replied += s.replied; acc.completed += s.completed; acc.active += s.active;
+                        return acc;
+                      }, { total: 0, replied: 0, completed: 0, active: 0 });
+                      const rr = totals.total > 0 ? Math.round((totals.replied / totals.total) * 100) : 0;
+                      const cr = totals.total > 0 ? Math.round((totals.completed / totals.total) * 100) : 0;
+                      return [
+                        { label: "Total Enrolled", value: totals.total, color: "text-foreground" },
+                        { label: "In Progress", value: totals.active, color: "text-blue-400" },
+                        { label: "Avg Reply Rate", value: `${rr}%`, color: rr >= 20 ? "text-emerald-400" : "text-amber-400" },
+                        { label: "Avg Completion", value: `${cr}%`, color: "text-muted-foreground" },
+                      ];
+                    })().map((c) => (
+                      <div key={c.label} className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{c.label}</p>
+                        <p className={cn("text-xl font-semibold mt-0.5", c.color)}>{c.value}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Per-sequence table */}
+                  <div className="rounded-xl border border-white/10 bg-white/[0.02] overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-white/5 text-[10px] text-muted-foreground uppercase tracking-wider">
+                          <th className="text-left p-3">Sequence</th>
+                          <th className="text-center p-3">Steps</th>
+                          <th className="text-center p-3">Enrolled</th>
+                          <th className="text-center p-3">Active</th>
+                          <th className="text-center p-3">Replied</th>
+                          <th className="text-center p-3">Reply Rate</th>
+                          <th className="text-center p-3">Completion</th>
+                          <th className="text-center p-3"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {analyticsData.map((seq) => (
+                          <tr key={seq.id} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
+                            <td className="p-3">
+                              <div className="flex items-center gap-2">
+                                <span className="text-foreground font-medium">{seq.name}</span>
+                                <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] capitalize",
+                                  seq.status === "active" ? "bg-emerald-500/10 text-emerald-400" :
+                                  seq.status === "paused" ? "bg-yellow-500/10 text-yellow-400" :
+                                  "bg-white/10 text-muted-foreground"
+                                )}>{seq.status}</span>
+                              </div>
+                            </td>
+                            <td className="text-center p-3 text-muted-foreground">{seq.step_count}</td>
+                            <td className="text-center p-3 text-foreground font-medium">{seq.total}</td>
+                            <td className="text-center p-3 text-blue-400">{seq.active}</td>
+                            <td className="text-center p-3 text-purple-400">{seq.replied}</td>
+                            <td className="text-center p-3">
+                              <span className={cn("font-medium", seq.reply_rate >= 20 ? "text-emerald-400" : seq.reply_rate >= 10 ? "text-amber-400" : "text-muted-foreground")}>
+                                {seq.reply_rate}%
+                              </span>
+                            </td>
+                            <td className="text-center p-3 text-muted-foreground">{seq.completion_rate}%</td>
+                            <td className="text-center p-3">
+                              <button
+                                onClick={() => fetchSequenceDetail(seq.id)}
+                                className="text-primary hover:underline text-[10px]"
+                              >
+                                Details
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      ) : (
+      <>
+      {/* Aggregate stats */}
+      {sequences.length > 0 && (() => {
+        const totals = sequences.reduce((acc, s) => {
+          acc.total += s.enrollment_stats.total;
+          acc.active += s.enrollment_stats.active;
+          acc.completed += s.enrollment_stats.completed;
+          acc.replied += s.enrollment_stats.replied;
+          return acc;
+        }, { total: 0, active: 0, completed: 0, replied: 0 });
+        const replyRate = totals.total > 0 ? Math.round((totals.replied / totals.total) * 100) : 0;
+        const completionRate = totals.total > 0 ? Math.round((totals.completed / totals.total) * 100) : 0;
+        const activeSeqs = sequences.filter((s) => s.status === "active").length;
+        return (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[
+              { label: "Total Enrollments", value: totals.total, sub: `${activeSeqs} active sequence${activeSeqs !== 1 ? "s" : ""}`, color: "text-foreground" },
+              { label: "In Progress", value: totals.active, sub: "currently active", color: "text-blue-400" },
+              { label: "Reply Rate", value: `${replyRate}%`, sub: `${totals.replied} replies`, color: replyRate >= 20 ? "text-emerald-400" : "text-amber-400" },
+              { label: "Completion Rate", value: `${completionRate}%`, sub: `${totals.completed} completed`, color: "text-muted-foreground" },
+            ].map((card) => (
+              <div key={card.label} className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{card.label}</p>
+                <p className={cn("text-xl font-semibold mt-0.5", card.color ?? "text-foreground")}>{card.value}</p>
+                <p className="text-[10px] text-muted-foreground/60 mt-0.5">{card.sub}</p>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
 
       {/* Create form */}
       {showCreate && (
@@ -237,12 +564,25 @@ export default function OutreachPage() {
             </select>
           </div>
 
-          <Input
-            value={newDesc}
-            onChange={(e) => setNewDesc(e.target.value)}
-            placeholder="Description (optional)"
-            className="text-xs"
-          />
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              value={newDesc}
+              onChange={(e) => setNewDesc(e.target.value)}
+              placeholder="Description (optional)"
+              className="text-xs"
+            />
+            <select
+              value={newGoalStage}
+              onChange={(e) => setNewGoalStage(e.target.value)}
+              className="rounded-lg border border-white/10 bg-transparent px-3 py-2 text-xs"
+              title="Auto-complete sequence when deal reaches this stage"
+            >
+              <option value="">No goal stage</option>
+              {pipelineStages.map((s) => (
+                <option key={s.id} value={s.id}>{s.name} (auto-complete)</option>
+              ))}
+            </select>
+          </div>
 
           {/* Steps */}
           <div className="space-y-2">
@@ -280,6 +620,12 @@ export default function OutreachPage() {
                       <span className="text-[9px] text-muted-foreground">hrs</span>
                     </div>
                   )}
+                  <input
+                    value={step.step_label ?? ""}
+                    onChange={(e) => updateStep(i, "step_label", e.target.value)}
+                    placeholder="Label (optional)"
+                    className="flex-1 h-6 rounded border border-white/10 bg-transparent px-2 text-[10px] text-muted-foreground"
+                  />
                   {newSteps.length > 1 && (
                     <button
                       onClick={() => removeStep(i)}
@@ -308,7 +654,7 @@ export default function OutreachPage() {
                         value={step.condition_type}
                         onChange={(e) => {
                           setNewSteps((prev) => prev.map((s, idx) => idx === i
-                            ? { ...s, condition_type: e.target.value, condition_config: {} }
+                            ? { ...s, condition_type: e.target.value, condition_config: {}, split_percentage: e.target.value === "ab_split" ? 50 : null }
                             : s));
                         }}
                         className="rounded border border-white/10 bg-transparent px-2 py-1 text-xs"
@@ -317,6 +663,9 @@ export default function OutreachPage() {
                         <option value="no_reply_timeout">No reply (timeout)</option>
                         <option value="engagement_score">Engagement score ≥</option>
                         <option value="deal_stage">Deal in stage</option>
+                        <option value="message_keyword">Message contains keyword</option>
+                        <option value="days_since_enroll">Days since enrollment ≥</option>
+                        <option value="ab_split">A/B Split</option>
                       </select>
                       {step.condition_type === "engagement_score" && (
                         <input
@@ -350,6 +699,39 @@ export default function OutreachPage() {
                           className="w-16 rounded border border-white/10 bg-transparent px-2 py-1 text-xs"
                           placeholder="24h"
                         />
+                      )}
+                      {step.condition_type === "message_keyword" && (
+                        <input
+                          type="text"
+                          value={((step.condition_config?.keywords as string[]) ?? []).join(", ")}
+                          onChange={(e) => updateStepConfig(i, "keywords", e.target.value.split(",").map((k) => k.trim()).filter(Boolean))}
+                          className="flex-1 rounded border border-white/10 bg-transparent px-2 py-1 text-xs"
+                          placeholder="keyword1, keyword2"
+                        />
+                      )}
+                      {step.condition_type === "days_since_enroll" && (
+                        <input
+                          type="number"
+                          min={1}
+                          value={(step.condition_config?.days as number) ?? 7}
+                          onChange={(e) => updateStepConfig(i, "days", Number(e.target.value))}
+                          className="w-16 rounded border border-white/10 bg-transparent px-2 py-1 text-xs"
+                          placeholder="7"
+                        />
+                      )}
+                      {step.condition_type === "ab_split" && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] text-muted-foreground">A:</span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={99}
+                            value={step.split_percentage ?? 50}
+                            onChange={(e) => updateStep(i, "split_percentage", Number(e.target.value))}
+                            className="w-14 rounded border border-white/10 bg-transparent px-2 py-1 text-xs"
+                          />
+                          <span className="text-[10px] text-muted-foreground">% / B: {100 - (step.split_percentage ?? 50)}%</span>
+                        </div>
                       )}
                     </div>
                     <div className="grid grid-cols-2 gap-2">
@@ -511,6 +893,14 @@ export default function OutreachPage() {
                   </button>
 
                   <button
+                    onClick={() => cloneSequence(seq.id)}
+                    className="text-muted-foreground hover:text-primary p-1"
+                    title="Duplicate sequence"
+                  >
+                    <Copy className="h-4 w-4" />
+                  </button>
+
+                  <button
                     onClick={() => deleteSequence(seq.id)}
                     className="text-muted-foreground hover:text-red-400 p-1"
                   >
@@ -566,6 +956,9 @@ export default function OutreachPage() {
                                     : step.condition_type === "no_reply_timeout" ? "If no reply (timeout)"
                                     : step.condition_type === "engagement_score" ? `If engagement ≥ ${step.condition_config?.threshold ?? 50}`
                                     : step.condition_type === "deal_stage" ? "If deal in target stage"
+                                    : step.condition_type === "message_keyword" ? `If message contains: ${((step.condition_config?.keywords as string[]) ?? []).join(", ")}`
+                                    : step.condition_type === "days_since_enroll" ? `If ${step.condition_config?.days ?? 7}+ days since enrollment`
+                                    : step.condition_type === "ab_split" ? `A/B Split (${step.split_percentage ?? 50}% / ${100 - (step.split_percentage ?? 50)}%)`
                                     : step.condition_type}
                                 </span>
                               )}
@@ -621,6 +1014,8 @@ export default function OutreachPage() {
           </div>
         )}
       </div>
+      </>
+      )}
     </div>
   );
 }

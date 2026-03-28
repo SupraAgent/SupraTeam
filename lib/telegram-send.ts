@@ -6,6 +6,68 @@ import { createSupabaseAdmin } from "@/lib/supabase";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
+// ── Token-bucket rate limiter ──────────────────────────────
+// Telegram allows ~30 msg/s globally, ~20 msg/min per group.
+// We use a conservative 25 msg/s global bucket.
+
+const RATE_LIMIT = {
+  tokensPerSec: 25,
+  maxTokens: 30,
+  perChatPerMin: 20,
+};
+
+let globalTokens = RATE_LIMIT.maxTokens;
+let lastRefill = Date.now();
+const chatBuckets = new Map<number, { tokens: number; lastRefill: number }>();
+
+function refillGlobal() {
+  const now = Date.now();
+  const elapsed = (now - lastRefill) / 1000;
+  globalTokens = Math.min(RATE_LIMIT.maxTokens, globalTokens + elapsed * RATE_LIMIT.tokensPerSec);
+  lastRefill = now;
+}
+
+function refillChat(chatId: number) {
+  const bucket = chatBuckets.get(chatId);
+  if (!bucket) {
+    chatBuckets.set(chatId, { tokens: RATE_LIMIT.perChatPerMin, lastRefill: Date.now() });
+    return;
+  }
+  const now = Date.now();
+  const elapsed = (now - bucket.lastRefill) / 60000; // minutes
+  bucket.tokens = Math.min(RATE_LIMIT.perChatPerMin, bucket.tokens + elapsed * RATE_LIMIT.perChatPerMin);
+  bucket.lastRefill = now;
+}
+
+async function acquireRateLimit(chatId: number): Promise<void> {
+  // Global bucket
+  refillGlobal();
+  if (globalTokens < 1) {
+    const waitMs = Math.ceil((1 - globalTokens) / RATE_LIMIT.tokensPerSec * 1000);
+    await new Promise((r) => setTimeout(r, waitMs));
+    refillGlobal();
+  }
+  globalTokens -= 1;
+
+  // Per-chat bucket
+  refillChat(chatId);
+  const bucket = chatBuckets.get(chatId)!;
+  if (bucket.tokens < 1) {
+    const waitMs = Math.ceil((1 - bucket.tokens) / RATE_LIMIT.perChatPerMin * 60000);
+    await new Promise((r) => setTimeout(r, Math.min(waitMs, 3000))); // cap wait at 3s
+    refillChat(chatId);
+  }
+  bucket.tokens -= 1;
+
+  // Evict old chat buckets to prevent memory leak
+  if (chatBuckets.size > 500) {
+    const cutoff = Date.now() - 120000;
+    for (const [id, b] of chatBuckets) {
+      if (b.lastRefill < cutoff) chatBuckets.delete(id);
+    }
+  }
+}
+
 export interface SendResult {
   success: boolean;
   messageId?: number;
@@ -22,79 +84,130 @@ export async function sendTelegramWithTracking(params: {
   parseMode?: string;
   replyMarkup?: object;
 }): Promise<SendResult> {
-  if (!BOT_TOKEN) return { success: false, error: "No bot token configured" };
+  const body: Record<string, unknown> = {
+    chat_id: params.chatId,
+    text: params.text,
+    parse_mode: params.parseMode ?? "HTML",
+  };
+  if (params.replyMarkup) body.reply_markup = params.replyMarkup;
 
-  const supabase = createSupabaseAdmin();
   const preview = params.text.length > 200 ? params.text.slice(0, 200) + "..." : params.text;
 
-  try {
-    const body: Record<string, unknown> = {
-      chat_id: params.chatId,
-      text: params.text,
-      parse_mode: params.parseMode ?? "HTML",
-    };
-    if (params.replyMarkup) body.reply_markup = params.replyMarkup;
+  return executeWithTracking("sendMessage", body, {
+    chatId: params.chatId,
+    preview,
+    notificationType: params.notificationType,
+    dealId: params.dealId,
+    automationRuleId: params.automationRuleId,
+    scheduledMessageId: params.scheduledMessageId,
+  });
+}
 
-    const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+/**
+ * Shared: execute a Telegram API call with rate limiting, logging, and error handling.
+ */
+async function executeWithTracking(
+  method: string,
+  body: Record<string, unknown>,
+  meta: { chatId: number; preview: string; notificationType: string; dealId?: string; automationRuleId?: string; scheduledMessageId?: string }
+): Promise<SendResult> {
+  if (!BOT_TOKEN) return { success: false, error: "No bot token configured" };
+  const supabase = createSupabaseAdmin();
+
+  try {
+    await acquireRateLimit(meta.chatId);
+    const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-
     const data = await res.json();
 
     if (data.ok) {
-      // Log success
       if (supabase) {
         await supabase.from("crm_notification_log").insert({
-          notification_type: params.notificationType,
-          deal_id: params.dealId ?? null,
-          tg_chat_id: params.chatId,
-          message_preview: preview,
+          notification_type: meta.notificationType,
+          deal_id: meta.dealId ?? null,
+          tg_chat_id: meta.chatId,
+          message_preview: meta.preview,
           status: "sent",
           tg_message_id: data.result?.message_id ?? null,
-          automation_rule_id: params.automationRuleId ?? null,
-          scheduled_message_id: params.scheduledMessageId ?? null,
+          automation_rule_id: meta.automationRuleId ?? null,
+          scheduled_message_id: meta.scheduledMessageId ?? null,
           sent_at: new Date().toISOString(),
         });
       }
       return { success: true, messageId: data.result?.message_id };
-    } else {
-      const errMsg = data.description ?? "Unknown Telegram error";
-      if (supabase) {
-        await supabase.from("crm_notification_log").insert({
-          notification_type: params.notificationType,
-          deal_id: params.dealId ?? null,
-          tg_chat_id: params.chatId,
-          message_preview: preview,
-          status: "failed",
-          last_error: errMsg,
-          retry_count: 0,
-          next_retry_at: new Date(Date.now() + 60_000).toISOString(), // retry in 1 min
-          automation_rule_id: params.automationRuleId ?? null,
-          scheduled_message_id: params.scheduledMessageId ?? null,
-        });
-      }
-      return { success: false, error: errMsg };
     }
-  } catch (err) {
-    const errMsg = err instanceof Error ? err.message : "Network error";
+
+    const errMsg = data.description ?? "Unknown Telegram error";
     if (supabase) {
       await supabase.from("crm_notification_log").insert({
-        notification_type: params.notificationType,
-        deal_id: params.dealId ?? null,
-        tg_chat_id: params.chatId,
-        message_preview: preview,
+        notification_type: meta.notificationType,
+        deal_id: meta.dealId ?? null,
+        tg_chat_id: meta.chatId,
+        message_preview: meta.preview,
         status: "failed",
         last_error: errMsg,
         retry_count: 0,
         next_retry_at: new Date(Date.now() + 60_000).toISOString(),
-        automation_rule_id: params.automationRuleId ?? null,
-        scheduled_message_id: params.scheduledMessageId ?? null,
+        automation_rule_id: meta.automationRuleId ?? null,
+        scheduled_message_id: meta.scheduledMessageId ?? null,
+      });
+    }
+    return { success: false, error: errMsg };
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : "Network error";
+    if (supabase) {
+      await supabase.from("crm_notification_log").insert({
+        notification_type: meta.notificationType,
+        deal_id: meta.dealId ?? null,
+        tg_chat_id: meta.chatId,
+        message_preview: meta.preview,
+        status: "failed",
+        last_error: errMsg,
+        retry_count: 0,
+        next_retry_at: new Date(Date.now() + 60_000).toISOString(),
+        automation_rule_id: meta.automationRuleId ?? null,
+        scheduled_message_id: meta.scheduledMessageId ?? null,
       });
     }
     return { success: false, error: errMsg };
   }
+}
+
+/**
+ * Send a photo or document via Telegram Bot API with tracking.
+ */
+export async function sendTelegramMediaWithTracking(params: {
+  chatId: number;
+  mediaType: "photo" | "document";
+  fileId: string;
+  caption?: string;
+  notificationType: string;
+  dealId?: string;
+  parseMode?: string;
+  replyMarkup?: object;
+}): Promise<SendResult> {
+  const method = params.mediaType === "photo" ? "sendPhoto" : "sendDocument";
+  const fileKey = params.mediaType === "photo" ? "photo" : "document";
+  const body: Record<string, unknown> = { chat_id: params.chatId, [fileKey]: params.fileId };
+  if (params.caption) {
+    body.caption = params.caption;
+    body.parse_mode = params.parseMode ?? "HTML";
+  }
+  if (params.replyMarkup) body.reply_markup = params.replyMarkup;
+
+  const preview = params.caption
+    ? params.caption.length > 200 ? params.caption.slice(0, 200) + "..." : params.caption
+    : `[${params.mediaType}]`;
+
+  return executeWithTracking(method, body, {
+    chatId: params.chatId,
+    preview,
+    notificationType: params.notificationType,
+    dealId: params.dealId,
+  });
 }
 
 /**
@@ -120,12 +233,16 @@ export async function processRetries(): Promise<number> {
   let retried = 0;
   for (const entry of failed) {
     try {
+      // Rate-limit retries too
+      await acquireRateLimit(entry.tg_chat_id);
+
+      const retryText = entry.message_full_text || entry.message_preview;
       const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           chat_id: entry.tg_chat_id,
-          text: entry.message_preview, // Use stored preview for retry
+          text: retryText,
           parse_mode: "HTML",
         }),
       });

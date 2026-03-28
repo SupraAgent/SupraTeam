@@ -97,6 +97,52 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   // Fire webhooks (non-blocking)
   dispatchWebhook("deal.stage_changed", { deal_id: id, deal_name: deal.deal_name, from_stage: fromName, to_stage: toName, board_type: deal.board_type }).catch(() => {});
 
+  // Auto-complete outreach sequences where this stage is the goal (non-blocking)
+  (async () => {
+    try {
+      // Find active enrollments for this deal whose sequence has this stage as goal
+      const { data: enrollments } = await supabase
+        .from("crm_outreach_enrollments")
+        .select("id, sequence_id, contact_id")
+        .eq("deal_id", id)
+        .eq("status", "active");
+
+      if (enrollments && enrollments.length > 0) {
+        const seqIds = [...new Set(enrollments.map((e) => e.sequence_id))];
+        const { data: goalSeqs } = await supabase
+          .from("crm_outreach_sequences")
+          .select("id")
+          .in("id", seqIds)
+          .eq("goal_stage_id", stage_id);
+
+        if (goalSeqs && goalSeqs.length > 0) {
+          const goalSeqIds = new Set(goalSeqs.map((s) => s.id));
+          const toComplete = enrollments.filter((e) => goalSeqIds.has(e.sequence_id));
+
+          for (const enrollment of toComplete) {
+            await supabase
+              .from("crm_outreach_enrollments")
+              .update({ status: "completed", completed_at: new Date().toISOString() })
+              .eq("id", enrollment.id);
+
+            // Also complete any other active enrollments for the same contact across all goal sequences
+            if (enrollment.contact_id) {
+              await supabase
+                .from("crm_outreach_enrollments")
+                .update({ status: "completed", completed_at: new Date().toISOString() })
+                .eq("contact_id", enrollment.contact_id)
+                .eq("status", "active")
+                .in("sequence_id", [...goalSeqIds]);
+            }
+          }
+          console.warn(`[move] Auto-completed ${toComplete.length} outreach enrollment(s) — goal stage reached`);
+        }
+      }
+    } catch (err) {
+      console.error("[move] Goal completion error:", err);
+    }
+  })();
+
   // Evaluate automation rules (non-blocking)
   evaluateAutomationRules({
     type: "stage_change",

@@ -48,3 +48,27 @@ export async function requireAuth(): Promise<AuthResult> {
 
   return { user, admin };
 }
+
+const LEAD_ROLES = ["bd_lead", "marketing_lead", "admin_lead"];
+
+/**
+ * Require authenticated user with a CRM lead role.
+ * Use for destructive operations (kick, remove, access management).
+ */
+export async function requireLeadRole(): Promise<AuthResult> {
+  const auth = await requireAuth();
+  if ("error" in auth) return auth;
+
+  const { user, admin } = auth;
+  const { data: profile } = await admin
+    .from("profiles")
+    .select("crm_role")
+    .eq("id", user.id)
+    .single();
+
+  if (!profile?.crm_role || !LEAD_ROLES.includes(profile.crm_role)) {
+    return { error: NextResponse.json({ error: "Insufficient permissions — lead role required" }, { status: 403 }) };
+  }
+
+  return { user, admin };
+}

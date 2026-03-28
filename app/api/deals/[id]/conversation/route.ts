@@ -29,17 +29,20 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 
   const url = new URL(request.url);
   const cursor = url.searchParams.get("cursor");
+  const after = url.searchParams.get("after"); // for polling: messages after this timestamp
   const limit = Math.min(Number(url.searchParams.get("limit") || "50"), 100);
 
   // Try tg_group_messages first (full synced messages)
   let query = admin
     .from("tg_group_messages")
-    .select("id, sender_name, sender_username, sender_telegram_id, message_text, message_type, reply_to_message_id, sent_at, is_from_bot")
+    .select("id, sender_name, sender_username, sender_telegram_id, message_text, message_type, media_type, media_file_id, media_thumb_id, media_mime, reply_to_message_id, sent_at, is_from_bot")
     .eq("telegram_chat_id", deal.telegram_chat_id)
-    .order("sent_at", { ascending: false })
-    .limit(limit + 1); // fetch one extra to check hasMore
+    .order("sent_at", { ascending: after ? true : false })
+    .limit(after ? 50 : limit + 1); // fetch one extra to check hasMore (not needed for after-polling)
 
-  if (cursor) {
+  if (after) {
+    query = query.gt("sent_at", after);
+  } else if (cursor) {
     query = query.lt("sent_at", cursor);
   }
 
@@ -51,21 +54,70 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   }
 
   if (messages && messages.length > 0) {
+    // Batch-lookup contacts for senders
+    const senderTgIds = [...new Set(messages.map((m) => m.sender_telegram_id).filter(Boolean))] as number[];
+    let contactMap: Record<number, { id: string; name: string }> = {};
+    if (senderTgIds.length > 0) {
+      const { data: contacts } = await admin
+        .from("crm_contacts")
+        .select("id, name, telegram_id")
+        .in("telegram_id", senderTgIds);
+      if (contacts) {
+        for (const c of contacts) {
+          if (c.telegram_id) contactMap[c.telegram_id] = { id: c.id, name: c.name };
+        }
+      }
+    }
+
+    if (after) {
+      // Polling mode: return new messages in chronological order (already ascending)
+      return NextResponse.json({
+        messages: messages.map((m) => {
+          const contact = m.sender_telegram_id ? contactMap[m.sender_telegram_id] : null;
+          return {
+            id: m.id,
+            sender_name: m.sender_name,
+            sender_username: m.sender_username,
+            sender_telegram_id: m.sender_telegram_id,
+            text: m.message_text,
+            message_type: m.message_type,
+            media_type: m.media_type,
+            media_file_id: m.media_file_id ?? null,
+            media_thumb_id: m.media_thumb_id ?? null,
+            media_mime: m.media_mime ?? null,
+            reply_to_message_id: m.reply_to_message_id,
+            sent_at: m.sent_at,
+            is_from_bot: m.is_from_bot,
+            source: "synced" as const,
+            contact_id: contact?.id ?? null,
+            contact_name: contact?.name ?? null,
+          };
+        }),
+        hasMore: false,
+      });
+    }
+
     const hasMore = messages.length > limit;
     const result = (hasMore ? messages.slice(0, limit) : messages).reverse(); // oldest first for chat display
     return NextResponse.json({
-      messages: result.map((m) => ({
-        id: m.id,
-        sender_name: m.sender_name,
-        sender_username: m.sender_username,
-        sender_telegram_id: m.sender_telegram_id,
-        text: m.message_text,
-        message_type: m.message_type,
-        reply_to_message_id: m.reply_to_message_id,
-        sent_at: m.sent_at,
-        is_from_bot: m.is_from_bot,
-        source: "synced" as const,
-      })),
+      messages: result.map((m) => {
+        const contact = m.sender_telegram_id ? contactMap[m.sender_telegram_id] : null;
+        return {
+          id: m.id,
+          sender_name: m.sender_name,
+          sender_username: m.sender_username,
+          sender_telegram_id: m.sender_telegram_id,
+          text: m.message_text,
+          message_type: m.message_type,
+          media_type: m.media_type,
+          reply_to_message_id: m.reply_to_message_id,
+          sent_at: m.sent_at,
+          is_from_bot: m.is_from_bot,
+          source: "synced" as const,
+          contact_id: contact?.id ?? null,
+          contact_name: contact?.name ?? null,
+        };
+      }),
       hasMore,
     });
   }

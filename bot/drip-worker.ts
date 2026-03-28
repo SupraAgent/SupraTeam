@@ -10,6 +10,7 @@
 import type { Bot } from "grammy";
 import { supabase } from "./lib/supabase.js";
 import { renderTemplate, buildOutreachVars } from "../lib/outreach-templates.js";
+import { getOptimalSendTime } from "./lib/send-time-optimizer.js";
 
 interface Enrollment {
   id: string;
@@ -188,9 +189,23 @@ async function advanceToNextStep(enrollment: Enrollment, steps: Step[], currentS
     await markCompleted(enrollment.id);
     return;
   }
+
+  // Use send-time optimization for message steps with delay > 1 hour
+  let nextSendAt: string;
+  if (nextStep.step_type === "message" && (nextStep.delay_hours ?? 0) >= 1) {
+    const { data: group } = await supabase
+      .from("tg_groups")
+      .select("id")
+      .eq("telegram_group_id", enrollment.tg_chat_id)
+      .maybeSingle();
+    nextSendAt = await getOptimalSendTime(group?.id ?? null, nextStep.delay_hours);
+  } else {
+    nextSendAt = new Date(Date.now() + (nextStep.delay_hours || 0) * 3600000).toISOString();
+  }
+
   await supabase.from("crm_drip_enrollments").update({
     current_step: nextStep.step_number,
-    next_send_at: new Date(Date.now() + (nextStep.delay_hours || 0) * 3600000).toISOString(),
+    next_send_at: nextSendAt,
   }).eq("id", enrollment.id);
 }
 
@@ -199,6 +214,15 @@ async function markCompleted(enrollmentId: string) {
     status: "completed",
     completed_at: new Date().toISOString(),
   }).eq("id", enrollmentId);
+
+  // Fire sequence.completed webhook (non-blocking)
+  try {
+    const { dispatchWebhook } = await import("../lib/webhooks");
+    dispatchWebhook("sequence.completed", {
+      enrollment_id: enrollmentId,
+      type: "drip",
+    }).catch(() => {});
+  } catch { /* ignore */ }
 }
 
 async function fetchVars(enrollment: Enrollment): Promise<Record<string, string>> {

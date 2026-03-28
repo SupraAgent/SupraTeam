@@ -8,6 +8,7 @@ import {
   Mail,
   Webhook,
   Link2,
+  Key,
   ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -70,6 +71,15 @@ export default function IntegrationsOverviewPage() {
       iconBg: "bg-violet-500/10",
       connected: null,
     },
+    {
+      key: "api-keys",
+      label: "API Keys",
+      description: "Generate keys for the public REST API",
+      href: "/settings/integrations/api-keys",
+      icon: <Key className="h-5 w-5 text-amber-400" />,
+      iconBg: "bg-amber-500/10",
+      connected: null,
+    },
   ]);
 
   React.useEffect(() => {
@@ -101,6 +111,15 @@ export default function IntegrationsOverviewPage() {
     // TG Connect + Webhooks — mark as configured (no API check needed)
     updateStatus("tg-connect", false);
     updateStatus("webhooks", false);
+
+    // Check API Keys
+    fetch("/api/api-keys")
+      .then((r) => (r.ok ? r.json() : { keys: [] }))
+      .then(({ keys }) => {
+        const active = (keys ?? []).filter((k: { is_active: boolean }) => k.is_active).length;
+        updateStatus("api-keys", active > 0, active > 0 ? `${active} active key${active !== 1 ? "s" : ""}` : undefined);
+      })
+      .catch(() => updateStatus("api-keys", false));
   }, []);
 
   function updateStatus(key: string, connected: boolean, detail?: string) {

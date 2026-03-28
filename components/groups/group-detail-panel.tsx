@@ -5,9 +5,11 @@ import { SlideOver } from "@/components/ui/slide-over";
 import { cn, timeAgo } from "@/lib/utils";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 import {
   Shield, ShieldOff, Users, MessageCircle, Tag, ExternalLink,
   Activity, TrendingUp, BarChart3, Star, StarOff, RefreshCw, UserCheck,
+  UserMinus, UserPlus, AlertTriangle, Loader2, Trash2, Sparkles,
 } from "lucide-react";
 
 type MessageHistoryEntry = { date: string; count: number };
@@ -73,19 +75,34 @@ export function GroupDetailPanel({ group, open, onClose }: GroupDetailPanelProps
   const [membersLoading, setMembersLoading] = React.useState(false);
   const [syncing, setSyncing] = React.useState(false);
   const [showMembers, setShowMembers] = React.useState(false);
+  const [kickingIds, setKickingIds] = React.useState<Set<number>>(new Set());
+  const [confirmAction, setConfirmAction] = React.useState<{ type: "kick" | "nuclear"; member: GroupMember } | null>(null);
+  const [nuclearLoading, setNuclearLoading] = React.useState(false);
+  const [nuclearConfirmText, setNuclearConfirmText] = React.useState("");
+  const [summary, setSummary] = React.useState<string | null>(null);
+  const [summaryLoading, setSummaryLoading] = React.useState(false);
+  const [summaryMeta, setSummaryMeta] = React.useState<{ message_count: number; from: string; to: string } | null>(null);
+  const [customFields, setCustomFields] = React.useState<{ id: string; field_name: string; label: string; field_type: string; options: string[] | null }[]>([]);
+  const [fieldValues, setFieldValues] = React.useState<Record<string, string>>({});
+  const [fieldsSaving, setFieldsSaving] = React.useState(false);
 
   React.useEffect(() => {
     if (group && open) {
       setLoading(true);
       setShowMembers(false);
+      setSummary(null);
+      setSummaryMeta(null);
       // Fetch deals and members in parallel
       Promise.all([
         fetch(`/api/deals?tg_group_id=${group.id}`).then((r) => r.json()).catch(() => ({ deals: [] })),
         fetch(`/api/groups/members?group_id=${group.id}`).then((r) => r.json()).catch(() => ({ members: [], summary: null })),
-      ]).then(([dealsData, membersData]) => {
+        fetch(`/api/groups/fields?group_id=${group.id}`).then((r) => r.json()).catch(() => ({ fields: [], values: {} })),
+      ]).then(([dealsData, membersData, fieldsData]) => {
         setLinkedDeals(dealsData.deals ?? []);
         setMembers(membersData.members ?? []);
         setMemberSummary(membersData.summary ?? null);
+        setCustomFields(fieldsData.fields ?? []);
+        setFieldValues(fieldsData.values ?? {});
       }).finally(() => setLoading(false));
     }
   }, [group, open]);
@@ -99,25 +116,128 @@ export function GroupDetailPanel({ group, open, onClose }: GroupDetailPanelProps
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ group_id: group.id }),
       });
-      // Refresh
       const res = await fetch(`/api/groups/members?group_id=${group.id}`);
       const data = await res.json();
       setMembers(data.members ?? []);
       setMemberSummary(data.summary ?? null);
+    } catch {
+      toast.error("Failed to sync members");
     } finally {
       setSyncing(false);
     }
   }
 
   async function toggleFlag(member: GroupMember) {
-    await fetch("/api/groups/members", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: member.id, is_flagged: !member.is_flagged }),
-    });
-    setMembers((prev) =>
-      prev.map((m) => m.id === member.id ? { ...m, is_flagged: !m.is_flagged } : m)
-    );
+    try {
+      const res = await fetch("/api/groups/members", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: member.id, is_flagged: !member.is_flagged }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      setMembers((prev) =>
+        prev.map((m) => m.id === member.id ? { ...m, is_flagged: !m.is_flagged } : m)
+      );
+    } catch {
+      toast.error("Failed to update flag");
+    }
+  }
+
+  async function kickMember(member: GroupMember) {
+    if (!group) return;
+    setKickingIds((prev) => new Set([...prev, member.telegram_user_id]));
+    setConfirmAction(null);
+    try {
+      const res = await fetch("/api/groups/members/kick", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          group_id: group.id,
+          telegram_user_id: member.telegram_user_id,
+          member_name: member.display_name ?? member.username ?? "Unknown",
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        toast.success(`Removed ${member.display_name ?? member.username} from ${group.group_name}`);
+        setMembers((prev) => prev.filter((m) => m.telegram_user_id !== member.telegram_user_id));
+      } else {
+        toast.error(data.error || "Failed to remove member");
+      }
+    } catch {
+      toast.error("Failed to remove member");
+    } finally {
+      setKickingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(member.telegram_user_id);
+        return next;
+      });
+    }
+  }
+
+  async function saveCustomFields() {
+    if (!group) return;
+    setFieldsSaving(true);
+    try {
+      const res = await fetch("/api/groups/fields", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ group_id: group.id, values: fieldValues }),
+      });
+      if (res.ok) toast.success("Custom fields saved");
+      else toast.error("Failed to save custom fields");
+    } catch {
+      toast.error("Failed to save custom fields");
+    } finally {
+      setFieldsSaving(false);
+    }
+  }
+
+  async function generateSummary() {
+    if (!group) return;
+    setSummaryLoading(true);
+    try {
+      const res = await fetch(`/api/groups/${group.id}/summary`, { method: "POST" });
+      const data = await res.json();
+      if (res.ok && data.summary) {
+        setSummary(data.summary);
+        setSummaryMeta({ message_count: data.message_count, from: data.timespan?.from, to: data.timespan?.to });
+      } else {
+        toast.error(data.error || "Failed to generate summary");
+      }
+    } catch {
+      toast.error("Failed to generate summary");
+    } finally {
+      setSummaryLoading(false);
+    }
+  }
+
+  async function nuclearRemove(member: GroupMember) {
+    setNuclearLoading(true);
+    setConfirmAction(null);
+    setNuclearConfirmText("");
+    try {
+      const res = await fetch("/api/groups/members/remove-all", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          telegram_user_id: member.telegram_user_id,
+          member_name: member.display_name ?? member.username ?? "Unknown",
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        toast.success(`Removed from ${data.success} of ${data.total} groups`);
+        // Remove from local list
+        setMembers((prev) => prev.filter((m) => m.telegram_user_id !== member.telegram_user_id));
+      } else {
+        toast.error(data.error || "Nuclear remove failed");
+      }
+    } catch {
+      toast.error("Nuclear remove failed");
+    } finally {
+      setNuclearLoading(false);
+    }
   }
 
   if (!group) return null;
@@ -173,7 +293,7 @@ export function GroupDetailPanel({ group, open, onClose }: GroupDetailPanelProps
     <SlideOver open={open} onClose={onClose} title={group.group_name}>
       <div className="space-y-4">
         {/* Group link */}
-        {group.group_url && (
+        {group.group_url && group.group_url.startsWith("https://") && (
           <a
             href={group.group_url}
             target="_blank"
@@ -261,6 +381,45 @@ export function GroupDetailPanel({ group, open, onClose }: GroupDetailPanelProps
           </div>
         )}
 
+        {/* AI Summary */}
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <p className="text-[11px] font-medium text-muted-foreground">AI Summary</p>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 text-[10px] px-2"
+              onClick={generateSummary}
+              disabled={summaryLoading}
+            >
+              {summaryLoading ? (
+                <Loader2 className="mr-1 h-2.5 w-2.5 animate-spin" />
+              ) : (
+                <Sparkles className="mr-1 h-2.5 w-2.5" />
+              )}
+              {summaryLoading ? "Summarizing..." : "Summarize"}
+            </Button>
+          </div>
+          {summary && (
+            <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-1">
+              <div className="text-xs text-foreground whitespace-pre-wrap leading-relaxed prose-sm"
+                dangerouslySetInnerHTML={{ __html: summary.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br/>') }}
+              />
+              {summaryMeta && (
+                <p className="text-[9px] text-muted-foreground pt-1 border-t border-white/5">
+                  Based on {summaryMeta.message_count} messages
+                  {summaryMeta.from && summaryMeta.to && (
+                    <> · {new Date(summaryMeta.from).toLocaleDateString()} — {new Date(summaryMeta.to).toLocaleDateString()}</>
+                  )}
+                </p>
+              )}
+            </div>
+          )}
+          {!summary && !summaryLoading && (
+            <p className="text-[10px] text-muted-foreground/50">Click Summarize to get an AI-powered overview of recent conversations.</p>
+          )}
+        </div>
+
         {/* Slugs */}
         {group.slugs.length > 0 && (
           <div>
@@ -270,6 +429,58 @@ export function GroupDetailPanel({ group, open, onClose }: GroupDetailPanelProps
                 <span key={slug} className="inline-flex items-center gap-1 rounded-md bg-primary/10 border border-primary/20 px-2 py-0.5 text-[10px] font-medium text-primary">
                   <Tag className="h-2.5 w-2.5" /> {slug}
                 </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Custom Fields */}
+        {customFields.length > 0 && (
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <p className="text-[11px] font-medium text-muted-foreground">Custom Fields</p>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 text-[10px] px-2"
+                onClick={saveCustomFields}
+                disabled={fieldsSaving}
+              >
+                {fieldsSaving ? <Loader2 className="mr-1 h-2.5 w-2.5 animate-spin" /> : null}
+                Save
+              </Button>
+            </div>
+            <div className="space-y-2">
+              {customFields.map((field) => (
+                <div key={field.id}>
+                  <label className="text-[10px] text-muted-foreground">{field.label}</label>
+                  {field.field_type === "select" && field.options ? (
+                    <select
+                      value={fieldValues[field.id] ?? ""}
+                      onChange={(e) => setFieldValues((prev) => ({ ...prev, [field.id]: e.target.value }))}
+                      className="w-full mt-0.5 h-7 rounded-md border border-white/10 bg-white/[0.04] px-2 text-xs text-foreground"
+                    >
+                      <option value="">—</option>
+                      {(field.options as string[]).map((opt) => (
+                        <option key={opt} value={opt}>{opt}</option>
+                      ))}
+                    </select>
+                  ) : field.field_type === "textarea" ? (
+                    <textarea
+                      value={fieldValues[field.id] ?? ""}
+                      onChange={(e) => setFieldValues((prev) => ({ ...prev, [field.id]: e.target.value }))}
+                      className="w-full mt-0.5 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-xs text-foreground resize-none"
+                      rows={2}
+                    />
+                  ) : (
+                    <input
+                      type={field.field_type === "number" ? "number" : field.field_type === "date" ? "date" : field.field_type === "url" ? "url" : "text"}
+                      value={fieldValues[field.id] ?? ""}
+                      onChange={(e) => setFieldValues((prev) => ({ ...prev, [field.id]: e.target.value }))}
+                      className="w-full mt-0.5 h-7 rounded-md border border-white/10 bg-white/[0.04] px-2 text-xs text-foreground"
+                    />
+                  )}
+                </div>
               ))}
             </div>
           </div>
@@ -337,7 +548,7 @@ export function GroupDetailPanel({ group, open, onClose }: GroupDetailPanelProps
               {members.length > 0 && (
                 <button
                   onClick={() => setShowMembers(!showMembers)}
-                  className="text-[10px] text-primary hover:underline"
+                  className="text-xs text-primary hover:underline px-2 py-1 min-h-[36px]"
                 >
                   {showMembers ? "Hide" : "Show"}
                 </button>
@@ -379,7 +590,12 @@ export function GroupDetailPanel({ group, open, onClose }: GroupDetailPanelProps
 
           {/* Member list */}
           {showMembers && (
-            <div className="space-y-1 max-h-[250px] overflow-y-auto thin-scroll">
+            <div className="space-y-1 max-h-[350px] overflow-y-auto thin-scroll">
+              {members.length > 0 && (
+                <p className="text-[10px] text-muted-foreground/50 text-right px-1">
+                  Showing {members.length} of {memberSummary?.total ?? members.length}
+                </p>
+              )}
               {members.map((m) => {
                 const tierColors: Record<string, string> = {
                   champion: "text-emerald-400",
@@ -393,10 +609,12 @@ export function GroupDetailPanel({ group, open, onClose }: GroupDetailPanelProps
                   creator: "bg-amber-500/20 text-amber-400",
                   administrator: "bg-blue-500/20 text-blue-400",
                 };
+                const isKicking = kickingIds.has(m.telegram_user_id);
+                const isProtected = m.role === "creator" || m.role === "administrator";
                 return (
                   <div
                     key={m.id}
-                    className="flex items-center gap-2 rounded-lg border border-white/5 bg-white/[0.02] px-2.5 py-1.5"
+                    className="flex items-center gap-2 rounded-lg border border-white/5 bg-white/[0.02] px-2.5 py-2"
                   >
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
@@ -422,16 +640,41 @@ export function GroupDetailPanel({ group, open, onClose }: GroupDetailPanelProps
                         {m.username && <span className="font-mono">@{m.username}</span>}
                       </div>
                     </div>
-                    <button
-                      onClick={() => toggleFlag(m)}
-                      className={cn(
-                        "shrink-0 p-1 rounded transition-colors",
-                        m.is_flagged ? "text-amber-400 hover:text-amber-300" : "text-muted-foreground/30 hover:text-amber-400"
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        onClick={() => toggleFlag(m)}
+                        aria-label={m.is_flagged ? "Unflag member" : "Flag as high-value"}
+                        className={cn(
+                          "p-2 rounded transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center",
+                          m.is_flagged ? "text-amber-400 hover:text-amber-300" : "text-muted-foreground/30 hover:text-amber-400"
+                        )}
+                      >
+                        {m.is_flagged ? <Star className="h-3.5 w-3.5 fill-current" /> : <Star className="h-3.5 w-3.5" />}
+                      </button>
+                      {group.bot_is_admin && !isProtected && (
+                        <button
+                          onClick={() => setConfirmAction({ type: "kick", member: m })}
+                          disabled={isKicking}
+                          aria-label={`Remove ${m.display_name ?? m.username} from this group`}
+                          className="p-2 rounded text-muted-foreground/30 hover:text-red-400 transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"
+                        >
+                          {isKicking ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <UserMinus className="h-3.5 w-3.5" />
+                          )}
+                        </button>
                       )}
-                      title={m.is_flagged ? "Unflag" : "Flag as high-value"}
-                    >
-                      {m.is_flagged ? <Star className="h-3.5 w-3.5 fill-current" /> : <Star className="h-3.5 w-3.5" />}
-                    </button>
+                      {!isProtected && (
+                        <button
+                          onClick={() => { setConfirmAction({ type: "nuclear", member: m }); setNuclearConfirmText(""); }}
+                          aria-label={`Remove ${m.display_name ?? m.username} from all groups`}
+                          className="p-2 rounded text-muted-foreground/30 hover:text-red-500 transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -442,6 +685,69 @@ export function GroupDetailPanel({ group, open, onClose }: GroupDetailPanelProps
               )}
             </div>
           )}
+
+          {/* Unified confirmation dialog */}
+          {confirmAction?.type === "kick" && (
+            <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-3 space-y-2">
+              <div className="flex items-center gap-2 text-xs text-red-400 font-medium">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                Remove {confirmAction.member.display_name ?? confirmAction.member.username} from {group.group_name}?
+              </div>
+              <p className="text-[11px] text-muted-foreground">They can rejoin via invite link.</p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => kickMember(confirmAction.member)}
+                  className="px-4 py-2 rounded-lg bg-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/30 transition-colors min-h-[44px]"
+                >
+                  Remove
+                </button>
+                <button
+                  onClick={() => setConfirmAction(null)}
+                  className="px-4 py-2 rounded-lg bg-white/5 text-muted-foreground text-xs hover:bg-white/10 transition-colors min-h-[44px]"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {confirmAction?.type === "nuclear" && (() => {
+            const memberName = confirmAction.member.display_name ?? confirmAction.member.username ?? "";
+            const confirmMatch = nuclearConfirmText.toLowerCase() === memberName.toLowerCase();
+            return (
+              <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 space-y-2">
+                <div className="flex items-center gap-2 text-xs text-red-400 font-medium">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  Remove {memberName} from ALL groups?
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  This will kick them from every group where the bot is admin. Type their name to confirm.
+                </p>
+                <input
+                  value={nuclearConfirmText}
+                  onChange={(e) => setNuclearConfirmText(e.target.value)}
+                  placeholder={`Type "${memberName}" to confirm`}
+                  className="w-full rounded-lg border border-red-500/20 bg-white/[0.04] px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-red-500/50"
+                />
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => nuclearRemove(confirmAction.member)}
+                    disabled={nuclearLoading || !confirmMatch}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/30 transition-colors disabled:opacity-30 min-h-[44px]"
+                  >
+                    {nuclearLoading && <Loader2 className="h-3 w-3 animate-spin" />}
+                    Remove from All Groups
+                  </button>
+                  <button
+                    onClick={() => setConfirmAction(null)}
+                    className="px-4 py-2 rounded-lg bg-white/5 text-muted-foreground text-xs hover:bg-white/10 transition-colors min-h-[44px]"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Timestamps */}

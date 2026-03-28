@@ -20,11 +20,13 @@ const NAV_ITEMS = [
   { href: "/outreach", label: "Outreach", icon: OutreachIcon },
   { href: "/drip", label: "Drip Sequences", icon: DripIcon },
   { href: "/automations", label: "Automations", icon: WorkflowIcon },
+  { href: "/loop", label: "Loop Builder", icon: LoopBuilderIcon },
   { href: "/calendar", label: "Calendar", icon: CalendarIcon },
   { href: "/reports", label: "Reports", icon: ChartIcon },
   { href: "/access", label: "Access Control", icon: ShieldIcon },
   { href: "/graph", label: "Graph", icon: NetworkIcon },
   { href: "/docs", label: "Docs", icon: FileTextIcon },
+  { href: "/suggestions", label: "Suggestions", icon: LightbulbIcon },
   { href: "/settings", label: "Settings", icon: SettingsIcon },
 ] as const;
 
@@ -344,6 +346,17 @@ function ChartIcon({ className }: { className?: string }) {
   );
 }
 
+function LoopBuilderIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10" />
+      <path d="M22 12c0-5.52-4.48-10-10-10" />
+      <path d="M16 12l4 4-4 4" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
 function FileTextIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
@@ -352,6 +365,16 @@ function FileTextIcon({ className }: { className?: string }) {
       <line x1="16" y1="13" x2="8" y2="13" />
       <line x1="16" y1="17" x2="8" y2="17" />
       <polyline points="10 9 9 9 8 9" />
+    </svg>
+  );
+}
+
+function LightbulbIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 18h6" />
+      <path d="M10 22h4" />
+      <path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0018 8 6 6 0 006 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 018.91 14" />
     </svg>
   );
 }

@@ -25,6 +25,7 @@ import {
 import { cn } from "@/lib/utils";
 import { timeAgo } from "@/lib/utils";
 import { GroupDetailPanel } from "@/components/groups/group-detail-panel";
+import { toast } from "sonner";
 
 type HealthStatus = "active" | "quiet" | "stale" | "dead" | "unknown";
 
@@ -173,10 +174,13 @@ function ComparisonModal({
   onClose: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="w-full max-w-3xl mx-4 rounded-2xl border border-white/10 bg-[#1a1a2e] shadow-2xl">
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 sm:backdrop-blur-sm"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="w-full sm:max-w-3xl sm:mx-4 max-h-[85vh] rounded-t-2xl sm:rounded-2xl border border-white/10 bg-[#1a1a2e] shadow-2xl flex flex-col safe-area-bottom">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
+        <div className="flex items-center justify-between border-b border-white/10 px-4 sm:px-6 py-3 sm:py-4 shrink-0">
           <div className="flex items-center gap-2">
             <BarChart3 className="h-4 w-4 text-primary" />
             <h2 className="text-sm font-semibold text-foreground">
@@ -185,14 +189,15 @@ function ComparisonModal({
           </div>
           <button
             onClick={onClose}
-            className="rounded-lg p-1.5 text-muted-foreground hover:bg-white/10 hover:text-foreground transition"
+            className="rounded-lg p-2 min-h-[44px] min-w-[44px] flex items-center justify-center text-muted-foreground hover:bg-white/10 hover:text-foreground transition"
+            aria-label="Close comparison"
           >
-            <X className="h-4 w-4" />
+            <X className="h-5 w-5" />
           </button>
         </div>
 
         {/* Comparison table */}
-        <div className="overflow-x-auto p-6">
+        <div className="overflow-x-auto overflow-y-auto p-4 sm:p-6">
           <table className="w-full text-xs">
             <thead>
               <tr className="text-left text-muted-foreground border-b border-white/5">
@@ -378,7 +383,6 @@ export default function GroupsPage() {
   const [sortBy, setSortBy] = React.useState<SortKey>("name");
   const [addingSlug, setAddingSlug] = React.useState<string | null>(null);
   const [newSlug, setNewSlug] = React.useState("");
-  const [msg, setMsg] = React.useState("");
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const [bulkSlugInput, setBulkSlugInput] = React.useState("");
   const [bulkAction, setBulkAction] = React.useState<string | null>(null);
@@ -438,27 +442,26 @@ export default function GroupsPage() {
   async function refreshStats() {
     setRefreshingStats(true);
     try {
-      await fetch("/api/groups/stats");
+      const res = await fetch("/api/groups/stats");
+      if (!res.ok) throw new Error("Failed to refresh stats");
       await fetchGroups();
-      showMsg("Stats refreshed");
+      toast.success("Stats refreshed");
+    } catch {
+      toast.error("Failed to refresh stats");
     } finally {
       setRefreshingStats(false);
     }
   }
 
-  function showMsg(text: string) {
-    setMsg(text);
-    setTimeout(() => setMsg(""), 2000);
-  }
-
   async function handleAddSlug(groupId: string) {
     if (!newSlug.trim()) return;
-    const res = await fetch("/api/groups/slugs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ group_id: groupId, slug: newSlug.trim().toLowerCase() }),
-    });
-    if (res.ok) {
+    try {
+      const res = await fetch("/api/groups/slugs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ group_id: groupId, slug: newSlug.trim().toLowerCase() }),
+      });
+      if (!res.ok) throw new Error("Failed to add slug");
       setGroups((prev) =>
         prev.map((g) =>
           g.id === groupId
@@ -468,22 +471,28 @@ export default function GroupsPage() {
       );
       setNewSlug("");
       setAddingSlug(null);
-      showMsg("Slug added");
+      toast.success("Slug added");
+    } catch {
+      toast.error("Failed to add slug");
     }
   }
 
   async function handleRemoveSlug(groupId: string, slug: string) {
-    const res = await fetch("/api/groups/slugs", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ group_id: groupId, slug }),
-    });
-    if (res.ok) {
+    try {
+      const res = await fetch("/api/groups/slugs", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ group_id: groupId, slug }),
+      });
+      if (!res.ok) throw new Error("Failed to remove slug");
       setGroups((prev) =>
         prev.map((g) =>
           g.id === groupId ? { ...g, slugs: g.slugs.filter((s) => s !== slug) } : g
         )
       );
+      toast.success("Slug removed");
+    } catch {
+      toast.error("Failed to remove slug");
     }
   }
 
@@ -496,20 +505,22 @@ export default function GroupsPage() {
       body.slug = bulkSlugInput.trim().toLowerCase();
     }
 
-    const res = await fetch("/api/groups/bulk", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-
-    if (res.ok) {
+    try {
+      const res = await fetch("/api/groups/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error("Bulk action failed");
       const data = await res.json();
-      showMsg(`${action}: ${data.affected}/${data.total} groups`);
+      toast.success(`${action}: ${data.affected}/${data.total} groups`);
       setSelected(new Set());
       setBulkSlugInput("");
       setBulkAction(null);
       setLoading(true);
       fetchGroups();
+    } catch {
+      toast.error(`Bulk ${action} failed`);
     }
   }
 
@@ -630,7 +641,6 @@ export default function GroupsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {msg && <span className="text-xs text-primary">{msg}</span>}
           <Button
             size="sm"
             variant="ghost"
@@ -935,7 +945,7 @@ export default function GroupsPage() {
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ action: "assign_bot", group_ids: ids, bot_id: e.target.value }),
                   });
-                  showMsg(`Bot assigned to ${ids.length} groups`);
+                  toast.success(`Bot assigned to ${ids.length} groups`);
                   setSelected(new Set());
                   setLoading(true);
                   fetchGroups();

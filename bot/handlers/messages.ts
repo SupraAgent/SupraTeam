@@ -15,6 +15,43 @@ async function fireWorkflowTriggers(triggerType: string, payload: Record<string,
   }
 }
 
+/**
+ * Dispatch a webhook event (non-blocking).
+ * Uses dynamic import to avoid bundling webhook lib in the bot process.
+ */
+async function fireWebhookEvent(eventType: string, payload: Record<string, unknown>) {
+  try {
+    const { dispatchWebhook } = await import("../../lib/webhooks");
+    await dispatchWebhook(eventType as import("../../lib/webhooks").WebhookEvent, payload);
+  } catch (err) {
+    console.error(`[bot/messages] webhook ${eventType} error:`, err);
+  }
+}
+
+// ── Team member detection cache (refreshed every 60s) ──────────
+let cachedTeamTelegramIds: Set<number> = new Set();
+let teamIdsFetchedAt = 0;
+const TEAM_IDS_TTL_MS = 60_000;
+
+async function getTeamTelegramIds(): Promise<Set<number>> {
+  if (cachedTeamTelegramIds.size > 0 && Date.now() - teamIdsFetchedAt < TEAM_IDS_TTL_MS) {
+    return cachedTeamTelegramIds;
+  }
+  const { data } = await supabase
+    .from("profiles")
+    .select("telegram_id")
+    .not("telegram_id", "is", null);
+  const ids = new Set<number>();
+  if (data) {
+    for (const p of data) {
+      if (p.telegram_id) ids.add(Number(p.telegram_id));
+    }
+  }
+  cachedTeamTelegramIds = ids;
+  teamIdsFetchedAt = Date.now();
+  return ids;
+}
+
 // ── AI Agent: cached config (refreshed every 60s) ──────────────
 interface AgentConfig {
   id: string;
@@ -373,17 +410,29 @@ export function registerMessageHandlers(bot: Bot) {
   bot.on("message:text", async (ctx) => {
     if (ctx.chat.type !== "private") return;
 
-    const config = await getAgentConfig();
-    if (!config?.respond_to_dms) return;
-
     // Don't respond to bot commands
     if (ctx.message.text.startsWith("/")) return;
+
+    const senderName = ctx.from.first_name + (ctx.from.last_name ? ` ${ctx.from.last_name}` : "");
+    const senderUsername = ctx.from.username ?? "";
+
+    // Fire bot_dm_received workflow trigger (always, even if AI agent is off)
+    fireWorkflowTriggers("bot_dm_received", {
+      sender_id: ctx.from.id,
+      sender_name: senderName,
+      sender_username: senderUsername,
+      message_text: ctx.message.text,
+      chat_id: ctx.chat.id,
+    }).catch(() => {});
+
+    const config = await getAgentConfig();
+    if (!config?.respond_to_dms) return;
 
     await handleAIResponse(
       bot,
       ctx.chat.id,
       ctx.from.id,
-      ctx.from.first_name + (ctx.from.last_name ? ` ${ctx.from.last_name}` : ""),
+      senderName,
       ctx.message.text,
       ctx.message.message_id,
       undefined, // no dealId in DMs
@@ -438,8 +487,45 @@ export function registerMessageHandlers(bot: Bot) {
       // Find deals linked to this telegram chat (include assigned_to for push notifications)
       const { data: deals } = await supabase
         .from("crm_deals")
-        .select("id, deal_name, board_type, stage_id, assigned_to")
+        .select("id, deal_name, board_type, stage_id, assigned_to, contact_id")
         .eq("telegram_chat_id", chatId);
+
+      // Detect media in message
+      const msg = ctx.message;
+      let detectedMediaType: string | null = null;
+      let detectedMediaFileId: string | null = null;
+      let detectedMediaThumbId: string | null = null;
+      let detectedMediaMime: string | null = null;
+      let detectedMediaSize: number | null = null;
+
+      if (msg.photo && msg.photo.length > 0) {
+        detectedMediaType = "photo";
+        detectedMediaFileId = msg.photo[msg.photo.length - 1].file_id;
+        if (msg.photo.length > 1) detectedMediaThumbId = msg.photo[0].file_id;
+      } else if (msg.document) {
+        detectedMediaType = "document";
+        detectedMediaFileId = msg.document.file_id;
+        detectedMediaThumbId = msg.document.thumbnail?.file_id ?? null;
+        detectedMediaMime = msg.document.mime_type ?? null;
+        detectedMediaSize = msg.document.file_size ?? null;
+      } else if (msg.video) {
+        detectedMediaType = "video";
+        detectedMediaFileId = msg.video.file_id;
+        detectedMediaThumbId = msg.video.thumbnail?.file_id ?? null;
+        detectedMediaMime = msg.video.mime_type ?? null;
+      } else if (msg.voice) {
+        detectedMediaType = "voice";
+        detectedMediaFileId = msg.voice.file_id;
+        detectedMediaMime = msg.voice.mime_type ?? null;
+      } else if (msg.sticker) {
+        detectedMediaType = "sticker";
+        detectedMediaFileId = msg.sticker.file_id;
+        detectedMediaThumbId = msg.sticker.thumbnail?.file_id ?? null;
+      } else if (msg.animation) {
+        detectedMediaType = "animation";
+        detectedMediaFileId = msg.animation.file_id;
+        detectedMediaThumbId = msg.animation.thumbnail?.file_id ?? null;
+      }
 
       // Store full message in tg_group_messages for conversation timeline
       await supabase.from("tg_group_messages").upsert({
@@ -449,12 +535,28 @@ export function registerMessageHandlers(bot: Bot) {
         sender_telegram_id: ctx.from.id,
         sender_name: senderName,
         sender_username: senderUsername || null,
-        message_text: messageText,
-        message_type: "text",
+        message_text: messageText || (msg.caption ?? null),
+        message_type: detectedMediaType ? detectedMediaType : "text",
+        media_type: detectedMediaType,
+        media_file_id: detectedMediaFileId,
+        media_thumb_id: detectedMediaThumbId,
+        media_mime: detectedMediaMime,
+        media_size_bytes: detectedMediaSize,
         reply_to_message_id: ctx.message.reply_to_message?.message_id ?? null,
         sent_at: new Date(ctx.message.date * 1000).toISOString(),
         is_from_bot: false,
       }, { onConflict: "telegram_chat_id,telegram_message_id" });
+
+      // Fire group.message webhook (non-blocking)
+      fireWebhookEvent("group.message", {
+        chat_id: chatId,
+        group_name: tgGroup.group_name,
+        sender_name: senderName,
+        sender_username: senderUsername,
+        message_text: messageText,
+        message_type: detectedMediaType || "text",
+        sent_at: new Date(ctx.message.date * 1000).toISOString(),
+      }).catch(() => {});
 
       // Update contact last_activity_at if contact exists for this TG user (non-blocking)
       supabase.from("crm_contacts")
@@ -489,6 +591,10 @@ export function registerMessageHandlers(bot: Bot) {
 
       if (!deals || deals.length === 0) return; // No deals linked — skip notifications
 
+      // Detect if sender is a team member
+      const teamIds = await getTeamTelegramIds();
+      const isTeamMember = teamIds.has(ctx.from.id);
+
       // Create a notification for each linked deal + push DM to assigned rep
       for (const deal of deals) {
         await supabase.from("crm_notifications").insert({
@@ -520,6 +626,164 @@ export function registerMessageHandlers(bot: Bot) {
               tmaPath: `/tma/deals/${deal.id}`,
               dealId: deal.id,
             }).catch((err) => console.error("[bot/messages] push error:", err));
+          }
+        }
+
+        // ── Highlight creation / clearing ──────────────────────────
+        if (!ctx.from.is_bot) {
+          if (isTeamMember) {
+            // Team member responded — clear active highlights and record response time
+            const { data: activeHighlights } = await supabase
+              .from("crm_highlights")
+              .select("id, created_at")
+              .eq("deal_id", deal.id)
+              .eq("is_active", true);
+
+            if (activeHighlights && activeHighlights.length > 0) {
+              const now = new Date();
+              for (const h of activeHighlights) {
+                const responseTimeMs = now.getTime() - new Date(h.created_at).getTime();
+                await supabase
+                  .from("crm_highlights")
+                  .update({
+                    is_active: false,
+                    cleared_at: now.toISOString(),
+                    cleared_by: "team_response",
+                    responded_at: now.toISOString(),
+                    response_time_ms: responseTimeMs,
+                  })
+                  .eq("id", h.id);
+              }
+
+              // Clear awaiting_response on the deal
+              await supabase
+                .from("crm_deals")
+                .update({ awaiting_response_since: null })
+                .eq("id", deal.id);
+            }
+          } else {
+            // External sender — check for existing highlight dedup
+            const { data: activeHighlights } = await supabase
+              .from("crm_highlights")
+              .select("id, sender_name")
+              .eq("deal_id", deal.id)
+              .eq("is_active", true);
+
+            // If different sender responds, clear old highlights
+            if (activeHighlights && activeHighlights.length > 0) {
+              const fromDifferent = activeHighlights.some((h) => h.sender_name !== senderName);
+              if (fromDifferent) {
+                await supabase
+                  .from("crm_highlights")
+                  .update({ is_active: false, cleared_at: new Date().toISOString(), cleared_by: "response" })
+                  .eq("deal_id", deal.id)
+                  .eq("is_active", true);
+              }
+            }
+
+            // Burst grouping: merge messages from same sender within 5 min into one highlight
+            const BURST_WINDOW_MS = 5 * 60 * 1000;
+            const burstCutoff = new Date(Date.now() - BURST_WINDOW_MS).toISOString();
+            const { data: burstHighlight } = await supabase
+              .from("crm_highlights")
+              .select("id, message_count, message_preview, priority")
+              .eq("deal_id", deal.id)
+              .eq("sender_name", senderName)
+              .eq("is_active", true)
+              .gte("last_message_at", burstCutoff)
+              .order("last_message_at", { ascending: false })
+              .limit(1);
+
+            if (burstHighlight && burstHighlight.length > 0) {
+              // Merge into existing burst highlight — escalate priority if new message is higher
+              const existing = burstHighlight[0];
+              const newCount = (existing.message_count ?? 1) + 1;
+              const preview = newCount <= 2
+                ? `${existing.message_preview}\n${messageText.length > 80 ? messageText.slice(0, 80) + "..." : messageText}`
+                : `${existing.message_preview.split("\n")[0]}\n+${newCount - 1} more messages`;
+
+              // Re-evaluate priority/sentiment from latest message and escalate if higher
+              const lowerText = messageText.toLowerCase();
+              const urgentWords = ["urgent", "asap", "immediately", "critical", "deadline"];
+              const highWords = ["ready to sign", "contract", "payment", "invoice", "approve", "confirm"];
+              const negativeWords = ["cancel", "delay", "problem", "issue", "disappointed", "frustrated", "concerned"];
+
+              const priorityRank: Record<string, number> = { low: 1, medium: 2, high: 3, urgent: 4 };
+              let newPriority: string | undefined;
+              if (urgentWords.some((w) => lowerText.includes(w))) newPriority = "urgent";
+              else if (highWords.some((w) => lowerText.includes(w))) newPriority = "high";
+
+              let newSentiment: string | undefined;
+              if (negativeWords.some((w) => lowerText.includes(w))) newSentiment = "negative";
+
+              const updatePayload: Record<string, unknown> = {
+                message_count: newCount,
+                message_preview: preview.slice(0, 200),
+                last_message_at: new Date().toISOString(),
+                tg_deep_link: tgDeepLink,
+              };
+              // Only escalate priority, never downgrade
+              if (newPriority && (priorityRank[newPriority] ?? 0) > (priorityRank[existing.priority ?? "medium"] ?? 0)) {
+                updatePayload.priority = newPriority;
+              }
+              // Negative sentiment overrides neutral/positive
+              if (newSentiment === "negative") {
+                updatePayload.sentiment = "negative";
+              }
+
+              await supabase
+                .from("crm_highlights")
+                .update(updatePayload)
+                .eq("id", existing.id);
+            } else {
+              // Dedup: only create if no active highlight from this sender in 24h
+              const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+              const { data: recentHighlight } = await supabase
+                .from("crm_highlights")
+                .select("id")
+                .eq("deal_id", deal.id)
+                .eq("sender_name", senderName)
+                .eq("is_active", true)
+                .gte("created_at", twentyFourHoursAgo)
+                .limit(1);
+
+              if (!recentHighlight || recentHighlight.length === 0) {
+                // Priority / sentiment detection
+                const lowerText = messageText.toLowerCase();
+                const urgentWords = ["urgent", "asap", "immediately", "critical", "deadline"];
+                const highWords = ["ready to sign", "contract", "payment", "invoice", "approve", "confirm"];
+                const negativeWords = ["cancel", "delay", "problem", "issue", "disappointed", "frustrated", "concerned"];
+                const positiveWords = ["excited", "great", "love", "perfect", "amazing", "deal", "agree", "yes"];
+
+                let priority: "low" | "medium" | "high" | "urgent" = "medium";
+                if (urgentWords.some((w) => lowerText.includes(w))) priority = "urgent";
+                else if (highWords.some((w) => lowerText.includes(w))) priority = "high";
+
+                let sentiment: "positive" | "neutral" | "negative" = "neutral";
+                if (negativeWords.some((w) => lowerText.includes(w))) sentiment = "negative";
+                else if (positiveWords.some((w) => lowerText.includes(w))) sentiment = "positive";
+
+                await supabase.from("crm_highlights").insert({
+                  deal_id: deal.id,
+                  contact_id: deal.contact_id ?? null,
+                  tg_group_id: tgGroup.id,
+                  sender_name: senderName,
+                  message_preview: messageText.length > 100 ? messageText.slice(0, 100) + "..." : messageText,
+                  tg_deep_link: tgDeepLink,
+                  highlight_type: "tg_message",
+                  priority,
+                  sentiment,
+                  message_count: 1,
+                  last_message_at: new Date().toISOString(),
+                });
+
+                // Set awaiting_response on the deal
+                await supabase
+                  .from("crm_deals")
+                  .update({ awaiting_response_since: new Date().toISOString() })
+                  .eq("id", deal.id);
+              }
+            }
           }
         }
       }
@@ -623,6 +887,31 @@ export function registerMessageHandlers(bot: Bot) {
         }
       } catch (dripReplyErr) {
         console.error("[bot/messages] drip reply detection error:", dripReplyErr);
+      }
+
+      // Track reply hour for send-time optimization (non-blocking)
+      if (!isTeamMember && !ctx.from.is_bot) {
+        const replyHour = new Date(ctx.message.date * 1000).getUTCHours();
+        (async () => {
+          const { data: existing } = await supabase
+            .from("crm_reply_hour_stats")
+            .select("reply_count")
+            .eq("tg_group_id", tgGroup.id)
+            .eq("hour_utc", replyHour)
+            .maybeSingle();
+
+          if (existing) {
+            await supabase
+              .from("crm_reply_hour_stats")
+              .update({ reply_count: existing.reply_count + 1, last_updated_at: new Date().toISOString() })
+              .eq("tg_group_id", tgGroup.id)
+              .eq("hour_utc", replyHour);
+          } else {
+            await supabase
+              .from("crm_reply_hour_stats")
+              .insert({ tg_group_id: tgGroup.id, hour_utc: replyHour, reply_count: 1 });
+          }
+        })().catch(() => {}); // Best effort
       }
     } catch (err) {
       console.error("[bot/messages] error:", err);

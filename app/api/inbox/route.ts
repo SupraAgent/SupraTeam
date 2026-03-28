@@ -34,11 +34,16 @@ export async function GET(request: Request) {
   const limit = Math.min(Number(searchParams.get("limit") ?? 30), 50);
   const before = searchParams.get("before");
   const chatIdFilter = searchParams.get("chat_id");
+  const botIdFilter = searchParams.get("bot_id");
 
   // Get all CRM-linked groups with their latest message timestamp
   let groupsQuery = supabase
     .from("tg_groups")
     .select("id, telegram_group_id, group_name, group_type, member_count, invite_link");
+
+  if (botIdFilter) {
+    groupsQuery = groupsQuery.eq("bot_id", botIdFilter);
+  }
 
   const { data: groups } = await groupsQuery;
   if (!groups || groups.length === 0) {

@@ -11,6 +11,8 @@ import { requireAuth } from "@/lib/auth-guard";
 const VALID_EVENTS = [
   "deal.created", "deal.updated", "deal.stage_changed", "deal.won", "deal.lost",
   "contact.created", "contact.updated", "note.created",
+  "group.message", "group.member_joined", "group.member_left",
+  "broadcast.sent", "sequence.completed",
 ];
 
 export async function GET() {
