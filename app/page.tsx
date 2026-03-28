@@ -6,6 +6,7 @@ import { timeAgo, cn } from "@/lib/utils";
 import {
   MessageCircle, GitBranch, ExternalLink, UserPlus, AtSign, ArrowRight, Bell,
   AlertTriangle, Clock, TrendingUp, Flame, Zap, DollarSign, BarChart3, Pin, Plus, Download, Users,
+  ChevronDown, ChevronRight, Radio, Send, Settings, FileText,
 } from "lucide-react";
 import { SetupChecklist } from "@/components/onboarding/setup-checklist";
 import { ActionableNotificationWidget } from "@/components/notifications/actionable-notification-widget";
@@ -73,6 +74,24 @@ export default function HomePage() {
   const [reminders, setReminders] = React.useState<{ id: string; deal_id: string; reminder_type: string; message: string; due_at: string; deal?: { deal_name: string; board_type: string } }[]>([]);
   const [highlights, setHighlights] = React.useState<{ id: string; deal_id: string | null; sender_name: string | null; message_preview: string | null; tg_deep_link: string | null; highlight_type: string; created_at: string }[]>([]);
   const [loading, setLoading] = React.useState(true);
+
+  // Collapsible widget state (persisted in localStorage)
+  const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      return JSON.parse(localStorage.getItem("dashboard_collapsed") ?? "{}");
+    } catch {
+      return {};
+    }
+  });
+
+  const toggleCollapse = React.useCallback((key: string) => {
+    setCollapsed((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      try { localStorage.setItem("dashboard_collapsed", JSON.stringify(next)); } catch { /* noop */ }
+      return next;
+    });
+  }, []);
 
   React.useEffect(() => {
     Promise.all([
@@ -153,6 +172,15 @@ export default function HomePage() {
         <a href="/api/contacts/export" className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2 text-xs font-medium text-foreground transition hover:bg-white/[0.06]">
           <Download className="h-3.5 w-3.5 text-orange-400" /> Export Contacts
         </a>
+        <Link href="/broadcasts" className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2 text-xs font-medium text-foreground transition hover:bg-white/[0.06]">
+          <Send className="h-3.5 w-3.5 text-green-400" /> Broadcast
+        </Link>
+        <Link href="/workflows" className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2 text-xs font-medium text-foreground transition hover:bg-white/[0.06]">
+          <Radio className="h-3.5 w-3.5 text-cyan-400" /> Workflows
+        </Link>
+        <Link href="/settings" className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2 text-xs font-medium text-foreground transition hover:bg-white/[0.06]">
+          <Settings className="h-3.5 w-3.5 text-muted-foreground" /> Settings
+        </Link>
       </div>
 
       {/* Top stat cards */}
@@ -223,7 +251,7 @@ export default function HomePage() {
 
       {/* Monthly forecast */}
       {analytics && Object.keys(analytics.monthlyForecast).length > 0 && (
-        <Widget title="Monthly Forecast" icon={DollarSign} iconColor="text-green-400" subtitle="Weighted revenue by expected close">
+        <Widget title="Monthly Forecast" icon={DollarSign} iconColor="text-green-400" subtitle="Weighted revenue by expected close" collapsible isCollapsed={collapsed["forecast"]} onToggle={() => toggleCollapse("forecast")}>
           {Object.entries(analytics.monthlyForecast).sort(([a], [b]) => a.localeCompare(b)).map(([month, value]) => {
             const maxVal = Math.max(...Object.values(analytics.monthlyForecast), 1);
             const pct = (value / maxVal) * 100;
@@ -242,7 +270,7 @@ export default function HomePage() {
 
       {/* Team leaderboard */}
       {teamStats.length > 0 && (
-        <Widget title="Team Leaderboard" icon={Users} iconColor="text-blue-400" subtitle="Deals by assignee">
+        <Widget title="Team Leaderboard" icon={Users} iconColor="text-blue-400" subtitle="Deals by assignee" collapsible isCollapsed={collapsed["team"]} onToggle={() => toggleCollapse("team")}>
           {teamStats.slice(0, 8).map((m, i) => (
             <div key={m.id} className="flex items-center gap-3 py-1.5">
               <span className="text-xs text-muted-foreground/50 w-4">{i + 1}</span>
@@ -263,7 +291,7 @@ export default function HomePage() {
 
       {/* Lost reasons */}
       {analytics && analytics.lostReasons.length > 0 && (
-        <Widget title="Lost Deal Reasons" icon={AlertTriangle} iconColor="text-red-400" subtitle={`${analytics.totalLost} lost deal${analytics.totalLost !== 1 ? "s" : ""}`}>
+        <Widget title="Lost Deal Reasons" icon={AlertTriangle} iconColor="text-red-400" subtitle={`${analytics.totalLost} lost deal${analytics.totalLost !== 1 ? "s" : ""}`} collapsible isCollapsed={collapsed["lost"]} onToggle={() => toggleCollapse("lost")}>
           {analytics.lostReasons.slice(0, 5).map((r) => (
             <div key={r.reason} className="flex items-center justify-between py-1.5">
               <span className="text-xs text-muted-foreground">{r.reason}</span>
@@ -280,7 +308,7 @@ export default function HomePage() {
         <div className="space-y-4">
 
           {/* Stale deals */}
-          <Widget title="Stale Deals" icon={AlertTriangle} iconColor="text-red-400" subtitle="No activity in 7+ days" empty={s.staleDeals.length === 0} emptyText="No stale deals. Pipeline is healthy.">
+          <Widget title="Stale Deals" icon={AlertTriangle} iconColor="text-red-400" subtitle="No activity in 7+ days" empty={s.staleDeals.length === 0} emptyText="No stale deals. Pipeline is healthy." collapsible isCollapsed={collapsed["stale"]} onToggle={() => toggleCollapse("stale")}>
             {s.staleDeals.map((d) => (
               <Link key={d.id} href={`/pipeline?highlight=${d.id}`} className="flex items-center justify-between py-2 px-1 rounded-lg hover:bg-white/[0.03] transition">
                 <div>
@@ -296,7 +324,7 @@ export default function HomePage() {
           </Widget>
 
           {/* Follow-ups */}
-          <Widget title="Follow-Ups Due" icon={Clock} iconColor="text-yellow-400" subtitle="Deals in Follow Up stage needing action" empty={s.followUps.length === 0} emptyText="No follow-ups pending.">
+          <Widget title="Follow-Ups Due" icon={Clock} iconColor="text-yellow-400" subtitle="Deals in Follow Up stage needing action" empty={s.followUps.length === 0} emptyText="No follow-ups pending." collapsible isCollapsed={collapsed["followups"]} onToggle={() => toggleCollapse("followups")}>
             {s.followUps.map((d) => (
               <Link key={d.id} href={`/pipeline?highlight=${d.id}`} className="flex items-center justify-between py-2 px-1 rounded-lg hover:bg-white/[0.03] transition">
                 <div>
@@ -309,7 +337,7 @@ export default function HomePage() {
           </Widget>
 
           {/* Reminders */}
-          <Widget title="Reminders" icon={Bell} iconColor="text-amber-400" subtitle="Auto-generated deal reminders" empty={reminders.length === 0} emptyText="No active reminders. Configure them in Pipeline Settings.">
+          <Widget title="Reminders" icon={Bell} iconColor="text-amber-400" subtitle="Auto-generated deal reminders" empty={reminders.length === 0} emptyText="No active reminders. Configure them in Pipeline Settings." collapsible isCollapsed={collapsed["reminders"]} onToggle={() => toggleCollapse("reminders")}>
             {reminders.map((r) => (
               <div key={r.id} className="flex items-center justify-between py-2 px-1 rounded-lg hover:bg-white/[0.03] transition">
                 <Link href={`/pipeline?highlight=${r.deal_id}`} className="flex-1">
@@ -339,7 +367,7 @@ export default function HomePage() {
           </Widget>
 
           {/* TG Highlights — messages needing attention */}
-          <Widget title="Needs Attention" icon={Zap} iconColor="text-amber-400" subtitle="Active TG highlights" empty={highlights.length === 0} emptyText="No active highlights.">
+          <Widget title="Needs Attention" icon={Zap} iconColor="text-amber-400" subtitle="Active TG highlights" empty={highlights.length === 0} emptyText="No active highlights." collapsible isCollapsed={collapsed["highlights"]} onToggle={() => toggleCollapse("highlights")}>
             {highlights.slice(0, 5).map((h) => (
               <Link key={h.id} href={h.deal_id ? `/pipeline?highlight=${h.deal_id}` : "#"} className="flex items-center justify-between py-2 px-1 rounded-lg hover:bg-white/[0.03] transition">
                 <div className="flex items-center gap-2 min-w-0">
@@ -355,7 +383,7 @@ export default function HomePage() {
           </Widget>
 
           {/* Hot conversations */}
-          <Widget title="Hot Conversations" icon={Flame} iconColor="text-orange-400" subtitle="Most active TG groups in last 24h" empty={s.hotConversations.length === 0} emptyText="No Telegram activity in the last 24h.">
+          <Widget title="Hot Conversations" icon={Flame} iconColor="text-orange-400" subtitle="Most active TG groups in last 24h" empty={s.hotConversations.length === 0} emptyText="No Telegram activity in the last 24h." collapsible isCollapsed={collapsed["hot"]} onToggle={() => toggleCollapse("hot")}>
             {s.hotConversations.map((c, i) => (
               <Link key={i} href={c.deal_id ? `/pipeline?highlight=${c.deal_id}` : "/groups"} className="flex items-center justify-between py-2 px-1 rounded-lg hover:bg-white/[0.03] transition">
                 <div className="flex items-center gap-2">
@@ -374,7 +402,7 @@ export default function HomePage() {
 
           {/* Pinned deals */}
           {s.pinnedDeals.length > 0 && (
-            <Widget title="Pinned Deals" icon={Pin} iconColor="text-primary" subtitle="High-priority deals (100% probability)">
+            <Widget title="Pinned Deals" icon={Pin} iconColor="text-primary" subtitle="High-priority deals (100% probability)" collapsible isCollapsed={collapsed["pinned"]} onToggle={() => toggleCollapse("pinned")}>
               {s.pinnedDeals.map((d) => (
                 <Link key={d.id} href={`/pipeline?highlight=${d.id}`} className="flex items-center justify-between py-2 px-1 rounded-lg hover:bg-white/[0.03] transition">
                   <div className="flex items-center gap-2">
@@ -399,7 +427,7 @@ export default function HomePage() {
 
           {/* Pipeline funnel */}
           {s.stageBreakdown.length > 0 && (
-            <Widget title="Pipeline Funnel" icon={BarChart3} iconColor="text-primary">
+            <Widget title="Pipeline Funnel" icon={BarChart3} iconColor="text-primary" collapsible isCollapsed={collapsed["funnel"]} onToggle={() => toggleCollapse("funnel")}>
               {s.stageBreakdown.map((stage) => {
                 const maxCount = Math.max(...s.stageBreakdown.map((st) => st.count), 1);
                 const pct = (stage.count / maxCount) * 100;
@@ -419,7 +447,7 @@ export default function HomePage() {
 
           {/* Stage conversion rates */}
           {s.conversionRates.length > 0 && (
-            <Widget title="Conversion Rates" icon={TrendingUp} iconColor="text-green-400" subtitle="Stage-to-stage progression">
+            <Widget title="Conversion Rates" icon={TrendingUp} iconColor="text-green-400" subtitle="Stage-to-stage progression" collapsible isCollapsed={collapsed["conversion"]} onToggle={() => toggleCollapse("conversion")}>
               {s.conversionRates.map((c) => (
                 <div key={c.id} className="flex items-center gap-3 py-1.5">
                   <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
@@ -439,7 +467,7 @@ export default function HomePage() {
 
           {/* Avg days per stage */}
           {s.velocity.avgDaysPerStage.some((s) => s.avg_days !== null) && (
-            <Widget title="Avg. Days per Stage" icon={Clock} iconColor="text-cyan-400" subtitle="This week's pipeline speed">
+            <Widget title="Avg. Days per Stage" icon={Clock} iconColor="text-cyan-400" subtitle="This week's pipeline speed" collapsible isCollapsed={collapsed["avgdays"]} onToggle={() => toggleCollapse("avgdays")}>
               {s.velocity.avgDaysPerStage.map((stage) => (
                 <div key={stage.id} className="flex items-center gap-3 py-1.5">
                   <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: stage.color }} />
@@ -476,26 +504,39 @@ function StatCard({ icon: Icon, iconColor, label, value, sub }: { icon: React.El
   );
 }
 
-function Widget({ title, icon: Icon, iconColor, subtitle, children, empty, emptyText }: {
+function Widget({ title, icon: Icon, iconColor, subtitle, children, empty, emptyText, collapsible, isCollapsed, onToggle }: {
   title: string; icon: React.ElementType; iconColor: string; subtitle?: string;
   children?: React.ReactNode; empty?: boolean; emptyText?: string;
+  collapsible?: boolean; isCollapsed?: boolean; onToggle?: () => void;
 }) {
+  const Chevron = isCollapsed ? ChevronRight : ChevronDown;
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.035] overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+      <button
+        type="button"
+        onClick={collapsible ? onToggle : undefined}
+        className={cn(
+          "flex w-full items-center justify-between px-4 py-3 border-b border-white/10 text-left",
+          collapsible && "cursor-pointer hover:bg-white/[0.02] transition",
+          isCollapsed && "border-b-0",
+        )}
+      >
         <div className="flex items-center gap-2">
+          {collapsible && <Chevron className="h-3 w-3 text-muted-foreground/50" />}
           <Icon className={cn("h-4 w-4", iconColor)} />
           <h2 className="text-sm font-medium text-foreground">{title}</h2>
         </div>
         {subtitle && <span className="text-[10px] text-muted-foreground">{subtitle}</span>}
-      </div>
-      <div className="px-4 py-3">
-        {empty ? (
-          <p className="text-xs text-muted-foreground/50 text-center py-4">{emptyText}</p>
-        ) : (
-          <div className="space-y-0.5">{children}</div>
-        )}
-      </div>
+      </button>
+      {!isCollapsed && (
+        <div className="px-4 py-3">
+          {empty ? (
+            <p className="text-xs text-muted-foreground/50 text-center py-4">{emptyText}</p>
+          ) : (
+            <div className="space-y-0.5">{children}</div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
