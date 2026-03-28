@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { href: "/", label: "Dashboard", icon: HomeIcon },
   { href: "/pipeline", label: "Pipeline", icon: KanbanIcon },
   { href: "/tasks", label: "Tasks", icon: TasksIcon },
+  { href: "/inbox", label: "Inbox", icon: InboxIcon },
   { href: "/email", label: "Email", icon: MailIcon },
   { href: "/contacts", label: "Contacts", icon: UsersIcon },
   { href: "/groups", label: "TG Groups", icon: MessageCircleIcon },
@@ -254,6 +255,15 @@ function NetworkIcon({ className }: { className?: string }) {
       <circle cx="19" cy="19" r="3" />
       <line x1="12" y1="8" x2="5" y2="16" />
       <line x1="12" y1="8" x2="19" y2="16" />
+    </svg>
+  );
+}
+
+function InboxIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
+      <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z" />
     </svg>
   );
 }

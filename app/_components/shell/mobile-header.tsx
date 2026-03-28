@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { href: "/", label: "Home" },
   { href: "/pipeline", label: "Pipeline" },
   { href: "/tasks", label: "Tasks" },
+  { href: "/inbox", label: "Inbox" },
   { href: "/email", label: "Email" },
   { href: "/contacts", label: "Contacts" },
   { href: "/groups", label: "Groups" },
