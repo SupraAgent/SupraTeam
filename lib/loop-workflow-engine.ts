@@ -321,6 +321,35 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): P
   }
 }
 
+// ── Failure Alerts ──────────────────────────────────────────
+
+/**
+ * Log a workflow failure alert to crm_notification_log.
+ * This creates a visible record that can be surfaced in the UI and
+ * optionally triggers Telegram/email alerts to admins.
+ */
+async function logWorkflowFailureAlert(
+  supabase: NonNullable<ReturnType<typeof createSupabaseAdmin>>,
+  workflowId: string,
+  workflowName: string,
+  runId: string,
+  error: string
+) {
+  try {
+    await supabase.from("crm_notification_log").insert({
+      notification_type: "workflow_failure",
+      status: "sent",
+      message_preview: `Workflow "${workflowName}" failed: ${error.slice(0, 180)}`,
+      tg_chat_id: 0,
+      automation_rule_id: workflowId,
+      sent_at: new Date().toISOString(),
+    });
+  } catch {
+    // Don't let alert logging break execution
+    console.error(`Failed to log workflow failure alert for ${runId}`);
+  }
+}
+
 // ── Public API ──────────────────────────────────────────────
 
 /**
@@ -360,7 +389,7 @@ export async function executeLoopWorkflow(
     trigger_type: workflow.trigger_type,
   };
 
-  return withTimeout(
+  const result = await withTimeout(
     genericExecuteWorkflow(workflowData, event, {
       vars,
       dealId: event.dealId,
@@ -370,6 +399,13 @@ export async function executeLoopWorkflow(
     EXECUTION_TIMEOUT_MS,
     `Workflow ${workflowId}`
   );
+
+  // Log failure alert for monitoring
+  if (result.status === "failed" && result.error) {
+    await logWorkflowFailureAlert(supabase, workflowId, workflow.name, result.runId, result.error);
+  }
+
+  return result;
 }
 
 /**

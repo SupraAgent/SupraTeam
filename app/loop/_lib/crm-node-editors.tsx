@@ -12,6 +12,110 @@ const selectClass =
   "w-full rounded-md border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs text-foreground focus:border-primary/50 focus:outline-none";
 const labelClass = "text-[11px] font-medium text-muted-foreground mb-1 block";
 
+// ── Async Options Hook ─────────────────────────────────────
+
+interface CrmOption {
+  value: string;
+  label: string;
+  meta?: Record<string, unknown>;
+}
+
+function useCrmOptions(type: string, params?: Record<string, string>) {
+  const [options, setOptions] = React.useState<CrmOption[]>([]);
+  const [loading, setLoading] = React.useState(false);
+  const paramsKey = params ? JSON.stringify(params) : "";
+
+  React.useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    const qs = new URLSearchParams({ type, ...params });
+    fetch(`/api/loop/crm-options?${qs}`)
+      .then((r) => (r.ok ? r.json() : { options: [] }))
+      .then((data) => {
+        if (!cancelled) setOptions(data.options ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setOptions([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [type, paramsKey]);
+
+  return { options, loading };
+}
+
+/** Searchable async select — fetches on search input change */
+function useSearchableCrmOptions(type: string) {
+  const [options, setOptions] = React.useState<CrmOption[]>([]);
+  const [loading, setLoading] = React.useState(false);
+  const timerRef = React.useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  const search = React.useCallback((query: string) => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const qs = new URLSearchParams({ type, search: query });
+        const res = await fetch(`/api/loop/crm-options?${qs}`);
+        if (res.ok) {
+          const data = await res.json();
+          setOptions(data.options ?? []);
+        }
+      } catch { /* ignore */ }
+      setLoading(false);
+    }, 300);
+  }, [type]);
+
+  // Initial fetch
+  React.useEffect(() => { search(""); }, [search]);
+
+  return { options, loading, search };
+}
+
+/** Reusable async select component */
+function AsyncSelect({
+  label: selectLabel,
+  options,
+  loading,
+  value,
+  onChange,
+  placeholder,
+  onSearch,
+}: {
+  label: string;
+  options: CrmOption[];
+  loading: boolean;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  onSearch?: (q: string) => void;
+}) {
+  return (
+    <div>
+      <label className={labelClass}>{selectLabel}</label>
+      {onSearch && (
+        <input
+          className={`${inputClass} mb-1`}
+          placeholder="Search..."
+          onChange={(e) => onSearch(e.target.value)}
+        />
+      )}
+      <select
+        className={selectClass}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        <option value="">{loading ? "Loading..." : (placeholder || "Select...")}</option>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 // ── CRM Trigger Editor ──────────────────────────────────────
 
 const TRIGGER_OPTIONS = [
@@ -33,6 +137,8 @@ const TRIGGER_OPTIONS = [
 const CrmTriggerEditor: CustomNodeEditor = ({ data, onChange }) => {
   const d = data as Partial<CrmTriggerNodeData>;
   const config = (d.config ?? {}) as Record<string, string>;
+  const { options: stageOptions, loading: stagesLoading } = useCrmOptions("stages");
+  const { options: groupOptions, loading: groupsLoading } = useCrmOptions("groups");
 
   return (
     <div className="space-y-3">
@@ -58,15 +164,14 @@ const CrmTriggerEditor: CustomNodeEditor = ({ data, onChange }) => {
         </select>
       </div>
       {d.crmTrigger === "deal_stage_change" && (
-        <div>
-          <label className={labelClass}>Stage Filter (optional)</label>
-          <input
-            className={inputClass}
-            value={config.stage_name || ""}
-            onChange={(e) => onChange({ config: { ...config, stage_name: e.target.value } })}
-            placeholder="e.g. MOU Signed"
-          />
-        </div>
+        <AsyncSelect
+          label="Stage Filter (optional)"
+          options={stageOptions}
+          loading={stagesLoading}
+          value={config.stage_name || ""}
+          onChange={(v) => onChange({ config: { ...config, stage_name: v } })}
+          placeholder="Any stage"
+        />
       )}
       {d.crmTrigger === "scheduled" && (
         <div>
@@ -80,15 +185,14 @@ const CrmTriggerEditor: CustomNodeEditor = ({ data, onChange }) => {
         </div>
       )}
       {(d.crmTrigger === "tg_message" || d.crmTrigger === "tg_member_joined" || d.crmTrigger === "tg_member_left") && (
-        <div>
-          <label className={labelClass}>Group Filter (optional)</label>
-          <input
-            className={inputClass}
-            value={config.group_id || ""}
-            onChange={(e) => onChange({ config: { ...config, group_id: e.target.value } })}
-            placeholder="Telegram group ID"
-          />
-        </div>
+        <AsyncSelect
+          label="Group Filter (optional)"
+          options={groupOptions}
+          loading={groupsLoading}
+          value={config.group_id || ""}
+          onChange={(v) => onChange({ config: { ...config, group_id: v } })}
+          placeholder="Any group"
+        />
       )}
     </div>
   );
@@ -119,6 +223,13 @@ const ACTION_OPTIONS = [
 const CrmActionEditor: CustomNodeEditor = ({ data, onChange }) => {
   const d = data as Partial<CrmActionNodeData>;
   const config = (d.config ?? {}) as Record<string, string>;
+  const crmAction = d.crmAction || "send_telegram";
+
+  // Fetch options conditionally based on which action is selected
+  const { options: groupOptions, loading: groupsLoading } = useCrmOptions("groups");
+  const { options: teamOptions, loading: teamLoading } = useCrmOptions("team");
+  const { options: stageOptions, loading: stagesLoading } = useCrmOptions("stages");
+  const { options: boardOptions } = useCrmOptions("boards");
 
   function updateConfig(key: string, value: string) {
     onChange({ config: { ...config, [key]: value } });
@@ -139,7 +250,7 @@ const CrmActionEditor: CustomNodeEditor = ({ data, onChange }) => {
         <label className={labelClass}>Action Type</label>
         <select
           className={selectClass}
-          value={d.crmAction || "send_telegram"}
+          value={crmAction}
           onChange={(e) => onChange({ crmAction: e.target.value })}
         >
           {ACTION_OPTIONS.map((o) => (
@@ -149,7 +260,7 @@ const CrmActionEditor: CustomNodeEditor = ({ data, onChange }) => {
       </div>
 
       {/* Action-specific config fields */}
-      {(d.crmAction === "send_telegram" || d.crmAction === "send_broadcast") && (
+      {(crmAction === "send_telegram" || crmAction === "send_broadcast") && (
         <>
           <div>
             <label className={labelClass}>Message</label>
@@ -160,13 +271,17 @@ const CrmActionEditor: CustomNodeEditor = ({ data, onChange }) => {
               placeholder="Message text (supports {{deal_name}}, {{company}} vars)"
             />
           </div>
-          {d.crmAction === "send_telegram" && (
-            <div>
-              <label className={labelClass}>Chat ID (optional)</label>
-              <input className={inputClass} value={config.chat_id || ""} onChange={(e) => updateConfig("chat_id", e.target.value)} placeholder="Override chat ID" />
-            </div>
+          {crmAction === "send_telegram" && (
+            <AsyncSelect
+              label="Chat / Group (optional)"
+              options={groupOptions}
+              loading={groupsLoading}
+              value={config.chat_id || ""}
+              onChange={(v) => updateConfig("chat_id", v)}
+              placeholder="Use deal's linked chat"
+            />
           )}
-          {d.crmAction === "send_broadcast" && (
+          {crmAction === "send_broadcast" && (
             <div>
               <label className={labelClass}>Slug Filter</label>
               <input className={inputClass} value={config.slug || ""} onChange={(e) => updateConfig("slug", e.target.value)} placeholder="e.g. partners" />
@@ -175,11 +290,11 @@ const CrmActionEditor: CustomNodeEditor = ({ data, onChange }) => {
         </>
       )}
 
-      {d.crmAction === "send_email" && (
+      {crmAction === "send_email" && (
         <>
           <div>
             <label className={labelClass}>To</label>
-            <input className={inputClass} value={config.to || ""} onChange={(e) => updateConfig("to", e.target.value)} placeholder="Recipient email" />
+            <input className={inputClass} value={config.to || ""} onChange={(e) => updateConfig("to", e.target.value)} placeholder="Recipient email or {{contact_email}}" />
           </div>
           <div>
             <label className={labelClass}>Subject</label>
@@ -192,7 +307,7 @@ const CrmActionEditor: CustomNodeEditor = ({ data, onChange }) => {
         </>
       )}
 
-      {d.crmAction === "send_slack" && (
+      {crmAction === "send_slack" && (
         <>
           <div>
             <label className={labelClass}>Channel ID</label>
@@ -205,11 +320,67 @@ const CrmActionEditor: CustomNodeEditor = ({ data, onChange }) => {
         </>
       )}
 
-      {(d.crmAction === "update_deal" || d.crmAction === "update_contact") && (
+      {crmAction === "update_deal" && (
         <>
           <div>
             <label className={labelClass}>Field</label>
-            <input className={inputClass} value={config.field || ""} onChange={(e) => updateConfig("field", e.target.value)} placeholder="Field name" />
+            <select className={selectClass} value={config.field || ""} onChange={(e) => updateConfig("field", e.target.value)}>
+              <option value="">Select field...</option>
+              <option value="stage_id">Pipeline Stage</option>
+              <option value="board_type">Board</option>
+              <option value="value">Deal Value</option>
+              <option value="assigned_to">Assigned To</option>
+              <option value="notes">Notes</option>
+              <option value="priority">Priority</option>
+            </select>
+          </div>
+          {config.field === "stage_id" ? (
+            <AsyncSelect
+              label="Stage"
+              options={stageOptions}
+              loading={stagesLoading}
+              value={config.value || ""}
+              onChange={(v) => updateConfig("value", v)}
+              placeholder="Select stage"
+            />
+          ) : config.field === "board_type" ? (
+            <AsyncSelect
+              label="Board"
+              options={boardOptions}
+              loading={false}
+              value={config.value || ""}
+              onChange={(v) => updateConfig("value", v)}
+              placeholder="Select board"
+            />
+          ) : config.field === "assigned_to" ? (
+            <AsyncSelect
+              label="Assign To"
+              options={teamOptions}
+              loading={teamLoading}
+              value={config.value || ""}
+              onChange={(v) => updateConfig("value", v)}
+              placeholder="Select team member"
+            />
+          ) : (
+            <div>
+              <label className={labelClass}>Value</label>
+              <input className={inputClass} value={config.value || ""} onChange={(e) => updateConfig("value", e.target.value)} placeholder="New value" />
+            </div>
+          )}
+        </>
+      )}
+
+      {crmAction === "update_contact" && (
+        <>
+          <div>
+            <label className={labelClass}>Field</label>
+            <select className={selectClass} value={config.field || ""} onChange={(e) => updateConfig("field", e.target.value)}>
+              <option value="">Select field...</option>
+              <option value="name">Name</option>
+              <option value="company">Company</option>
+              <option value="lifecycle_stage">Lifecycle Stage</option>
+              <option value="notes">Notes</option>
+            </select>
           </div>
           <div>
             <label className={labelClass}>Value</label>
@@ -218,32 +389,43 @@ const CrmActionEditor: CustomNodeEditor = ({ data, onChange }) => {
         </>
       )}
 
-      {d.crmAction === "assign_deal" && (
-        <div>
-          <label className={labelClass}>Assign To (user ID)</label>
-          <input className={inputClass} value={config.assign_to || ""} onChange={(e) => updateConfig("assign_to", e.target.value)} placeholder="User ID" />
-        </div>
+      {crmAction === "assign_deal" && (
+        <AsyncSelect
+          label="Assign To"
+          options={teamOptions}
+          loading={teamLoading}
+          value={config.assign_to || ""}
+          onChange={(v) => updateConfig("assign_to", v)}
+          placeholder="Select team member"
+        />
       )}
 
-      {d.crmAction === "create_deal" && (
+      {crmAction === "create_deal" && (
         <>
           <div>
             <label className={labelClass}>Deal Name</label>
             <input className={inputClass} value={config.name || ""} onChange={(e) => updateConfig("name", e.target.value)} placeholder="New deal name" />
           </div>
-          <div>
-            <label className={labelClass}>Board</label>
-            <select className={selectClass} value={config.board_type || "BD"} onChange={(e) => updateConfig("board_type", e.target.value)}>
-              <option value="BD">BD</option>
-              <option value="Marketing">Marketing</option>
-              <option value="Admin">Admin</option>
-              <option value="Applications">Applications</option>
-            </select>
-          </div>
+          <AsyncSelect
+            label="Board"
+            options={boardOptions}
+            loading={false}
+            value={config.board_type || "BD"}
+            onChange={(v) => updateConfig("board_type", v)}
+            placeholder="Select board"
+          />
+          <AsyncSelect
+            label="Initial Stage (optional)"
+            options={stageOptions}
+            loading={stagesLoading}
+            value={config.stage_id || ""}
+            onChange={(v) => updateConfig("stage_id", v)}
+            placeholder="First stage"
+          />
         </>
       )}
 
-      {d.crmAction === "create_task" && (
+      {crmAction === "create_task" && (
         <>
           <div>
             <label className={labelClass}>Title</label>
@@ -253,17 +435,25 @@ const CrmActionEditor: CustomNodeEditor = ({ data, onChange }) => {
             <label className={labelClass}>Description</label>
             <textarea className={`${inputClass} min-h-[40px] resize-y`} value={config.description || ""} onChange={(e) => updateConfig("description", e.target.value)} placeholder="Task description" />
           </div>
+          <AsyncSelect
+            label="Assign To (optional)"
+            options={teamOptions}
+            loading={teamLoading}
+            value={config.assign_to || ""}
+            onChange={(v) => updateConfig("assign_to", v)}
+            placeholder="Unassigned"
+          />
         </>
       )}
 
-      {(d.crmAction === "add_tag" || d.crmAction === "remove_tag") && (
+      {(crmAction === "add_tag" || crmAction === "remove_tag") && (
         <div>
           <label className={labelClass}>Tag</label>
           <input className={inputClass} value={config.tag || ""} onChange={(e) => updateConfig("tag", e.target.value)} placeholder="Tag name" />
         </div>
       )}
 
-      {d.crmAction === "http_request" && (
+      {crmAction === "http_request" && (
         <>
           <div>
             <label className={labelClass}>URL</label>
@@ -286,21 +476,21 @@ const CrmActionEditor: CustomNodeEditor = ({ data, onChange }) => {
         </>
       )}
 
-      {d.crmAction === "ai_classify" && (
+      {crmAction === "ai_classify" && (
         <div>
           <label className={labelClass}>Categories</label>
           <input className={inputClass} value={config.categories || ""} onChange={(e) => updateConfig("categories", e.target.value)} placeholder="hot,warm,cold" />
         </div>
       )}
 
-      {(d.crmAction === "add_to_sequence" || d.crmAction === "remove_from_sequence") && (
+      {(crmAction === "add_to_sequence" || crmAction === "remove_from_sequence") && (
         <div>
           <label className={labelClass}>Sequence ID</label>
           <input className={inputClass} value={config.sequence_id || ""} onChange={(e) => updateConfig("sequence_id", e.target.value)} placeholder="Sequence ID" />
         </div>
       )}
 
-      {d.crmAction === "tg_manage_access" && (
+      {crmAction === "tg_manage_access" && (
         <>
           <div>
             <label className={labelClass}>Slug</label>
@@ -343,6 +533,12 @@ const CONDITION_OPERATORS = [
 
 const CrmConditionEditor: CustomNodeEditor = ({ data, onChange }) => {
   const d = data as Partial<CrmConditionNodeData>;
+  const { options: stageOptions, loading: stagesLoading } = useCrmOptions("stages");
+  const { options: teamOptions, loading: teamLoading } = useCrmOptions("team");
+  const { options: boardOptions } = useCrmOptions("boards");
+
+  // Show async picker for certain field+operator combos
+  const showPicker = d.operator !== "is_empty" && ["stage", "board_type", "assigned_to"].includes(d.field || "");
 
   return (
     <div className="space-y-3">
@@ -380,15 +576,46 @@ const CrmConditionEditor: CustomNodeEditor = ({ data, onChange }) => {
         </select>
       </div>
       {d.operator !== "is_empty" && (
-        <div>
-          <label className={labelClass}>Value</label>
-          <input
-            className={inputClass}
-            value={(d.value as string) || ""}
-            onChange={(e) => onChange({ value: e.target.value })}
-            placeholder="Compare value"
-          />
-        </div>
+        showPicker ? (
+          d.field === "stage" ? (
+            <AsyncSelect
+              label="Value"
+              options={stageOptions}
+              loading={stagesLoading}
+              value={(d.value as string) || ""}
+              onChange={(v) => onChange({ value: v })}
+              placeholder="Select stage"
+            />
+          ) : d.field === "board_type" ? (
+            <AsyncSelect
+              label="Value"
+              options={boardOptions}
+              loading={false}
+              value={(d.value as string) || ""}
+              onChange={(v) => onChange({ value: v })}
+              placeholder="Select board"
+            />
+          ) : d.field === "assigned_to" ? (
+            <AsyncSelect
+              label="Value"
+              options={teamOptions}
+              loading={teamLoading}
+              value={(d.value as string) || ""}
+              onChange={(v) => onChange({ value: v })}
+              placeholder="Select team member"
+            />
+          ) : null
+        ) : (
+          <div>
+            <label className={labelClass}>Value</label>
+            <input
+              className={inputClass}
+              value={(d.value as string) || ""}
+              onChange={(e) => onChange({ value: e.target.value })}
+              placeholder="Compare value"
+            />
+          </div>
+        )
       )}
     </div>
   );

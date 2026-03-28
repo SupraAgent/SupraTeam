@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { createSupabaseAdmin } from "@/lib/supabase";
+import { isLoopBuilderWorkflow } from "@/lib/loop-workflow-engine";
 
 /**
  * GET: List all Loop Builder workflows for the current user.
@@ -23,14 +24,23 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("crm_workflows")
-    .select("id, name, description, is_active, trigger_type, last_run_at, run_count, version, created_by, created_at, updated_at")
+    .select("id, name, description, is_active, trigger_type, last_run_at, run_count, version, created_by, created_at, updated_at, nodes")
     .order("updated_at", { ascending: false });
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ workflows: data });
+  // Filter to only Loop Builder workflows (those with crmTriggerNode in nodes)
+  // Also include workflows with no nodes (newly created in Loop Builder)
+  const loopWorkflows = (data ?? [])
+    .filter((wf) => {
+      const nodes = (wf.nodes ?? []) as unknown[];
+      return nodes.length === 0 || isLoopBuilderWorkflow(nodes);
+    })
+    .map(({ nodes: _nodes, ...rest }) => rest); // Strip nodes from list response
+
+  return NextResponse.json({ workflows: loopWorkflows });
 }
 
 export async function POST(request: Request) {

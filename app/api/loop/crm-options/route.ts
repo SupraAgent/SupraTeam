@@ -78,6 +78,27 @@ export async function GET(request: Request) {
       });
     }
 
+    case "sequences": {
+      const { data, error } = await admin.from("crm_outreach_sequences").select("id, name, status, channel").order("name");
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({
+        options: (data ?? []).map((s) => ({
+          value: s.id,
+          label: `${s.name} (${s.channel})`,
+          meta: { status: s.status },
+        })),
+      });
+    }
+
+    case "slugs": {
+      const { data, error } = await admin.from("tg_group_slugs").select("slug").order("slug");
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      const unique = [...new Set((data ?? []).map((s) => s.slug))];
+      return NextResponse.json({
+        options: unique.map((s) => ({ value: s, label: s })),
+      });
+    }
+
     default:
       return NextResponse.json({ error: `Unknown type: ${type}` }, { status: 400 });
   }

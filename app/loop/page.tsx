@@ -9,6 +9,7 @@ import type {
   LLMExecuteResponse,
 } from "@supra/loop-builder";
 import type { Node, Edge } from "@xyflow/react";
+import Link from "next/link";
 import { CRM_NODE_TYPES } from "./_lib/crm-node-types";
 import { CRM_PALETTE_ITEMS, CRM_NODE_TYPE_INFO } from "./_lib/crm-palette-items";
 import { CRM_NODE_EDITORS } from "./_lib/crm-node-editors";
@@ -121,6 +122,7 @@ function WorkflowManagerPanel({
   onToggleActive,
   onNewWorkflow,
   onRunWorkflow,
+  onShowTestModal,
   isRunning,
   lastRunStatus,
 }: {
@@ -134,7 +136,8 @@ function WorkflowManagerPanel({
   isActive: boolean;
   onToggleActive: () => void;
   onNewWorkflow: () => void;
-  onRunWorkflow: (testMode: boolean) => void;
+  onRunWorkflow: (testMode: boolean, dealId?: string) => void;
+  onShowTestModal: () => void;
   isRunning: boolean;
   lastRunStatus: string | null;
 }) {
@@ -204,7 +207,7 @@ function WorkflowManagerPanel({
       {activeWorkflowId && (
         <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-background/95 backdrop-blur-sm px-2 py-1.5 shadow-lg">
           <button
-            onClick={() => onRunWorkflow(true)}
+            onClick={() => onRunWorkflow(true, undefined)}
             disabled={isRunning}
             className="text-[10px] font-medium px-2 py-1 rounded bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition disabled:opacity-50"
             title="Dry run — evaluates without side effects"
@@ -212,7 +215,15 @@ function WorkflowManagerPanel({
             Test
           </button>
           <button
-            onClick={() => onRunWorkflow(false)}
+            onClick={() => onShowTestModal()}
+            disabled={isRunning}
+            className="text-[10px] font-medium px-2 py-1 rounded bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 transition disabled:opacity-50"
+            title="Test with a sample deal from the database"
+          >
+            Test w/ Deal
+          </button>
+          <button
+            onClick={() => onRunWorkflow(false, undefined)}
             disabled={isRunning}
             className="text-[10px] font-medium px-2 py-1 rounded bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition disabled:opacity-50"
           >
@@ -229,6 +240,15 @@ function WorkflowManagerPanel({
           )}
         </div>
       )}
+
+      {/* Runs dashboard link */}
+      <Link
+        href="/automations/runs"
+        className="rounded-lg border border-white/10 bg-background/95 backdrop-blur-sm px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-white/5 shadow-lg transition"
+        title="View all workflow runs"
+      >
+        Runs
+      </Link>
 
       {/* New workflow button */}
       <button
@@ -300,6 +320,10 @@ export default function LoopBuilderPage() {
   const [lastRunStatus, setLastRunStatus] = React.useState<string | null>(null);
   const [showNameInput, setShowNameInput] = React.useState(false);
   const [pendingName, setPendingName] = React.useState("");
+  const [showTestModal, setShowTestModal] = React.useState(false);
+  const [testDeals, setTestDeals] = React.useState<Array<{ value: string; label: string; meta?: Record<string, unknown> }>>([]);
+  const [testDealSearch, setTestDealSearch] = React.useState("");
+  const [lastRunError, setLastRunError] = React.useState<string | null>(null);
 
   // Track current canvas state for save
   const nodesRef = React.useRef<Node[]>([]);
@@ -444,24 +468,58 @@ export default function LoopBuilderPage() {
   }, []);
 
   /** Run workflow server-side */
-  const handleRunWorkflow = React.useCallback(async (testMode: boolean) => {
+  const handleRunWorkflow = React.useCallback(async (testMode: boolean, dealId?: string) => {
     if (!activeWorkflowId) return;
     setIsRunning(true);
     setLastRunStatus(null);
+    setLastRunError(null);
     try {
+      const body: Record<string, unknown> = { test_mode: testMode };
+      if (dealId) body.deal_id = dealId;
       const res = await fetch(`/api/loop/workflows/${activeWorkflowId}/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ test_mode: testMode }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
-      setLastRunStatus(data.status || (data.ok ? "completed" : "failed"));
+      const status = data.status || (data.ok ? "completed" : "failed");
+      setLastRunStatus(status);
+      if (status === "failed" && data.error) {
+        setLastRunError(data.error);
+      }
     } catch {
       setLastRunStatus("failed");
+      setLastRunError("Network error — could not reach server");
     } finally {
       setIsRunning(false);
     }
   }, [activeWorkflowId]);
+
+  /** Show test-with-deal modal and fetch deals */
+  const handleShowTestModal = React.useCallback(async () => {
+    setShowTestModal(true);
+    setTestDealSearch("");
+    try {
+      const res = await fetch("/api/loop/crm-options?type=deals");
+      if (res.ok) {
+        const data = await res.json();
+        setTestDeals(data.options ?? []);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  /** Search deals in test modal */
+  const searchTestDeals = React.useCallback(async (query: string) => {
+    setTestDealSearch(query);
+    try {
+      const qs = new URLSearchParams({ type: "deals", search: query });
+      const res = await fetch(`/api/loop/crm-options?${qs}`);
+      if (res.ok) {
+        const data = await res.json();
+        setTestDeals(data.options ?? []);
+      }
+    } catch { /* ignore */ }
+  }, []);
 
   const [builderKey, setBuilderKey] = React.useState(0);
 
@@ -499,9 +557,66 @@ export default function LoopBuilderPage() {
         onToggleActive={handleToggleActive}
         onNewWorkflow={handleNewWorkflow}
         onRunWorkflow={handleRunWorkflow}
+        onShowTestModal={handleShowTestModal}
         isRunning={isRunning}
         lastRunStatus={lastRunStatus}
       />
+
+      {/* Failure alert banner */}
+      {lastRunError && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-30 max-w-md w-full">
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 backdrop-blur-sm px-4 py-2 shadow-lg flex items-start gap-2">
+            <span className="text-red-400 text-xs shrink-0 mt-0.5">&#x26A0;</span>
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-medium text-red-400">Workflow failed</div>
+              <div className="text-[11px] text-red-300/80 mt-0.5 break-words">{lastRunError}</div>
+            </div>
+            <button onClick={() => setLastRunError(null)} className="text-red-400/60 hover:text-red-400 text-xs shrink-0">&#x2715;</button>
+          </div>
+        </div>
+      )}
+
+      {/* Test with deal modal */}
+      {showTestModal && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="rounded-xl border border-white/10 bg-background p-4 shadow-2xl w-96">
+            <div className="text-sm font-semibold text-foreground mb-2">Test with Sample Deal</div>
+            <p className="text-[11px] text-muted-foreground mb-3">Select a deal to use as context during the dry run. The workflow will evaluate with this deal&apos;s data.</p>
+            <input
+              autoFocus
+              className="w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none mb-2"
+              value={testDealSearch}
+              onChange={(e) => searchTestDeals(e.target.value)}
+              placeholder="Search deals..."
+            />
+            <div className="max-h-48 overflow-y-auto rounded-md border border-white/10 bg-white/5">
+              {testDeals.length === 0 && (
+                <div className="px-3 py-4 text-xs text-muted-foreground text-center">No deals found</div>
+              )}
+              {testDeals.map((deal) => (
+                <button
+                  key={deal.value}
+                  onClick={() => {
+                    setShowTestModal(false);
+                    handleRunWorkflow(true, deal.value);
+                  }}
+                  className="w-full text-left px-3 py-2 hover:bg-white/5 transition border-b border-white/5 last:border-0"
+                >
+                  <div className="text-xs font-medium text-foreground">{deal.label}</div>
+                  {deal.meta && (
+                    <div className="text-[10px] text-muted-foreground">
+                      {deal.meta.board as string} {deal.meta.value ? `· $${deal.meta.value}` : ""}
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2 mt-3">
+              <button onClick={() => setShowTestModal(false)} className="text-xs px-3 py-1.5 text-muted-foreground hover:text-foreground transition">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Inline name input modal (replaces window.prompt) */}
       {showNameInput && (
