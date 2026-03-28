@@ -229,35 +229,278 @@ Each stage has a **competitive milestone** — a score target that unlocks a new
 
 ---
 
-### Stage 3: "Live in Telegram" (Target: 76+ → Clear buffer over Respond.io)
+### Stage 3: "Live in Telegram" (Target: 76+ → Clear buffer over Respond.io) — DETAILED
 
-**Theme:** The TMA becomes the primary mobile CRM. BD reps manage everything without leaving Telegram.
+**Theme:** The TMA becomes the primary mobile CRM, the bot becomes data-isolation-aware, and outreach gets smart branching. BD reps manage everything without leaving Telegram — but the bot never leaks data between orgs/groups.
+
+---
+
+#### CPO Guidance: Data Isolation is the Foundation
+
+> **Critical context:** `supraadmin_bot` operates in many groups across different organizations. A single bot serves Supra's BD groups, marketing groups, partner groups, and potentially external org groups. Every bot response, notification, digest, and AI answer must be scoped to the group it's responding in. No deal names, contact info, pipeline values, or org-internal data should ever leak to a group that isn't explicitly linked to that deal.
+>
+> **This is not a nice-to-have.** It's the trust foundation. If a partner sees another partner's deal value in a daily digest, you lose both partners. Every feature in Stage 3 must pass the "wrong group" test: *"If this message appeared in a group it wasn't meant for, what would happen?"*
 
 **What already exists:**
 - 8 TMA pages: home, deals, deal detail, contacts, tasks, AI chat, broadcasts, apply
 - Outreach sequences with linear steps, delay-based, separate workers
 - Broadcasting with slug-filtered targeting, scheduling, merge variables, delivery tracking
+- Bot handlers with per-chat deal scoping (`telegram_chat_id` filtering)
+- AI conversations scoped by `tg_chat_id` + `tg_user_id`
+- Multi-bot registry with encrypted tokens and per-group bot assignment
 
-**What to build:**
+**What's already safe:**
+- Deal queries in bot handlers filter by `telegram_chat_id` ✅
+- AI conversation history scoped by chat + user ✅
+- Stage change notifications sent only to deal's linked chat ✅
+- Outreach messages sent to enrollment's `tg_chat_id` ✅
+- Contact upsert uses `telegram_user_id` with unique constraint ✅
+
+**What needs hardening (found in security audit):**
+- Daily digest sends org-wide deal data (including top deal names + values) to ALL groups
+- AI agent includes deal context in system prompt — if deal is linked to wrong group, context leaks
+- Bot RLS policies allow any authenticated user to view/update any bot record
+- AI conversations viewable org-wide in admin UI (includes DM content)
+- No group-level permission scoping for broadcasts (any user can broadcast to any group)
+
+---
+
+#### What to Build
 
 | # | Task | What Specifically | Score Impact |
 |---|------|-------------------|-------------|
-| 3a | **TMA deal gestures** | Swipe-to-change-stage on deal cards (left = prev, right = next). Pull-to-refresh on all list pages. Haptic feedback via `window.Telegram.WebApp.HapticFeedback`. Tap-and-hold for quick actions (assign, note, call). | +2-3 |
-| 3b | **TMA push notifications** | When a deal stage changes or a TG highlight fires, send a notification via the bot to the assigned rep with a deep link back into the TMA. Use `Bot.sendMessage` with `web_app_data` button linking to `/tma/deals/[id]`. | +1-2 |
-| 3c | **TMA offline mode** | Cache last 50 deals + contacts in localStorage. Show cached data when offline with "Offline" indicator. Sync on reconnect. Queue actions (stage changes, notes) and replay when back online. | +1 |
-| 3d | **Outreach sequence branching** | Add `condition` step type to sequence builder. Reply detection: `outreach-worker.ts` checks `last_reply_at` on enrollment — if replied since last step, follow `true` branch. Time branch: if no reply after X hours, follow `false` branch. Engagement branch: if contact `engagement_score > threshold`, follow priority path. Visual branch editor in outreach UI. | +2-3 |
-| 3e | **Broadcast analytics** | New analytics tab on broadcasts page: delivery rate per bot/slug/group, response tracking (did recipient send a message in the group within 24h of broadcast?), A/B testing (split recipients 50/50 between two message variants, track response rates). Store variant assignment in `crm_broadcast_recipients`. | +2 |
+| 3a | **Data isolation layer** | The prerequisite for everything else. See detailed breakdown below. | Foundation |
+| 3b | **TMA deal gestures** | Swipe-to-change-stage on deal cards (left = prev, right = next). Pull-to-refresh on all list pages. Haptic feedback via `window.Telegram.WebApp.HapticFeedback`. Tap-and-hold for quick actions (assign, note, call). | +2-3 |
+| 3c | **TMA push notifications** | When a deal stage changes or a TG highlight fires, send a notification via the bot to the assigned rep with a deep link back into the TMA. Use `Bot.sendMessage` with `web_app_data` button linking to `/tma/deals/[id]`. Only notify reps assigned to the deal — never broadcast to unrelated chats. | +1-2 |
+| 3d | **TMA offline mode** | Cache last 50 deals + contacts in localStorage (only deals the current user is assigned to or has viewed). Show cached data when offline with "Offline" indicator. Sync on reconnect. Queue actions (stage changes, notes) and replay when back online. | +1 |
+| 3e | **Outreach sequence branching** | Add `condition` step type to sequence builder. Reply detection: `outreach-worker.ts` checks `last_reply_at` on enrollment — if replied since last step, follow `true` branch. Time branch: if no reply after X hours, follow `false` branch. Engagement branch: if contact `engagement_score > threshold`, follow priority path. Visual branch editor in outreach UI. | +2-3 |
+| 3f | **Broadcast analytics** | New analytics tab on broadcasts page: delivery rate per bot/slug/group, response tracking (did recipient send a message in the group within 24h of broadcast?), A/B testing (split recipients 50/50 between two message variants, track response rates). Store variant assignment in `crm_broadcast_recipients`. | +2 |
 
-**Deliverables:**
-- TMA gesture system: swipe stages, pull-to-refresh, haptic, long-press menus
-- TMA notification pipeline: bot → rep with TMA deep links
-- Offline cache layer with action queue and sync
-- Outreach branching: reply/time/engagement conditions with visual editor
-- Broadcast analytics: delivery funnel, response tracking, A/B variant comparison
+---
 
-**Exit criteria:** BD rep manages full pipeline from phone inside Telegram — swipes deals between stages, gets push notifications, works offline. Outreach auto-pauses on reply. Broadcasts show which messages drive engagement. Score: ~76-78.
+#### 3a: Data Isolation Layer — Detailed Breakdown
 
-**Estimated effort:** 3-4 weeks
+This is the most critical piece. Every bot interaction must answer: *"What data is this group allowed to see?"*
+
+**Principle:** A Telegram group should only ever see data about deals linked to that group. The bot should never mention a deal name, contact, value, or pipeline detail from a different group.
+
+| Sub-task | What to do | Where |
+|----------|-----------|-------|
+| **3a-i: Group-scoped daily digest** | Rewrite `cron/daily-digest.ts` to filter deals by group. Each group's digest shows only deals where `telegram_chat_id` or `tg_group_id` matches that group. If a group has no linked deals, send a generic "No active deals in this group" message instead of org-wide stats. Remove top deal names/values from cross-group digests entirely. | `cron/daily-digest.ts` |
+| **3a-ii: AI agent context boundary** | The AI agent's system prompt must never include deal context from a different group. Add a guard in `handleAIResponse()`: only inject `dealContext` if the deal's `telegram_chat_id === chatId`. If bot is responding in a DM, only include deals where the contact matches the DM user's `telegram_user_id`. Log and alert if a context mismatch is detected. | `bot/handlers/messages.ts` |
+| **3a-iii: AI conversation visibility** | Add group-scoped view to `/api/ai-agent/conversations`. Default: show only conversations from groups the current user has access to (via `crm_user_slug_access`). Admin override: admins can view all. Add `is_private_dm` flag to `crm_ai_conversations` — DM conversations are only visible to the user who had the conversation + admins. | `app/api/ai-agent/conversations/route.ts`, migration |
+| **3a-iv: Bot RLS tightening** | Fix `crm_bots` SELECT/UPDATE policies to restrict to `created_by` or users with `admin_lead` role. Non-admin users should see bot metadata (username, label) but not token references or webhook URLs. | Migration |
+| **3a-v: Broadcast group validation** | Before sending a broadcast, verify the sending user has slug access to the target groups. Non-admin users can only broadcast to groups they have explicit slug access for. Admin users can broadcast to any group. Add audit log entry for every broadcast with sender + target groups. | `app/api/broadcasts/send/route.ts` |
+| **3a-vi: Bot response data scrubbing** | Create a `sanitizeBotMessage()` utility that strips or redacts any data that shouldn't appear in a group context. Apply to: stage change notifications (don't include deal value in group messages), daily digests (group-scoped as above), AI agent responses (never mention other deals). Add configurable "privacy level" per group: `full` (internal team groups — show everything), `limited` (partner groups — show stage names but not values), `minimal` (external groups — only generic messages). | `lib/bot-privacy.ts` (new), `tg_groups` column |
+| **3a-vii: DEV_ACCESS_PASSWORD guard** | Add production guard: if `NODE_ENV === 'production'` and `DEV_ACCESS_PASSWORD` is set, log a warning and ignore it. Never allow dev bypass in production. | `lib/auth-guard.ts` |
+
+**Migration (049_data_isolation.sql):**
+```sql
+-- Privacy level per group
+ALTER TABLE tg_groups ADD COLUMN privacy_level TEXT DEFAULT 'full'
+  CHECK (privacy_level IN ('full', 'limited', 'minimal'));
+
+-- DM flag on AI conversations
+ALTER TABLE crm_ai_conversations ADD COLUMN is_private_dm BOOLEAN DEFAULT false;
+
+-- Fix bot RLS: restrict SELECT to creator + admin_lead
+DROP POLICY IF EXISTS crm_bots_select ON crm_bots;
+CREATE POLICY crm_bots_select ON crm_bots FOR SELECT TO authenticated
+  USING (
+    auth.uid() = created_by
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND crm_role = 'admin_lead'
+    )
+  );
+
+DROP POLICY IF EXISTS crm_bots_update ON crm_bots;
+CREATE POLICY crm_bots_update ON crm_bots FOR UPDATE TO authenticated
+  USING (
+    auth.uid() = created_by
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND crm_role = 'admin_lead'
+    )
+  );
+```
+
+---
+
+#### 3b: TMA Deal Gestures — Detailed
+
+**Gesture system for mobile-first deal management:**
+
+| Gesture | Action | Implementation |
+|---------|--------|---------------|
+| **Swipe right** on deal card | Move to next pipeline stage | Touch event handler with 80px threshold. Animate card sliding right with stage name preview. Confirm with haptic `impact("light")`. POST to `/api/deals/[id]` with `stage_id` of next stage. Undo toast for 5s. |
+| **Swipe left** on deal card | Move to previous stage | Same mechanics, opposite direction. Prevent swiping left from Stage 1. |
+| **Pull-to-refresh** on all list pages | Reload data | CSS `overscroll-behavior: contain` + touch tracking. Show spinner at top. Trigger `router.refresh()` or SWR mutate. Haptic `impact("medium")` on release. |
+| **Tap-and-hold** on deal card | Quick action menu | 500ms press threshold. Haptic `impact("heavy")` on trigger. Popup menu: Assign, Add Note, Change Board, Mark Won/Lost. Use `Telegram.WebApp.HapticFeedback` for all. |
+| **Double-tap** on contact | Quick call/message | Open `tg://resolve?domain=${username}` for TG message, or `tel:${phone}` for call. |
+
+**Files to modify:**
+- `app/tma/deals/page.tsx` — add `SwipeableDealCard` component
+- `app/tma/components/pull-to-refresh.tsx` — new shared component
+- `app/tma/components/haptic.ts` — new utility wrapping `Telegram.WebApp.HapticFeedback`
+- `app/tma/layout.tsx` — add `overscroll-behavior: contain` to prevent browser pull-to-refresh
+
+**Privacy consideration:** Gesture actions (stage changes) fire the same API as desktop. Stage change notifications go only to the deal's linked chat. No new data exposure.
+
+---
+
+#### 3c: TMA Push Notifications — Detailed
+
+**Notification flow:** Event occurs → bot sends DM to assigned rep → message includes TMA deep link button.
+
+| Trigger | Who gets notified | Message content | Deep link |
+|---------|------------------|-----------------|-----------|
+| Deal stage change | Assigned rep | "📊 {deal_name} moved to {stage}" | `/tma/deals/{id}` |
+| New TG message in deal group | Assigned rep (if not sender) | "💬 {sender} in {group}: {preview}" | `/tma/deals/{id}` |
+| Escalation from AI agent | Admin + assigned rep | "⚠️ Escalation in {group}: {reason}" | `/tma/deals/{id}` |
+| Outreach reply detected | Sequence creator | "↩️ Reply from {contact} on {sequence}" | `/tma/contacts/{id}` |
+
+**Implementation:**
+1. New `bot/handlers/push-notifications.ts` — `sendTMAPush(userId, title, body, tmaPath)`
+2. Looks up rep's `telegram_user_id` from `profiles` (need to add this column or use `crm_contacts` self-link)
+3. Sends via `bot.api.sendMessage(userId, text, { reply_markup: { inline_keyboard: [[{ text: "Open in CRM", web_app: { url: tmaUrl } }]] } })`
+4. Respect `notification_preferences` (new column on profiles): `all`, `mentions_only`, `off`
+
+**Privacy consideration:** Push notifications are DMs to the assigned rep only. Message preview is truncated to 100 chars. Deal name is included because the rep is already assigned to the deal. Never send push notifications to group chats.
+
+**Migration addition:**
+```sql
+ALTER TABLE profiles ADD COLUMN telegram_user_id BIGINT;
+ALTER TABLE profiles ADD COLUMN notification_preferences TEXT DEFAULT 'all'
+  CHECK (notification_preferences IN ('all', 'mentions_only', 'off'));
+```
+
+---
+
+#### 3d: TMA Offline Mode — Detailed
+
+**Cache strategy:**
+- On each successful API fetch, store response in `localStorage` with timestamp
+- Keys: `crm_cache_deals`, `crm_cache_contacts`, `crm_cache_stages`
+- Max cache: 50 deals (user's assigned deals first), 100 contacts, all stages
+- Cache TTL: 30 minutes (show stale data with "Updated X min ago" indicator)
+- Offline detection: `navigator.onLine` + `window.addEventListener('online'|'offline')`
+
+**Action queue:**
+- Offline actions stored in `localStorage` key `crm_offline_queue`
+- Each entry: `{ action: 'stage_change', dealId, newStageId, timestamp }`
+- On reconnect: replay queue in order, skip if deal state has changed server-side
+- Conflict resolution: server wins. Show "X changes synced, Y conflicts" toast.
+
+**UI indicators:**
+- Offline banner at top: "📡 Offline — showing cached data"
+- Queued action badges: orange dot on deal cards with pending changes
+- Sync spinner when reconnecting
+
+**Files:**
+- `app/tma/lib/cache.ts` — new cache manager
+- `app/tma/lib/offline-queue.ts` — new action queue
+- `app/tma/components/offline-banner.tsx` — new UI component
+- Modify all TMA pages to use cache-first fetch pattern
+
+**Privacy consideration:** Local cache only stores deals the user has access to. Cache is cleared on logout. No cross-user data in localStorage.
+
+---
+
+#### 3e: Outreach Sequence Branching — Detailed
+
+**New step type: `condition`**
+
+Current sequence model: linear steps (message → delay → message → delay).
+New model: steps can branch based on conditions.
+
+**Condition types:**
+
+| Condition | Check | True branch | False branch |
+|-----------|-------|-------------|--------------|
+| **Reply received** | `enrollment.last_reply_at > step.executed_at` | "Replied" path (e.g., send follow-up, notify rep) | "No reply" path (e.g., wait longer, send reminder) |
+| **Time elapsed** | `now - step.executed_at > X hours` | "Timed out" path | Continue waiting (re-check on next worker poll) |
+| **Engagement score** | `contact.engagement_score > threshold` | "High engagement" path (aggressive follow-up) | "Low engagement" path (gentle nudge or pause) |
+| **Deal stage** | `deal.stage_id === targetStageId` | "In target stage" path | "Not yet" path |
+
+**Data model changes:**
+```sql
+-- Add branching fields to outreach steps
+ALTER TABLE crm_outreach_steps ADD COLUMN condition_type TEXT
+  CHECK (condition_type IN ('reply', 'time_elapsed', 'engagement_score', 'deal_stage'));
+ALTER TABLE crm_outreach_steps ADD COLUMN condition_config JSONB DEFAULT '{}';
+ALTER TABLE crm_outreach_steps ADD COLUMN true_next_step_id UUID REFERENCES crm_outreach_steps(id);
+ALTER TABLE crm_outreach_steps ADD COLUMN false_next_step_id UUID REFERENCES crm_outreach_steps(id);
+```
+
+**Worker changes (`bot/outreach-worker.ts`):**
+- When current step is `condition` type, evaluate the condition
+- If true: advance to `true_next_step_id`
+- If false: advance to `false_next_step_id`
+- If neither branch exists: end sequence
+- Log branch decision in enrollment history
+
+**UI changes:**
+- Sequence builder gets a "Add Condition" button between steps
+- Condition step renders as a diamond (decision node) with two exits
+- Each exit connects to the next step in that branch
+- Visual editor shows branching tree, not just linear list
+
+**Privacy consideration:** Branching decisions are based on data already scoped to the enrollment (reply count, contact score, deal stage). No cross-group data access needed.
+
+---
+
+#### 3f: Broadcast Analytics — Detailed
+
+**New analytics tab on `/broadcasts` and `/tma/broadcasts`:**
+
+| Metric | How to calculate | Display |
+|--------|-----------------|---------|
+| **Delivery rate** | `sent / total_recipients` per broadcast | Bar chart by group |
+| **Failure breakdown** | Group by error type from `crm_broadcast_recipients.error` | Pie chart |
+| **Response tracking** | Check `tg_group_messages` for messages from recipient within 24h of broadcast `sent_at` | "X% responded" metric |
+| **A/B testing** | New `variant` column on `crm_broadcast_recipients` ('A' or 'B'). Split recipients 50/50. Compare response rates. | Side-by-side comparison card |
+| **Best send time** | Aggregate response rates by hour-of-day from historical broadcasts | Heatmap |
+
+**Data model:**
+```sql
+ALTER TABLE crm_broadcast_recipients ADD COLUMN variant TEXT CHECK (variant IN ('A', 'B'));
+ALTER TABLE crm_broadcast_recipients ADD COLUMN responded_at TIMESTAMPTZ;
+ALTER TABLE crm_broadcasts ADD COLUMN variant_b_message TEXT;
+ALTER TABLE crm_broadcasts ADD COLUMN variant_b_parse_mode TEXT;
+```
+
+**Response tracking worker (new cron job):**
+- Runs hourly
+- For each broadcast sent in last 48h with `responded_at IS NULL`
+- Check `tg_group_messages` for messages from recipient in same group after `sent_at`
+- Update `responded_at` on match
+- Calculate and cache aggregate metrics on the broadcast record
+
+**Privacy consideration:** Response tracking only checks if a message was sent in the same group as the broadcast — no cross-group snooping. A/B variant assignment is random, not based on personal data.
+
+---
+
+#### CPO Review: Stage 3 Risk Assessment
+
+> **What I like:** The data isolation layer (3a) being first is the right call. You can't build trust features on a leaky foundation. The TMA gestures (3b) are the highest-UX-impact item — swipe-to-change-stage is the kind of thing that makes people say "this is better than HubSpot on mobile."
+>
+> **What concerns me:**
+> 1. **3a is underestimated.** The daily digest rewrite alone touches cron logic, message formatting, and group-level configuration. Budget extra time.
+> 2. **3d (branching) is the riskiest.** It changes the outreach data model from linear to DAG. Test exhaustively — especially the worker's branch evaluation with concurrent enrollments.
+> 3. **Offline mode (3d) is nice-to-have at this score level.** If you're behind on 3a or 3e, cut offline mode first. Reps have connectivity 99% of the time in Taipei.
+>
+> **Priority order within Stage 3:**
+> 1. **3a (data isolation)** — non-negotiable, do first
+> 2. **3b (gestures)** — highest UX impact, relatively contained
+> 3. **3c (push notifications)** — quick win once profiles have `telegram_user_id`
+> 4. **3e (branching)** — high score impact but complex
+> 5. **3f (broadcast analytics)** — valuable but can ship incrementally
+> 6. **3d (offline)** — cut if behind schedule
+>
+> **The "wrong group" test:** Before merging ANY Stage 3 PR, manually test: create a deal in Group A, then check that Group B's daily digest, AI agent responses, and push notifications don't mention it. This should be a gate on every PR.
+
+**Exit criteria:** BD rep manages full pipeline from phone inside Telegram — swipes deals between stages, gets push notifications for their deals only, works offline. Outreach auto-branches on reply/silence. Broadcasts show which messages drive engagement. **No data leaks between groups.** Score: ~76-78.
+
+**Estimated effort:** 4-5 weeks (extra week for data isolation layer)
 
 ---
 
