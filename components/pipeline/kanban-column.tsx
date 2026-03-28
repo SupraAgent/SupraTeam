@@ -103,6 +103,19 @@ export function KanbanColumn({
                 WIP
               </span>
             )}
+            {(() => {
+              const highlightCount = highlightedDealIds
+                ? deals.filter((d) => highlightedDealIds.has(d.id)).length
+                : 0;
+              return highlightCount > 0 ? (
+                <span
+                  className="rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-amber-500/20 text-amber-400"
+                  title={`${highlightCount} deal${highlightCount > 1 ? "s" : ""} need attention`}
+                >
+                  {highlightCount}
+                </span>
+              ) : null;
+            })()}
             <span className={cn(
               "rounded-full px-1.5 py-0.5 text-[10px] font-medium",
               overWip ? "bg-red-500/20 text-red-400" : "bg-white/10 text-muted-foreground"

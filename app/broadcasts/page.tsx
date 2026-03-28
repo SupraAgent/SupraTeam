@@ -758,25 +758,25 @@ export default function BroadcastsPage() {
               <div className="flex items-center gap-1 border-b border-white/5 pb-2">
                 <button
                   onClick={() => insertFormatting("b")}
-                  className="rounded px-2 py-1 text-xs font-bold text-muted-foreground hover:bg-white/5 hover:text-foreground transition"
+                  className="rounded px-3 py-2 min-h-[44px] text-xs font-bold text-muted-foreground hover:bg-white/5 hover:text-foreground active:bg-white/10 transition"
                 >
                   B
                 </button>
                 <button
                   onClick={() => insertFormatting("i")}
-                  className="rounded px-2 py-1 text-xs italic text-muted-foreground hover:bg-white/5 hover:text-foreground transition"
+                  className="rounded px-3 py-2 min-h-[44px] text-xs italic text-muted-foreground hover:bg-white/5 hover:text-foreground active:bg-white/10 transition"
                 >
                   I
                 </button>
                 <button
                   onClick={() => insertFormatting("u")}
-                  className="rounded px-2 py-1 text-xs underline text-muted-foreground hover:bg-white/5 hover:text-foreground transition"
+                  className="rounded px-3 py-2 min-h-[44px] text-xs underline text-muted-foreground hover:bg-white/5 hover:text-foreground active:bg-white/10 transition"
                 >
                   U
                 </button>
                 <button
                   onClick={() => insertFormatting("code")}
-                  className="rounded px-2 py-1 text-xs font-mono text-muted-foreground hover:bg-white/5 hover:text-foreground transition"
+                  className="rounded px-3 py-2 min-h-[44px] text-xs font-mono text-muted-foreground hover:bg-white/5 hover:text-foreground active:bg-white/10 transition"
                 >
                   {"</>"}
                 </button>
@@ -784,13 +784,13 @@ export default function BroadcastsPage() {
                 <button
                   onClick={() => setShowPreview(!showPreview)}
                   className={cn(
-                    "rounded px-2 py-1 text-xs flex items-center gap-1 transition",
+                    "rounded px-3 py-2 min-h-[44px] text-xs flex items-center gap-1.5 transition",
                     showPreview
                       ? "bg-primary/20 text-primary"
                       : "text-muted-foreground hover:bg-white/5"
                   )}
                 >
-                  <Eye className="h-3 w-3" />
+                  <Eye className="h-3.5 w-3.5" />
                   Preview
                 </button>
               </div>
@@ -864,7 +864,20 @@ export default function BroadcastsPage() {
 
               <div className="flex items-center justify-between">
                 <div className="text-xs text-muted-foreground space-y-0.5">
-                  <p>{message.length} chars | {selectedGroupIds.size} group{selectedGroupIds.size !== 1 ? "s" : ""} selected</p>
+                  <p className="flex items-center gap-1.5">
+                    <span className={cn(
+                      message.length > 4096 ? "text-red-400 font-medium" : message.length > 3600 ? "text-amber-400" : ""
+                    )}>
+                      {message.length.toLocaleString()}/{(4096).toLocaleString()}
+                    </span>
+                    <span className="text-white/20">|</span>
+                    {selectedGroupIds.size} group{selectedGroupIds.size !== 1 ? "s" : ""} selected
+                  </p>
+                  {message.length > 4096 && (
+                    <p className="text-[10px] text-red-400 flex items-center gap-1">
+                      <AlertTriangle className="h-2.5 w-2.5" /> Exceeds Telegram&apos;s 4096 character limit
+                    </p>
+                  )}
                   {totalRecipients > 0 && (
                     <p className="text-[10px] flex items-center gap-1">
                       <Users className="h-2.5 w-2.5" />
@@ -882,6 +895,7 @@ export default function BroadcastsPage() {
                   disabled={
                     sending ||
                     !message.trim() ||
+                    message.length > 4096 ||
                     selectedGroupIds.size === 0 ||
                     (scheduleMode && (!scheduleDate || !scheduleTime))
                   }
@@ -1093,29 +1107,32 @@ export default function BroadcastsPage() {
 
       {/* Send confirmation modal */}
       {showConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[hsl(225,35%,8%)] p-6 shadow-xl space-y-4">
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 sm:backdrop-blur-sm"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowConfirm(false); }}
+        >
+          <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl border border-white/10 bg-[hsl(225,35%,8%)] p-5 sm:p-6 shadow-xl space-y-4 safe-area-bottom">
             <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-xl bg-amber-500/10 flex items-center justify-center">
+              <div className="h-10 w-10 rounded-xl bg-amber-500/10 flex items-center justify-center shrink-0">
                 <AlertTriangle className="h-5 w-5 text-amber-400" />
               </div>
               <div>
                 <h3 className="text-sm font-semibold text-foreground">Confirm Broadcast</h3>
-                <p className="text-[11px] text-muted-foreground">This action cannot be undone</p>
+                <p className="text-xs text-muted-foreground">This action cannot be undone</p>
               </div>
             </div>
             <div className="rounded-lg bg-white/[0.03] border border-white/10 p-3 space-y-2">
               <p className="text-xs text-muted-foreground line-clamp-3">{message}</p>
-              <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+              <div className="flex items-center gap-3 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1"><Users className="h-3 w-3" />{selectedGroupIds.size} group{selectedGroupIds.size !== 1 ? "s" : ""}</span>
                 {totalRecipients > 0 && <span>~{totalRecipients.toLocaleString()} recipients</span>}
                 {scheduleMode && scheduleDate && <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{scheduleDate} {scheduleTime}</span>}
               </div>
             </div>
-            <div className="flex items-center justify-end gap-2">
-              <Button variant="ghost" size="sm" onClick={() => setShowConfirm(false)}>Cancel</Button>
-              <Button size="sm" onClick={handleSend}>
-                <Send className="mr-1 h-3.5 w-3.5" />
+            <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2">
+              <Button variant="ghost" className="min-h-[44px]" onClick={() => setShowConfirm(false)}>Cancel</Button>
+              <Button className="min-h-[44px]" onClick={handleSend}>
+                <Send className="mr-1.5 h-4 w-4" />
                 {scheduleMode ? "Confirm Schedule" : "Confirm Send"}
               </Button>
             </div>
@@ -1156,7 +1173,7 @@ function MergeVariablePicker({ onInsert }: { onInsert: (token: string) => void }
           <button
             key={v.key}
             onClick={() => onInsert(`{{${v.key}}}`)}
-            className="rounded-md border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-[9px] font-mono text-primary hover:bg-primary/20 transition-colors cursor-pointer"
+            className="rounded-md border border-primary/20 bg-primary/10 px-2 py-1 min-h-[32px] text-[11px] font-mono text-primary hover:bg-primary/20 active:bg-primary/30 transition-colors cursor-pointer"
             title={v.hint}
           >
             {`{{${v.key}}}`}
@@ -1165,17 +1182,17 @@ function MergeVariablePicker({ onInsert }: { onInsert: (token: string) => void }
         <button
           onClick={() => setExpanded(!expanded)}
           className={cn(
-            "rounded-md px-1.5 py-0.5 text-[9px] font-medium transition-colors flex items-center gap-0.5",
+            "rounded-md px-2 py-1 min-h-[32px] text-[11px] font-medium transition-colors flex items-center gap-0.5",
             expanded ? "bg-primary/20 text-primary" : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
           )}
         >
           {expanded ? "Less" : "All Variables"}
-          <ChevronDown className={cn("h-2.5 w-2.5 transition-transform", expanded && "rotate-180")} />
+          <ChevronDown className={cn("h-3 w-3 transition-transform", expanded && "rotate-180")} />
         </button>
         <button
           onClick={() => { setShowFilters(!showFilters); if (!showFilters) setExpanded(false); }}
           className={cn(
-            "rounded-md px-1.5 py-0.5 text-[9px] font-medium transition-colors",
+            "rounded-md px-2 py-1 min-h-[32px] text-[11px] font-medium transition-colors",
             showFilters ? "bg-amber-500/20 text-amber-400" : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
           )}
         >
@@ -1190,13 +1207,13 @@ function MergeVariablePicker({ onInsert }: { onInsert: (token: string) => void }
             const cfg = CATEGORY_LABELS[cat] ?? { label: cat, color: "text-muted-foreground" };
             return (
               <div key={cat}>
-                <p className={cn("text-[10px] font-medium mb-1", cfg.color)}>{cfg.label}</p>
+                <p className={cn("text-xs font-medium mb-1", cfg.color)}>{cfg.label}</p>
                 <div className="flex flex-wrap gap-1">
                   {vars.map((v) => (
                     <button
                       key={v.key}
                       onClick={() => onInsert(`{{${v.key}}}`)}
-                      className="rounded-md border border-white/10 bg-white/[0.03] px-1.5 py-0.5 text-[9px] font-mono text-foreground hover:bg-white/10 transition-colors"
+                      className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 min-h-[32px] text-[11px] font-mono text-foreground hover:bg-white/10 active:bg-white/15 transition-colors"
                       title={v.hint}
                     >
                       {v.label}
@@ -1207,10 +1224,10 @@ function MergeVariablePicker({ onInsert }: { onInsert: (token: string) => void }
             );
           })}
           <div className="border-t border-white/5 pt-1.5">
-            <p className="text-[10px] text-muted-foreground">
-              Conditionals: <code className="text-[9px] bg-white/5 px-1 rounded">{`{{#if var}}...{{/if}}`}</code>{" "}
-              <code className="text-[9px] bg-white/5 px-1 rounded">{`{{#unless var}}...{{/unless}}`}</code>{" "}
-              <code className="text-[9px] bg-white/5 px-1 rounded">{`{{#ifgt value 1000}}...{{/ifgt}}`}</code>
+            <p className="text-xs text-muted-foreground">
+              Conditionals: <code className="text-[11px] bg-white/5 px-1 rounded">{`{{#if var}}...{{/if}}`}</code>{" "}
+              <code className="text-[11px] bg-white/5 px-1 rounded">{`{{#unless var}}...{{/unless}}`}</code>{" "}
+              <code className="text-[11px] bg-white/5 px-1 rounded">{`{{#ifgt value 1000}}...{{/ifgt}}`}</code>
             </p>
           </div>
         </div>
@@ -1219,20 +1236,20 @@ function MergeVariablePicker({ onInsert }: { onInsert: (token: string) => void }
       {/* Filters panel */}
       {showFilters && (
         <div className="rounded-lg border border-white/10 bg-white/[0.02] p-2.5 space-y-1.5">
-          <p className="text-[10px] text-muted-foreground">Transform filters — append with <code className="bg-white/5 px-1 rounded">|</code></p>
+          <p className="text-xs text-muted-foreground">Transform filters — append with <code className="bg-white/5 px-1 rounded">|</code></p>
           <div className="flex flex-wrap gap-1">
             {TEMPLATE_FILTERS.map((f) => (
               <button
                 key={f.key}
                 onClick={() => onInsert(`|${f.key}`)}
-                className="rounded-md border border-amber-500/20 bg-amber-500/5 px-1.5 py-0.5 text-[9px] font-mono text-amber-400 hover:bg-amber-500/15 transition-colors"
+                className="rounded-md border border-amber-500/20 bg-amber-500/5 px-2 py-1 min-h-[32px] text-[11px] font-mono text-amber-400 hover:bg-amber-500/15 active:bg-amber-500/25 transition-colors"
                 title={`${f.hint} — ${f.example}`}
               >
                 |{f.key}
               </button>
             ))}
           </div>
-          <p className="text-[9px] text-muted-foreground/60">
+          <p className="text-xs text-muted-foreground/60">
             Example: <code className="bg-white/5 px-1 rounded">{`{{contact_name|upper}}`}</code> or <code className="bg-white/5 px-1 rounded">{`{{value|currency}}`}</code>
           </p>
         </div>

@@ -180,21 +180,16 @@ export async function POST(request: Request) {
       const privateChatId = String(chat.id).replace(/^-100/, "");
       const tgDeepLink = `https://t.me/c/${privateChatId}/${msgId}`;
 
-      // Check if sender is a "team member" (has a profile in the system)
-      // If team member sends a message, CLEAR highlights (they responded)
-      // If external person sends, CREATE highlight
+      // Check if sender is a team member (has a profile with matching telegram_id)
       let isTeamMember = false;
-      if (senderUsername) {
-        const { data: contact } = await supabase
-          .from("crm_contacts")
+      if (from.id) {
+        const { data: teamProfile } = await supabase
+          .from("profiles")
           .select("id")
-          .eq("telegram_username", senderUsername)
+          .eq("telegram_id", from.id)
+          .limit(1)
           .single();
-        // If sender is NOT a contact, they might be a team member
-        // For now: if sender is the bot, skip. Otherwise create highlight.
-        // We'll treat all non-bot senders as external for highlights
-        // and clear when a different person responds within 24h
-        isTeamMember = false; // TODO: check against profiles table when auth works
+        isTeamMember = !!teamProfile;
       }
 
       for (const deal of deals) {
@@ -245,66 +240,96 @@ export async function POST(request: Request) {
         }
 
         if (!isBot) {
-          // Check if there's an active highlight for this deal from a DIFFERENT sender
-          const { data: activeHighlights } = await supabase
-            .from("crm_highlights")
-            .select("id, sender_name")
-            .eq("deal_id", deal.id)
-            .eq("is_active", true);
+          if (isTeamMember) {
+            // Team member responded — clear active highlights and record response time
+            const { data: activeHighlights } = await supabase
+              .from("crm_highlights")
+              .select("id, created_at")
+              .eq("deal_id", deal.id)
+              .eq("is_active", true);
 
-          if (activeHighlights && activeHighlights.length > 0) {
-            // If someone different is responding, clear the highlight
-            const existingFromDifferentSender = activeHighlights.some(
-              (h) => h.sender_name !== senderName
-            );
-            if (existingFromDifferentSender) {
+            if (activeHighlights && activeHighlights.length > 0) {
+              const now = new Date();
+              for (const h of activeHighlights) {
+                const responseTimeMs = now.getTime() - new Date(h.created_at).getTime();
+                await supabase
+                  .from("crm_highlights")
+                  .update({
+                    is_active: false,
+                    cleared_at: now.toISOString(),
+                    cleared_by: "team_response",
+                    responded_at: now.toISOString(),
+                    response_time_ms: responseTimeMs,
+                  })
+                  .eq("id", h.id);
+              }
+
               await supabase
-                .from("crm_highlights")
-                .update({ is_active: false, cleared_at: new Date().toISOString(), cleared_by: "response" })
-                .eq("deal_id", deal.id)
-                .eq("is_active", true);
+                .from("crm_deals")
+                .update({ awaiting_response_since: null })
+                .eq("id", deal.id);
             }
-          }
+          } else {
+            // External sender — dedup + create highlight
+            const { data: activeHighlights } = await supabase
+              .from("crm_highlights")
+              .select("id, sender_name")
+              .eq("deal_id", deal.id)
+              .eq("is_active", true);
 
-          // Check if there's already an active highlight from this sender in last 24h
-          const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-          const { data: recentHighlight } = await supabase
-            .from("crm_highlights")
-            .select("id")
-            .eq("deal_id", deal.id)
-            .eq("sender_name", senderName)
-            .eq("is_active", true)
-            .gte("created_at", twentyFourHoursAgo)
-            .limit(1);
+            if (activeHighlights && activeHighlights.length > 0) {
+              const fromDifferent = activeHighlights.some((h) => h.sender_name !== senderName);
+              if (fromDifferent) {
+                await supabase
+                  .from("crm_highlights")
+                  .update({ is_active: false, cleared_at: new Date().toISOString(), cleared_by: "response" })
+                  .eq("deal_id", deal.id)
+                  .eq("is_active", true);
+              }
+            }
 
-          // Only create new highlight if none exists from this sender in 24h
-          if (!recentHighlight || recentHighlight.length === 0) {
-            // Detect priority based on keywords
-            const lowerText = text.toLowerCase();
-            const urgentWords = ["urgent", "asap", "immediately", "critical", "deadline"];
-            const highWords = ["ready to sign", "contract", "payment", "invoice", "approve", "confirm"];
-            const negativeWords = ["cancel", "delay", "problem", "issue", "disappointed", "frustrated", "concerned"];
-            const positiveWords = ["excited", "great", "love", "perfect", "amazing", "deal", "agree", "yes"];
+            const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+            const { data: recentHighlight } = await supabase
+              .from("crm_highlights")
+              .select("id")
+              .eq("deal_id", deal.id)
+              .eq("sender_name", senderName)
+              .eq("is_active", true)
+              .gte("created_at", twentyFourHoursAgo)
+              .limit(1);
 
-            let priority: "low" | "medium" | "high" | "urgent" = "medium";
-            if (urgentWords.some((w) => lowerText.includes(w))) priority = "urgent";
-            else if (highWords.some((w) => lowerText.includes(w))) priority = "high";
+            if (!recentHighlight || recentHighlight.length === 0) {
+              const lowerText = text.toLowerCase();
+              const urgentWords = ["urgent", "asap", "immediately", "critical", "deadline"];
+              const highWords = ["ready to sign", "contract", "payment", "invoice", "approve", "confirm"];
+              const negativeWords = ["cancel", "delay", "problem", "issue", "disappointed", "frustrated", "concerned"];
+              const positiveWords = ["excited", "great", "love", "perfect", "amazing", "deal", "agree", "yes"];
 
-            let sentiment: "positive" | "neutral" | "negative" = "neutral";
-            if (negativeWords.some((w) => lowerText.includes(w))) sentiment = "negative";
-            else if (positiveWords.some((w) => lowerText.includes(w))) sentiment = "positive";
+              let priority: "low" | "medium" | "high" | "urgent" = "medium";
+              if (urgentWords.some((w) => lowerText.includes(w))) priority = "urgent";
+              else if (highWords.some((w) => lowerText.includes(w))) priority = "high";
 
-            await supabase.from("crm_highlights").insert({
-              deal_id: deal.id,
-              contact_id: deal.contact_id,
-              tg_group_id: tgGroup.id,
-              sender_name: senderName,
-              message_preview: text.length > 100 ? text.slice(0, 100) + "..." : text,
-              tg_deep_link: tgDeepLink,
-              highlight_type: "tg_message",
-              priority,
-              sentiment,
-            });
+              let sentiment: "positive" | "neutral" | "negative" = "neutral";
+              if (negativeWords.some((w) => lowerText.includes(w))) sentiment = "negative";
+              else if (positiveWords.some((w) => lowerText.includes(w))) sentiment = "positive";
+
+              await supabase.from("crm_highlights").insert({
+                deal_id: deal.id,
+                contact_id: deal.contact_id,
+                tg_group_id: tgGroup.id,
+                sender_name: senderName,
+                message_preview: text.length > 100 ? text.slice(0, 100) + "..." : text,
+                tg_deep_link: tgDeepLink,
+                highlight_type: "tg_message",
+                priority,
+                sentiment,
+              });
+
+              await supabase
+                .from("crm_deals")
+                .update({ awaiting_response_since: new Date().toISOString() })
+                .eq("id", deal.id);
+            }
           }
         }
       }
