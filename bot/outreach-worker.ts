@@ -114,6 +114,7 @@ async function processEnrollment(bot: Bot, enrollment: Enrollment) {
 
       try {
         await bot.api.sendMessage(chatId, text);
+        logDelivery(chatId, text, "outreach_sequence", true).catch(() => {});
       } catch (sendErr) {
         console.error(`[outreach-worker] send failed for enrollment ${enrollment.id}:`, sendErr);
         await supabase.from("crm_outreach_step_log").insert({

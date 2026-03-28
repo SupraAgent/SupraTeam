@@ -1,191 +1,39 @@
 /**
- * Railway cron job: Poll for unnotified stage changes and send Telegram messages.
+ * Railway cron job: Process retries, scheduled messages, workflow resumes, reminders.
  * Schedule: every 5 minutes
- * Runs as standalone process, exits when done.
+ *
+ * NOTE: Stage change notifications are handled by the bot process (bot/handlers/notifications.ts).
+ * This cron only handles retry/scheduled/workflow/reminder jobs.
  */
-import { createClient } from "@supabase/supabase-js";
-import {
-  escapeHtml,
-  renderTemplate,
-} from "../lib/telegram-templates";
 
-const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const APP_URL = process.env.NEXT_PUBLIC_SITE_URL;
 if (!APP_URL) {
   console.error("[poll-notifications] NEXT_PUBLIC_SITE_URL not set");
   process.exit(1);
 }
 
-if (!BOT_TOKEN || !SUPABASE_URL || !SUPABASE_KEY) {
-  console.error("[poll-notifications] Missing required env vars");
-  process.exit(1);
-}
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
-  auth: { persistSession: false },
-});
-
-async function sendTelegramMessage(chatId: number, text: string) {
-  await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
-  });
-}
-
-// Inline the template rendering to avoid Next.js import issues
-const DEFAULT_STAGE_CHANGE = `<b>Deal Update</b>
-
-<b>{{deal_name}}</b>
-{{from_stage}} → {{to_stage}}
-Board: {{board_type}}
-By: {{changed_by}}`;
-
-function formatStageChange(
-  dealName: string,
-  fromStage: string,
-  toStage: string,
-  boardType: string,
-  changedBy: string,
-  customTemplate?: string
-): string {
-  const template = customTemplate || DEFAULT_STAGE_CHANGE;
-  return renderTemplate(template, {
-    deal_name: dealName,
-    from_stage: fromStage,
-    to_stage: toStage,
-    board_type: boardType,
-    changed_by: changedBy,
-  });
-}
-
 async function main() {
   console.log("[poll-notifications] Starting...");
 
-  // Find unnotified stage changes
-  const { data: changes, error } = await supabase
-    .from("crm_deal_stage_history")
-    .select("id, deal_id, from_stage_id, to_stage_id, changed_by, changed_at")
-    .is("notified_at", null)
-    .order("changed_at", { ascending: true })
-    .limit(10);
-
-  if (error) {
-    console.error("[poll-notifications] Query error:", error);
-    process.exit(1);
-  }
-
-  if (!changes || changes.length === 0) {
-    console.log("[poll-notifications] No pending notifications");
-  } else {
-    let processed = 0;
-
-    for (const change of changes) {
-      try {
-        const { data: deal } = await supabase
-          .from("crm_deals")
-          .select("deal_name, board_type, telegram_chat_id")
-          .eq("id", change.deal_id)
-          .single();
-
-        if (deal?.telegram_chat_id) {
-          const [fromRes, toRes] = await Promise.all([
-            change.from_stage_id
-              ? supabase.from("pipeline_stages").select("name").eq("id", change.from_stage_id).single()
-              : Promise.resolve({ data: null }),
-            change.to_stage_id
-              ? supabase.from("pipeline_stages").select("name").eq("id", change.to_stage_id).single()
-              : Promise.resolve({ data: null }),
-          ]);
-
-          const fromName = fromRes.data?.name ?? "None";
-          const toName = toRes.data?.name ?? "None";
-
-          let changedByName = "Unknown";
-          if (change.changed_by) {
-            const { data: profile } = await supabase
-              .from("profiles")
-              .select("display_name")
-              .eq("id", change.changed_by)
-              .single();
-            if (profile?.display_name) changedByName = profile.display_name;
-          }
-
-          const { data: tpl } = await supabase
-            .from("crm_bot_templates")
-            .select("body_template")
-            .eq("template_key", "stage_change")
-            .eq("is_active", true)
-            .single();
-
-          const message = formatStageChange(
-            deal.deal_name,
-            fromName,
-            toName,
-            deal.board_type ?? "Unknown",
-            changedByName,
-            tpl?.body_template ?? undefined
-          );
-          await sendTelegramMessage(deal.telegram_chat_id, message);
-          processed++;
-        }
-
-        await supabase
-          .from("crm_deal_stage_history")
-          .update({ notified_at: new Date().toISOString() })
-          .eq("id", change.id);
-      } catch (err) {
-        console.error(`[poll-notifications] Error processing ${change.id}:`, err);
-      }
-    }
-
-    console.log(`[poll-notifications] Processed ${processed} notifications`);
-  }
-
-  // Process failed notification retries
+  // 1. Process failed notification retries (rate-limited, with tracking)
   try {
-    const { data: failed } = await supabase
-      .from("crm_notification_log")
-      .select("*")
-      .eq("status", "failed")
-      .lt("retry_count", 3)
-      .lte("next_retry_at", new Date().toISOString())
-      .order("next_retry_at")
-      .limit(10);
-
-    let retried = 0;
-    for (const entry of failed ?? []) {
-      try {
-        const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ chat_id: entry.tg_chat_id, text: entry.message_preview, parse_mode: "HTML" }),
-        });
-        const data = await res.json();
-        if (data.ok) {
-          await supabase.from("crm_notification_log").update({ status: "sent", tg_message_id: data.result?.message_id, sent_at: new Date().toISOString() }).eq("id", entry.id);
-          retried++;
-        } else {
-          const newRetry = entry.retry_count + 1;
-          await supabase.from("crm_notification_log").update({
-            retry_count: newRetry,
-            last_error: data.description,
-            status: newRetry >= 3 ? "dead_letter" : "failed",
-            next_retry_at: newRetry < 3 ? new Date(Date.now() + [60000, 300000, 900000][newRetry]).toISOString() : null,
-          }).eq("id", entry.id);
-        }
-      } catch {
-        // Skip, will retry next cycle
-      }
-    }
+    const { processRetries } = await import("../lib/telegram-send");
+    const retried = await processRetries();
     if (retried > 0) console.log(`[poll-notifications] Retried ${retried} failed notifications`);
   } catch (err) {
     console.error("[poll-notifications] Retry error:", err);
   }
 
-  // Process workflow resume messages (delay nodes)
+  // 2. Process scheduled messages (rate-limited, with tracking)
+  try {
+    const { processScheduledMessages } = await import("../lib/telegram-send");
+    const sent = await processScheduledMessages();
+    if (sent > 0) console.log(`[poll-notifications] Sent ${sent} scheduled messages`);
+  } catch (err) {
+    console.error("[poll-notifications] Scheduled message error:", err);
+  }
+
+  // 3. Resume paused workflows (delay nodes)
   try {
     const resumeRes = await fetch(`${APP_URL}/api/workflows/resume`, { method: "POST" });
     if (resumeRes.ok) {
@@ -197,47 +45,7 @@ async function main() {
     console.error("[poll-notifications] Workflow resume error:", err);
   }
 
-  // Process scheduled messages (skip workflow resume sentinels with tg_chat_id=0)
-  try {
-    const { data: scheduled } = await supabase
-      .from("crm_scheduled_messages")
-      .select("*")
-      .eq("status", "pending")
-      .neq("tg_chat_id", 0)
-      .lte("send_at", new Date().toISOString())
-      .order("send_at")
-      .limit(10);
-
-    let sentScheduled = 0;
-    for (const msg of scheduled ?? []) {
-      try {
-        const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ chat_id: msg.tg_chat_id, text: msg.message_text, parse_mode: "HTML" }),
-        });
-        const data = await res.json();
-        if (data.ok) {
-          await supabase.from("crm_scheduled_messages").update({ status: "sent", sent_at: new Date().toISOString() }).eq("id", msg.id);
-          sentScheduled++;
-        } else {
-          const newRetry = (msg.retry_count ?? 0) + 1;
-          await supabase.from("crm_scheduled_messages").update({
-            retry_count: newRetry,
-            last_error: data.description,
-            status: newRetry >= 3 ? "failed" : "pending",
-          }).eq("id", msg.id);
-        }
-      } catch {
-        // Skip, will retry next cycle
-      }
-    }
-    if (sentScheduled > 0) console.log(`[poll-notifications] Sent ${sentScheduled} scheduled messages`);
-  } catch (err) {
-    console.error("[poll-notifications] Scheduled message error:", err);
-  }
-
-  // Auto-generate reminders
+  // 4. Auto-generate reminders
   try {
     const reminderRes = await fetch(`${APP_URL}/api/reminders`, { method: "POST" });
     if (reminderRes.ok) {

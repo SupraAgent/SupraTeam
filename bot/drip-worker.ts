@@ -102,8 +102,11 @@ async function processEnrollment(bot: Bot, enrollment: Enrollment, steps: Step[]
 
       try {
         await bot.api.sendMessage(enrollment.tg_chat_id, text);
+        // Non-blocking delivery tracking
+        logDelivery(enrollment.tg_chat_id, text, "drip_sequence", true).catch(() => {});
       } catch (sendErr) {
         console.error(`[drip-worker] send failed for ${enrollment.id}:`, sendErr);
+        logDelivery(enrollment.tg_chat_id, text, "drip_sequence", false, sendErr instanceof Error ? sendErr.message : "Send failed").catch(() => {});
         await supabase.from("crm_drip_step_log").insert({
           enrollment_id: enrollment.id,
           step_id: currentStep.id,

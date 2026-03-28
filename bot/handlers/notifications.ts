@@ -9,6 +9,31 @@ const POLL_INTERVAL_MS = 10_000; // 10 seconds
 const MAX_RETRIES = 3;
 const RETRY_DELAYS_MS = [1_000, 3_000, 9_000]; // exponential-ish backoff
 
+/**
+ * Send via centralized utility with rate limiting + tracking.
+ * Falls back to raw bot.api if import fails.
+ */
+async function sendTracked(
+  bot: Bot,
+  chatId: number,
+  text: string,
+  dealId?: string
+): Promise<void> {
+  try {
+    const { sendTelegramWithTracking } = await import("../../lib/telegram-send");
+    const result = await sendTelegramWithTracking({
+      chatId,
+      text,
+      notificationType: "stage_change",
+      dealId,
+    });
+    if (!result.success) throw new Error(result.error ?? "Send failed");
+  } catch {
+    // Fallback to bot.api if centralized util fails (e.g. missing admin client)
+    await bot.api.sendMessage(chatId, text, { parse_mode: "HTML" });
+  }
+}
+
 export function startNotificationPoller(bot: Bot) {
   console.warn("[bot/notifications] Starting notification poller (10s interval)");
 

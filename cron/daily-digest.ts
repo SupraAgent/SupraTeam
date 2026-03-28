@@ -28,17 +28,28 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
 });
 
 async function sendTelegramMessage(chatId: number, text: string): Promise<boolean> {
-  const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    console.error(`[daily-digest] Telegram API ${res.status} for chat ${chatId}: ${body}`);
-    return false;
+  try {
+    const { sendTelegramWithTracking } = await import("../lib/telegram-send");
+    const result = await sendTelegramWithTracking({
+      chatId,
+      text,
+      notificationType: "daily_digest",
+    });
+    return result.success;
+  } catch {
+    // Fallback to raw fetch if import fails
+    const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.error(`[daily-digest] Telegram API ${res.status} for chat ${chatId}: ${body}`);
+      return false;
+    }
+    return true;
   }
-  return true;
 }
 
 interface TgGroup {
