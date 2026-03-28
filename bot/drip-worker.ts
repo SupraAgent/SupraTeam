@@ -9,6 +9,18 @@
 
 import type { Bot } from "grammy";
 import { supabase } from "./lib/supabase.js";
+
+/** Non-blocking delivery log to crm_notification_log */
+async function logDelivery(chatId: number, text: string, type: string, success: boolean, error?: string) {
+  await supabase.from("crm_notification_log").insert({
+    notification_type: type,
+    tg_chat_id: chatId,
+    message_preview: text.length > 200 ? text.slice(0, 200) + "..." : text,
+    status: success ? "sent" : "failed",
+    last_error: error ?? null,
+    sent_at: success ? new Date().toISOString() : null,
+  });
+}
 import { renderTemplate, buildOutreachVars } from "../lib/outreach-templates.js";
 import { getOptimalSendTime } from "./lib/send-time-optimizer.js";
 
@@ -100,8 +112,11 @@ async function processEnrollment(bot: Bot, enrollment: Enrollment, steps: Step[]
 
       try {
         await bot.api.sendMessage(enrollment.tg_chat_id, text);
+        // Non-blocking delivery tracking
+        logDelivery(enrollment.tg_chat_id, text, "drip_sequence", true).catch(() => {});
       } catch (sendErr) {
         console.error(`[drip-worker] send failed for ${enrollment.id}:`, sendErr);
+        logDelivery(enrollment.tg_chat_id, text, "drip_sequence", false, sendErr instanceof Error ? sendErr.message : "Send failed").catch(() => {});
         await supabase.from("crm_drip_step_log").insert({
           enrollment_id: enrollment.id,
           step_id: currentStep.id,

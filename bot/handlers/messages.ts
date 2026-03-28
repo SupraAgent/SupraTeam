@@ -287,10 +287,18 @@ async function handleAIResponse(
       }
     }
 
-    // Send response to Telegram
+    // Send response to Telegram (with delivery tracking)
     await bot.api.sendMessage(chatId, aiResponse, {
       reply_parameters: replyToMessageId ? { message_id: replyToMessageId } : undefined,
     });
+    // Non-blocking delivery log
+    supabase.from("crm_notification_log").insert({
+      notification_type: isDM ? "ai_dm_response" : "ai_group_response",
+      tg_chat_id: chatId,
+      message_preview: aiResponse.length > 200 ? aiResponse.slice(0, 200) + "..." : aiResponse,
+      status: "sent",
+      sent_at: new Date().toISOString(),
+    }).then(() => {});
 
     // Auto-create deal from qualified lead if enabled
     if (qualificationData && config.auto_create_deals) {
