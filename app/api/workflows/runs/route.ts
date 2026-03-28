@@ -55,10 +55,10 @@ export async function GET(request: Request) {
       q = q.eq("crm_workflows.trigger_type", triggerType);
     }
     if (search) {
-      // Sanitize search to prevent PostgREST filter injection
-      const safe = search.replace(/[,().\\]/g, "");
-      if (safe.length > 0) {
-        q = q.or(`error.ilike.%${safe}%,id.ilike.%${safe}%`);
+      // Sanitize search input to prevent PostgREST filter injection
+      const sanitized = search.replace(/[%_(),.\\]/g, "");
+      if (sanitized) {
+        q = q.or(`error.ilike.%${sanitized}%,id.ilike.%${sanitized}%`);
       }
     }
     return q;
