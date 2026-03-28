@@ -25,6 +25,8 @@ export type Contact = {
   source: ContactSource;
   last_activity_at: string | null;
   quality_score: number;
+  engagement_score: number;
+  engagement_updated_at: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -56,6 +58,9 @@ export type Deal = {
   created_at: string;
   updated_at: string;
   ai_sentiment?: Record<string, unknown> | null;
+  ai_summary?: string | null;
+  ai_summary_at?: string | null;
+  ai_sentiment_at?: string | null;
   // Joined fields
   contact?: Contact | null;
   stage?: PipelineStage | null;

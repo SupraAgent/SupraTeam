@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
+import { logAudit } from "@/lib/audit";
 
 export async function GET() {
   const auth = await requireAuth();
@@ -50,6 +51,17 @@ export async function POST(request: Request) {
   if ("error" in auth) return auth.error;
   const { user, admin: supabase } = auth;
 
+  // Check if user has admin role
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("crm_role")
+    .eq("id", user.id)
+    .single();
+
+  if (!profile?.crm_role || profile.crm_role !== "admin_lead") {
+    return NextResponse.json({ error: "Only admin_lead can manage access" }, { status: 403 });
+  }
+
   const body = await request.json();
   const { user_id, slug } = body;
 
@@ -75,6 +87,16 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ error: "Failed to grant access" }, { status: 500 });
   }
+
+  const userName = user.user_metadata?.display_name ?? user.user_metadata?.full_name ?? user.email ?? "Unknown";
+  await logAudit({
+    action: "grant_access",
+    entityType: "access",
+    entityId: slug,
+    actorId: user.id,
+    actorName: userName,
+    details: { target_user_id: user_id, slug },
+  });
 
   return NextResponse.json({ grant, ok: true });
 }

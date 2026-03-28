@@ -28,8 +28,8 @@ export async function requireAuth(): Promise<AuthResult> {
     return { error: NextResponse.json({ error: "Supabase not configured" }, { status: 503 }) };
   }
 
-  // Dev access bypass
-  if (process.env.DEV_ACCESS_PASSWORD) {
+  // Dev access bypass — disabled in production
+  if (process.env.DEV_ACCESS_PASSWORD && process.env.NODE_ENV !== "production") {
     const cookieStore = await cookies();
     if (cookieStore.get("dev-auth")?.value === "true") {
       return { user: DEV_USER, admin };

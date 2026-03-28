@@ -10,13 +10,29 @@ export async function GET() {
   if ("error" in auth) return auth.error;
   const { admin: supabase } = auth;
 
-  // All broadcasts
+  // Broadcasts from last 90 days (sufficient for trends)
+  const cutoff90d = new Date(Date.now() - 90 * 86_400_000).toISOString();
   const { data: broadcasts } = await supabase
     .from("crm_broadcasts")
-    .select("id, status, sent_count, failed_count, group_count, slug_filter, sender_name, sent_at, created_at")
-    .order("created_at", { ascending: false });
+    .select("id, status, sent_count, failed_count, group_count, slug_filter, sender_name, sent_at, created_at, variant_b_message, response_count, response_rate")
+    .gte("created_at", cutoff90d)
+    .order("created_at", { ascending: false })
+    .limit(500);
 
   const all = broadcasts ?? [];
+
+  // Fetch message_text only for A/B broadcasts (for preview)
+  const abIds = all.filter((b) => b.variant_b_message).map((b) => b.id);
+  let abMessageMap = new Map<string, string>();
+  if (abIds.length > 0) {
+    const { data: abMsgs } = await supabase
+      .from("crm_broadcasts")
+      .select("id, message_text")
+      .in("id", abIds);
+    for (const m of abMsgs ?? []) {
+      abMessageMap.set(m.id, m.message_text ?? "");
+    }
+  }
 
   // Overall stats
   const totalBroadcasts = all.length;
@@ -66,12 +82,84 @@ export async function GET() {
     cancelled: all.filter((b) => b.status === "cancelled").length,
   };
 
+  // Response metrics
+  const totalResponses = all.reduce((s, b) => s + (b.response_count ?? 0), 0);
+  const broadcastsWithSends = all.filter((b) => b.sent_count > 0);
+  const avgResponseRate = broadcastsWithSends.length > 0
+    ? Math.round((broadcastsWithSends.reduce((s, b) => s + (b.response_rate ?? 0), 0) / broadcastsWithSends.length) * 100) / 100
+    : 0;
+
+  // A/B test results — broadcasts with variant_b_message
+  const abBroadcastIds = abIds;
+  let abResults: Array<{
+    broadcast_id: string;
+    message_preview: string;
+    variant_a: { sent: number; responded: number; rate: number };
+    variant_b: { sent: number; responded: number; rate: number };
+  }> = [];
+
+  if (abBroadcastIds.length > 0) {
+    const { data: abRecipients } = await supabase
+      .from("crm_broadcast_recipients")
+      .select("broadcast_id, variant, status, responded_at")
+      .in("broadcast_id", abBroadcastIds);
+
+    const abMap = new Map<string, { a_sent: number; a_responded: number; b_sent: number; b_responded: number }>();
+    for (const r of abRecipients ?? []) {
+      if (!abMap.has(r.broadcast_id)) abMap.set(r.broadcast_id, { a_sent: 0, a_responded: 0, b_sent: 0, b_responded: 0 });
+      const entry = abMap.get(r.broadcast_id)!;
+      if (r.status === "sent") {
+        if (r.variant === "B") { entry.b_sent++; if (r.responded_at) entry.b_responded++; }
+        else { entry.a_sent++; if (r.responded_at) entry.a_responded++; }
+      }
+    }
+
+    abResults = abBroadcastIds.map((id) => {
+      const stats = abMap.get(id) ?? { a_sent: 0, a_responded: 0, b_sent: 0, b_responded: 0 };
+      return {
+        broadcast_id: id,
+        message_preview: (abMessageMap.get(id) ?? "").slice(0, 60),
+        variant_a: {
+          sent: stats.a_sent,
+          responded: stats.a_responded,
+          rate: stats.a_sent > 0 ? Math.round((stats.a_responded / stats.a_sent) * 100) : 0,
+        },
+        variant_b: {
+          sent: stats.b_sent,
+          responded: stats.b_responded,
+          rate: stats.b_sent > 0 ? Math.round((stats.b_responded / stats.b_sent) * 100) : 0,
+        },
+      };
+    });
+  }
+
+  // Best send time heatmap (response rate by hour of day)
+  const hourlyStats: Record<number, { sent: number; responded: number }> = {};
+  for (const b of all) {
+    if (!b.sent_at || !b.sent_count) continue;
+    const hour = new Date(b.sent_at).getUTCHours();
+    if (!hourlyStats[hour]) hourlyStats[hour] = { sent: 0, responded: 0 };
+    hourlyStats[hour].sent += b.sent_count ?? 0;
+    hourlyStats[hour].responded += b.response_count ?? 0;
+  }
+
+  const bestSendTime = Object.entries(hourlyStats)
+    .map(([hour, stats]) => ({
+      hour: Number(hour),
+      sent: stats.sent,
+      responded: stats.responded,
+      responseRate: stats.sent > 0 ? Math.round((stats.responded / stats.sent) * 100) : 0,
+    }))
+    .sort((a, b) => a.hour - b.hour);
+
   return NextResponse.json({
     overview: {
       totalBroadcasts,
       totalSent,
       totalFailed,
       deliveryRate,
+      totalResponses,
+      avgResponseRate,
       thisWeek,
       lastWeek,
       weeklyChange: lastWeek > 0 ? Math.round(((thisWeek - lastWeek) / lastWeek) * 100) : thisWeek > 0 ? 100 : 0,
@@ -87,5 +175,7 @@ export async function GET() {
       .map(([date, count]) => ({ date, count }))
       .sort((a, b) => a.date.localeCompare(b.date))
       .slice(-30),
+    abResults,
+    bestSendTime,
   });
 }

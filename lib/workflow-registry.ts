@@ -73,6 +73,7 @@ export const CRM_TRIGGERS: NodePaletteItem[] = [
   { type: "trigger", subType: "deal_won", label: "Deal Won", description: "Deal reaches final stage", icon: "Trophy", defaultConfig: {} },
   { type: "trigger", subType: "deal_lost", label: "Deal Lost", description: "Deal marked as lost", icon: "XCircle", defaultConfig: {} },
   { type: "trigger", subType: "scheduled", label: "Scheduled", description: "Runs on a cron schedule", icon: "Clock", defaultConfig: { cron_expression: "0 9 * * 1-5" } },
+  { type: "trigger", subType: "lead_qualified", label: "Lead Qualified", description: "AI agent qualifies a lead from TG conversation", icon: "Sparkles", defaultConfig: {} },
 ];
 
 export const CRM_ACTIONS: NodePaletteItem[] = [
@@ -204,6 +205,13 @@ export const CRM_REGISTRY: NodeRegistry = {
         { key: "timezone", label: "Timezone", type: "text", placeholder: "Asia/Taipei" },
       ],
       infoText: "Runs on a schedule. Examples: '0 9 * * 1-5' (weekdays 9am), '0 9 * * 1' (Mondays 9am), '0 */6 * * *' (every 6 hours).",
+    },
+    lead_qualified: {
+      subType: "lead_qualified",
+      configFields: [
+        { key: "board_type", label: "Board type (optional)", type: "select", options: BOARD_OPTIONS },
+      ],
+      infoText: "Fires when the AI agent qualifies a lead from a Telegram conversation and auto-creates a deal. Available vars: {{deal_name}}, {{contact_name}}, {{stage}}, {{qualification}}.",
     },
   },
 

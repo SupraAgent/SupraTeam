@@ -18,11 +18,20 @@ export async function POST(request: Request) {
     auth.user.user_metadata?.full_name ??
     undefined;
 
-  const { message, group_ids, slug, scheduled_at } = await request.json();
+  const { message, variant_b_message, group_ids, slug, scheduled_at } = await request.json();
 
   if (!message?.trim()) {
     return NextResponse.json({ error: "message is required" }, { status: 400 });
   }
+
+  // Check if user is admin — admins can broadcast to any group
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("crm_role")
+    .eq("id", auth.user.id)
+    .single();
+
+  const isAdmin = profile?.crm_role === "admin_lead";
 
   // Resolve group IDs
   let targetGroupIds: string[] = group_ids ?? [];
@@ -38,6 +47,35 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "No groups selected" }, { status: 400 });
   }
 
+  // Non-admin users: verify slug access for target groups
+  if (!isAdmin) {
+    const { data: userSlugs } = await supabase
+      .from("crm_user_slug_access")
+      .select("slug")
+      .eq("user_id", auth.user.id);
+
+    const allowedSlugs = new Set((userSlugs ?? []).map((s: { slug: string }) => s.slug));
+
+    // Get slugs for target groups
+    const { data: groupSlugs } = await supabase
+      .from("tg_group_slugs")
+      .select("group_id, slug")
+      .in("group_id", targetGroupIds);
+
+    // Filter to only groups the user has slug access to
+    const groupsWithAccess = new Set<string>();
+    for (const gs of groupSlugs ?? []) {
+      if (allowedSlugs.has(gs.slug)) {
+        groupsWithAccess.add(gs.group_id);
+      }
+    }
+
+    targetGroupIds = targetGroupIds.filter((id) => groupsWithAccess.has(id));
+    if (targetGroupIds.length === 0) {
+      return NextResponse.json({ error: "No access to selected groups" }, { status: 403 });
+    }
+  }
+
   // Fetch groups
   const { data: groups } = await supabase
     .from("tg_groups")
@@ -49,6 +87,8 @@ export async function POST(request: Request) {
   }
 
   const formattedMessage = formatBroadcastMessage(message.trim(), senderName);
+  const hasVariantB = variant_b_message?.trim();
+  const formattedVariantB = hasVariantB ? formatBroadcastMessage(variant_b_message.trim(), senderName) : null;
 
   // Create broadcast record
   const isScheduled = scheduled_at && new Date(scheduled_at) > new Date();
@@ -63,6 +103,7 @@ export async function POST(request: Request) {
       group_count: groups.length,
       status: isScheduled ? "scheduled" : "sending",
       scheduled_at: isScheduled ? scheduled_at : null,
+      variant_b_message: hasVariantB ? variant_b_message.trim() : null,
     })
     .select()
     .single();
@@ -72,13 +113,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Failed to create broadcast" }, { status: 500 });
   }
 
-  // Create recipient records
-  const recipientRows = groups.map((g) => ({
+  // Create recipient records with A/B variant assignment (shuffle for randomness)
+  const shuffled = [...groups].sort(() => Math.random() - 0.5);
+  const halfPoint = Math.ceil(shuffled.length / 2);
+  const recipientRows = shuffled.map((g, i) => ({
     broadcast_id: broadcast.id,
     tg_group_id: g.id,
     group_name: g.group_name,
     telegram_group_id: g.telegram_group_id,
-    status: isScheduled ? "pending" : "pending",
+    status: "pending",
+    variant: hasVariantB ? (i < halfPoint ? "A" : "B") : null,
   }));
   await supabase.from("crm_broadcast_recipients").insert(recipientRows);
 
@@ -93,13 +137,17 @@ export async function POST(request: Request) {
     });
   }
 
-  // Send immediately
+  // Send immediately — use variant B message for B recipients
   const results: { group_name: string; success: boolean; error?: string }[] = [];
+  const variantMap = new Map(recipientRows.map((r) => [r.tg_group_id, r.variant]));
 
   for (const group of groups) {
+    const variant = variantMap.get(group.id);
+    const msgToSend = (variant === "B" && formattedVariantB) ? formattedVariantB : formattedMessage;
+
     const result = await sendTelegramWithTracking({
       chatId: group.telegram_group_id,
-      text: formattedMessage,
+      text: msgToSend,
       notificationType: "broadcast",
     });
 

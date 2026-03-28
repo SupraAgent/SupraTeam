@@ -28,6 +28,7 @@ type AgentConfig = {
   respond_to_mentions: boolean;
   max_tokens: number;
   escalation_keywords: string[];
+  auto_create_deals: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -66,6 +67,7 @@ export default function AIAgentSettingsPage() {
   const [maxTokens, setMaxTokens] = React.useState(500);
   const [escalationKw, setEscalationKw] = React.useState("");
   const [isActive, setIsActive] = React.useState(false);
+  const [autoCreateDeals, setAutoCreateDeals] = React.useState(false);
 
   React.useEffect(() => {
     fetchConfig();
@@ -98,6 +100,7 @@ export default function AIAgentSettingsPage() {
     setMaxTokens(c.max_tokens);
     setEscalationKw((c.escalation_keywords ?? []).join(", "));
     setIsActive(c.is_active);
+    setAutoCreateDeals(c.auto_create_deals ?? false);
   }
 
   async function handleSave() {
@@ -116,6 +119,7 @@ export default function AIAgentSettingsPage() {
         max_tokens: maxTokens,
         escalation_keywords: escalationKw.split(",").map((k) => k.trim()).filter(Boolean),
         is_active: isActive,
+        auto_create_deals: autoCreateDeals,
       };
 
       const method = config ? "PUT" : "POST";
@@ -358,12 +362,29 @@ export default function AIAgentSettingsPage() {
               </button>
             </div>
             {autoQualify && (
-              <Input
-                value={qualFields}
-                onChange={(e) => setQualFields(e.target.value)}
-                placeholder="Fields to extract: company, role, interest, budget_range"
-                className="text-xs font-mono"
-              />
+              <>
+                <Input
+                  value={qualFields}
+                  onChange={(e) => setQualFields(e.target.value)}
+                  placeholder="Fields to extract: company, role, interest, budget_range"
+                  className="text-xs font-mono"
+                />
+                <div className="flex items-center justify-between mt-2">
+                  <label className="text-xs font-medium text-muted-foreground">Auto-Create Deals from Qualified Leads</label>
+                  <button
+                    onClick={() => setAutoCreateDeals(!autoCreateDeals)}
+                    className={cn(
+                      "rounded-full px-2.5 py-1 text-[10px] font-medium transition-colors",
+                      autoCreateDeals ? "bg-emerald-500/20 text-emerald-400" : "bg-white/10 text-muted-foreground"
+                    )}
+                  >
+                    {autoCreateDeals ? "Enabled" : "Disabled"}
+                  </button>
+                </div>
+                {autoCreateDeals && (
+                  <p className="text-[9px] text-muted-foreground">When the AI extracts qualification data, a contact and deal will be auto-created. Fires the &quot;Lead Qualified&quot; workflow trigger.</p>
+                )}
+              </>
             )}
           </div>
 

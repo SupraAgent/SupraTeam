@@ -1,15 +1,18 @@
 /**
- * Railway cron job: Send daily pipeline digest to all Telegram groups.
+ * Railway cron job: Send daily pipeline digest to Telegram groups.
  * Schedule: 0 9 * * 1-5 (weekdays 9am UTC)
  * Runs as standalone process, exits when done.
+ *
+ * ISOLATION: Each group only sees deals linked to that group.
+ * Privacy levels control detail (full/limited/minimal).
  */
 import { createClient } from "@supabase/supabase-js";
 import {
-  escapeHtml,
-  renderTemplate,
   formatDailyDigest,
   type DailyDigestStats,
 } from "../lib/telegram-templates";
+import { shouldShowTopDeals, shouldShowValues } from "../lib/bot-privacy";
+import type { PrivacyLevel } from "../lib/bot-privacy";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -24,42 +27,60 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: false },
 });
 
-async function sendTelegramMessage(chatId: number, text: string) {
-  await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+async function sendTelegramMessage(chatId: number, text: string): Promise<boolean> {
+  const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
   });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    console.error(`[daily-digest] Telegram API ${res.status} for chat ${chatId}: ${body}`);
+    return false;
+  }
+  return true;
 }
 
-async function main() {
-  console.log("[daily-digest] Starting...");
+interface TgGroup {
+  id: string;
+  telegram_group_id: number;
+  group_name: string;
+  privacy_level: PrivacyLevel;
+}
 
-  // 1. Get all deals with pipeline stage
-  const { data: deals, error: dealsErr } = await supabase
+async function buildGroupDigest(group: TgGroup, customTemplate?: string): Promise<string | null> {
+  const privacy = group.privacy_level ?? "full";
+
+  // Fetch deals linked to THIS group only
+  const { data: deals } = await supabase
     .from("crm_deals")
     .select("id, deal_name, board_type, value, stage_id, pipeline_stages(name, position)")
+    .or(`tg_group_id.eq.${group.id},telegram_chat_id.eq.${group.telegram_group_id}`)
     .order("value", { ascending: false, nullsFirst: false });
 
-  if (dealsErr) {
-    console.error("[daily-digest] Error fetching deals:", dealsErr);
-    process.exit(1);
+  if (!deals || deals.length === 0) {
+    // No deals linked to this group — send minimal message or skip
+    if (privacy === "minimal") return null;
+    return `<b>📊 Daily Pipeline Digest</b>\n\nNo active deals linked to this group.`;
   }
 
-  // 2. Get stage moves in last 24 hours
+  // Stage moves in last 24h for THIS group's deals only
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const dealIds = deals.map((d: any) => d.id);
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const { data: recentMoves } = await supabase
     .from("crm_deal_stage_history")
     .select("id")
+    .in("deal_id", dealIds)
     .gte("changed_at", since);
 
   const movesToday = recentMoves?.length ?? 0;
 
-  // 3. Build stats
+  // Build stats scoped to this group
   const byBoard: Record<string, number> = {};
   const stageMap: Record<string, { name: string; position: number; count: number }> = {};
 
-  for (const deal of deals ?? []) {
+  for (const deal of deals) {
     const board = deal.board_type ?? "Unknown";
     byBoard[board] = (byBoard[board] ?? 0) + 1;
 
@@ -76,41 +97,42 @@ async function main() {
     .sort((a, b) => a.position - b.position)
     .map(({ name, count }) => ({ name, count }));
 
-  const topDeals = (deals ?? [])
-    .filter((d) => d.value != null)
-    .slice(0, 5)
-    .map((d) => {
-      const stage = d.pipeline_stages as unknown as { name: string } | null;
-      return {
-        name: d.deal_name,
-        board: d.board_type ?? "Unknown",
-        stage: stage?.name ?? "Unknown",
-        value: d.value as number,
-      };
-    });
+  // Top deals — only for full privacy groups
+  const topDeals = shouldShowTopDeals(privacy)
+    ? deals
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .filter((d: any) => d.value != null)
+        .slice(0, 5)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .map((d: any) => {
+          const stage = d.pipeline_stages as unknown as { name: string } | null;
+          return {
+            name: d.deal_name,
+            board: d.board_type ?? "Unknown",
+            stage: stage?.name ?? "Unknown",
+            value: shouldShowValues(privacy) ? (d.value as number) : undefined,
+          };
+        })
+    : [];
 
   const stats: DailyDigestStats = {
-    totalDeals: deals?.length ?? 0,
+    totalDeals: deals.length,
     byBoard,
     byStage,
     movesToday,
     topDeals,
   };
 
-  // Load custom template
-  const { data: digestTpl } = await supabase
-    .from("crm_bot_templates")
-    .select("body_template")
-    .eq("template_key", "daily_digest")
-    .eq("is_active", true)
-    .single();
+  return formatDailyDigest(stats, customTemplate);
+}
 
-  const message = formatDailyDigest(stats, digestTpl?.body_template ?? undefined);
+async function main() {
+  console.log("[daily-digest] Starting (group-scoped)...");
 
-  // 4. Get groups where bot is admin
+  // Get groups where bot is admin, with privacy level
   const { data: groups, error: groupsErr } = await supabase
     .from("tg_groups")
-    .select("telegram_group_id")
+    .select("id, telegram_group_id, group_name, privacy_level")
     .eq("bot_is_admin", true);
 
   if (groupsErr) {
@@ -123,14 +145,27 @@ async function main() {
     process.exit(0);
   }
 
-  // 5. Send digest to each group
+  // Load custom template once (shared across all groups)
+  const { data: digestTpl } = await supabase
+    .from("crm_bot_templates")
+    .select("body_template")
+    .eq("template_key", "daily_digest")
+    .eq("is_active", true)
+    .single();
+  const customTemplate = digestTpl?.body_template ?? undefined;
+
   let sent = 0;
-  for (const group of groups) {
+  for (const group of groups as TgGroup[]) {
     try {
-      await sendTelegramMessage(group.telegram_group_id, message);
-      sent++;
+      const message = await buildGroupDigest(group, customTemplate);
+      if (!message) {
+        console.log(`[daily-digest] Skipping ${group.group_name} (no content)`);
+        continue;
+      }
+      const ok = await sendTelegramMessage(group.telegram_group_id, message);
+      if (ok) sent++;
     } catch (err) {
-      console.error(`[daily-digest] Failed to send to ${group.telegram_group_id}:`, err);
+      console.error(`[daily-digest] Failed for ${group.group_name}:`, err);
     }
   }
 

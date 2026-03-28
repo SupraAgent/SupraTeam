@@ -7,6 +7,17 @@ export async function POST(request: Request) {
   if ("error" in auth) return auth.error;
   const { user, admin: supabase } = auth;
 
+  // Check if user has admin role
+  const { data: actorProfile } = await supabase
+    .from("profiles")
+    .select("crm_role")
+    .eq("id", user.id)
+    .single();
+
+  if (!actorProfile?.crm_role || actorProfile.crm_role !== "admin_lead") {
+    return NextResponse.json({ error: "Only admin_lead can manage access" }, { status: 403 });
+  }
+
   const body = await request.json();
   const { action, user_id, slug } = body;
 
@@ -63,7 +74,35 @@ export async function POST(request: Request) {
     error?: string;
   }> = [];
 
-  for (const sg of slugGroups) {
+  // Filter out groups where bot is not admin
+  const validGroups = slugGroups.filter((sg) => {
+    const group = sg.group as unknown as { id: string; telegram_group_id: number; group_name: string; bot_is_admin: boolean } | null;
+    return group?.bot_is_admin !== false;
+  });
+
+  if (validGroups.length === 0) {
+    return NextResponse.json({ error: "Bot is not admin in any groups with this slug" }, { status: 400 });
+  }
+
+  // Add skipped groups as failed
+  const skippedGroups = slugGroups.filter((sg) => {
+    const group = sg.group as unknown as { id: string; telegram_group_id: number; group_name: string; bot_is_admin: boolean } | null;
+    return group?.bot_is_admin === false;
+  });
+  for (const sg of skippedGroups) {
+    const group = sg.group as unknown as { id: string; telegram_group_id: number; group_name: string; bot_is_admin: boolean };
+    if (group) {
+      results.push({
+        group_id: group.id,
+        group_name: group.group_name,
+        telegram_group_id: group.telegram_group_id,
+        success: false,
+        error: "Bot is not admin in this group",
+      });
+    }
+  }
+
+  for (const sg of validGroups) {
     const groupData = sg.group as unknown as { id: string; telegram_group_id: number; group_name: string; bot_is_admin: boolean } | null;
     const group = groupData;
     if (!group) continue;

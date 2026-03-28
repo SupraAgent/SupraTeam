@@ -74,10 +74,20 @@ async function crmActionExecutor(
   }
 }
 
-function getEngineConfig(): EngineConfig {
+/** No-op persistence for dry-run: no database writes, generates a fake run ID. */
+function createDryRunPersistence(): import("@supra/automation-builder").PersistenceAdapter {
+  return {
+    createRun: async () => `dry-run-${Date.now()}`,
+    updateRun: async () => {},
+    scheduleResume: async () => {},
+    onWorkflowComplete: async () => {},
+  };
+}
+
+function getEngineConfig(dryRun = false): EngineConfig {
   return {
     executeAction: crmActionExecutor,
-    persistence: createSupabasePersistence(),
+    persistence: dryRun ? createDryRunPersistence() : createSupabasePersistence(),
     renderTemplate: (template, vars) => renderTemplate(template, vars),
   };
 }
@@ -176,6 +186,50 @@ export async function executeWorkflowFromData(
     contactId: event.contactId,
     userId: workflow.created_by ?? undefined,
   }, getEngineConfig());
+}
+
+/**
+ * Execute a workflow in dry-run mode — traverses the graph, evaluates conditions,
+ * but skips actual action execution and delay pausing. Returns full node outputs
+ * showing what would have happened.
+ */
+export async function executeWorkflowDryRun(
+  workflowId: string,
+  event: CrmWorkflowEvent
+) {
+  const supabase = createSupabaseAdmin();
+  if (!supabase) {
+    return { runId: "", status: "failed" as const, nodeOutputs: {}, error: "Supabase not configured" };
+  }
+
+  const { data: workflow } = await supabase
+    .from("crm_workflows")
+    .select("*")
+    .eq("id", workflowId)
+    .single();
+
+  if (!workflow) {
+    return { runId: "", status: "failed" as const, nodeOutputs: {}, error: "Workflow not found" };
+  }
+
+  const vars = await buildVars(event, supabase);
+
+  const workflowData: WorkflowData = {
+    id: workflow.id,
+    name: workflow.name,
+    description: workflow.description,
+    nodes: (workflow.nodes ?? []) as FlowNode[],
+    edges: (workflow.edges ?? []) as FlowEdge[],
+    is_active: workflow.is_active,
+    trigger_type: workflow.trigger_type,
+  };
+
+  return genericExecuteWorkflow(workflowData, event, {
+    vars,
+    dealId: event.dealId,
+    contactId: event.contactId,
+    userId: (workflow as unknown as Workflow).created_by ?? undefined,
+  }, getEngineConfig(true));
 }
 
 /**

@@ -71,6 +71,7 @@ export default function HomePage() {
   const [teamStats, setTeamStats] = React.useState<TeamStat[]>([]);
   const [notifications, setNotifications] = React.useState<Notification[]>([]);
   const [reminders, setReminders] = React.useState<{ id: string; deal_id: string; reminder_type: string; message: string; due_at: string; deal?: { deal_name: string; board_type: string } }[]>([]);
+  const [highlights, setHighlights] = React.useState<{ id: string; deal_id: string | null; sender_name: string | null; message_preview: string | null; tg_deep_link: string | null; highlight_type: string; created_at: string }[]>([]);
   const [loading, setLoading] = React.useState(true);
 
   React.useEffect(() => {
@@ -80,13 +81,15 @@ export default function HomePage() {
       fetch("/api/reminders").then((r) => (r.ok ? r.json() : null)).catch(() => null),
       fetch("/api/analytics").then((r) => (r.ok ? r.json() : null)).catch(() => null),
       fetch("/api/stats/team").then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      fetch("/api/highlights").then((r) => (r.ok ? r.json() : null)).catch(() => null),
     ])
-      .then(([statsData, notifData, reminderData, analyticsData, teamData]) => {
+      .then(([statsData, notifData, reminderData, analyticsData, teamData, highlightsData]) => {
         if (statsData) setStats(statsData);
         if (notifData) setNotifications(notifData.notifications ?? []);
         if (reminderData) setReminders(reminderData.reminders ?? []);
         if (analyticsData) setAnalytics(analyticsData);
         if (teamData) setTeamStats(teamData.team ?? []);
+        if (highlightsData) setHighlights(highlightsData.highlights ?? []);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -332,6 +335,22 @@ export default function HomePage() {
                   </button>
                 </div>
               </div>
+            ))}
+          </Widget>
+
+          {/* TG Highlights — messages needing attention */}
+          <Widget title="Needs Attention" icon={Zap} iconColor="text-amber-400" subtitle="Active TG highlights" empty={highlights.length === 0} emptyText="No active highlights.">
+            {highlights.slice(0, 5).map((h) => (
+              <Link key={h.id} href={h.deal_id ? `/pipeline?highlight=${h.deal_id}` : "#"} className="flex items-center justify-between py-2 px-1 rounded-lg hover:bg-white/[0.03] transition">
+                <div className="flex items-center gap-2 min-w-0">
+                  <MessageCircle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-sm text-foreground truncate">{h.sender_name ?? "Unknown"}</p>
+                    <p className="text-[10px] text-muted-foreground truncate">{h.message_preview ?? "New message"}</p>
+                  </div>
+                </div>
+                <span className="text-[10px] text-muted-foreground shrink-0 ml-2">{timeAgo(h.created_at)}</span>
+              </Link>
             ))}
           </Widget>
 

@@ -10,8 +10,11 @@ import { verifyCron } from "@/lib/cron-auth";
  *   - poll-notifications  (every 5 min)  — send TG messages for stage changes
  *   - daily-digest        (weekdays 9am) — pipeline summary to TG groups
  *   - sequence-worker     (every 5 min)  — process email sequences + scheduled sends
+ *   - deal-intelligence   (daily)        — health scores, sentiment, AI summaries
+ *   - engagement-scoring  (hourly)       — recalculate contact engagement scores
  *
- * Without ?job param, runs all frequent jobs (poll-notifications + sequence-worker).
+ * Without ?job param, runs only frequent jobs (poll-notifications + sequence-worker).
+ * deal-intelligence (daily) and engagement-scoring (hourly) must use explicit ?job= params.
  */
 export async function GET(request: Request) {
   const cronErr = verifyCron(request);
@@ -28,9 +31,10 @@ export async function GET(request: Request) {
   const results: Record<string, unknown> = {};
 
   // Helper to call internal API routes
-  async function runJob(name: string, path: string) {
+  async function runJob(name: string, path: string, method: "GET" | "POST" = "GET") {
     try {
       const res = await fetch(`${baseUrl}${path}`, {
+        method,
         headers: process.env.CRON_SECRET
           ? { Authorization: `Bearer ${process.env.CRON_SECRET}` }
           : {},
@@ -53,11 +57,18 @@ export async function GET(request: Request) {
       case "sequence-worker":
         await runJob("sequence-worker", "/api/cron/sequences");
         break;
+      case "deal-intelligence":
+        await runJob("deal-intelligence", "/api/cron/deal-intelligence");
+        break;
+      case "engagement-scoring":
+        await runJob("engagement-scoring", "/api/contacts/engagement", "POST");
+        break;
       default:
         return NextResponse.json({ error: `Unknown job: ${job}` }, { status: 400 });
     }
   } else {
-    // Default: run all frequent jobs in parallel
+    // Default: run only frequent jobs (every 5 min)
+    // deal-intelligence (daily) and engagement-scoring (hourly) have their own cron schedules
     await Promise.all([
       runJob("poll-notifications", "/api/bot/poll-notifications"),
       runJob("sequence-worker", "/api/cron/sequences"),
