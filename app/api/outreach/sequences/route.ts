@@ -80,12 +80,24 @@ export async function POST(request: Request) {
 
   // Insert steps if provided
   if (Array.isArray(steps) && steps.length > 0) {
-    const stepRows = steps.map((s: { message_template: string; delay_hours?: number; step_type?: string }, i: number) => ({
+    const stepRows = steps.map((s: {
+      message_template: string;
+      delay_hours?: number;
+      step_type?: string;
+      condition_type?: string;
+      condition_config?: Record<string, unknown>;
+      on_true_step?: number;
+      on_false_step?: number;
+    }, i: number) => ({
       sequence_id: sequence.id,
       step_number: i + 1,
       delay_hours: s.delay_hours ?? 24,
       message_template: s.message_template,
       step_type: s.step_type ?? "message",
+      condition_type: s.condition_type || null,
+      condition_config: s.condition_config ?? {},
+      on_true_step: s.on_true_step ?? null,
+      on_false_step: s.on_false_step ?? null,
     }));
 
     await supabase.from("crm_outreach_steps").insert(stepRows);

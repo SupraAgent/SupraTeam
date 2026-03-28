@@ -44,6 +44,7 @@ type Step = {
   message_template: string;
   step_type: string;
   condition_type: string | null;
+  condition_config: Record<string, unknown> | null;
   on_true_step: number | null;
   on_false_step: number | null;
 };
@@ -65,16 +66,19 @@ export default function OutreachPage() {
     delay_hours: number;
     step_type: string;
     condition_type: string;
+    condition_config: Record<string, unknown>;
     on_true_step: number | null;
     on_false_step: number | null;
   }>>([
-    { message_template: "", delay_hours: 0, step_type: "message", condition_type: "", on_true_step: null, on_false_step: null },
-    { message_template: "", delay_hours: 24, step_type: "message", condition_type: "", on_true_step: null, on_false_step: null },
-    { message_template: "", delay_hours: 48, step_type: "message", condition_type: "", on_true_step: null, on_false_step: null },
+    { message_template: "", delay_hours: 0, step_type: "message", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null },
+    { message_template: "", delay_hours: 24, step_type: "message", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null },
+    { message_template: "", delay_hours: 48, step_type: "message", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null },
   ]);
+  const [pipelineStages, setPipelineStages] = React.useState<Array<{ id: string; name: string }>>([]);
 
   React.useEffect(() => {
     fetchSequences();
+    fetch("/api/pipeline").then((r) => r.json()).then((d) => setPipelineStages(d.stages ?? [])).catch(() => {});
   }, []);
 
   async function fetchSequences() {
@@ -133,9 +137,9 @@ export default function OutreachPage() {
       setNewDesc("");
       setNewBoard("");
       setNewSteps([
-        { message_template: "", delay_hours: 0, step_type: "message", condition_type: "", on_true_step: null, on_false_step: null },
-        { message_template: "", delay_hours: 24, step_type: "message", condition_type: "", on_true_step: null, on_false_step: null },
-        { message_template: "", delay_hours: 48, step_type: "message", condition_type: "", on_true_step: null, on_false_step: null },
+        { message_template: "", delay_hours: 0, step_type: "message", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null },
+        { message_template: "", delay_hours: 24, step_type: "message", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null },
+        { message_template: "", delay_hours: 48, step_type: "message", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null },
       ]);
       fetchSequences();
     }
@@ -162,15 +166,21 @@ export default function OutreachPage() {
   }
 
   function addStep(type: string = "message") {
-    setNewSteps([...newSteps, { message_template: "", delay_hours: 24, step_type: type, condition_type: type === "condition" ? "reply_received" : "", on_true_step: null, on_false_step: null }]);
+    setNewSteps([...newSteps, { message_template: "", delay_hours: 24, step_type: type, condition_type: type === "condition" ? "reply_received" : "", condition_config: {}, on_true_step: null, on_false_step: null }]);
   }
 
   function removeStep(index: number) {
     setNewSteps(newSteps.filter((_, i) => i !== index));
   }
 
-  function updateStep(index: number, field: string, value: string | number) {
+  function updateStep(index: number, field: string, value: string | number | Record<string, unknown>) {
     setNewSteps(newSteps.map((s, i) => (i === index ? { ...s, [field]: value } : s)));
+  }
+
+  function updateStepConfig(index: number, configKey: string, configValue: unknown) {
+    setNewSteps(newSteps.map((s, i) => (
+      i === index ? { ...s, condition_config: { ...s.condition_config, [configKey]: configValue } } : s
+    )));
   }
 
   const statusColors: Record<string, { bg: string; text: string }> = {
@@ -293,16 +303,54 @@ export default function OutreachPage() {
 
                 {step.step_type === "condition" && (
                   <div className="space-y-2 pl-7">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <GitBranch className="h-3.5 w-3.5 text-yellow-400 shrink-0" />
                       <select
                         value={step.condition_type}
-                        onChange={(e) => updateStep(i, "condition_type", e.target.value)}
+                        onChange={(e) => {
+                          updateStep(i, "condition_type", e.target.value);
+                          updateStep(i, "condition_config", {});
+                        }}
                         className="rounded border border-white/10 bg-transparent px-2 py-1 text-xs"
                       >
                         <option value="reply_received">Reply received</option>
                         <option value="no_reply_timeout">No reply (timeout)</option>
+                        <option value="engagement_score">Engagement score ≥</option>
+                        <option value="deal_stage">Deal in stage</option>
                       </select>
+                      {step.condition_type === "engagement_score" && (
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={(step.condition_config?.threshold as number) ?? 50}
+                          onChange={(e) => updateStepConfig(i, "threshold", Number(e.target.value))}
+                          className="w-16 rounded border border-white/10 bg-transparent px-2 py-1 text-xs"
+                          placeholder="50"
+                        />
+                      )}
+                      {step.condition_type === "deal_stage" && (
+                        <select
+                          value={(step.condition_config?.stage_id as string) ?? ""}
+                          onChange={(e) => updateStepConfig(i, "stage_id", e.target.value)}
+                          className="rounded border border-white/10 bg-transparent px-2 py-1 text-xs"
+                        >
+                          <option value="">Select stage</option>
+                          {pipelineStages.map((s) => (
+                            <option key={s.id} value={s.id}>{s.name}</option>
+                          ))}
+                        </select>
+                      )}
+                      {step.condition_type === "no_reply_timeout" && (
+                        <input
+                          type="number"
+                          min={1}
+                          value={(step.condition_config?.timeout_hours as number) ?? 24}
+                          onChange={(e) => updateStepConfig(i, "timeout_hours", Number(e.target.value))}
+                          className="w-16 rounded border border-white/10 bg-transparent px-2 py-1 text-xs"
+                          placeholder="24h"
+                        />
+                      )}
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       <div className="flex items-center gap-1.5">
@@ -514,7 +562,11 @@ export default function OutreachPage() {
                               {step.step_type === "condition" && (
                                 <span className="flex items-center gap-1 text-[10px] text-yellow-400">
                                   <GitBranch className="h-3 w-3" />
-                                  {step.condition_type === "reply_received" ? "If reply received" : "If no reply (timeout)"}
+                                  {step.condition_type === "reply_received" ? "If reply received"
+                                    : step.condition_type === "no_reply_timeout" ? "If no reply (timeout)"
+                                    : step.condition_type === "engagement_score" ? `If engagement ≥ ${step.condition_config?.threshold ?? 50}`
+                                    : step.condition_type === "deal_stage" ? "If deal in target stage"
+                                    : step.condition_type}
                                 </span>
                               )}
                               {step.step_type === "wait" && (

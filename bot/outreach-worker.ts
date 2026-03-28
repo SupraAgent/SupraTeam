@@ -111,7 +111,7 @@ async function processEnrollment(bot: Bot, enrollment: Enrollment) {
 
     } else if (currentStep.step_type === "condition") {
       // Evaluate condition
-      const conditionMet = evaluateCondition(currentStep, enrollment);
+      const conditionMet = await evaluateCondition(currentStep, enrollment);
 
       const targetStep = conditionMet ? currentStep.on_true_step : currentStep.on_false_step;
 
@@ -150,19 +150,40 @@ async function processEnrollment(bot: Bot, enrollment: Enrollment) {
   }
 }
 
-function evaluateCondition(step: Step, enrollment: Enrollment): boolean {
+async function evaluateCondition(step: Step, enrollment: Enrollment): Promise<boolean> {
   const condType = step.condition_type || step.condition_config?.check as string;
 
   switch (condType) {
     case "reply_received":
-      // Check if there's been a reply since enrollment started
       return enrollment.last_reply_at != null && enrollment.reply_count > 0;
 
     case "no_reply_timeout": {
-      // Check if enough time passed without reply
       const timeoutHours = (step.condition_config?.timeout_hours as number) || step.delay_hours || 24;
       const cutoff = new Date(Date.now() - timeoutHours * 3600000);
       return !enrollment.last_reply_at || new Date(enrollment.last_reply_at) < cutoff;
+    }
+
+    case "engagement_score": {
+      if (!enrollment.contact_id) return false;
+      const threshold = (step.condition_config?.threshold as number) ?? 50;
+      const { data: contact } = await supabase
+        .from("crm_contacts")
+        .select("engagement_score")
+        .eq("id", enrollment.contact_id)
+        .single();
+      return (contact?.engagement_score ?? 0) >= threshold;
+    }
+
+    case "deal_stage": {
+      if (!enrollment.deal_id) return false;
+      const targetStageId = step.condition_config?.stage_id as string;
+      if (!targetStageId) return false;
+      const { data: deal } = await supabase
+        .from("crm_deals")
+        .select("stage_id")
+        .eq("id", enrollment.deal_id)
+        .single();
+      return deal?.stage_id === targetStageId;
     }
 
     default:
