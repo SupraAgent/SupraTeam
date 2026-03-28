@@ -5,9 +5,11 @@ import { SlideOver } from "@/components/ui/slide-over";
 import { cn, timeAgo } from "@/lib/utils";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 import {
   Shield, ShieldOff, Users, MessageCircle, Tag, ExternalLink,
   Activity, TrendingUp, BarChart3, Star, StarOff, RefreshCw, UserCheck,
+  UserMinus, UserPlus, AlertTriangle, Loader2, Trash2,
 } from "lucide-react";
 
 type MessageHistoryEntry = { date: string; count: number };
@@ -73,6 +75,12 @@ export function GroupDetailPanel({ group, open, onClose }: GroupDetailPanelProps
   const [membersLoading, setMembersLoading] = React.useState(false);
   const [syncing, setSyncing] = React.useState(false);
   const [showMembers, setShowMembers] = React.useState(false);
+  const [kickingIds, setKickingIds] = React.useState<Set<number>>(new Set());
+  const [confirmKick, setConfirmKick] = React.useState<GroupMember | null>(null);
+  const [confirmNuclear, setConfirmNuclear] = React.useState<GroupMember | null>(null);
+  const [nuclearLoading, setNuclearLoading] = React.useState(false);
+  const [showAddMember, setShowAddMember] = React.useState(false);
+  const [addUsername, setAddUsername] = React.useState("");
 
   React.useEffect(() => {
     if (group && open) {
@@ -118,6 +126,65 @@ export function GroupDetailPanel({ group, open, onClose }: GroupDetailPanelProps
     setMembers((prev) =>
       prev.map((m) => m.id === member.id ? { ...m, is_flagged: !m.is_flagged } : m)
     );
+  }
+
+  async function kickMember(member: GroupMember) {
+    if (!group) return;
+    setKickingIds((prev) => new Set([...prev, member.telegram_user_id]));
+    setConfirmKick(null);
+    try {
+      const res = await fetch("/api/groups/members/kick", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          group_id: group.id,
+          telegram_user_id: member.telegram_user_id,
+          member_name: member.display_name ?? member.username ?? "Unknown",
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        toast.success(`Removed ${member.display_name ?? member.username} from ${group.group_name}`);
+        setMembers((prev) => prev.filter((m) => m.telegram_user_id !== member.telegram_user_id));
+      } else {
+        toast.error(data.error || "Failed to remove member");
+      }
+    } catch {
+      toast.error("Failed to remove member");
+    } finally {
+      setKickingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(member.telegram_user_id);
+        return next;
+      });
+    }
+  }
+
+  async function nuclearRemove(member: GroupMember) {
+    setNuclearLoading(true);
+    setConfirmNuclear(null);
+    try {
+      const res = await fetch("/api/groups/members/remove-all", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          telegram_user_id: member.telegram_user_id,
+          member_name: member.display_name ?? member.username ?? "Unknown",
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        toast.success(`Removed from ${data.success} of ${data.total} groups`);
+        // Remove from local list
+        setMembers((prev) => prev.filter((m) => m.telegram_user_id !== member.telegram_user_id));
+      } else {
+        toast.error(data.error || "Nuclear remove failed");
+      }
+    } catch {
+      toast.error("Nuclear remove failed");
+    } finally {
+      setNuclearLoading(false);
+    }
   }
 
   if (!group) return null;
@@ -379,7 +446,7 @@ export function GroupDetailPanel({ group, open, onClose }: GroupDetailPanelProps
 
           {/* Member list */}
           {showMembers && (
-            <div className="space-y-1 max-h-[250px] overflow-y-auto thin-scroll">
+            <div className="space-y-1 max-h-[350px] overflow-y-auto thin-scroll">
               {members.map((m) => {
                 const tierColors: Record<string, string> = {
                   champion: "text-emerald-400",
@@ -393,10 +460,12 @@ export function GroupDetailPanel({ group, open, onClose }: GroupDetailPanelProps
                   creator: "bg-amber-500/20 text-amber-400",
                   administrator: "bg-blue-500/20 text-blue-400",
                 };
+                const isKicking = kickingIds.has(m.telegram_user_id);
+                const isProtected = m.role === "creator" || m.role === "administrator";
                 return (
                   <div
                     key={m.id}
-                    className="flex items-center gap-2 rounded-lg border border-white/5 bg-white/[0.02] px-2.5 py-1.5"
+                    className="flex items-center gap-2 rounded-lg border border-white/5 bg-white/[0.02] px-2.5 py-1.5 group/member"
                   >
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
@@ -422,16 +491,41 @@ export function GroupDetailPanel({ group, open, onClose }: GroupDetailPanelProps
                         {m.username && <span className="font-mono">@{m.username}</span>}
                       </div>
                     </div>
-                    <button
-                      onClick={() => toggleFlag(m)}
-                      className={cn(
-                        "shrink-0 p-1 rounded transition-colors",
-                        m.is_flagged ? "text-amber-400 hover:text-amber-300" : "text-muted-foreground/30 hover:text-amber-400"
+                    <div className="flex items-center gap-0.5 shrink-0">
+                      <button
+                        onClick={() => toggleFlag(m)}
+                        className={cn(
+                          "p-1 rounded transition-colors",
+                          m.is_flagged ? "text-amber-400 hover:text-amber-300" : "text-muted-foreground/30 hover:text-amber-400"
+                        )}
+                        title={m.is_flagged ? "Unflag" : "Flag as high-value"}
+                      >
+                        {m.is_flagged ? <Star className="h-3.5 w-3.5 fill-current" /> : <Star className="h-3.5 w-3.5" />}
+                      </button>
+                      {group.bot_is_admin && !isProtected && (
+                        <button
+                          onClick={() => setConfirmKick(m)}
+                          disabled={isKicking}
+                          className="p-1 rounded text-muted-foreground/20 hover:text-red-400 opacity-0 group-hover/member:opacity-100 transition-all"
+                          title="Remove from this group"
+                        >
+                          {isKicking ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <UserMinus className="h-3.5 w-3.5" />
+                          )}
+                        </button>
                       )}
-                      title={m.is_flagged ? "Unflag" : "Flag as high-value"}
-                    >
-                      {m.is_flagged ? <Star className="h-3.5 w-3.5 fill-current" /> : <Star className="h-3.5 w-3.5" />}
-                    </button>
+                      {!isProtected && (
+                        <button
+                          onClick={() => setConfirmNuclear(m)}
+                          className="p-1 rounded text-muted-foreground/20 hover:text-red-500 opacity-0 group-hover/member:opacity-100 transition-all"
+                          title="Remove from ALL groups"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -440,6 +534,60 @@ export function GroupDetailPanel({ group, open, onClose }: GroupDetailPanelProps
                   No members tracked yet. Click Sync to fetch from Telegram.
                 </p>
               )}
+            </div>
+          )}
+
+          {/* Kick confirmation */}
+          {confirmKick && (
+            <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-3 space-y-2">
+              <div className="flex items-center gap-2 text-xs text-red-400 font-medium">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                Remove {confirmKick.display_name ?? confirmKick.username} from {group.group_name}?
+              </div>
+              <p className="text-[11px] text-muted-foreground">They can rejoin via invite link.</p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => kickMember(confirmKick)}
+                  className="px-3 py-1.5 rounded-lg bg-red-500/20 text-red-400 text-[11px] font-medium hover:bg-red-500/30 transition-colors min-h-[36px]"
+                >
+                  Remove
+                </button>
+                <button
+                  onClick={() => setConfirmKick(null)}
+                  className="px-3 py-1.5 rounded-lg bg-white/5 text-muted-foreground text-[11px] hover:bg-white/10 transition-colors min-h-[36px]"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Nuclear remove confirmation */}
+          {confirmNuclear && (
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 space-y-2">
+              <div className="flex items-center gap-2 text-xs text-red-400 font-medium">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                Remove {confirmNuclear.display_name ?? confirmNuclear.username} from ALL groups?
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                This will kick them from every group where the bot is admin. Use for offboarding.
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => nuclearRemove(confirmNuclear)}
+                  disabled={nuclearLoading}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/20 text-red-400 text-[11px] font-medium hover:bg-red-500/30 transition-colors disabled:opacity-50 min-h-[36px]"
+                >
+                  {nuclearLoading && <Loader2 className="h-3 w-3 animate-spin" />}
+                  Remove from All Groups
+                </button>
+                <button
+                  onClick={() => setConfirmNuclear(null)}
+                  className="px-3 py-1.5 rounded-lg bg-white/5 text-muted-foreground text-[11px] hover:bg-white/10 transition-colors min-h-[36px]"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           )}
         </div>
