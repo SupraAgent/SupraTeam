@@ -71,8 +71,9 @@ export default function HomePage() {
   const [teamStats, setTeamStats] = React.useState<TeamStat[]>([]);
   const [notifications, setNotifications] = React.useState<Notification[]>([]);
   const [reminders, setReminders] = React.useState<{ id: string; deal_id: string; reminder_type: string; message: string; due_at: string; deal?: { deal_name: string; board_type: string } }[]>([]);
-  const [highlights, setHighlights] = React.useState<{ id: string; deal_id: string | null; sender_name: string | null; message_preview: string | null; tg_deep_link: string | null; highlight_type: string; created_at: string }[]>([]);
+  const [highlights, setHighlights] = React.useState<{ id: string; deal_id: string | null; sender_name: string | null; message_preview: string | null; tg_deep_link: string | null; highlight_type: string; created_at: string; triage_category?: string | null; triage_urgency?: string | null; triage_summary?: string | null; triaged_at?: string | null }[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [triaging, setTriaging] = React.useState(false);
 
   React.useEffect(() => {
     Promise.all([
@@ -338,20 +339,70 @@ export default function HomePage() {
             ))}
           </Widget>
 
-          {/* TG Highlights — messages needing attention */}
+          {/* TG Highlights — messages needing attention with AI triage */}
           <Widget title="Needs Attention" icon={Zap} iconColor="text-amber-400" subtitle="Active TG highlights" empty={highlights.length === 0} emptyText="No active highlights.">
-            {highlights.slice(0, 5).map((h) => (
-              <Link key={h.id} href={h.deal_id ? `/pipeline?highlight=${h.deal_id}` : "#"} className="flex items-center justify-between py-2 px-1 rounded-lg hover:bg-white/[0.03] transition">
-                <div className="flex items-center gap-2 min-w-0">
-                  <MessageCircle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-sm text-foreground truncate">{h.sender_name ?? "Unknown"}</p>
-                    <p className="text-[10px] text-muted-foreground truncate">{h.message_preview ?? "New message"}</p>
+            {highlights.length > 0 && highlights.some((h) => !h.triaged_at) && (
+              <button
+                onClick={async () => {
+                  setTriaging(true);
+                  try {
+                    const res = await fetch("/api/highlights/triage", { method: "POST" });
+                    if (res.ok) {
+                      const data = await res.json();
+                      // Update highlights with triage data
+                      const triagedMap = new Map(data.triaged?.map((t: { id: string; category: string; urgency: string; summary: string }) => [t.id, t]) ?? []);
+                      setHighlights((prev) => prev.map((h) => {
+                        const t = triagedMap.get(h.id) as { category: string; urgency: string; summary: string } | undefined;
+                        return t ? { ...h, triage_category: t.category, triage_urgency: t.urgency, triage_summary: t.summary, triaged_at: new Date().toISOString() } : h;
+                      }));
+                    }
+                  } finally {
+                    setTriaging(false);
+                  }
+                }}
+                disabled={triaging}
+                className="w-full text-center py-1.5 text-[10px] text-primary hover:bg-primary/5 rounded-lg transition mb-1 disabled:opacity-50"
+              >
+                {triaging ? "Triaging..." : "Auto-triage with AI"}
+              </button>
+            )}
+            {[...highlights]
+              .sort((a, b) => {
+                const urgencyOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+                const aU = a.triage_urgency ? (urgencyOrder[a.triage_urgency] ?? 4) : 4;
+                const bU = b.triage_urgency ? (urgencyOrder[b.triage_urgency] ?? 4) : 4;
+                return aU - bU;
+              })
+              .slice(0, 6).map((h) => {
+              const urgencyColors: Record<string, string> = {
+                critical: "bg-red-500/20 text-red-400",
+                high: "bg-amber-500/20 text-amber-400",
+                medium: "bg-blue-500/20 text-blue-400",
+                low: "bg-white/10 text-muted-foreground",
+              };
+              return (
+                <Link key={h.id} href={h.deal_id ? `/pipeline?highlight=${h.deal_id}` : "#"} className="flex items-center justify-between py-2 px-1 rounded-lg hover:bg-white/[0.03] transition">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <MessageCircle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-sm text-foreground truncate">{h.sender_name ?? "Unknown"}</p>
+                        {h.triage_urgency && (
+                          <span className={cn("rounded-full px-1.5 py-0.5 text-[8px] font-medium uppercase", urgencyColors[h.triage_urgency] ?? urgencyColors.medium)}>
+                            {h.triage_urgency}
+                          </span>
+                        )}
+                        {h.triage_category && (
+                          <span className="rounded bg-white/5 px-1 py-0.5 text-[8px] text-muted-foreground">{h.triage_category}</span>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-muted-foreground truncate">{h.triage_summary ?? h.message_preview ?? "New message"}</p>
+                    </div>
                   </div>
-                </div>
-                <span className="text-[10px] text-muted-foreground shrink-0 ml-2">{timeAgo(h.created_at)}</span>
-              </Link>
-            ))}
+                  <span className="text-[10px] text-muted-foreground shrink-0 ml-2">{timeAgo(h.created_at)}</span>
+                </Link>
+              );
+            })}
           </Widget>
 
           {/* Hot conversations */}

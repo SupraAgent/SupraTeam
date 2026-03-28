@@ -135,6 +135,7 @@ export default function BroadcastsPage() {
     senderStats: { name: string; count: number }[];
     dailyVolume: { date: string; count: number }[];
     abResults?: AbResult[];
+    bestSendTime?: { hour: number; sent: number; responded: number; responseRate: number }[];
   };
   const [analytics, setAnalytics] = React.useState<AnalyticsData | null>(null);
   const [showAnalytics, setShowAnalytics] = React.useState(false);
@@ -592,6 +593,58 @@ export default function BroadcastsPage() {
                   ))}
                 </div>
               )}
+
+              {/* Engagement heatmap — best send times */}
+              {analytics.bestSendTime && analytics.bestSendTime.length > 0 && (() => {
+                const hours = Array.from({ length: 24 }, (_, i) => i);
+                const hourMap = new Map(analytics.bestSendTime!.map((h) => [h.hour, h]));
+                const maxRate = Math.max(...analytics.bestSendTime!.map((h) => h.responseRate), 1);
+                const bestHour = analytics.bestSendTime!.reduce((best, h) => h.responseRate > best.responseRate ? h : best, analytics.bestSendTime![0]);
+
+                return (
+                  <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-medium text-foreground">Best Send Times</h3>
+                      {bestHour && (
+                        <span className="text-[10px] text-emerald-400">
+                          Peak: {bestHour.hour.toString().padStart(2, "0")}:00 UTC ({bestHour.responseRate}% response rate)
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-12 gap-1">
+                      {hours.map((hour) => {
+                        const data = hourMap.get(hour);
+                        const rate = data?.responseRate ?? 0;
+                        const intensity = maxRate > 0 ? rate / maxRate : 0;
+                        const bg = rate === 0 ? "bg-white/5"
+                          : intensity >= 0.75 ? "bg-emerald-500/60"
+                          : intensity >= 0.5 ? "bg-emerald-500/40"
+                          : intensity >= 0.25 ? "bg-emerald-500/20"
+                          : "bg-emerald-500/10";
+                        return (
+                          <div
+                            key={hour}
+                            className={cn("rounded aspect-square flex flex-col items-center justify-center transition-colors hover:ring-1 hover:ring-white/20", bg)}
+                            title={`${hour.toString().padStart(2, "0")}:00 UTC — ${data?.sent ?? 0} sent, ${data?.responded ?? 0} responses (${rate}%)`}
+                          >
+                            <span className="text-[8px] text-muted-foreground leading-none">{hour.toString().padStart(2, "0")}</span>
+                            {data && data.sent > 0 && (
+                              <span className="text-[8px] font-medium text-foreground leading-none mt-0.5">{rate}%</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="flex items-center gap-2 justify-end">
+                      <span className="text-[9px] text-muted-foreground">Response rate:</span>
+                      {["bg-white/5", "bg-emerald-500/10", "bg-emerald-500/20", "bg-emerald-500/40", "bg-emerald-500/60"].map((bg, i) => (
+                        <div key={i} className={cn("h-2.5 w-5 rounded", bg)} />
+                      ))}
+                      <span className="text-[9px] text-muted-foreground">high</span>
+                    </div>
+                  </div>
+                );
+              })()}
             </>
           )}
         </div>

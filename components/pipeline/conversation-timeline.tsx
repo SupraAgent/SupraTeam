@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { cn, timeAgo } from "@/lib/utils";
-import { Send, Loader2, ExternalLink, Search, ChevronUp, ChevronDown, MessageCircle, Bot, User, Image, FileText } from "lucide-react";
+import { Send, Loader2, ExternalLink, Search, ChevronUp, ChevronDown, MessageCircle, Bot, User, Image, FileText, Sparkles } from "lucide-react";
 
 type Message = {
   id: string;
@@ -43,6 +43,8 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
   const [searchQuery, setSearchQuery] = React.useState("");
   const [showSearch, setShowSearch] = React.useState(false);
   const [newMessageCount, setNewMessageCount] = React.useState(0);
+  const [suggestions, setSuggestions] = React.useState<Array<{ label: string; text: string }>>([]);
+  const [loadingSuggestions, setLoadingSuggestions] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const isAtBottomRef = React.useRef(true);
 
@@ -150,6 +152,21 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
     setLoadingMore(true);
     await fetchMessages(messages[0].sent_at);
     setLoadingMore(false);
+  }
+
+  async function fetchSuggestions() {
+    setLoadingSuggestions(true);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/suggest-replies`, { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        setSuggestions(data.suggestions ?? []);
+      }
+    } catch {
+      // silent fail
+    } finally {
+      setLoadingSuggestions(false);
+    }
   }
 
   async function handleSend() {
@@ -378,6 +395,42 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
           <ChevronDown className="h-3 w-3" />
           {newMessageCount} new message{newMessageCount !== 1 ? "s" : ""}
         </button>
+      )}
+
+      {/* Smart reply suggestions */}
+      {messages.length > 0 && (
+        <div className="shrink-0 mt-1">
+          {suggestions.length > 0 ? (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <Sparkles className="h-3 w-3 text-purple-400 shrink-0" />
+              {suggestions.map((s, i) => (
+                <button
+                  key={i}
+                  onClick={() => { setReply(s.text); setSuggestions([]); }}
+                  className="rounded-lg border border-purple-500/20 bg-purple-500/5 px-2.5 py-1 text-[10px] text-purple-300 hover:bg-purple-500/10 transition-colors truncate max-w-[180px]"
+                  title={s.text}
+                >
+                  {s.label}
+                </button>
+              ))}
+              <button
+                onClick={() => setSuggestions([])}
+                className="text-[9px] text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+              >
+                dismiss
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={fetchSuggestions}
+              disabled={loadingSuggestions}
+              className="flex items-center gap-1 text-[10px] text-muted-foreground/50 hover:text-purple-400 transition-colors"
+            >
+              {loadingSuggestions ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+              {loadingSuggestions ? "Thinking..." : "Suggest replies"}
+            </button>
+          )}
+        </div>
       )}
 
       {/* Reply input */}
