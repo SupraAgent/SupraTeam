@@ -35,7 +35,7 @@ export function AIFlowChat({
   onApplyFlow,
   onChat,
   apiKey: propApiKey,
-  storageKeyPrefix = "athena",
+  storageKeyPrefix = "suprateam_loop",
 }: AIFlowChatProps) {
   const [open, setOpen] = React.useState(false);
   const [messages, setMessages] = React.useState<Message[]>([

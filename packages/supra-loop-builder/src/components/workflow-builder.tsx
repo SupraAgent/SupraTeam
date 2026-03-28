@@ -226,7 +226,7 @@ export function WorkflowBuilder({
   initialEdges: propInitialEdges,
   category = "workflow",
   customNodeTypes,
-  storageKeyPrefix = "athena",
+  storageKeyPrefix = "suprateam_loop",
   disableAutoLayout = false,
   onNodesChange: onNodesChangeProp,
   onEdgesChange: onEdgesChangeProp,
@@ -258,7 +258,7 @@ export function WorkflowBuilder({
   }, [storageKeyPrefix]);
 
   // ── Chat panel state ──────────────────────────────────────────
-  const [chatOpen, setChatOpen] = React.useState(true);
+  const [chatOpen, setChatOpen] = React.useState(false);
 
   // ── User node definitions ──────────────────────────────────────
   const [userNodeDefs, setUserNodeDefs] = React.useState<UserNodeDefinition[]>([]);
@@ -1506,7 +1506,7 @@ export function WorkflowBuilder({
 
       {/* Credential Manager */}
       {showCredentialManager && (
-        <CredentialManager onClose={() => setShowCredentialManager(false)} />
+        <CredentialManager onClose={() => setShowCredentialManager(false)} storageKeyPrefix={storageKeyPrefix} />
       )}
     </div>
   );

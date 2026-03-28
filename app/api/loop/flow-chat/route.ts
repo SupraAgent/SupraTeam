@@ -9,7 +9,13 @@ export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
 
-  const body = await request.json();
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
   const {
     apiKey,
     message,
@@ -18,11 +24,26 @@ export async function POST(request: Request) {
     canvasSummary,
     category,
     history,
-  } = body;
+  } = body as {
+    apiKey?: string;
+    message?: string;
+    currentNodes?: unknown[];
+    currentEdges?: unknown[];
+    canvasSummary?: string;
+    category?: string;
+    history?: { role: string; content: string }[];
+  };
 
-  if (!apiKey) {
+  if (!apiKey || typeof apiKey !== "string") {
     return NextResponse.json(
       { error: "Anthropic API key required. Set it in the builder settings." },
+      { status: 400 }
+    );
+  }
+
+  if (!message || typeof message !== "string") {
+    return NextResponse.json(
+      { error: "Message is required." },
       { status: 400 }
     );
   }

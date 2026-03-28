@@ -58,23 +58,48 @@ export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
 
-  const body = await request.json();
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
   const {
     apiKey,
     systemPrompt,
     userMessage,
-    temperature,
-    maxTokens,
+    temperature: rawTemp,
+    maxTokens: rawMaxTokens,
     model,
     stream,
-  } = body;
+  } = body as {
+    apiKey?: string;
+    systemPrompt?: string;
+    userMessage?: string;
+    temperature?: number;
+    maxTokens?: number;
+    model?: string;
+    stream?: boolean;
+  };
 
-  if (!apiKey) {
+  if (!apiKey || typeof apiKey !== "string") {
     return NextResponse.json(
       { error: "API key required. Set your Anthropic API key in the builder." },
       { status: 400 }
     );
   }
+
+  if (!userMessage || typeof userMessage !== "string") {
+    return NextResponse.json(
+      { error: "userMessage is required." },
+      { status: 400 }
+    );
+  }
+
+  // Clamp parameters to safe ranges
+  const temperature = typeof rawTemp === "number" ? Math.min(Math.max(rawTemp, 0), 1) : 0.7;
+  const maxTokens = typeof rawMaxTokens === "number" ? Math.min(Math.max(rawMaxTokens, 1), 8192) : 2048;
 
   try {
     const client = new Anthropic({ apiKey });
@@ -89,8 +114,8 @@ export async function POST(request: Request) {
           try {
             const streamResponse = client.messages.stream({
               model: model || DEFAULT_MODEL,
-              max_tokens: maxTokens || 2048,
-              temperature: temperature ?? 0.7,
+              max_tokens: maxTokens,
+              temperature,
               system: systemPrompt || "You are a helpful assistant.",
               messages: [{ role: "user", content: userMessage }],
             });

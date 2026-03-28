@@ -571,8 +571,8 @@ async function executeStep(
         // Poll the real webhook endpoint for pending events
         const webhookId = config || node.id;
         try {
-          const baseUrl = typeof window !== "undefined" ? window.location.origin : "http://localhost:3000";
-          const res = await fetch(`${baseUrl}/api/flow-webhook?id=${encodeURIComponent(webhookId)}`);
+          const baseUrl = typeof window !== "undefined" ? window.location.origin : "http://localhost:3002";
+          const res = await fetch(`${baseUrl}/api/loop/flow-webhook?id=${encodeURIComponent(webhookId)}`);
           if (res.ok) {
             const webhookData = await res.json();
             if (webhookData.events && webhookData.events.length > 0) {
@@ -585,14 +585,14 @@ async function executeStep(
             } else {
               triggerData.events = [];
               triggerData.eventCount = 0;
-              triggerData.note = `No pending webhook events for ID: ${webhookId}. Send a POST to /api/flow-webhook?id=${webhookId}`;
+              triggerData.note = `No pending webhook events for ID: ${webhookId}. Send a POST to /api/loop/flow-webhook?id=${webhookId}`;
             }
           }
         } catch {
-          triggerData.note = `Could not poll webhook endpoint. Send a POST to /api/flow-webhook?id=${webhookId}`;
+          triggerData.note = `Could not poll webhook endpoint. Send a POST to /api/loop/flow-webhook?id=${webhookId}`;
         }
         triggerData.webhookId = webhookId;
-        triggerData.webhookUrl = `/api/flow-webhook?id=${encodeURIComponent(webhookId)}`;
+        triggerData.webhookUrl = `/api/loop/flow-webhook?id=${encodeURIComponent(webhookId)}`;
       } else if (triggerType === "schedule") {
         triggerData.schedule = config || "*/5 * * * *";
         triggerData.nextRun = now;
@@ -1015,7 +1015,6 @@ async function executeStep(
 
       switch (oType) {
         case "log": {
-          console.log(`[Output: ${data.label}]`, payload);
           return {
             output: `[Logged] ${content.slice(0, 500)}`,
             structuredOutput: { type: "log", content: payload },

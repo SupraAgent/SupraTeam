@@ -19,8 +19,8 @@ export type Workspace = {
  * can have its own prefix. This matches the single-builder-per-page usage
  * pattern. For multi-instance support, refactor to a React context.
  */
-let STORAGE_KEY = "athena:workspaces";
-let ACTIVE_KEY = "athena:active-workspace";
+let STORAGE_KEY = "suprateam_loop:workspaces";
+let ACTIVE_KEY = "suprateam_loop:active-workspace";
 
 export function setStorageKeys(storageKey: string, activeKey: string) {
   STORAGE_KEY = storageKey;

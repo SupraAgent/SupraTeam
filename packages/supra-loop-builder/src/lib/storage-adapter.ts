@@ -103,8 +103,12 @@ export class LocalStorageAdapter implements StorageAdapter {
 
 // ── IndexedDBAdapter ────────────────────────────────────────────────
 
-const IDB_NAME = "athena-storage";
+let IDB_NAME = "suprateam-loop-storage";
 const IDB_STORE = "kv";
+
+export function setIndexedDBName(name: string) {
+  IDB_NAME = name;
+}
 
 /**
  * IndexedDB-backed adapter for larger storage needs.

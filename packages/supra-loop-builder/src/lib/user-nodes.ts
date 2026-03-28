@@ -52,7 +52,7 @@ export type UserNodeDefinition = {
 // Limitation: only one storage prefix per page — multiple WorkflowBuilder
 // instances with different prefixes on the same page will conflict.
 
-let STORAGE_KEY = "athena:user-nodes";
+let STORAGE_KEY = "suprateam_loop:user-nodes";
 
 /** Set the localStorage key prefix. Call once per WorkflowBuilder instance mount. */
 export function setUserNodeStoragePrefix(prefix: string) {

@@ -12,7 +12,7 @@
 import type { StoredCredential } from "../types";
 import { syncStorage } from "./storage-context";
 
-let STORAGE_PREFIX = "athena";
+let STORAGE_PREFIX = "suprateam_loop";
 
 export function setCredentialStoragePrefix(prefix: string) {
   STORAGE_PREFIX = prefix;

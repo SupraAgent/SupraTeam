@@ -84,7 +84,7 @@ export type ExecutionComparison = {
 
 // ── Storage key helpers ──────────────────────────────────────────
 
-let _prefix = "athena";
+let _prefix = "suprateam_loop";
 
 export function setExecutionStorePrefix(prefix: string): void {
   _prefix = prefix;

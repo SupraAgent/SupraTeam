@@ -350,7 +350,7 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
       { id: "review", type: "actionNode", position: { x: 650, y: 250 }, data: { label: "Team Review", actionType: "analyze", description: "Personas vote on the proposal" } },
       { id: "apply", type: "actionNode", position: { x: 950, y: 250 }, data: { label: "Apply & Score", actionType: "score", description: "Apply change, recalculate scores" } },
       { id: "cpo", type: "actionNode", position: { x: 650, y: 50 }, data: { label: "CPO Reactions", actionType: "generate", description: "Competitor CPOs react to your improvement" } },
-      { id: "commit", type: "actionNode", position: { x: 950, y: 450 }, data: { label: "Commit to GitHub", actionType: "commit", description: "Save round log to .athena/" } },
+      { id: "commit", type: "actionNode", position: { x: 950, y: 450 }, data: { label: "Commit to GitHub", actionType: "commit", description: "Save round log to .loop/" } },
       { id: "loop", type: "noteNode", position: { x: 50, y: 450 }, data: { label: "Loop", content: "Repeat until gap < 10 or max rounds reached" } },
     ],
     edges: [
@@ -403,7 +403,7 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
       { id: "generate", type: "llmNode", position: { x: 900, y: 100 }, data: { label: "Generate CPO Persona", provider: "claude", model: "claude-sonnet-4-5-20250514", systemPrompt: "Create a detailed CPO persona with name, title, philosophy, strengths, blind spots, decision style, and iconic move", temperature: 0.8, maxTokens: 2048 } },
       { id: "validate", type: "conditionNode", position: { x: 900, y: 370 }, data: { label: "Persona Valid?", condition: "has name AND philosophy AND strengths.length >= 2" } },
       { id: "persona-card", type: "personaNode", position: { x: 1200, y: 100 }, data: { label: "Generated CPO", role: "Competitor CPO", voteWeight: 1.0, expertise: ["Product strategy", "Market analysis"], personality: "Generated from competitor research", emoji: "🎭" } },
-      { id: "save", type: "outputNode", position: { x: 1200, y: 370 }, data: { label: "Save to Config", outputType: "file", destination: ".athena/personas/" } },
+      { id: "save", type: "outputNode", position: { x: 1200, y: 370 }, data: { label: "Save to Config", outputType: "file", destination: ".loop/personas/" } },
       { id: "note", type: "noteNode", position: { x: 300, y: 400 }, data: { label: "How it works", content: "Feeds competitor info through Claude to auto-generate a realistic CPO persona for benchmarking" } },
     ],
     edges: [
@@ -433,8 +433,8 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
       { id: "gap-analyze", type: "actionNode", position: { x: 900, y: 420 }, data: { label: "Gap Analysis", actionType: "analyze", description: "Compare your scores vs competitors" } },
       { id: "check", type: "conditionNode", position: { x: 1200, y: 300 }, data: { label: "Launch Ready?", condition: "gap < 10" } },
       { id: "improve-llm", type: "llmNode", position: { x: 1200, y: 550 }, data: { label: "Generate Fix", provider: "claude-code", model: "", systemPrompt: "Propose the highest-impact improvement to close the gap", temperature: 0.6, maxTokens: 2048 } },
-      { id: "launch-output", type: "outputNode", position: { x: 1500, y: 150 }, data: { label: "Launch Report", outputType: "github", destination: ".athena/launch-report.md" } },
-      { id: "commit", type: "outputNode", position: { x: 1500, y: 550 }, data: { label: "Commit Improvement", outputType: "github", destination: ".athena/rounds/" } },
+      { id: "launch-output", type: "outputNode", position: { x: 1500, y: 150 }, data: { label: "Launch Report", outputType: "github", destination: ".loop/launch-report.md" } },
+      { id: "commit", type: "outputNode", position: { x: 1500, y: 550 }, data: { label: "Commit Improvement", outputType: "github", destination: ".loop/rounds/" } },
       { id: "note", type: "noteNode", position: { x: 0, y: 530 }, data: { label: "Launch Kit", content: "End-to-end pipeline: benchmark -> score -> improve -> launch. Uses Claude Code to implement fixes." } },
     ],
     edges: [
@@ -593,7 +593,7 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
   {
     id: "workflow-improvement-loop",
     name: "Improvement Loop",
-    description: "Full Athena 5-step cycle: team -> app -> benchmark -> score -> improve, repeating until gap < 10",
+    description: "5-step improvement cycle: team -> app -> benchmark -> score -> improve, repeating until gap < 10",
     category: "workflow",
     isBuiltIn: true,
     createdAt: "2026-03-25",
@@ -605,7 +605,7 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
       { id: "score", type: "actionNode", position: { x: 900, y: 350 }, data: { label: "Self-Score & Gap", actionType: "score", description: "Rate your app, compare vs competitors, find gaps" } },
       { id: "check", type: "conditionNode", position: { x: 600, y: 350 }, data: { label: "Gap < 10?", condition: "maxGap < 10" } },
       { id: "improve", type: "llmNode", position: { x: 300, y: 350 }, data: { label: "AI Improve", provider: "claude-code", model: "", systemPrompt: "Pick highest-impact gap and generate improvement", temperature: 0.6, maxTokens: 2048 } },
-      { id: "done", type: "outputNode", position: { x: 600, y: 550 }, data: { label: "Loop Complete", outputType: "file", destination: ".athena/loop-summary.md" } },
+      { id: "done", type: "outputNode", position: { x: 600, y: 550 }, data: { label: "Loop Complete", outputType: "file", destination: ".loop/loop-summary.md" } },
     ],
     edges: [
       { id: "e1", source: "trigger", target: "team", type: "smoothstep", animated: true },
@@ -632,7 +632,7 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
       { id: "role-llm", type: "llmNode", position: { x: 300, y: 100 }, data: { label: "Generate Role", provider: "claude", model: "claude-sonnet-4-5-20250514", systemPrompt: "Given a role description, generate a detailed persona with name, personality, expertise areas, and vote weight", temperature: 0.8, maxTokens: 1024 } },
       { id: "persona", type: "personaNode", position: { x: 600, y: 100 }, data: { label: "New Persona", role: "Custom Role", voteWeight: 1.0, expertise: ["Define expertise"], personality: "Define personality traits", emoji: "👤" } },
       { id: "validate", type: "conditionNode", position: { x: 600, y: 350 }, data: { label: "Has Expertise?", condition: "expertise.length >= 2 AND personality.length > 0" } },
-      { id: "save", type: "outputNode", position: { x: 900, y: 100 }, data: { label: "Save Persona", outputType: "file", destination: ".athena/personas/" } },
+      { id: "save", type: "outputNode", position: { x: 900, y: 100 }, data: { label: "Save Persona", outputType: "file", destination: ".loop/personas/" } },
       { id: "refine", type: "llmNode", position: { x: 300, y: 350 }, data: { label: "Refine Persona", provider: "claude", model: "claude-sonnet-4-5-20250514", systemPrompt: "Add more depth to this persona's expertise and personality", temperature: 0.7, maxTokens: 1024 } },
       { id: "note", type: "noteNode", position: { x: 0, y: 450 }, data: { label: "Tip", content: "Good personas have specific expertise areas and a clear personality that influences their scoring" } },
     ],
@@ -685,7 +685,7 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
       { id: "check", type: "conditionNode", position: { x: 600, y: 350 }, data: { label: "Approved?", condition: "designScore > 75" } },
       { id: "implement", type: "llmNode", position: { x: 900, y: 100 }, data: { label: "Generate Code", provider: "claude-code", model: "", systemPrompt: "Implement this approved design as React components with Tailwind CSS", temperature: 0.3, maxTokens: 4096 } },
       { id: "qa", type: "actionNode", position: { x: 1200, y: 100 }, data: { label: "QA Check", actionType: "score", description: "QA persona reviews implementation against design" } },
-      { id: "ship", type: "outputNode", position: { x: 1200, y: 350 }, data: { label: "Ship to GitHub", outputType: "github", destination: ".athena/designs/" } },
+      { id: "ship", type: "outputNode", position: { x: 1200, y: 350 }, data: { label: "Ship to GitHub", outputType: "github", destination: ".loop/designs/" } },
       { id: "revise", type: "llmNode", position: { x: 300, y: 350 }, data: { label: "Revise Design", provider: "claude", model: "claude-sonnet-4-5-20250514", systemPrompt: "Revise the design based on persona feedback", temperature: 0.7, maxTokens: 2048 } },
     ],
     edges: [
@@ -740,8 +740,8 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
       { id: "research", type: "llmNode", position: { x: 300, y: 200 }, data: { label: "Deep Research", provider: "claude", model: "claude-sonnet-4-5-20250514", systemPrompt: "Research this topic thoroughly. Identify key players, trends, strengths, weaknesses, and opportunities.", temperature: 0.7, maxTokens: 4096 } },
       { id: "extract", type: "transformNode", position: { x: 600, y: 100 }, data: { label: "Extract Insights", transformType: "extract", expression: "key_findings, competitors, trends, opportunities" } },
       { id: "summarize", type: "llmNode", position: { x: 600, y: 350 }, data: { label: "Summarize", provider: "claude", model: "claude-sonnet-4-5-20250514", systemPrompt: "Create a concise executive summary with actionable recommendations", temperature: 0.5, maxTokens: 2048 } },
-      { id: "report", type: "outputNode", position: { x: 900, y: 100 }, data: { label: "Research Report", outputType: "file", destination: ".athena/research/" } },
-      { id: "brief", type: "outputNode", position: { x: 900, y: 350 }, data: { label: "Executive Brief", outputType: "file", destination: ".athena/briefs/" } },
+      { id: "report", type: "outputNode", position: { x: 900, y: 100 }, data: { label: "Research Report", outputType: "file", destination: ".loop/research/" } },
+      { id: "brief", type: "outputNode", position: { x: 900, y: 350 }, data: { label: "Executive Brief", outputType: "file", destination: ".loop/briefs/" } },
     ],
     edges: [
       { id: "e1", source: "trigger", target: "research", type: "smoothstep", animated: true },
@@ -762,7 +762,7 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
     createdAt: "2026-03-25",
     nodes: [
       { id: "trigger", type: "triggerNode", position: { x: 0, y: 200 }, data: { label: "Doc Query", triggerType: "manual", config: "Ask a question about your docs" } },
-      { id: "index", type: "transformNode", position: { x: 300, y: 50 }, data: { label: "Index Docs", transformType: "extract", expression: "parse .athena/ directory for all config and round data" } },
+      { id: "index", type: "transformNode", position: { x: 300, y: 50 }, data: { label: "Index Docs", transformType: "extract", expression: "parse .loop/ directory for all config and round data" } },
       { id: "search", type: "transformNode", position: { x: 300, y: 350 }, data: { label: "Search Relevant", transformType: "filter", expression: "match query against indexed documents" } },
       { id: "llm", type: "llmNode", position: { x: 600, y: 200 }, data: { label: "Generate Answer", provider: "claude", model: "claude-sonnet-4-5-20250514", systemPrompt: "Answer the question using only the provided documentation context. Cite sources.", temperature: 0.3, maxTokens: 2048 } },
       { id: "output", type: "outputNode", position: { x: 900, y: 200 }, data: { label: "Display Answer", outputType: "log", destination: "console" } },
@@ -872,7 +872,7 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
       { id: "assign", type: "transformNode", position: { x: 300, y: 200 }, data: { label: "Assign Persona", transformType: "map", expression: "match task type to best persona" } },
       { id: "execute", type: "llmNode", position: { x: 600, y: 200 }, data: { label: "Execute Task", provider: "claude-code", model: "", systemPrompt: "Execute this task autonomously. Use tools, write code, and verify results.", temperature: 0.3, maxTokens: 8192 } },
       { id: "check", type: "conditionNode", position: { x: 900, y: 200 }, data: { label: "Task Done?", condition: "status === 'completed' && no_errors" } },
-      { id: "report", type: "outputNode", position: { x: 1200, y: 100 }, data: { label: "Task Report", outputType: "file", destination: ".athena/agent-tasks/" } },
+      { id: "report", type: "outputNode", position: { x: 1200, y: 100 }, data: { label: "Task Report", outputType: "file", destination: ".loop/agent-tasks/" } },
       { id: "retry", type: "llmNode", position: { x: 1200, y: 380 }, data: { label: "Debug & Retry", provider: "claude-code", model: "", systemPrompt: "Analyze what went wrong and retry the task with a different approach", temperature: 0.4, maxTokens: 4096 } },
     ],
     edges: [
@@ -999,8 +999,8 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
 
 // ── Template helpers ─────────────────────────────────────────────
 
-let STORAGE_KEY = "athena:custom-templates";
-let STARRED_KEY_VAL = "athena:starred-templates";
+let STORAGE_KEY = "suprateam_loop:custom-templates";
+let STARRED_KEY_VAL = "suprateam_loop:starred-templates";
 
 /** Set storage key prefix for template persistence (called by WorkflowBuilder) */
 export function setTemplateStoragePrefix(prefix: string): void {
@@ -1011,13 +1011,6 @@ export function setTemplateStoragePrefix(prefix: string): void {
 export function getCustomTemplates(): FlowTemplate[] {
   if (typeof window === "undefined") return [];
   try {
-    // Migrate from old key if present
-    const oldKey = "supraloop_custom_templates";
-    const old = syncStorage.getItem(oldKey);
-    if (old && !syncStorage.getItem(STORAGE_KEY)) {
-      syncStorage.setItem(STORAGE_KEY, old);
-      syncStorage.removeItem(oldKey);
-    }
     const raw = syncStorage.getItem(STORAGE_KEY);
     return raw ? JSON.parse(raw) : [];
   } catch {
@@ -1082,13 +1075,6 @@ export function getNextCopyName(baseName: string): string {
 export function getStarredTemplateIds(): Set<string> {
   if (typeof window === "undefined") return new Set();
   try {
-    // Migrate from old key if present
-    const oldKey = "supraloop-starred-templates";
-    const old = syncStorage.getItem(oldKey);
-    if (old && !syncStorage.getItem(STARRED_KEY_VAL)) {
-      syncStorage.setItem(STARRED_KEY_VAL, old);
-      syncStorage.removeItem(oldKey);
-    }
     const raw = syncStorage.getItem(STARRED_KEY_VAL);
     return raw ? new Set(JSON.parse(raw)) : new Set();
   } catch {

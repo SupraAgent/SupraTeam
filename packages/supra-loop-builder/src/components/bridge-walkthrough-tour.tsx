@@ -66,7 +66,7 @@ const BRIDGE_TOUR_STEPS: BridgeTourStep[] = [
   {
     title: "Output: Your Improvement Report",
     description:
-      "The final node produces a structured report with every improvement plan, CPO feedback, and updated scores. By default it logs to the execution panel. Switch it to 'file' to save reports to .athena/ in your repo.",
+      "The final node produces a structured report with every improvement plan, feedback, and updated scores. By default it logs to the execution panel. Switch it to 'file' to save reports locally.",
     target: "bridge-output",
     position: "left",
     action: "Set the output type to 'file' if you want persistent reports",
@@ -84,7 +84,7 @@ const BRIDGE_TOUR_STEPS: BridgeTourStep[] = [
 
 // ── Hook: manage bridge tour state ──────────────────────────────
 
-export function useBridgeTour(prefix = "athena") {
+export function useBridgeTour(prefix = "suprateam_loop") {
   const key = `${prefix}:bridge-tour-completed`;
   const [showBridgeTour, setShowBridgeTour] = React.useState(false);
 

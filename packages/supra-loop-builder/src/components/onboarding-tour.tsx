@@ -205,7 +205,7 @@ export function OnboardingTour({ onComplete, onSkip }: OnboardingTourProps) {
   );
 }
 
-export function useOnboarding(prefix = "athena") {
+export function useOnboarding(prefix = "suprateam_loop") {
   const key = `${prefix}:onboarding-completed`;
   const [showTour, setShowTour] = React.useState(false);
 

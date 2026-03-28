@@ -73,7 +73,7 @@ export type BuilderTemplate = {
   createdAt: string;
 };
 
-let STORAGE_KEY = "athena:builder-templates";
+let STORAGE_KEY = "suprateam_loop:builder-templates";
 
 export function setBuilderTemplateStorageKey(key: string) {
   STORAGE_KEY = key;

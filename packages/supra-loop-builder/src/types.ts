@@ -87,7 +87,7 @@ export type WorkflowBuilderProps = {
   category?: FlowTemplate["category"];
   /** Custom node types to register alongside built-in ones */
   customNodeTypes?: Record<string, React.ComponentType<unknown>>;
-  /** localStorage key prefix for workspaces/templates (default: "athena") */
+  /** localStorage key prefix for workspaces/templates (default: "suprateam_loop") */
   storageKeyPrefix?: string;
   /** Disable auto-layout on template load */
   disableAutoLayout?: boolean;
