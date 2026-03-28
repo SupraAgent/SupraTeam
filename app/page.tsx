@@ -59,6 +59,24 @@ type Notification = {
   deal: { id: string; deal_name: string; board_type: string; stage: { name: string; color: string } | null } | null;
 };
 
+interface DashboardExtras {
+  responseTime: { avg_ms: number | null; median_ms: number | null; sample_count: number; daily_trend: { date: string; avg_ms: number }[] };
+  groups: { id: string; name: string; member_count: number; messages_7d: number; health: string; bot_admin: boolean; last_active: string | null }[];
+  groupHealthSummary: { total: number; active: number; quiet: number; stale: number; dead: number; total_members: number; total_messages_7d: number; bot_admin_count: number };
+  workflowStats: { active_count: number; runs_7d: number; completed: number; failed: number; running: number };
+  suggestions: { id: string; title: string; score: number | null; upvotes: number; status: string; category: string }[];
+}
+
+interface ActivityEvent {
+  id: string;
+  type: "stage_change" | "deal_created" | "tg_message" | "broadcast" | "member_event" | "workflow_run";
+  title: string;
+  description: string;
+  timestamp: string;
+  link?: string;
+  meta?: Record<string, unknown>;
+}
+
 const NOTIF_ICONS: Record<string, React.ElementType> = {
   tg_message: MessageCircle, stage_change: GitBranch, deal_created: ExternalLink, deal_assigned: UserPlus, mention: AtSign,
 };
@@ -73,6 +91,8 @@ export default function HomePage() {
   const [notifications, setNotifications] = React.useState<Notification[]>([]);
   const [reminders, setReminders] = React.useState<{ id: string; deal_id: string; reminder_type: string; message: string; due_at: string; deal?: { deal_name: string; board_type: string } }[]>([]);
   const [highlights, setHighlights] = React.useState<{ id: string; deal_id: string | null; sender_name: string | null; message_preview: string | null; tg_deep_link: string | null; highlight_type: string; created_at: string }[]>([]);
+  const [extras, setExtras] = React.useState<DashboardExtras | null>(null);
+  const [activityFeed, setActivityFeed] = React.useState<ActivityEvent[]>([]);
   const [loading, setLoading] = React.useState(true);
 
   // Collapsible widget state (persisted in localStorage)
@@ -101,14 +121,18 @@ export default function HomePage() {
       fetch("/api/analytics").then((r) => (r.ok ? r.json() : null)).catch(() => null),
       fetch("/api/stats/team").then((r) => (r.ok ? r.json() : null)).catch(() => null),
       fetch("/api/highlights").then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      fetch("/api/dashboard/extras").then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      fetch("/api/dashboard/activity?limit=30").then((r) => (r.ok ? r.json() : null)).catch(() => null),
     ])
-      .then(([statsData, notifData, reminderData, analyticsData, teamData, highlightsData]) => {
+      .then(([statsData, notifData, reminderData, analyticsData, teamData, highlightsData, extrasData, activityData]) => {
         if (statsData) setStats(statsData);
         if (notifData) setNotifications(notifData.notifications ?? []);
         if (reminderData) setReminders(reminderData.reminders ?? []);
         if (analyticsData) setAnalytics(analyticsData);
         if (teamData) setTeamStats(teamData.team ?? []);
         if (highlightsData) setHighlights(highlightsData.highlights ?? []);
+        if (extrasData) setExtras(extrasData);
+        if (activityData) setActivityFeed(activityData.events ?? []);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -184,11 +208,19 @@ export default function HomePage() {
       </div>
 
       {/* Top stat cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <StatCard icon={Zap} iconColor="text-primary" label="Open Deals" value={s.totalDeals} sub={`BD: ${s.byBoard.BD} | Mktg: ${s.byBoard.Marketing} | Admin: ${s.byBoard.Admin}`} />
         <StatCard icon={Users} iconColor="text-blue-400" label="Contacts" value={s.totalContacts} sub="Total in database" />
         <StatCard icon={DollarSign} iconColor="text-green-400" label="Pipeline Value" value={`$${Math.round(s.totalPipelineValue).toLocaleString()}`} sub={`Weighted: $${Math.round(s.weightedPipelineValue).toLocaleString()}`} />
         <StatCard icon={TrendingUp} iconColor="text-purple-400" label="Moves This Week" value={s.velocity.movesThisWeek} sub={velocityDelta > 0 ? `+${velocityDelta}% vs last week` : velocityDelta < 0 ? `${velocityDelta}% vs last week` : "Same as last week"} />
+        <StatCard
+          icon={MessageCircle}
+          iconColor={extras?.responseTime.avg_ms != null ? (extras.responseTime.avg_ms < 1800000 ? "text-green-400" : extras.responseTime.avg_ms < 7200000 ? "text-yellow-400" : "text-red-400") : "text-muted-foreground"}
+          label="Avg Response"
+          value={extras?.responseTime.avg_ms != null ? formatDuration(extras.responseTime.avg_ms) : "--"}
+          sub={extras?.responseTime.sample_count ? `${extras.responseTime.sample_count} responses (30d)` : "No data yet"}
+          sparkline={extras?.responseTime.daily_trend.map((d) => d.avg_ms)}
+        />
       </div>
 
       {/* Analytics row */}
@@ -489,14 +521,48 @@ export default function HomePage() {
   );
 }
 
+// --- Helpers ---
+
+function formatDuration(ms: number): string {
+  const mins = Math.round(ms / 60000);
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  const rem = mins % 60;
+  if (hrs < 24) return rem > 0 ? `${hrs}h ${rem}m` : `${hrs}h`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ${hrs % 24}h`;
+}
+
 // --- Sub-components ---
 
-function StatCard({ icon: Icon, iconColor, label, value, sub }: { icon: React.ElementType; iconColor: string; label: string; value: string | number; sub: string }) {
+function Sparkline({ data, color = "text-primary" }: { data: number[]; color?: string }) {
+  if (data.length < 2) return null;
+  const max = Math.max(...data);
+  const min = Math.min(...data);
+  const range = max - min || 1;
+  const w = 60;
+  const h = 20;
+  const points = data.map((v, i) => {
+    const x = (i / (data.length - 1)) * w;
+    const y = h - ((v - min) / range) * h;
+    return `${x},${y}`;
+  }).join(" ");
+  return (
+    <svg width={w} height={h} className={cn("opacity-60", color)} viewBox={`0 0 ${w} ${h}`}>
+      <polyline fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" points={points} />
+    </svg>
+  );
+}
+
+function StatCard({ icon: Icon, iconColor, label, value, sub, sparkline }: { icon: React.ElementType; iconColor: string; label: string; value: string | number; sub: string; sparkline?: number[] }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
-      <div className="flex items-center gap-2">
-        <Icon className={cn("h-4 w-4", iconColor)} />
-        <p className="text-xs text-muted-foreground">{label}</p>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Icon className={cn("h-4 w-4", iconColor)} />
+          <p className="text-xs text-muted-foreground">{label}</p>
+        </div>
+        {sparkline && sparkline.length >= 2 && <Sparkline data={sparkline} color={iconColor} />}
       </div>
       <p className="mt-2 text-xl font-semibold text-foreground">{value}</p>
       <p className="mt-0.5 text-[10px] text-muted-foreground/60">{sub}</p>
