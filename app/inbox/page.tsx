@@ -23,8 +23,7 @@ import {
   Bot,
   User as UserIcon,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { timeAgo } from "@/lib/utils";
+import { cn, timeAgo } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 
@@ -100,7 +99,7 @@ export default function InboxPage() {
   const [selectedChat, setSelectedChat] = React.useState<number | null>(null);
   const [expandedThreads, setExpandedThreads] = React.useState<Set<number>>(new Set());
   const [refreshing, setRefreshing] = React.useState(false);
-  const [activeTab, setActiveTab] = React.useState<InboxTab>("all");
+  const [activeTab, setActiveTab] = React.useState<InboxTab>("mine");
 
   // Reply state
   const [replyText, setReplyText] = React.useState("");
@@ -192,6 +191,10 @@ export default function InboxPage() {
     fetchInbox();
   }, [fetchInbox]);
 
+  // Stable ref for fetchInbox so realtime subscription doesn't churn on bot filter change
+  const fetchInboxRef = React.useRef(fetchInbox);
+  fetchInboxRef.current = fetchInbox;
+
   // Supabase realtime: subscribe to new group messages (debounced)
   React.useEffect(() => {
     const supabase = createClient();
@@ -207,7 +210,7 @@ export default function InboxPage() {
         (payload) => {
           if (debounceTimer) clearTimeout(debounceTimer);
           debounceTimer = setTimeout(async () => {
-            await fetchInbox();
+            await fetchInboxRef.current();
             const newMsg = payload.new as Record<string, unknown>;
             const chatId = newMsg?.telegram_chat_id as number | undefined;
             if (!chatId) return;
@@ -260,7 +263,7 @@ export default function InboxPage() {
       if (debounceTimer) clearTimeout(debounceTimer);
       supabase.removeChannel(channel);
     };
-  }, [fetchInbox]);
+  }, []);
 
   // ── Actions ────────────────────────────────────────────────
 
@@ -556,7 +559,7 @@ export default function InboxPage() {
             onClick={async () => {
               const now = new Date().toISOString();
               const updates: Record<number, string> = {};
-              for (const c of conversations) {
+              for (const c of filtered) {
                 updates[c.chat_id] = now;
                 // Fire-and-forget per conversation
                 fetch("/api/inbox/seen", {
