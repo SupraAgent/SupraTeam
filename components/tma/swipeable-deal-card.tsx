@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { ChevronRight } from "lucide-react";
 import { hapticImpact, hapticNotification, hapticSelection } from "./haptic";
 
-const SWIPE_THRESHOLD = 80; // px to trigger stage change
+const SWIPE_THRESHOLD = 80;
 const LONG_PRESS_MS = 500;
 
 interface Stage {
@@ -41,6 +41,9 @@ export function SwipeableDealCard({ deal, stages, onStageChange, onLongPress }: 
   const touchStartY = React.useRef(0);
   const isHorizontal = React.useRef<boolean | null>(null);
   const longPressTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const undoTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hapticFired = React.useRef(false); // Prevent haptic spam
+  const didSwipe = React.useRef(false); // Track swipe for tap-vs-swipe detection
   const cardRef = React.useRef<HTMLDivElement>(null);
 
   const sortedStages = React.useMemo(
@@ -51,6 +54,14 @@ export function SwipeableDealCard({ deal, stages, onStageChange, onLongPress }: 
   const currentPos = deal.stage ? sortedStages.findIndex((s) => s.id === deal.stage?.id) : -1;
   const prevStage = currentPos > 0 ? sortedStages[currentPos - 1] : null;
   const nextStage = currentPos < sortedStages.length - 1 ? sortedStages[currentPos + 1] : null;
+
+  // Clean up timers on unmount
+  React.useEffect(() => {
+    return () => {
+      if (longPressTimer.current) clearTimeout(longPressTimer.current);
+      if (undoTimer.current) clearTimeout(undoTimer.current);
+    };
+  }, []);
 
   const clearLongPress = () => {
     if (longPressTimer.current) {
@@ -63,9 +74,10 @@ export function SwipeableDealCard({ deal, stages, onStageChange, onLongPress }: 
     touchStartX.current = e.touches[0].clientX;
     touchStartY.current = e.touches[0].clientY;
     isHorizontal.current = null;
+    hapticFired.current = false;
+    didSwipe.current = false;
     setSwiping(true);
 
-    // Long press detection
     longPressTimer.current = setTimeout(() => {
       hapticImpact("heavy");
       const rect = cardRef.current?.getBoundingClientRect();
@@ -82,7 +94,6 @@ export function SwipeableDealCard({ deal, stages, onStageChange, onLongPress }: 
     const deltaX = e.touches[0].clientX - touchStartX.current;
     const deltaY = e.touches[0].clientY - touchStartY.current;
 
-    // Determine direction on first significant movement
     if (isHorizontal.current === null) {
       if (Math.abs(deltaX) > 10 || Math.abs(deltaY) > 10) {
         isHorizontal.current = Math.abs(deltaX) > Math.abs(deltaY);
@@ -95,17 +106,21 @@ export function SwipeableDealCard({ deal, stages, onStageChange, onLongPress }: 
       return;
     }
 
-    // Clamp swipe range, prevent swiping in invalid direction
+    didSwipe.current = true;
+
     let clampedX = deltaX;
-    if (deltaX > 0 && !nextStage) clampedX = deltaX * 0.2; // Rubber band if no next stage
-    if (deltaX < 0 && !prevStage) clampedX = deltaX * 0.2; // Rubber band if no prev stage
+    if (deltaX > 0 && !nextStage) clampedX = deltaX * 0.2;
+    if (deltaX < 0 && !prevStage) clampedX = deltaX * 0.2;
     clampedX = Math.max(-150, Math.min(150, clampedX));
 
     setOffsetX(clampedX);
 
-    // Haptic at threshold
-    if (Math.abs(clampedX) >= SWIPE_THRESHOLD && Math.abs(deltaX - clampedX) < 5) {
+    // Fire haptic once when crossing threshold
+    if (Math.abs(clampedX) >= SWIPE_THRESHOLD && !hapticFired.current) {
+      hapticFired.current = true;
       hapticSelection();
+    } else if (Math.abs(clampedX) < SWIPE_THRESHOLD) {
+      hapticFired.current = false; // Reset so it fires again if user re-crosses
     }
   };
 
@@ -118,11 +133,13 @@ export function SwipeableDealCard({ deal, stages, onStageChange, onLongPress }: 
         hapticNotification("success");
         const oldStageId = deal.stage_id;
         const oldStageName = deal.stage?.name ?? "Unknown";
-        setUndoStage({ stageId: oldStageId ?? "", stageName: oldStageName });
-        await onStageChange(deal.id, targetStage.id);
 
-        // Auto-dismiss undo after 5s
-        setTimeout(() => setUndoStage(null), 5000);
+        // Clear previous undo timer before setting new one
+        if (undoTimer.current) clearTimeout(undoTimer.current);
+        setUndoStage({ stageId: oldStageId ?? "", stageName: oldStageName });
+        undoTimer.current = setTimeout(() => setUndoStage(null), 5000);
+
+        await onStageChange(deal.id, targetStage.id);
       }
     }
 
@@ -132,12 +149,12 @@ export function SwipeableDealCard({ deal, stages, onStageChange, onLongPress }: 
 
   const handleUndo = async () => {
     if (!undoStage) return;
+    if (undoTimer.current) clearTimeout(undoTimer.current);
     hapticImpact("light");
     await onStageChange(deal.id, undoStage.stageId);
     setUndoStage(null);
   };
 
-  // Determine swipe hint labels
   const swipeLabel = offsetX > SWIPE_THRESHOLD / 2 && nextStage
     ? nextStage.name
     : offsetX < -SWIPE_THRESHOLD / 2 && prevStage
@@ -146,7 +163,7 @@ export function SwipeableDealCard({ deal, stages, onStageChange, onLongPress }: 
 
   return (
     <div ref={cardRef} className="relative overflow-hidden">
-      {/* Background hint (visible behind card during swipe) */}
+      {/* Background hint */}
       {offsetX !== 0 && (
         <div
           className={cn(
@@ -173,8 +190,8 @@ export function SwipeableDealCard({ deal, stages, onStageChange, onLongPress }: 
           href={`/tma/deals/${deal.id}`}
           className="flex items-center justify-between px-3 py-2.5 transition active:bg-white/[0.04]"
           onClick={(e) => {
-            // Prevent navigation during swipe
-            if (Math.abs(offsetX) > 5) e.preventDefault();
+            // Use ref to detect swipe (not state, which may be stale)
+            if (didSwipe.current) e.preventDefault();
           }}
         >
           <div className="flex-1 min-w-0">

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { UserPlus, StickyNote, Trophy, XCircle } from "lucide-react";
+import { StickyNote, Trophy, XCircle } from "lucide-react";
 import { hapticImpact } from "./haptic";
 
 interface QuickAction {
@@ -71,12 +71,11 @@ export function QuickActionMenu({
     : position.top + 10;
 
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50">
       <div
         ref={menuRef}
         className="absolute w-48 rounded-xl border border-white/10 bg-[hsl(225,30%,10%)] shadow-xl overflow-hidden"
         style={{ top: menuTop, left: Math.max(8, Math.min(position.left - 96, window.innerWidth - 200)) }}
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="px-3 py-2 border-b border-white/10">
           <p className="text-xs font-medium text-foreground truncate">{dealName}</p>

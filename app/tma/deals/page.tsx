@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { ChevronDown } from "lucide-react";
 import { BottomTabBar } from "@/components/tma/bottom-tab-bar";
@@ -22,6 +23,7 @@ type Deal = {
 type Stage = { id: string; name: string; position: number; color: string };
 
 export default function TMADealsPage() {
+  const router = useRouter();
   const [deals, setDeals] = React.useState<Deal[]>([]);
   const [stages, setStages] = React.useState<Stage[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -43,16 +45,25 @@ export default function TMADealsPage() {
 
   // Data fetching
   const fetchData = React.useCallback(async () => {
-    const [dealsData, stagesData] = await Promise.all([
-      fetch("/api/deals").then((r) => r.json()),
-      fetch("/api/pipeline").then((r) => r.json()),
-    ]);
-    const newDeals = dealsData.deals ?? [];
-    const newStages = stagesData.stages ?? [];
-    setDeals(newDeals);
-    setStages(newStages);
-    // Expand all stages on first load
-    setExpandedStages((prev) => prev.size === 0 ? new Set(newStages.map((s: Stage) => s.id)) : prev);
+    try {
+      const [dealsRes, stagesRes] = await Promise.all([
+        fetch("/api/deals"),
+        fetch("/api/pipeline"),
+      ]);
+      if (!dealsRes.ok || !stagesRes.ok) {
+        console.error("[tma/deals] fetch failed:", dealsRes.status, stagesRes.status);
+        return;
+      }
+      const [dealsData, stagesData] = await Promise.all([dealsRes.json(), stagesRes.json()]);
+      const newDeals = dealsData.deals ?? [];
+      const newStages = stagesData.stages ?? [];
+      setDeals(newDeals);
+      setStages(newStages);
+      // Expand all stages on first load
+      setExpandedStages((prev) => prev.size === 0 ? new Set(newStages.map((s: Stage) => s.id)) : prev);
+    } catch (err) {
+      console.error("[tma/deals] fetch error:", err);
+    }
   }, []);
 
   React.useEffect(() => {
@@ -65,7 +76,7 @@ export default function TMADealsPage() {
   }, [fetchData]);
 
   // Swipe to change stage
-  async function handleStageChange(dealId: string, newStageId: string) {
+  const handleStageChange = React.useCallback(async (dealId: string, newStageId: string) => {
     // Optimistic update
     setDeals((prev) =>
       prev.map((d) => {
@@ -79,17 +90,20 @@ export default function TMADealsPage() {
       })
     );
 
-    const res = await fetch(`/api/deals/${dealId}/move`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stage_id: newStageId }),
-    });
+    try {
+      const res = await fetch(`/api/deals/${dealId}/move`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stage_id: newStageId }),
+      });
 
-    if (!res.ok) {
-      // Revert on failure
+      if (!res.ok) {
+        await fetchData();
+      }
+    } catch {
       await fetchData();
     }
-  }
+  }, [stages, fetchData]);
 
   // Long press quick actions
   function handleLongPress(deal: Deal, rect: DOMRect) {
@@ -107,8 +121,7 @@ export default function TMADealsPage() {
   }
 
   function handleAddNote(dealId: string) {
-    // Navigate to deal detail with notes tab
-    window.location.href = `/tma/deals/${dealId}?tab=notes`;
+    router.push(`/tma/deals/${dealId}?tab=notes`);
   }
 
   function toggleStage(stageId: string) {
