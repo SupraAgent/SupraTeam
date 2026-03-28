@@ -39,6 +39,19 @@ export async function POST(
     );
   }
 
+  // Authenticate: require matching webhook_secret from workflow config
+  const expectedSecret = (workflow.config as Record<string, unknown>)?.webhook_secret as string | undefined;
+  if (expectedSecret) {
+    const authHeader = request.headers.get("authorization");
+    const providedSecret = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    if (providedSecret !== expectedSecret) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+    }
+  } else {
+    // No secret configured — reject for safety
+    return NextResponse.json({ error: "Workflow webhook secret not configured" }, { status: 403 });
+  }
+
   // Parse payload
   let payload: Record<string, unknown> = {};
   try {

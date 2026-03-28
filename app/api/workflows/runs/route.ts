@@ -55,8 +55,11 @@ export async function GET(request: Request) {
       q = q.eq("crm_workflows.trigger_type", triggerType);
     }
     if (search) {
-      // Search across workflow name, error, and run ID using Supabase or filter
-      q = q.or(`error.ilike.%${search}%,id.ilike.%${search}%`);
+      // Sanitize search input to prevent PostgREST filter injection
+      const sanitized = search.replace(/[%_(),.\\]/g, "");
+      if (sanitized) {
+        q = q.or(`error.ilike.%${sanitized}%,id.ilike.%${sanitized}%`);
+      }
     }
     return q;
   }

@@ -7,6 +7,7 @@ type BotEntry = {
   bot_username: string | null;
   bot_telegram_id: number | null;
   token: string; // decrypted
+  webhook_secret: string | null;
 };
 
 // In-memory cache with 5-minute TTL
@@ -23,7 +24,7 @@ export async function getBotById(botId: string): Promise<BotEntry | null> {
 
   const { data } = await admin
     .from("crm_bots")
-    .select("id, label, bot_username, bot_telegram_id, token:user_tokens(encrypted_token)")
+    .select("id, label, bot_username, bot_telegram_id, webhook_secret, token:user_tokens(encrypted_token)")
     .eq("id", botId)
     .eq("is_active", true)
     .single();
@@ -39,6 +40,7 @@ export async function getBotById(botId: string): Promise<BotEntry | null> {
     bot_username: data.bot_username,
     bot_telegram_id: data.bot_telegram_id,
     token: decryptToken(encryptedToken),
+    webhook_secret: data.webhook_secret ?? null,
   };
 
   cache.set(botId, { bot: entry, expires: Date.now() + CACHE_TTL });
@@ -52,7 +54,7 @@ export async function getDefaultBot(): Promise<BotEntry | null> {
 
   const { data } = await admin
     .from("crm_bots")
-    .select("id, label, bot_username, bot_telegram_id, token:user_tokens(encrypted_token)")
+    .select("id, label, bot_username, bot_telegram_id, webhook_secret, token:user_tokens(encrypted_token)")
     .eq("is_default", true)
     .eq("is_active", true)
     .single();
@@ -64,7 +66,7 @@ export async function getDefaultBot(): Promise<BotEntry | null> {
     // Fallback: env var for backwards compat
     const envToken = process.env.TELEGRAM_BOT_TOKEN;
     if (!envToken) return null;
-    return { id: "env", label: "Default (env)", bot_username: null, bot_telegram_id: null, token: envToken };
+    return { id: "env", label: "Default (env)", bot_username: null, bot_telegram_id: null, token: envToken, webhook_secret: null };
   }
 
   const entry: BotEntry = {
@@ -73,6 +75,7 @@ export async function getDefaultBot(): Promise<BotEntry | null> {
     bot_username: data.bot_username,
     bot_telegram_id: data.bot_telegram_id,
     token: decryptToken(defaultEncryptedToken),
+    webhook_secret: data.webhook_secret ?? null,
   };
 
   cache.set(data.id, { bot: entry, expires: Date.now() + CACHE_TTL });
@@ -86,7 +89,7 @@ export async function getAllActiveBots(): Promise<BotEntry[]> {
 
   const { data } = await admin
     .from("crm_bots")
-    .select("id, label, bot_username, bot_telegram_id, token:user_tokens(encrypted_token)")
+    .select("id, label, bot_username, bot_telegram_id, webhook_secret, token:user_tokens(encrypted_token)")
     .eq("is_active", true)
     .order("is_default", { ascending: false });
 
@@ -108,6 +111,7 @@ export async function getAllActiveBots(): Promise<BotEntry[]> {
         bot_username: b.bot_username,
         bot_telegram_id: b.bot_telegram_id,
         token: decryptToken(et),
+        webhook_secret: (b as Record<string, unknown>).webhook_secret as string | null ?? null,
       };
     });
 }
