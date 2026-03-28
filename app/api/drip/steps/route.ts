@@ -32,7 +32,13 @@ export async function PUT(request: Request) {
   if ("error" in auth) return auth.error;
   const { admin: supabase } = auth;
 
-  const { sequence_id, steps } = await request.json();
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+  const { sequence_id, steps } = body;
   if (!sequence_id) return NextResponse.json({ error: "sequence_id required" }, { status: 400 });
   if (!Array.isArray(steps)) return NextResponse.json({ error: "steps must be array" }, { status: 400 });
 

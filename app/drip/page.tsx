@@ -71,10 +71,12 @@ type NewStep = {
   on_false_step: number | null;
 };
 
-const DEFAULT_STEPS: NewStep[] = [
-  { message_template: "", delay_hours: 0, step_type: "message", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null },
-  { message_template: "", delay_hours: 24, step_type: "message", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null },
-];
+function createDefaultSteps(): NewStep[] {
+  return [
+    { message_template: "", delay_hours: 0, step_type: "message", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null },
+    { message_template: "", delay_hours: 24, step_type: "message", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null },
+  ];
+}
 
 export default function DripPage() {
   const [sequences, setSequences] = React.useState<Sequence[]>([]);
@@ -90,7 +92,7 @@ export default function DripPage() {
   const [newTrigger, setNewTrigger] = React.useState("group_join");
   const [newTriggerConfig, setNewTriggerConfig] = React.useState<Record<string, unknown>>({});
   const [newBoard, setNewBoard] = React.useState("");
-  const [newSteps, setNewSteps] = React.useState<NewStep[]>([...DEFAULT_STEPS]);
+  const [newSteps, setNewSteps] = React.useState<NewStep[]>(createDefaultSteps());
 
   React.useEffect(() => {
     fetchSequences();
@@ -155,7 +157,7 @@ export default function DripPage() {
       setNewTrigger("group_join");
       setNewTriggerConfig({});
       setNewBoard("");
-      setNewSteps([...DEFAULT_STEPS]);
+      setNewSteps(createDefaultSteps());
       fetchSequences();
     } else {
       const data = await res.json();

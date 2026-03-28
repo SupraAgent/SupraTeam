@@ -268,7 +268,7 @@ async function fetchTemplateVars(enrollment: Enrollment): Promise<Record<string,
 }
 
 export function startOutreachWorker(bot: Bot) {
-  console.log("[outreach-worker] Starting TG outreach worker...");
+  console.warn("[outreach-worker] Starting TG outreach worker...");
 
   // Initial run after 10 seconds
   setTimeout(() => processEnrollments(bot), 10_000);

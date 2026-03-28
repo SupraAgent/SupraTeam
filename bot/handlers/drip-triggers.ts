@@ -33,7 +33,7 @@ let cacheRefreshedAt = 0;
 const CACHE_TTL_MS = 60_000;
 
 async function getActiveSequences(): Promise<DripSequence[]> {
-  if (cachedSequences.length > 0 && Date.now() - cacheRefreshedAt < CACHE_TTL_MS) {
+  if (cacheRefreshedAt > 0 && Date.now() - cacheRefreshedAt < CACHE_TTL_MS) {
     return cachedSequences;
   }
   const { data } = await supabase
@@ -69,39 +69,37 @@ async function enrollUser(
   triggerEvent: string,
   triggerData: Record<string, unknown>
 ): Promise<void> {
-  // Find contact by telegram_user_id (optional link)
-  const { data: contact } = await supabase
-    .from("crm_contacts")
-    .select("id")
-    .eq("telegram_user_id", tgUserId)
-    .limit(1)
-    .single();
+  // Parallel: contact, deal, and first step lookups are independent
+  const [contactRes, dealRes, firstStepRes] = await Promise.all([
+    supabase
+      .from("crm_contacts")
+      .select("id")
+      .eq("telegram_user_id", tgUserId)
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("crm_deals")
+      .select("id")
+      .eq("telegram_chat_id", tgChatId)
+      .eq("outcome", "open")
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("crm_drip_steps")
+      .select("delay_hours")
+      .eq("sequence_id", sequenceId)
+      .eq("step_number", 1)
+      .maybeSingle(),
+  ]);
 
-  // Find deal linked to this chat (optional link)
-  const { data: deal } = await supabase
-    .from("crm_deals")
-    .select("id")
-    .eq("telegram_chat_id", tgChatId)
-    .eq("outcome", "open")
-    .limit(1)
-    .single();
-
-  // Get first step's delay
-  const { data: firstStep } = await supabase
-    .from("crm_drip_steps")
-    .select("delay_hours")
-    .eq("sequence_id", sequenceId)
-    .eq("step_number", 1)
-    .single();
-
-  const delayHours = (firstStep?.delay_hours as number) ?? 0;
+  const delayHours = (firstStepRes.data?.delay_hours as number) ?? 0;
 
   const { error } = await supabase.from("crm_drip_enrollments").insert({
     sequence_id: sequenceId,
     tg_user_id: tgUserId,
     tg_chat_id: tgChatId,
-    contact_id: contact?.id ?? null,
-    deal_id: deal?.id ?? null,
+    contact_id: contactRes.data?.id ?? null,
+    deal_id: dealRes.data?.id ?? null,
     trigger_event: triggerEvent,
     trigger_data: triggerData,
     current_step: 1,
@@ -184,19 +182,17 @@ export function registerDripTriggers(bot: Bot) {
     );
 
     if (firstMsgSequences.length > 0) {
-      // Check if user has sent messages before in this group
-      const { count } = await supabase
-        .from("tg_group_messages")
+      // Check if user was ever enrolled in a first_message drip for this chat
+      // (more reliable than counting tg_group_messages, which has handler ordering race)
+      const { count: priorFirstMsgCount } = await supabase
+        .from("crm_drip_enrollments")
         .select("id", { count: "exact", head: true })
-        .eq("telegram_chat_id", chatId)
-        .eq("sender_telegram_id", tgUserId);
+        .eq("tg_user_id", tgUserId)
+        .eq("tg_chat_id", chatId)
+        .eq("trigger_event", "first_message");
 
-      // count <= 1 means this is their first (the current message was just stored by messages.ts)
-      if ((count ?? 0) <= 1) {
+      if ((priorFirstMsgCount ?? 0) === 0) {
         for (const seq of firstMsgSequences) {
-          const enrolled = await isAlreadyEnrolled(seq.id, tgUserId);
-          if (enrolled) continue;
-
           await enrollUser(seq.id, tgUserId, chatId, "first_message", {
             group_id: chatId,
             message_text: messageText.slice(0, 200),

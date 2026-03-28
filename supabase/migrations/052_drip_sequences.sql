@@ -76,6 +76,17 @@ CREATE INDEX IF NOT EXISTS idx_drip_sequences_trigger
   ON crm_drip_sequences(trigger_event, status)
   WHERE status = 'active';
 
+-- Atomic reply count increment for drip enrollments (mirrors outreach RPC)
+CREATE OR REPLACE FUNCTION increment_drip_enrollment_reply(p_enrollment_id UUID)
+RETURNS VOID
+LANGUAGE sql
+AS $$
+  UPDATE crm_drip_enrollments
+  SET reply_count = COALESCE(reply_count, 0) + 1,
+      last_reply_at = now()
+  WHERE id = p_enrollment_id;
+$$;
+
 -- RLS
 ALTER TABLE crm_drip_sequences ENABLE ROW LEVEL SECURITY;
 ALTER TABLE crm_drip_steps ENABLE ROW LEVEL SECURITY;

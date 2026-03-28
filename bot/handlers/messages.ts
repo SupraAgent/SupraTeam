@@ -602,6 +602,28 @@ export function registerMessageHandlers(bot: Bot) {
       } catch (replyErr) {
         console.error("[bot/messages] reply detection error:", replyErr);
       }
+
+      // Check for active drip enrollments targeting this chat (reply detection)
+      try {
+        const { data: activeDripEnrollments } = await supabase
+          .from("crm_drip_enrollments")
+          .select("id")
+          .eq("tg_chat_id", chatId)
+          .eq("status", "active");
+
+        if (activeDripEnrollments && activeDripEnrollments.length > 0) {
+          for (const enrollment of activeDripEnrollments) {
+            const { error: rpcErr } = await supabase.rpc("increment_drip_enrollment_reply", {
+              p_enrollment_id: enrollment.id,
+            });
+            if (rpcErr) {
+              console.error("[bot/messages] drip reply increment error:", rpcErr);
+            }
+          }
+        }
+      } catch (dripReplyErr) {
+        console.error("[bot/messages] drip reply detection error:", dripReplyErr);
+      }
     } catch (err) {
       console.error("[bot/messages] error:", err);
     }
