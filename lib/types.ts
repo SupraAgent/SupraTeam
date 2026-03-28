@@ -86,3 +86,72 @@ export type DocLink = {
   entity_id: string;
   entity_name?: string;
 };
+
+// --- Graph: Relationship Intelligence ---
+
+export type RelationshipType =
+  | "colleague"
+  | "reports_to"
+  | "manages"
+  | "introduced_by"
+  | "partner"
+  | "advisor"
+  | "investor"
+  | "custom";
+
+export interface ContactRelationship {
+  id: string;
+  contact_a_id: string;
+  contact_b_id: string;
+  relationship_type: RelationshipType;
+  label: string | null;
+  strength: number;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// --- Graph: Deal Influence Network ---
+
+export type DealParticipantRole =
+  | "primary"
+  | "champion"
+  | "influencer"
+  | "blocker"
+  | "decision_maker"
+  | "involved";
+
+export interface DealParticipant {
+  id: string;
+  deal_id: string;
+  contact_id: string;
+  role: DealParticipantRole;
+  influence_score: number;
+  added_by: string | null;
+  added_at: string;
+  notes: string | null;
+  // Joined
+  contact?: Contact | null;
+}
+
+// --- Graph node/edge types ---
+
+export type GraphNodeType = "deal" | "contact" | "group" | "doc";
+export type GraphViewMode = "explorer" | "relationships" | "deal-influence";
+
+export interface GraphNode {
+  id: string;
+  type: GraphNodeType;
+  label: string;
+  meta: Record<string, unknown>;
+  parent?: string;
+}
+
+export interface GraphEdge {
+  source: string;
+  target: string;
+  type: string;
+  strength?: number;
+  label?: string;
+}
