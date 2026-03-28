@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { href: "/conversations", label: "Conversations", icon: ChatBubblesIcon },
   { href: "/broadcasts", label: "Broadcasts", icon: MegaphoneIcon },
   { href: "/outreach", label: "Outreach", icon: OutreachIcon },
+  { href: "/drip", label: "Drip Sequences", icon: DripIcon },
   { href: "/automations", label: "Automations", icon: WorkflowIcon },
   { href: "/calendar", label: "Calendar", icon: CalendarIcon },
   { href: "/reports", label: "Reports", icon: ChartIcon },
@@ -288,6 +289,15 @@ function OutreachIcon({ className }: { className?: string }) {
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
       <path d="M22 2L11 13" />
       <path d="M22 2L15 22l-4-9-9-4z" />
+    </svg>
+  );
+}
+
+function DripIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 2v6" />
+      <path d="M12 22a5 5 0 005-5c0-4-5-9-5-9s-5 5-5 9a5 5 0 005 5z" />
     </svg>
   );
 }

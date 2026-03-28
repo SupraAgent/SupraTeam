@@ -89,7 +89,6 @@ function getEngineConfig(dryRun = false): EngineConfig {
     executeAction: crmActionExecutor,
     persistence: dryRun ? createDryRunPersistence() : createSupabasePersistence(),
     renderTemplate: (template, vars) => renderTemplate(template, vars),
-    dryRun,
   };
 }
 

@@ -2,8 +2,10 @@ import { Bot } from "grammy";
 import { registerCommands } from "./handlers/commands.js";
 import { registerGroupHandlers } from "./handlers/groups.js";
 import { registerMessageHandlers } from "./handlers/messages.js";
+import { registerDripTriggers } from "./handlers/drip-triggers.js";
 import { startNotificationPoller } from "./handlers/notifications.js";
 import { startOutreachWorker } from "./outreach-worker.js";
+import { startDripWorker } from "./drip-worker.js";
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 if (!token) {
@@ -17,12 +19,16 @@ const bot = new Bot(token);
 registerCommands(bot);
 registerGroupHandlers(bot);
 registerMessageHandlers(bot);
+registerDripTriggers(bot);
 
 // Start notification poller (stage changes -> TG messages)
 startNotificationPoller(bot);
 
 // Start outreach sequence worker (sends TG messages on schedule)
 startOutreachWorker(bot);
+
+// Start drip sequence worker (processes bot-initiated drip enrollments)
+startDripWorker(bot);
 
 // Error handler
 bot.catch((err) => {
