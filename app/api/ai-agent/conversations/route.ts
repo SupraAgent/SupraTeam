@@ -48,20 +48,30 @@ export async function GET(request: Request) {
 
   const { data: conversations } = await query;
 
-  // Stats — scoped to same visibility rules
-  let statsQuery = supabase
-    .from("crm_ai_conversations")
-    .select("id, escalated, qualification_data, is_private_dm");
+  // Stats — use DB-level counting instead of loading all rows into memory
+  const dmFilter = !isAdmin ? { column: "is_private_dm", value: false } : null;
 
-  if (!isAdmin) {
-    statsQuery = statsQuery.eq("is_private_dm", false);
-  }
+  const [totalRes, escalatedRes, qualifiedRes] = await Promise.all([
+    (() => {
+      let q = supabase.from("crm_ai_conversations").select("id", { count: "exact", head: true });
+      if (dmFilter) q = q.eq(dmFilter.column, dmFilter.value);
+      return q;
+    })(),
+    (() => {
+      let q = supabase.from("crm_ai_conversations").select("id", { count: "exact", head: true }).eq("escalated", true);
+      if (dmFilter) q = q.eq(dmFilter.column, dmFilter.value);
+      return q;
+    })(),
+    (() => {
+      let q = supabase.from("crm_ai_conversations").select("id", { count: "exact", head: true }).not("qualification_data", "is", null);
+      if (dmFilter) q = q.eq(dmFilter.column, dmFilter.value);
+      return q;
+    })(),
+  ]);
 
-  const { data: stats } = await statsQuery;
-
-  const total = stats?.length ?? 0;
-  const escalated = stats?.filter((s: { escalated: boolean }) => s.escalated).length ?? 0;
-  const qualified = stats?.filter((s: { qualification_data: unknown }) => s.qualification_data).length ?? 0;
+  const total = totalRes.count ?? 0;
+  const escalated = escalatedRes.count ?? 0;
+  const qualified = qualifiedRes.count ?? 0;
 
   return NextResponse.json({
     conversations: conversations ?? [],
