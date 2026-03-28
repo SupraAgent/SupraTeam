@@ -42,10 +42,12 @@ type Step = {
   delay_hours: number;
   message_template: string;
   step_type: string;
+  step_label: string | null;
   condition_type: string | null;
   condition_config: Record<string, unknown> | null;
   on_true_step: number | null;
   on_false_step: number | null;
+  split_percentage: number | null;
 };
 
 export default function OutreachPage() {
@@ -64,14 +66,16 @@ export default function OutreachPage() {
     message_template: string;
     delay_hours: number;
     step_type: string;
+    step_label: string;
     condition_type: string;
     condition_config: Record<string, unknown>;
     on_true_step: number | null;
     on_false_step: number | null;
+    split_percentage: number | null;
   }>>([
-    { message_template: "", delay_hours: 0, step_type: "message", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null },
-    { message_template: "", delay_hours: 24, step_type: "message", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null },
-    { message_template: "", delay_hours: 48, step_type: "message", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null },
+    { message_template: "", delay_hours: 0, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
+    { message_template: "", delay_hours: 24, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
+    { message_template: "", delay_hours: 48, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
   ]);
   const [pipelineStages, setPipelineStages] = React.useState<Array<{ id: string; name: string }>>([]);
 
@@ -136,9 +140,9 @@ export default function OutreachPage() {
       setNewDesc("");
       setNewBoard("");
       setNewSteps([
-        { message_template: "", delay_hours: 0, step_type: "message", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null },
-        { message_template: "", delay_hours: 24, step_type: "message", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null },
-        { message_template: "", delay_hours: 48, step_type: "message", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null },
+        { message_template: "", delay_hours: 0, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
+        { message_template: "", delay_hours: 24, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
+        { message_template: "", delay_hours: 48, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
       ]);
       fetchSequences();
     }
@@ -165,7 +169,7 @@ export default function OutreachPage() {
   }
 
   function addStep(type: string = "message") {
-    setNewSteps([...newSteps, { message_template: "", delay_hours: 24, step_type: type, condition_type: type === "condition" ? "reply_received" : "", condition_config: {}, on_true_step: null, on_false_step: null }]);
+    setNewSteps([...newSteps, { message_template: "", delay_hours: 24, step_type: type, step_label: "", condition_type: type === "condition" ? "reply_received" : "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: type === "condition" ? 50 : null }]);
   }
 
   function removeStep(index: number) {
@@ -280,6 +284,12 @@ export default function OutreachPage() {
                       <span className="text-[9px] text-muted-foreground">hrs</span>
                     </div>
                   )}
+                  <input
+                    value={step.step_label ?? ""}
+                    onChange={(e) => updateStep(i, "step_label", e.target.value)}
+                    placeholder="Label (optional)"
+                    className="flex-1 h-6 rounded border border-white/10 bg-transparent px-2 text-[10px] text-muted-foreground"
+                  />
                   {newSteps.length > 1 && (
                     <button
                       onClick={() => removeStep(i)}
@@ -308,7 +318,7 @@ export default function OutreachPage() {
                         value={step.condition_type}
                         onChange={(e) => {
                           setNewSteps((prev) => prev.map((s, idx) => idx === i
-                            ? { ...s, condition_type: e.target.value, condition_config: {} }
+                            ? { ...s, condition_type: e.target.value, condition_config: {}, split_percentage: e.target.value === "ab_split" ? 50 : null }
                             : s));
                         }}
                         className="rounded border border-white/10 bg-transparent px-2 py-1 text-xs"
@@ -317,6 +327,9 @@ export default function OutreachPage() {
                         <option value="no_reply_timeout">No reply (timeout)</option>
                         <option value="engagement_score">Engagement score ≥</option>
                         <option value="deal_stage">Deal in stage</option>
+                        <option value="message_keyword">Message contains keyword</option>
+                        <option value="days_since_enroll">Days since enrollment ≥</option>
+                        <option value="ab_split">A/B Split</option>
                       </select>
                       {step.condition_type === "engagement_score" && (
                         <input
@@ -350,6 +363,39 @@ export default function OutreachPage() {
                           className="w-16 rounded border border-white/10 bg-transparent px-2 py-1 text-xs"
                           placeholder="24h"
                         />
+                      )}
+                      {step.condition_type === "message_keyword" && (
+                        <input
+                          type="text"
+                          value={((step.condition_config?.keywords as string[]) ?? []).join(", ")}
+                          onChange={(e) => updateStepConfig(i, "keywords", e.target.value.split(",").map((k) => k.trim()).filter(Boolean))}
+                          className="flex-1 rounded border border-white/10 bg-transparent px-2 py-1 text-xs"
+                          placeholder="keyword1, keyword2"
+                        />
+                      )}
+                      {step.condition_type === "days_since_enroll" && (
+                        <input
+                          type="number"
+                          min={1}
+                          value={(step.condition_config?.days as number) ?? 7}
+                          onChange={(e) => updateStepConfig(i, "days", Number(e.target.value))}
+                          className="w-16 rounded border border-white/10 bg-transparent px-2 py-1 text-xs"
+                          placeholder="7"
+                        />
+                      )}
+                      {step.condition_type === "ab_split" && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] text-muted-foreground">A:</span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={99}
+                            value={step.split_percentage ?? 50}
+                            onChange={(e) => updateStep(i, "split_percentage", Number(e.target.value))}
+                            className="w-14 rounded border border-white/10 bg-transparent px-2 py-1 text-xs"
+                          />
+                          <span className="text-[10px] text-muted-foreground">% / B: {100 - (step.split_percentage ?? 50)}%</span>
+                        </div>
                       )}
                     </div>
                     <div className="grid grid-cols-2 gap-2">
@@ -566,6 +612,9 @@ export default function OutreachPage() {
                                     : step.condition_type === "no_reply_timeout" ? "If no reply (timeout)"
                                     : step.condition_type === "engagement_score" ? `If engagement ≥ ${step.condition_config?.threshold ?? 50}`
                                     : step.condition_type === "deal_stage" ? "If deal in target stage"
+                                    : step.condition_type === "message_keyword" ? `If message contains: ${((step.condition_config?.keywords as string[]) ?? []).join(", ")}`
+                                    : step.condition_type === "days_since_enroll" ? `If ${step.condition_config?.days ?? 7}+ days since enrollment`
+                                    : step.condition_type === "ab_split" ? `A/B Split (${step.split_percentage ?? 50}% / ${100 - (step.split_percentage ?? 50)}%)`
                                     : step.condition_type}
                                 </span>
                               )}

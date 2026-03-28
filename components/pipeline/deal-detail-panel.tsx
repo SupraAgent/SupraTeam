@@ -49,6 +49,7 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
   const [tab, setTab] = React.useState<Tab>("details");
   const [deleting, setDeleting] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
+  const [chatUnread, setChatUnread] = React.useState(0);
 
   // Editable fields
   const [dealName, setDealName] = React.useState("");
@@ -112,6 +113,14 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
       setTgLink(deal.telegram_chat_link ?? "");
       setTab("details");
       setLoadingContent(true);
+
+      // Fetch unread count for chat tab badge
+      if (deal.telegram_chat_id) {
+        fetch(`/api/deals/unread-counts`).then((r) => r.json()).then((d) => {
+          const counts = d.counts ?? {};
+          setChatUnread(counts[deal.id] ?? 0);
+        }).catch(() => {});
+      }
 
       Promise.all([
         fetch(`/api/pipeline?board_type=${deal.board_type}`).then((r) => r.json()).then((d) => setStages(d.stages ?? [])).catch(() => {}),
@@ -231,9 +240,9 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
     }
   }
 
-  const TABS: { key: Tab; label: string }[] = [
+  const TABS: { key: Tab; label: string; badge?: number }[] = [
     { key: "details", label: "Details" },
-    { key: "conversation", label: "Chat" },
+    { key: "conversation", label: "Chat", badge: chatUnread },
     { key: "activity", label: "Activity" },
     { key: "docs", label: `Docs${linkedDocs.length > 0 ? ` (${linkedDocs.length})` : ""}` },
   ];
@@ -261,13 +270,18 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
               key={t.key}
               onClick={() => setTab(t.key)}
               className={cn(
-                "px-3 py-2 text-xs font-medium transition-colors border-b-2 -mb-px",
+                "px-3 py-2 text-xs font-medium transition-colors border-b-2 -mb-px flex items-center gap-1",
                 tab === t.key
                   ? "border-primary text-foreground"
                   : "border-transparent text-muted-foreground hover:text-foreground"
               )}
             >
               {t.label}
+              {t.badge && t.badge > 0 ? (
+                <span className="ml-0.5 inline-flex items-center justify-center h-4 min-w-[16px] rounded-full bg-primary text-primary-foreground text-[9px] font-bold px-1">
+                  {t.badge > 99 ? "99+" : t.badge}
+                </span>
+              ) : null}
             </button>
           ))}
         </div>
@@ -630,6 +644,7 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
               dealId={deal.id}
               telegramChatId={deal.telegram_chat_id ? Number(deal.telegram_chat_id) : null}
               telegramChatLink={deal.telegram_chat_link || tgLink || null}
+              onUnreadChange={setChatUnread}
             />
 
             {/* Notes section (collapsed) */}

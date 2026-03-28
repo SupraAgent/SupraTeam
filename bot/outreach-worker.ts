@@ -29,10 +29,12 @@ type Step = {
   step_type: string; // 'message' | 'wait' | 'condition'
   delay_hours: number;
   message_template: string;
+  step_label: string | null;
   condition_type: string | null;
   condition_config: Record<string, unknown> | null;
   on_true_step: number | null;
   on_false_step: number | null;
+  split_percentage: number | null;
 };
 
 const POLL_INTERVAL_MS = 60_000; // 1 minute
@@ -195,6 +197,40 @@ async function evaluateCondition(step: Step, enrollment: Enrollment): Promise<bo
         .eq("id", enrollment.deal_id)
         .single();
       return deal?.stage_id === targetStageId;
+    }
+
+    case "message_keyword": {
+      // Check if any recent reply contains specific keywords
+      const keywords = (step.condition_config?.keywords as string[]) ?? [];
+      if (keywords.length === 0 || !enrollment.tg_chat_id) return false;
+      const { data: messages } = await supabase
+        .from("tg_group_messages")
+        .select("message_text")
+        .eq("telegram_chat_id", enrollment.tg_chat_id)
+        .eq("is_from_bot", false)
+        .order("sent_at", { ascending: false })
+        .limit(10);
+      if (!messages || messages.length === 0) return false;
+      const allText = messages.map((m) => (m.message_text ?? "").toLowerCase()).join(" ");
+      return keywords.some((kw) => allText.includes(kw.toLowerCase()));
+    }
+
+    case "days_since_enroll": {
+      const threshold = (step.condition_config?.days as number) ?? 7;
+      const enrolledAt = new Date(enrollment.enrolled_at).getTime();
+      const daysSince = (Date.now() - enrolledAt) / 86400000;
+      return daysSince >= threshold;
+    }
+
+    case "ab_split": {
+      // Randomly assign A or B based on split_percentage (% that goes to true branch)
+      const splitPct = step.split_percentage ?? 50;
+      const isA = Math.random() * 100 < splitPct;
+      // Persist the variant assignment
+      await supabase.from("crm_outreach_enrollments").update({
+        ab_variant: isA ? "A" : "B",
+      }).eq("id", enrollment.id);
+      return isA;
     }
 
     default:
