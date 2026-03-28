@@ -22,10 +22,52 @@ import {
   Zap,
   Bot,
   User as UserIcon,
+  Star,
+  Pin,
+  BellOff,
+  Archive,
+  Tag,
+  StickyNote,
+  ChevronLeft,
 } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
+
+// ── Chat Label Types & Constants ────────────────────────────────
+
+interface ChatLabel {
+  id: string;
+  telegram_chat_id: number;
+  is_vip: boolean;
+  is_archived: boolean;
+  is_pinned: boolean;
+  is_muted: boolean;
+  color_tag: string | null;
+  color_tag_color: string | null;
+  note: string | null;
+  snoozed_until: string | null;
+  last_user_message_at: string | null;
+  last_contact_message_at: string | null;
+}
+
+const COLOR_TAGS = [
+  { key: "hot_lead", label: "Hot Lead", color: "#ef4444" },
+  { key: "partner", label: "Partner", color: "#3b82f6" },
+  { key: "investor", label: "Investor", color: "#8b5cf6" },
+  { key: "vip_client", label: "VIP Client", color: "#f59e0b" },
+  { key: "urgent", label: "Urgent", color: "#f97316" },
+  { key: "follow_up", label: "Follow Up", color: "#06b6d4" },
+] as const;
+
+function emptyLabel(chatId: number): ChatLabel {
+  return {
+    id: "", telegram_chat_id: chatId,
+    is_vip: false, is_archived: false, is_pinned: false, is_muted: false,
+    color_tag: null, color_tag_color: null, note: null,
+    snoozed_until: null, last_user_message_at: null, last_contact_message_at: null,
+  };
+}
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -82,7 +124,7 @@ interface CannedResponse {
   usage_count: number;
 }
 
-type InboxTab = "mine" | "unassigned" | "all" | "closed";
+type InboxTab = "mine" | "unassigned" | "open" | "vip" | "archived" | "closed";
 
 // ── Main Component ─────────────────────────────────────────────
 
@@ -100,6 +142,14 @@ export default function InboxPage() {
   const [expandedThreads, setExpandedThreads] = React.useState<Set<number>>(new Set());
   const [refreshing, setRefreshing] = React.useState(false);
   const [activeTab, setActiveTab] = React.useState<InboxTab>("mine");
+
+  // Chat labels (VIP, tags, notes, archive, pin, mute)
+  const [labels, setLabels] = React.useState<Record<string, ChatLabel>>({});
+  const [contextMenu, setContextMenu] = React.useState<{
+    x: number; y: number; chatId: number; groupName: string; submenu?: "tag" | "snooze";
+  } | null>(null);
+  const [noteModal, setNoteModal] = React.useState<{ chatId: number; groupName: string } | null>(null);
+  const [noteText, setNoteText] = React.useState("");
 
   // Reply state
   const [replyText, setReplyText] = React.useState("");
@@ -138,32 +188,39 @@ export default function InboxPage() {
   const fetchInbox = React.useCallback(async () => {
     try {
       const params = selectedBotId ? `?bot_id=${selectedBotId}` : "";
-      const [inboxRes, statusRes, cannedRes, seenRes] = await Promise.all([
+      const results = await Promise.allSettled([
         fetch(`/api/inbox${params}`),
         fetch("/api/inbox/status"),
         fetch("/api/inbox/canned"),
         fetch("/api/inbox/seen"),
+        fetch("/api/chat-labels"),
       ]);
 
-      if (inboxRes.ok) {
-        const data = await inboxRes.json();
+      const [inboxRes, statusRes, cannedRes, seenRes, labelsRes] = results;
+
+      if (inboxRes.status === "fulfilled" && inboxRes.value.ok) {
+        const data = await inboxRes.value.json();
         setConversations((data.conversations ?? []).map((c: Conversation) => ({
           ...c,
           messages: c.messages.filter((m: ThreadMessage) => !String(m.id).startsWith("optimistic-")),
         })));
         setDeals(data.deals ?? {});
       }
-      if (statusRes.ok) {
-        const data = await statusRes.json();
+      if (statusRes.status === "fulfilled" && statusRes.value.ok) {
+        const data = await statusRes.value.json();
         setStatuses(data.statuses ?? {});
       }
-      if (cannedRes.ok) {
-        const data = await cannedRes.json();
+      if (cannedRes.status === "fulfilled" && cannedRes.value.ok) {
+        const data = await cannedRes.value.json();
         setCannedResponses(data.responses ?? []);
       }
-      if (seenRes.ok) {
-        const data = await seenRes.json();
+      if (seenRes.status === "fulfilled" && seenRes.value.ok) {
+        const data = await seenRes.value.json();
         setLastSeen(data.seen ?? {});
+      }
+      if (labelsRes.status === "fulfilled" && labelsRes.value.ok) {
+        const data = await labelsRes.value.json();
+        setLabels(data.data ?? {});
       }
     } finally {
       setLoading(false);
@@ -341,6 +398,11 @@ export default function InboxPage() {
             };
           })
         );
+        // Track last user message time for response-time analytics
+        if (selectedChat) {
+          const conv = conversations.find((c) => c.chat_id === selectedChat);
+          if (conv) updateLabel(selectedChat, conv.group_name, { last_user_message_at: new Date().toISOString() });
+        }
         // Still refresh after delay to get the real message with proper IDs
         setTimeout(() => fetchInbox(), 3000);
       } else {
@@ -399,6 +461,63 @@ export default function InboxPage() {
     }
   }
 
+  // ── Chat Label Mutations ────────────────────────────────────
+
+  function getLabel(chatId: number): ChatLabel | undefined {
+    return labels[String(chatId)];
+  }
+
+  async function updateLabel(chatId: number, groupName: string, updates: Partial<ChatLabel>) {
+    const key = String(chatId);
+    const prev = labels[key];
+    setLabels((p) => ({
+      ...p,
+      [key]: { ...emptyLabel(chatId), ...p[key], ...updates },
+    }));
+    try {
+      const res = await fetch("/api/chat-labels", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ telegram_chat_id: chatId, chat_title: groupName, ...updates }),
+      });
+      if (!res.ok) {
+        setLabels((p) => prev ? { ...p, [key]: prev } : (() => { const next = { ...p }; delete next[key]; return next; })());
+      }
+    } catch {
+      setLabels((p) => prev ? { ...p, [key]: prev } : (() => { const next = { ...p }; delete next[key]; return next; })());
+    }
+  }
+
+  function toggleLabel(chatId: number, groupName: string, field: "is_vip" | "is_archived" | "is_pinned" | "is_muted") {
+    const current = getLabel(chatId);
+    updateLabel(chatId, groupName, { [field]: !(current?.[field] ?? false) } as Partial<ChatLabel>);
+  }
+
+  function setColorTag(chatId: number, groupName: string, tag: string | null, color: string | null) {
+    updateLabel(chatId, groupName, { color_tag: tag, color_tag_color: color });
+  }
+
+  function saveNote(chatId: number, groupName: string, text: string) {
+    updateLabel(chatId, groupName, { note: text || null });
+  }
+
+  function handleContextMenu(e: React.MouseEvent, chatId: number, groupName: string) {
+    e.preventDefault();
+    const menuW = 200;
+    const menuH = 300;
+    const x = Math.min(e.clientX, window.innerWidth - menuW);
+    const y = Math.min(e.clientY, window.innerHeight - menuH);
+    setContextMenu({ x, y, chatId, groupName });
+  }
+
+  // Close context menu on click
+  React.useEffect(() => {
+    if (!contextMenu) return;
+    function handleClick() { setContextMenu(null); }
+    window.addEventListener("click", handleClick);
+    return () => window.removeEventListener("click", handleClick);
+  }, [contextMenu]);
+
   function insertCannedResponse(response: CannedResponse) {
     // Render merge vars from linked deals
     let text = response.body;
@@ -431,40 +550,49 @@ export default function InboxPage() {
   const filtered = React.useMemo(() => {
     let result = conversations;
 
-    // Text search
+    // Text search — also search notes and tags
     if (search.trim()) {
       const q = search.toLowerCase();
-      result = result.filter((c) =>
-        c.group_name.toLowerCase().includes(q) ||
-        c.messages.some((m) =>
-          m.message_text?.toLowerCase().includes(q) ||
-          m.sender_name.toLowerCase().includes(q)
-        )
-      );
+      result = result.filter((c) => {
+        const l = getLabel(c.chat_id);
+        return (
+          c.group_name.toLowerCase().includes(q) ||
+          l?.note?.toLowerCase().includes(q) ||
+          l?.color_tag?.toLowerCase().includes(q) ||
+          c.messages.some((m) =>
+            m.message_text?.toLowerCase().includes(q) ||
+            m.sender_name.toLowerCase().includes(q)
+          )
+        );
+      });
     }
 
     // Tab filtering
     if (activeTab === "mine") {
       result = result.filter((c) => {
         const s = statuses[c.chat_id];
-        return s?.assigned_to === currentUserId && s?.status !== "closed";
+        return s?.assigned_to === currentUserId && s?.status !== "closed" && !getLabel(c.chat_id)?.is_archived;
       });
     } else if (activeTab === "unassigned") {
       result = result.filter((c) => {
         const s = statuses[c.chat_id];
-        return (!s || !s.assigned_to) && (!s || s.status !== "closed");
+        return (!s || !s.assigned_to) && (!s || s.status !== "closed") && !getLabel(c.chat_id)?.is_archived;
       });
+    } else if (activeTab === "vip") {
+      result = result.filter((c) => getLabel(c.chat_id)?.is_vip && !getLabel(c.chat_id)?.is_archived);
+    } else if (activeTab === "archived") {
+      result = result.filter((c) => getLabel(c.chat_id)?.is_archived);
     } else if (activeTab === "closed") {
       result = result.filter((c) => statuses[c.chat_id]?.status === "closed");
     } else {
-      // "all" — exclude closed unless searching
+      // "open" — exclude closed and archived unless searching
       if (!search.trim()) {
-        result = result.filter((c) => statuses[c.chat_id]?.status !== "closed");
+        result = result.filter((c) => statuses[c.chat_id]?.status !== "closed" && !getLabel(c.chat_id)?.is_archived);
       }
     }
 
     // Un-snooze: filter out snoozed conversations that haven't expired
-    if (activeTab !== "closed") {
+    if (activeTab !== "closed" && activeTab !== "archived") {
       result = result.filter((c) => {
         const s = statuses[c.chat_id];
         if (s?.status !== "snoozed") return true;
@@ -472,8 +600,11 @@ export default function InboxPage() {
       });
     }
 
-    // Sort unread conversations to the top
+    // Sort: pinned first, then unread, then by time
     result = [...result].sort((a, b) => {
+      const aPinned = getLabel(a.chat_id)?.is_pinned ? 1 : 0;
+      const bPinned = getLabel(b.chat_id)?.is_pinned ? 1 : 0;
+      if (aPinned !== bPinned) return bPinned - aPinned;
       const aHasUnread = !lastSeen[a.chat_id] || (a.latest_at ? a.latest_at > lastSeen[a.chat_id] : false);
       const bHasUnread = !lastSeen[b.chat_id] || (b.latest_at ? b.latest_at > lastSeen[b.chat_id] : false);
       if (aHasUnread && !bHasUnread) return -1;
@@ -482,7 +613,7 @@ export default function InboxPage() {
     });
 
     return result;
-  }, [conversations, search, activeTab, statuses, currentUserId, lastSeen]);
+  }, [conversations, search, activeTab, statuses, currentUserId, lastSeen, labels]);
 
   const unassignedCount = conversations.filter((c) => {
     const s = statuses[c.chat_id];
@@ -493,6 +624,9 @@ export default function InboxPage() {
     const s = statuses[c.chat_id];
     return s?.assigned_to === currentUserId && s?.status !== "closed";
   }).length;
+
+  const vipCount = conversations.filter((c) => getLabel(c.chat_id)?.is_vip && !getLabel(c.chat_id)?.is_archived).length;
+  const archivedCount = conversations.filter((c) => getLabel(c.chat_id)?.is_archived).length;
 
   const selectedConversation = selectedChat
     ? conversations.find((c) => c.chat_id === selectedChat)
@@ -589,7 +723,9 @@ export default function InboxPage() {
           {([
             { key: "mine" as InboxTab, label: "Mine", count: mineCount },
             { key: "unassigned" as InboxTab, label: "Unassigned", count: unassignedCount },
-            { key: "all" as InboxTab, label: "All" },
+            { key: "open" as InboxTab, label: "Open" },
+            { key: "vip" as InboxTab, label: "VIP", count: vipCount },
+            { key: "archived" as InboxTab, label: "Archived", count: archivedCount },
             { key: "closed" as InboxTab, label: "Closed" },
           ]).map((tab) => (
             <button
@@ -598,15 +734,17 @@ export default function InboxPage() {
               className={cn(
                 "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap",
                 activeTab === tab.key
-                  ? "bg-white/10 text-foreground"
+                  ? tab.key === "vip" ? "bg-amber-500/20 text-amber-400" : "bg-white/10 text-foreground"
                   : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
               )}
             >
+              {tab.key === "vip" && <Star className="inline h-3 w-3 mr-0.5" />}
               {tab.label}
               {tab.count !== undefined && tab.count > 0 && (
                 <span className={cn(
                   "ml-1 rounded-full px-1.5 py-0.5 text-[10px]",
-                  tab.key === "unassigned" ? "bg-amber-500/20 text-amber-400" : "bg-white/10"
+                  tab.key === "unassigned" ? "bg-amber-500/20 text-amber-400" :
+                  tab.key === "vip" ? "bg-amber-500/20 text-amber-400" : "bg-white/10"
                 )}>
                   {tab.count}
                 </span>
@@ -649,6 +787,8 @@ export default function InboxPage() {
             {search ? "No conversations match your search." :
              activeTab === "mine" ? "No conversations assigned to you." :
              activeTab === "unassigned" ? "All conversations are assigned." :
+             activeTab === "vip" ? "No VIP conversations. Right-click a conversation to mark as VIP." :
+             activeTab === "archived" ? "No archived conversations." :
              activeTab === "closed" ? "No closed conversations." :
              "No messages yet."}
           </p>
@@ -663,9 +803,12 @@ export default function InboxPage() {
                 const lastMsg = conv.messages[0];
                 const isSelected = selectedChat === conv.chat_id;
                 const status = statuses[conv.chat_id];
+                const label = getLabel(conv.chat_id);
                 const assignee = status?.assigned_to
                   ? teamMembers.find((m) => m.id === status.assigned_to)
                   : null;
+                const colorTag = label?.color_tag ? COLOR_TAGS.find((t) => t.key === label.color_tag) : null;
+                const tagColor = colorTag?.color || label?.color_tag_color || null;
 
                 // SLA: time since last customer (non-bot) message
                 const lastCustomerMsg = conv.messages.find((m) => !m.is_from_bot);
@@ -687,10 +830,15 @@ export default function InboxPage() {
                   <button
                     key={conv.chat_id}
                     onClick={() => handleSelectChat(conv.chat_id)}
+                    onContextMenu={(e) => handleContextMenu(e, conv.chat_id, conv.group_name)}
                     className={cn(
                       "w-full text-left px-3 py-2.5 transition-colors",
-                      isSelected ? "bg-primary/10" : "hover:bg-white/[0.04]"
+                      isSelected ? "bg-primary/10" :
+                      label?.is_vip ? "bg-amber-500/[0.04] hover:bg-amber-500/[0.08]" :
+                      "hover:bg-white/[0.04]",
+                      label?.is_muted && "opacity-50"
                     )}
+                    style={tagColor && !label?.is_vip ? { borderLeftWidth: 3, borderLeftColor: tagColor } : undefined}
                   >
                     <div className="flex items-center gap-2 mb-0.5">
                       {hasUnread ? (
@@ -698,12 +846,18 @@ export default function InboxPage() {
                       ) : (
                         <MessageCircle className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                       )}
+                      {label?.is_vip && <Star className="h-3 w-3 text-amber-400 shrink-0" />}
+                      {label?.is_pinned && <Pin className="h-3 w-3 text-primary shrink-0" />}
                       <span className={cn(
                         "text-sm truncate",
-                        hasUnread ? "font-semibold text-foreground" : "font-medium text-foreground"
+                        hasUnread ? "font-semibold text-foreground" : "font-medium text-foreground",
+                        label?.is_vip && "text-amber-200"
                       )}>{conv.group_name}</span>
                       {hasUnread && (
-                        <span className="rounded-full bg-primary/20 text-primary text-[10px] font-bold px-1.5 py-0.5 shrink-0">
+                        <span className={cn(
+                          "rounded-full text-[10px] font-bold px-1.5 py-0.5 shrink-0",
+                          label?.is_vip ? "bg-amber-500/20 text-amber-400" : "bg-primary/20 text-primary"
+                        )}>
                           {neverSeen ? "new" : unreadCount > 99 ? "99+" : unreadCount}
                         </span>
                       )}
@@ -717,6 +871,18 @@ export default function InboxPage() {
                         </span>
                       )}
                     </div>
+
+                    {/* Color tag + note indicator */}
+                    {(colorTag || label?.note) && (
+                      <div className="flex items-center gap-1 pl-5 mb-0.5">
+                        {colorTag && (
+                          <span className="rounded px-1 py-0 text-[9px] font-medium" style={{ backgroundColor: `${tagColor}20`, color: tagColor || undefined }}>
+                            {colorTag.label}
+                          </span>
+                        )}
+                        {label?.note && <StickyNote className="h-2.5 w-2.5 text-yellow-500/60 shrink-0" />}
+                      </div>
+                    )}
 
                     {lastMsg && (
                       <p className="text-[11px] text-muted-foreground truncate pl-5">
@@ -751,17 +917,74 @@ export default function InboxPage() {
 
           {/* Message detail + reply */}
           <div className="rounded-xl border border-white/10 bg-white/[0.02] overflow-hidden flex flex-col">
-            {selectedConversation ? (
+            {selectedConversation ? (() => {
+              const selLabel = getLabel(selectedConversation.chat_id);
+              const selChatId = selectedConversation.chat_id;
+              const selGroupName = selectedConversation.group_name;
+              const selColorTag = selLabel?.color_tag ? COLOR_TAGS.find((t) => t.key === selLabel.color_tag) : null;
+              const selTagColor = selColorTag?.color || selLabel?.color_tag_color;
+              return (
               <>
                 {/* Header with actions */}
                 <div className="border-b border-white/5 px-4 py-3">
                   <div className="flex items-center justify-between mb-1">
-                    <h2 className="text-sm font-medium text-foreground">{selectedConversation.group_name}</h2>
+                    <div className="flex items-center gap-2 min-w-0">
+                      {selLabel?.is_vip && <Star className="h-3.5 w-3.5 text-amber-400 shrink-0" />}
+                      <h2 className={cn("text-sm font-medium truncate", selLabel?.is_vip ? "text-amber-200" : "text-foreground")}>
+                        {selGroupName}
+                      </h2>
+                      {selColorTag && (
+                        <span className="rounded px-1.5 py-0.5 text-[10px] font-medium shrink-0" style={{ backgroundColor: `${selTagColor}20`, color: selTagColor || undefined }}>
+                          {selColorTag.label}
+                        </span>
+                      )}
+                    </div>
                     <div className="flex items-center gap-1">
+                      {/* Label actions */}
+                      <button
+                        onClick={() => toggleLabel(selChatId, selGroupName, "is_vip")}
+                        className={cn("h-7 w-7 flex items-center justify-center rounded-md transition-colors",
+                          selLabel?.is_vip ? "text-amber-400 bg-amber-500/10 hover:bg-amber-500/20" : "text-muted-foreground hover:text-foreground hover:bg-white/5"
+                        )}
+                        title={selLabel?.is_vip ? "Remove VIP" : "Mark VIP"}
+                      >
+                        <Star className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={() => toggleLabel(selChatId, selGroupName, "is_pinned")}
+                        className={cn("h-7 w-7 flex items-center justify-center rounded-md transition-colors",
+                          selLabel?.is_pinned ? "text-primary bg-primary/10 hover:bg-primary/20" : "text-muted-foreground hover:text-foreground hover:bg-white/5"
+                        )}
+                        title={selLabel?.is_pinned ? "Unpin" : "Pin"}
+                      >
+                        <Pin className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          setNoteModal({ chatId: selChatId, groupName: selGroupName });
+                          setNoteText(selLabel?.note || "");
+                        }}
+                        className={cn("h-7 w-7 flex items-center justify-center rounded-md transition-colors",
+                          selLabel?.note ? "text-yellow-400 bg-yellow-500/10 hover:bg-yellow-500/20" : "text-muted-foreground hover:text-foreground hover:bg-white/5"
+                        )}
+                        title="Notes"
+                      >
+                        <StickyNote className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={() => toggleLabel(selChatId, selGroupName, "is_archived")}
+                        className={cn("h-7 w-7 flex items-center justify-center rounded-md transition-colors",
+                          selLabel?.is_archived ? "text-foreground bg-white/10" : "text-muted-foreground hover:text-foreground hover:bg-white/5"
+                        )}
+                        title={selLabel?.is_archived ? "Unarchive" : "Archive"}
+                      >
+                        <Archive className="h-3.5 w-3.5" />
+                      </button>
+                      <div className="w-px h-5 bg-white/10 mx-0.5" />
                       {/* Assign to me (one-click) */}
-                      {currentUserId && statuses[selectedConversation.chat_id]?.assigned_to !== currentUserId && (
+                      {currentUserId && statuses[selChatId]?.assigned_to !== currentUserId && (
                         <button
-                          onClick={() => handleAssign(selectedConversation.chat_id, currentUserId)}
+                          onClick={() => handleAssign(selChatId, currentUserId)}
                           className="h-7 rounded-md bg-white/5 border border-white/10 text-[10px] text-muted-foreground hover:text-foreground hover:bg-white/10 px-2 flex items-center gap-1 transition-colors"
                           title="Assign to me"
                         >
@@ -771,8 +994,8 @@ export default function InboxPage() {
                       )}
                       {/* Assign dropdown */}
                       <select
-                        value={statuses[selectedConversation.chat_id]?.assigned_to ?? ""}
-                        onChange={(e) => handleAssign(selectedConversation.chat_id, e.target.value || null)}
+                        value={statuses[selChatId]?.assigned_to ?? ""}
+                        onChange={(e) => handleAssign(selChatId, e.target.value || null)}
                         className="h-7 rounded-md bg-white/5 border border-white/10 text-[10px] text-muted-foreground px-1.5 cursor-pointer"
                         title="Assign conversation"
                       >
@@ -785,32 +1008,34 @@ export default function InboxPage() {
                       {/* Snooze */}
                       <div className="relative" ref={snoozeRef}>
                         <button
-                          onClick={() => setShowSnooze(showSnooze === selectedConversation.chat_id ? null : selectedConversation.chat_id)}
+                          onClick={() => setShowSnooze(showSnooze === selChatId ? null : selChatId)}
                           className="h-7 w-7 flex items-center justify-center rounded-md hover:bg-white/5 text-muted-foreground hover:text-foreground transition-colors"
                           title="Snooze"
                         >
                           <AlarmClock className="h-3.5 w-3.5" />
                         </button>
-                        {showSnooze === selectedConversation.chat_id && (
+                        {showSnooze === selChatId && (
                           <div className="absolute right-0 top-8 z-10 rounded-lg border border-white/10 bg-[hsl(var(--background))] p-2 shadow-xl min-w-[140px]">
                             {[
                               { label: "1 hour", hours: 1 },
                               { label: "4 hours", hours: 4 },
-                              { label: "Tomorrow 9am", hours: null },
-                              { label: "Next week", hours: 168 },
+                              { label: "Tomorrow 9am", hours: -1 },
+                              { label: "1 day", hours: 24 },
+                              { label: "3 days", hours: 72 },
+                              { label: "1 week", hours: 168 },
                             ].map((opt) => {
-                              const until = opt.hours
-                                ? new Date(Date.now() + opt.hours * 3600000).toISOString()
-                                : (() => {
+                              const until = opt.hours === -1
+                                ? (() => {
                                     const d = new Date();
                                     d.setDate(d.getDate() + 1);
                                     d.setHours(9, 0, 0, 0);
                                     return d.toISOString();
-                                  })();
+                                  })()
+                                : new Date(Date.now() + opt.hours * 3600000).toISOString();
                               return (
                                 <button
                                   key={opt.label}
-                                  onClick={() => handleStatusChange(selectedConversation.chat_id, "snoozed", until)}
+                                  onClick={() => handleStatusChange(selChatId, "snoozed", until)}
                                   className="block w-full text-left text-xs text-muted-foreground hover:text-foreground px-2 py-1.5 rounded hover:bg-white/5"
                                 >
                                   {opt.label}
@@ -822,16 +1047,16 @@ export default function InboxPage() {
                       </div>
 
                       {/* Close / Reopen */}
-                      {statuses[selectedConversation.chat_id]?.status === "closed" ? (
+                      {statuses[selChatId]?.status === "closed" ? (
                         <button
-                          onClick={() => handleStatusChange(selectedConversation.chat_id, "open")}
+                          onClick={() => handleStatusChange(selChatId, "open")}
                           className="h-7 px-2 flex items-center gap-1 rounded-md text-[10px] text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"
                         >
                           <RefreshCw className="h-3 w-3" /> Reopen
                         </button>
                       ) : (
                         <button
-                          onClick={() => handleStatusChange(selectedConversation.chat_id, "closed")}
+                          onClick={() => handleStatusChange(selChatId, "closed")}
                           className="h-7 px-2 flex items-center gap-1 rounded-md text-[10px] text-muted-foreground hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
                           title="Close conversation"
                         >
@@ -843,7 +1068,7 @@ export default function InboxPage() {
 
                   {/* Linked deals */}
                   <div className="flex items-center gap-2">
-                    {(deals[selectedConversation.chat_id] ?? []).map((deal) => (
+                    {(deals[selChatId] ?? []).map((deal) => (
                       <a
                         key={deal.id}
                         href={`/pipeline?highlight=${deal.id}`}
@@ -856,11 +1081,25 @@ export default function InboxPage() {
                         )}
                       </a>
                     ))}
-                    {(deals[selectedConversation.chat_id] ?? []).length === 0 && (
+                    {(deals[selChatId] ?? []).length === 0 && (
                       <span className="text-[10px] text-muted-foreground/40">No linked deals</span>
                     )}
                   </div>
                 </div>
+
+                {/* Note banner */}
+                {selLabel?.note && (
+                  <div
+                    className="flex items-center gap-2 px-4 py-1.5 bg-yellow-500/5 border-b border-yellow-500/10 cursor-pointer hover:bg-yellow-500/10 transition-colors"
+                    onClick={() => {
+                      setNoteModal({ chatId: selChatId, groupName: selGroupName });
+                      setNoteText(selLabel?.note || "");
+                    }}
+                  >
+                    <StickyNote className="h-3 w-3 text-yellow-500/60 shrink-0" />
+                    <p className="text-[11px] text-yellow-200/80 truncate">{selLabel.note}</p>
+                  </div>
+                )}
 
                 {/* Messages */}
                 <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2 thin-scroll">
@@ -1031,7 +1270,8 @@ export default function InboxPage() {
                   </div>
                 </div>
               </>
-            ) : (
+              );
+            })() : (
               <div className="flex items-center justify-center h-full min-h-[300px]">
                 <div className="text-center">
                   <InboxIcon className="mx-auto h-8 w-8 text-muted-foreground/20" />
@@ -1044,7 +1284,192 @@ export default function InboxPage() {
           </div>
         </div>
       )}
+
+      {/* ── Context Menu ───────────────────────────────────── */}
+      {contextMenu && (
+        <div
+          className="fixed z-50 min-w-[180px] rounded-lg border border-white/10 bg-card shadow-xl py-1"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {!contextMenu.submenu && (
+            <>
+              <CtxItem
+                icon={<Star className="h-3.5 w-3.5" />}
+                label={getLabel(contextMenu.chatId)?.is_vip ? "Remove VIP" : "Mark as VIP"}
+                active={getLabel(contextMenu.chatId)?.is_vip} activeColor="text-amber-400"
+                onClick={() => { toggleLabel(contextMenu.chatId, contextMenu.groupName, "is_vip"); setContextMenu(null); }}
+              />
+              <CtxItem
+                icon={<Pin className="h-3.5 w-3.5" />}
+                label={getLabel(contextMenu.chatId)?.is_pinned ? "Unpin" : "Pin to top"}
+                active={getLabel(contextMenu.chatId)?.is_pinned}
+                onClick={() => { toggleLabel(contextMenu.chatId, contextMenu.groupName, "is_pinned"); setContextMenu(null); }}
+              />
+              <CtxItem
+                icon={<BellOff className="h-3.5 w-3.5" />}
+                label={getLabel(contextMenu.chatId)?.is_muted ? "Unmute" : "Mute"}
+                active={getLabel(contextMenu.chatId)?.is_muted}
+                onClick={() => { toggleLabel(contextMenu.chatId, contextMenu.groupName, "is_muted"); setContextMenu(null); }}
+              />
+              <div className="border-t border-white/10 my-1" />
+              <CtxItem
+                icon={<Tag className="h-3.5 w-3.5" />} label="Tag as..."
+                onClick={() => setContextMenu({ ...contextMenu, submenu: "tag" })} hasArrow
+              />
+              <CtxItem
+                icon={<AlarmClock className="h-3.5 w-3.5" />}
+                label={statuses[contextMenu.chatId]?.status === "snoozed" ? "Snoozed — unsnooze" : "Snooze..."}
+                active={statuses[contextMenu.chatId]?.status === "snoozed"} activeColor="text-cyan-400"
+                onClick={() => {
+                  if (statuses[contextMenu.chatId]?.status === "snoozed") {
+                    handleStatusChange(contextMenu.chatId, "open");
+                    setContextMenu(null);
+                  } else {
+                    setContextMenu({ ...contextMenu, submenu: "snooze" });
+                  }
+                }}
+                hasArrow={statuses[contextMenu.chatId]?.status !== "snoozed"}
+              />
+              <CtxItem
+                icon={<StickyNote className="h-3.5 w-3.5" />}
+                label={getLabel(contextMenu.chatId)?.note ? "Edit note" : "Add note"}
+                active={!!getLabel(contextMenu.chatId)?.note} activeColor="text-yellow-400"
+                onClick={() => {
+                  setNoteModal({ chatId: contextMenu.chatId, groupName: contextMenu.groupName });
+                  setNoteText(getLabel(contextMenu.chatId)?.note || "");
+                  setContextMenu(null);
+                }}
+              />
+              <div className="border-t border-white/10 my-1" />
+              <CtxItem
+                icon={<Archive className="h-3.5 w-3.5" />}
+                label={getLabel(contextMenu.chatId)?.is_archived ? "Unarchive" : "Archive"}
+                active={getLabel(contextMenu.chatId)?.is_archived}
+                onClick={() => { toggleLabel(contextMenu.chatId, contextMenu.groupName, "is_archived"); setContextMenu(null); }}
+              />
+            </>
+          )}
+
+          {/* Tag submenu */}
+          {contextMenu.submenu === "tag" && (
+            <>
+              <CtxItem
+                icon={<ChevronLeft className="h-3.5 w-3.5" />} label="Back"
+                onClick={() => setContextMenu({ ...contextMenu, submenu: undefined })}
+              />
+              <div className="border-t border-white/10 my-1" />
+              {COLOR_TAGS.map((t) => (
+                <CtxItem
+                  key={t.key}
+                  icon={<div className="h-3 w-3 rounded-full" style={{ backgroundColor: t.color }} />}
+                  label={t.label}
+                  active={getLabel(contextMenu.chatId)?.color_tag === t.key}
+                  onClick={() => {
+                    const current = getLabel(contextMenu.chatId)?.color_tag;
+                    setColorTag(contextMenu.chatId, contextMenu.groupName, current === t.key ? null : t.key, current === t.key ? null : t.color);
+                    setContextMenu(null);
+                  }}
+                />
+              ))}
+              {getLabel(contextMenu.chatId)?.color_tag && (
+                <>
+                  <div className="border-t border-white/10 my-1" />
+                  <CtxItem
+                    icon={<X className="h-3.5 w-3.5" />} label="Remove tag"
+                    onClick={() => { setColorTag(contextMenu.chatId, contextMenu.groupName, null, null); setContextMenu(null); }}
+                  />
+                </>
+              )}
+            </>
+          )}
+
+          {/* Snooze submenu */}
+          {contextMenu.submenu === "snooze" && (
+            <>
+              <CtxItem
+                icon={<ChevronLeft className="h-3.5 w-3.5" />} label="Back"
+                onClick={() => setContextMenu({ ...contextMenu, submenu: undefined })}
+              />
+              <div className="border-t border-white/10 my-1" />
+              {[
+                { label: "1 hour", hours: 1 },
+                { label: "4 hours", hours: 4 },
+                { label: "Tomorrow 9am", hours: -1 },
+                { label: "1 day", hours: 24 },
+                { label: "3 days", hours: 72 },
+                { label: "1 week", hours: 168 },
+              ].map((opt) => {
+                const until = opt.hours === -1
+                  ? (() => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); return d.toISOString(); })()
+                  : new Date(Date.now() + opt.hours * 3600000).toISOString();
+                return (
+                  <CtxItem
+                    key={opt.label}
+                    icon={<AlarmClock className="h-3.5 w-3.5" />}
+                    label={opt.label}
+                    onClick={() => { handleStatusChange(contextMenu.chatId, "snoozed", until); setContextMenu(null); }}
+                  />
+                );
+              })}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── Note Modal ─────────────────────────────────────── */}
+      {noteModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          onClick={() => setNoteModal(null)}
+          onKeyDown={(e) => { if (e.key === "Escape") setNoteModal(null); }}
+        >
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-card p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium text-foreground">Note — {noteModal.groupName}</h3>
+              <button onClick={() => setNoteModal(null)} className="text-muted-foreground hover:text-foreground">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <textarea
+              className="w-full rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-foreground placeholder-muted-foreground resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+              rows={4}
+              value={noteText}
+              onChange={(e) => setNoteText(e.target.value)}
+              placeholder="Add a quick note about this conversation..."
+              autoFocus
+            />
+            <div className="flex items-center justify-end gap-2">
+              {getLabel(noteModal.chatId)?.note && (
+                <Button size="sm" variant="ghost" onClick={() => { saveNote(noteModal.chatId, noteModal.groupName, ""); setNoteModal(null); }}>
+                  Delete note
+                </Button>
+              )}
+              <Button size="sm" onClick={() => { saveNote(noteModal.chatId, noteModal.groupName, noteText); setNoteModal(null); }}>
+                Save
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+// ── Context Menu Item ─────────────────────────────────────────
+
+function CtxItem({ icon, label, active, activeColor, onClick, hasArrow }: {
+  icon: React.ReactNode; label: string; active?: boolean; activeColor?: string; onClick: () => void; hasArrow?: boolean;
+}) {
+  return (
+    <button onClick={onClick}
+      className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-white/5 transition-colors ${
+        active ? (activeColor || "text-primary") : "text-foreground"
+      }`}>
+      {icon}
+      <span className="flex-1 text-left">{label}</span>
+      {hasArrow && <ChevronRight className="h-3 w-3 text-muted-foreground" />}
+    </button>
   );
 }
 

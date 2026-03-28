@@ -7,123 +7,39 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { useShell } from "./shell-context";
 
-// --- Navigation structure with sections ---
-
-interface NavItem {
-  href: string;
-  label: string;
-  icon: React.FC<{ className?: string }>;
-}
-
-interface NavSection {
-  key: string;
-  label: string;
-  icon: React.FC<{ className?: string }>;
-  items: NavItem[];
-}
-
-const TOP_ITEMS: NavItem[] = [
+const NAV_ITEMS = [
   { href: "/", label: "Dashboard", icon: HomeIcon },
   { href: "/pipeline", label: "Pipeline", icon: KanbanIcon },
+  { href: "/tasks", label: "Tasks", icon: TasksIcon },
   { href: "/inbox", label: "Inbox", icon: InboxIcon },
+  { href: "/email", label: "Email", icon: MailIcon },
   { href: "/contacts", label: "Contacts", icon: UsersIcon },
-];
-
-const NAV_SECTIONS: NavSection[] = [
-  {
-    key: "messaging",
-    label: "Messaging",
-    icon: ChatBubblesIcon,
-    items: [
-      { href: "/broadcasts", label: "Broadcasts", icon: MegaphoneIcon },
-      { href: "/email", label: "Email", icon: MailIcon },
-      { href: "/outreach", label: "Outreach", icon: OutreachIcon },
-    ],
-  },
-  {
-    key: "automation",
-    label: "Automation",
-    icon: WorkflowIcon,
-    items: [
-      { href: "/automations", label: "Automations", icon: WorkflowIcon },
-      { href: "/loop", label: "Loop Builder", icon: LoopBuilderIcon },
-      { href: "/drip", label: "Drip Sequences", icon: DripIcon },
-      { href: "/tasks", label: "Tasks", icon: TasksIcon },
-    ],
-  },
-  {
-    key: "telegram",
-    label: "Telegram",
-    icon: MessageCircleIcon,
-    items: [
-      { href: "/groups", label: "TG Groups", icon: MessageCircleIcon },
-      { href: "/access", label: "Access Control", icon: ShieldIcon },
-    ],
-  },
-  {
-    key: "insights",
-    label: "Insights",
-    icon: ChartIcon,
-    items: [
-      { href: "/reports", label: "Reports", icon: ChartIcon },
-      { href: "/graph", label: "Graph", icon: NetworkIcon },
-      { href: "/calendar", label: "Calendar", icon: CalendarIcon },
-    ],
-  },
-];
-
-const BOTTOM_ITEMS: NavItem[] = [
+  { href: "/groups", label: "TG Groups", icon: MessageCircleIcon },
+  { href: "/broadcasts", label: "Broadcasts", icon: MegaphoneIcon },
+  { href: "/outreach", label: "Outreach", icon: OutreachIcon },
+  { href: "/drip", label: "Drip Sequences", icon: DripIcon },
+  { href: "/automations", label: "Automations", icon: WorkflowIcon },
+  { href: "/loop", label: "Loop Builder", icon: LoopBuilderIcon },
+  { href: "/calendar", label: "Calendar", icon: CalendarIcon },
+  { href: "/reports", label: "Reports", icon: ChartIcon },
+  { href: "/access", label: "Access Control", icon: ShieldIcon },
+  { href: "/graph", label: "Graph", icon: NetworkIcon },
   { href: "/docs", label: "Docs", icon: FileTextIcon },
   { href: "/suggestions", label: "Suggestions", icon: LightbulbIcon },
   { href: "/settings", label: "Settings", icon: SettingsIcon },
-];
-
-// --- Persist collapsed sections in localStorage ---
-
-const STORAGE_KEY = "supracrm-nav-sections";
-
-function useCollapsedSections() {
-  const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>({});
-
-  React.useEffect(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) setCollapsed(JSON.parse(stored));
-    } catch { /* ignore */ }
-  }, []);
-
-  const toggle = React.useCallback((key: string) => {
-    setCollapsed((prev) => {
-      const next = { ...prev, [key]: !prev[key] };
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch { /* ignore */ }
-      return next;
-    });
-  }, []);
-
-  return { collapsed, toggle };
-}
-
-// --- Component ---
+] as const;
 
 export function DesktopSidebar() {
   const pathname = usePathname();
   const { user, signOut } = useAuth();
   const { sidebarCollapsed, setSidebarCollapsed, crmRole } = useShell();
-  const sections = useCollapsedSections();
-
-  const isActive = (href: string) =>
-    href === "/" ? pathname === "/" : pathname.startsWith(href);
-
-  const sectionHasActive = (section: NavSection) =>
-    section.items.some((item) => isActive(item.href));
 
   return (
-    <aside
-      className={cn(
-        "hidden md:flex md:flex-col md:fixed md:inset-y-0 border-r border-white/10 bg-white/[0.02] transition-all duration-200",
-        sidebarCollapsed ? "md:w-14" : "md:w-56"
-      )}
-      style={{ backgroundColor: "hsl(var(--surface-1))" }}
+    <aside className={cn(
+      "hidden md:flex md:flex-col md:fixed md:inset-y-0 border-r border-white/10 bg-white/[0.02] transition-all duration-200",
+      sidebarCollapsed ? "md:w-14" : "md:w-56"
+    )}
+    style={{ backgroundColor: "hsl(var(--surface-1))" }}
     >
       {/* Logo + collapse toggle */}
       <div className="flex h-14 items-center justify-between px-4 border-b border-white/10">
@@ -143,72 +59,45 @@ export function DesktopSidebar() {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 px-2 py-3 overflow-y-auto thin-scroll flex flex-col">
-        {/* Top items — always visible */}
-        <div className="space-y-0.5">
-          {TOP_ITEMS.map((item) => (
-            <NavLink key={item.href} item={item} active={isActive(item.href)} collapsed={sidebarCollapsed} />
-          ))}
-        </div>
+      <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto thin-scroll">
+        {NAV_ITEMS.map((item) => {
+          const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              title={sidebarCollapsed ? item.label : undefined}
+              className={cn(
+                "flex items-center rounded-lg py-2 text-[13px] font-medium transition-colors",
+                sidebarCollapsed ? "justify-center px-2" : "gap-2.5 px-2.5",
+                active
+                  ? "bg-white/10 text-foreground"
+                  : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+              )}
+            >
+              <item.icon className="h-4 w-4 shrink-0" />
+              {!sidebarCollapsed && item.label}
+            </Link>
+          );
+        })}
 
-        {/* Collapsible sections */}
-        <div className="mt-3 space-y-1 flex-1">
-          {NAV_SECTIONS.map((section) => {
-            const isOpen = !sections.collapsed[section.key];
-            const hasActive = sectionHasActive(section);
-
-            // When sidebar is collapsed, show section icon as a group indicator
-            if (sidebarCollapsed) {
-              return (
-                <div key={section.key} className="space-y-0.5">
-                  {section.items.map((item) => (
-                    <NavLink key={item.href} item={item} active={isActive(item.href)} collapsed={sidebarCollapsed} />
-                  ))}
-                </div>
-              );
-            }
-
-            return (
-              <div key={section.key}>
-                <button
-                  onClick={() => sections.toggle(section.key)}
-                  className={cn(
-                    "flex items-center w-full rounded-lg px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wider transition-colors",
-                    hasActive && !isOpen
-                      ? "text-primary"
-                      : "text-muted-foreground/60 hover:text-muted-foreground"
-                  )}
-                >
-                  <ChevronIcon className="h-3 w-3 mr-1.5 shrink-0 transition-transform" open={isOpen} />
-                  {section.label}
-                </button>
-                {isOpen && (
-                  <div className="space-y-0.5 mt-0.5">
-                    {section.items.map((item) => (
-                      <NavLink key={item.href} item={item} active={isActive(item.href)} collapsed={sidebarCollapsed} />
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Bottom items */}
-        <div className="mt-3 pt-3 border-t border-white/5 space-y-0.5">
-          {BOTTOM_ITEMS.map((item) => (
-            <NavLink key={item.href} item={item} active={isActive(item.href)} collapsed={sidebarCollapsed} />
-          ))}
-
-          {/* Admin link (only for admin_lead) */}
-          {crmRole === "admin_lead" && (
-            <NavLink
-              item={{ href: "/admin", label: "Admin", icon: ShieldIcon }}
-              active={isActive("/admin")}
-              collapsed={sidebarCollapsed}
-            />
-          )}
-        </div>
+        {/* Admin link (only for admin_lead) */}
+        {crmRole === "admin_lead" && (
+          <Link
+            href="/admin"
+            title={sidebarCollapsed ? "Admin" : undefined}
+            className={cn(
+              "flex items-center rounded-lg py-2 text-[13px] font-medium transition-colors",
+              sidebarCollapsed ? "justify-center px-2" : "gap-2.5 px-2.5",
+              pathname.startsWith("/admin")
+                ? "bg-white/10 text-foreground"
+                : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+            )}
+          >
+            <ShieldIcon className="h-4 w-4 shrink-0" />
+            {!sidebarCollapsed && "Admin"}
+          </Link>
+        )}
       </nav>
 
       {/* User or Login */}
@@ -222,18 +111,16 @@ export function DesktopSidebar() {
                 className="h-7 w-7 rounded-full"
               />
             )}
-            {!sidebarCollapsed && (
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium text-foreground truncate">
-                  {user.user_metadata?.display_name ?? user.user_metadata?.full_name ?? user.email}
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-foreground truncate">
+                {user.user_metadata?.display_name ?? user.user_metadata?.full_name ?? user.email}
+              </p>
+              {user.user_metadata?.telegram_username && (
+                <p className="text-[10px] text-muted-foreground truncate">
+                  @{user.user_metadata.telegram_username}
                 </p>
-                {user.user_metadata?.telegram_username && (
-                  <p className="text-[10px] text-muted-foreground truncate">
-                    @{user.user_metadata.telegram_username}
-                  </p>
-                )}
-              </div>
-            )}
+              )}
+            </div>
             <button
               onClick={signOut}
               className="text-muted-foreground hover:text-foreground transition-colors"
@@ -260,44 +147,7 @@ export function DesktopSidebar() {
   );
 }
 
-// --- Shared NavLink component ---
-
-function NavLink({ item, active, collapsed }: { item: NavItem; active: boolean; collapsed: boolean }) {
-  return (
-    <Link
-      href={item.href}
-      title={collapsed ? item.label : undefined}
-      className={cn(
-        "flex items-center rounded-lg py-2 text-[13px] font-medium transition-colors",
-        collapsed ? "justify-center px-2" : "gap-2.5 px-2.5",
-        active
-          ? "bg-white/10 text-foreground"
-          : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
-      )}
-    >
-      <item.icon className="h-4 w-4 shrink-0" />
-      {!collapsed && item.label}
-    </Link>
-  );
-}
-
-// --- Icons ---
-
-function ChevronIcon({ className, open }: { className?: string; open: boolean }) {
-  return (
-    <svg
-      className={cn(className, open ? "rotate-90" : "rotate-0")}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M9 18l6-6-6-6" />
-    </svg>
-  );
-}
+// Inline SVG icons (no external dependency)
 
 function HomeIcon({ className }: { className?: string }) {
   return (
@@ -424,14 +274,6 @@ function MailIcon({ className }: { className?: string }) {
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
       <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
       <polyline points="22 6 12 13 2 6" />
-    </svg>
-  );
-}
-
-function ChatBubblesIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
     </svg>
   );
 }
