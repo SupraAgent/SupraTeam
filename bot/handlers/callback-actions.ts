@@ -24,13 +24,28 @@ export function registerCallbackHandler(bot: Bot) {
     // Resolve CRM user from telegram_id
     const { data: profile } = await supabase
       .from("profiles")
-      .select("id")
+      .select("id, crm_role")
       .eq("telegram_id", telegramUserId)
       .single();
 
     if (!profile) {
       await ctx.answerCallbackQuery({ text: "Account not linked. Open CRM to link your Telegram." });
       return;
+    }
+
+    // Authorization: verify user is assigned to the deal or is an admin
+    const isAdmin = profile.crm_role === "admin_lead";
+    if (!isAdmin) {
+      const { data: deal } = await supabase
+        .from("crm_deals")
+        .select("assigned_to")
+        .eq("id", dealId)
+        .single();
+
+      if (deal?.assigned_to !== profile.id) {
+        await ctx.answerCallbackQuery({ text: "Only the assigned rep or admin can perform this action." });
+        return;
+      }
     }
 
     // Log the callback action

@@ -84,80 +84,92 @@ export async function sendTelegramWithTracking(params: {
   parseMode?: string;
   replyMarkup?: object;
 }): Promise<SendResult> {
-  if (!BOT_TOKEN) return { success: false, error: "No bot token configured" };
+  const body: Record<string, unknown> = {
+    chat_id: params.chatId,
+    text: params.text,
+    parse_mode: params.parseMode ?? "HTML",
+  };
+  if (params.replyMarkup) body.reply_markup = params.replyMarkup;
 
+  const preview = params.text.length > 200 ? params.text.slice(0, 200) + "..." : params.text;
+
+  return executeWithTracking("sendMessage", body, {
+    chatId: params.chatId,
+    preview,
+    notificationType: params.notificationType,
+    dealId: params.dealId,
+    automationRuleId: params.automationRuleId,
+    scheduledMessageId: params.scheduledMessageId,
+  });
+}
+
+/**
+ * Shared: execute a Telegram API call with rate limiting, logging, and error handling.
+ */
+async function executeWithTracking(
+  method: string,
+  body: Record<string, unknown>,
+  meta: { chatId: number; preview: string; notificationType: string; dealId?: string; automationRuleId?: string; scheduledMessageId?: string }
+): Promise<SendResult> {
+  if (!BOT_TOKEN) return { success: false, error: "No bot token configured" };
   const supabase = createSupabaseAdmin();
-  const fullText = params.text;
-  const preview = fullText.length > 200 ? fullText.slice(0, 200) + "..." : fullText;
 
   try {
-    // Apply rate limiting before sending
-    await acquireRateLimit(params.chatId);
-
-    const body: Record<string, unknown> = {
-      chat_id: params.chatId,
-      text: params.text,
-      parse_mode: params.parseMode ?? "HTML",
-    };
-    if (params.replyMarkup) body.reply_markup = params.replyMarkup;
-
-    const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+    await acquireRateLimit(meta.chatId);
+    const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-
     const data = await res.json();
 
     if (data.ok) {
-      // Log success
       if (supabase) {
         await supabase.from("crm_notification_log").insert({
-          notification_type: params.notificationType,
-          deal_id: params.dealId ?? null,
-          tg_chat_id: params.chatId,
-          message_preview: preview,
+          notification_type: meta.notificationType,
+          deal_id: meta.dealId ?? null,
+          tg_chat_id: meta.chatId,
+          message_preview: meta.preview,
           status: "sent",
           tg_message_id: data.result?.message_id ?? null,
-          automation_rule_id: params.automationRuleId ?? null,
-          scheduled_message_id: params.scheduledMessageId ?? null,
+          automation_rule_id: meta.automationRuleId ?? null,
+          scheduled_message_id: meta.scheduledMessageId ?? null,
           sent_at: new Date().toISOString(),
         });
       }
       return { success: true, messageId: data.result?.message_id };
-    } else {
-      const errMsg = data.description ?? "Unknown Telegram error";
-      if (supabase) {
-        await supabase.from("crm_notification_log").insert({
-          notification_type: params.notificationType,
-          deal_id: params.dealId ?? null,
-          tg_chat_id: params.chatId,
-          message_preview: preview,
-          message_full_text: fullText,
-          status: "failed",
-          last_error: errMsg,
-          retry_count: 0,
-          next_retry_at: new Date(Date.now() + 60_000).toISOString(), // retry in 1 min
-          automation_rule_id: params.automationRuleId ?? null,
-          scheduled_message_id: params.scheduledMessageId ?? null,
-        });
-      }
-      return { success: false, error: errMsg };
     }
-  } catch (err) {
-    const errMsg = err instanceof Error ? err.message : "Network error";
+
+    const errMsg = data.description ?? "Unknown Telegram error";
     if (supabase) {
       await supabase.from("crm_notification_log").insert({
-        notification_type: params.notificationType,
-        deal_id: params.dealId ?? null,
-        tg_chat_id: params.chatId,
-        message_preview: preview,
+        notification_type: meta.notificationType,
+        deal_id: meta.dealId ?? null,
+        tg_chat_id: meta.chatId,
+        message_preview: meta.preview,
         status: "failed",
         last_error: errMsg,
         retry_count: 0,
         next_retry_at: new Date(Date.now() + 60_000).toISOString(),
-        automation_rule_id: params.automationRuleId ?? null,
-        scheduled_message_id: params.scheduledMessageId ?? null,
+        automation_rule_id: meta.automationRuleId ?? null,
+        scheduled_message_id: meta.scheduledMessageId ?? null,
+      });
+    }
+    return { success: false, error: errMsg };
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : "Network error";
+    if (supabase) {
+      await supabase.from("crm_notification_log").insert({
+        notification_type: meta.notificationType,
+        deal_id: meta.dealId ?? null,
+        tg_chat_id: meta.chatId,
+        message_preview: meta.preview,
+        status: "failed",
+        last_error: errMsg,
+        retry_count: 0,
+        next_retry_at: new Date(Date.now() + 60_000).toISOString(),
+        automation_rule_id: meta.automationRuleId ?? null,
+        scheduled_message_id: meta.scheduledMessageId ?? null,
       });
     }
     return { success: false, error: errMsg };
@@ -166,7 +178,6 @@ export async function sendTelegramWithTracking(params: {
 
 /**
  * Send a photo or document via Telegram Bot API with tracking.
- * Uses sendPhoto or sendDocument depending on mediaType.
  */
 export async function sendTelegramMediaWithTracking(params: {
   chatId: number;
@@ -178,82 +189,25 @@ export async function sendTelegramMediaWithTracking(params: {
   parseMode?: string;
   replyMarkup?: object;
 }): Promise<SendResult> {
-  if (!BOT_TOKEN) return { success: false, error: "No bot token configured" };
+  const method = params.mediaType === "photo" ? "sendPhoto" : "sendDocument";
+  const fileKey = params.mediaType === "photo" ? "photo" : "document";
+  const body: Record<string, unknown> = { chat_id: params.chatId, [fileKey]: params.fileId };
+  if (params.caption) {
+    body.caption = params.caption;
+    body.parse_mode = params.parseMode ?? "HTML";
+  }
+  if (params.replyMarkup) body.reply_markup = params.replyMarkup;
 
-  const supabase = createSupabaseAdmin();
   const preview = params.caption
     ? params.caption.length > 200 ? params.caption.slice(0, 200) + "..." : params.caption
     : `[${params.mediaType}]`;
 
-  try {
-    await acquireRateLimit(params.chatId);
-
-    const method = params.mediaType === "photo" ? "sendPhoto" : "sendDocument";
-    const fileKey = params.mediaType === "photo" ? "photo" : "document";
-
-    const body: Record<string, unknown> = {
-      chat_id: params.chatId,
-      [fileKey]: params.fileId,
-    };
-    if (params.caption) {
-      body.caption = params.caption;
-      body.parse_mode = params.parseMode ?? "HTML";
-    }
-    if (params.replyMarkup) body.reply_markup = params.replyMarkup;
-
-    const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-
-    const data = await res.json();
-
-    if (data.ok) {
-      if (supabase) {
-        await supabase.from("crm_notification_log").insert({
-          notification_type: params.notificationType,
-          deal_id: params.dealId ?? null,
-          tg_chat_id: params.chatId,
-          message_preview: preview,
-          status: "sent",
-          tg_message_id: data.result?.message_id ?? null,
-          sent_at: new Date().toISOString(),
-        });
-      }
-      return { success: true, messageId: data.result?.message_id };
-    } else {
-      const errMsg = data.description ?? "Unknown Telegram error";
-      if (supabase) {
-        await supabase.from("crm_notification_log").insert({
-          notification_type: params.notificationType,
-          deal_id: params.dealId ?? null,
-          tg_chat_id: params.chatId,
-          message_preview: preview,
-          status: "failed",
-          last_error: errMsg,
-          retry_count: 0,
-          next_retry_at: new Date(Date.now() + 60_000).toISOString(),
-        });
-      }
-      return { success: false, error: errMsg };
-    }
-  } catch (err) {
-    const errMsg = err instanceof Error ? err.message : "Network error";
-    if (supabase) {
-      await supabase.from("crm_notification_log").insert({
-        notification_type: params.notificationType,
-        deal_id: params.dealId ?? null,
-        tg_chat_id: params.chatId,
-        message_preview: preview,
-        status: "failed",
-        last_error: errMsg,
-        retry_count: 0,
-        next_retry_at: new Date(Date.now() + 60_000).toISOString(),
-      });
-    }
-    return { success: false, error: errMsg };
-  }
+  return executeWithTracking(method, body, {
+    chatId: params.chatId,
+    preview,
+    notificationType: params.notificationType,
+    dealId: params.dealId,
+  });
 }
 
 /**
