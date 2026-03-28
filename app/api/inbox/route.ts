@@ -45,10 +45,23 @@ export async function GET(request: Request) {
     return NextResponse.json({ conversations: [], deals: {} });
   }
 
-  const groupMap = new Map(groups.map((g) => [g.telegram_group_id, g]));
-  const chatIds = chatIdFilter
-    ? [Number(chatIdFilter)]
-    : groups.map((g) => g.telegram_group_id);
+  // Use string keys consistently — telegram_group_id comes from DB as string
+  const groupMap = new Map(groups.map((g) => [String(g.telegram_group_id), g]));
+  let chatIds: (string | number)[];
+
+  if (chatIdFilter) {
+    const numId = Number(chatIdFilter);
+    if (Number.isNaN(numId)) {
+      return NextResponse.json({ error: "Invalid chat_id" }, { status: 400 });
+    }
+    // Auth check: only allow filtering to groups the CRM actually has
+    if (!groupMap.has(String(numId))) {
+      return NextResponse.json({ error: "Unauthorized chat_id" }, { status: 403 });
+    }
+    chatIds = [numId];
+  } else {
+    chatIds = groups.map((g) => g.telegram_group_id);
+  }
 
   // Fetch recent messages across all groups, ordered by time
   let messagesQuery = supabase
@@ -78,7 +91,7 @@ export async function GET(request: Request) {
   // Build thread trees: group messages that are replies into threads
   const conversations = [];
   for (const [chatId, chatMessages] of conversationMap) {
-    const group = groupMap.get(chatId);
+    const group = groupMap.get(String(chatId));
     if (!group) continue;
 
     // Identify threads: messages that are replies form a thread rooted at the original
@@ -103,8 +116,9 @@ export async function GET(request: Request) {
     }));
 
     // Orphan replies (root not in this batch) — show as standalone
+    const standaloneIds = new Set(standalone.map((m) => m.telegram_message_id));
     for (const [rootId, replies] of threadRoots) {
-      if (!standalone.find((m) => m.telegram_message_id === rootId)) {
+      if (!standaloneIds.has(rootId)) {
         rootMessages.push({
           ...replies[0],
           replies: replies.slice(1),
@@ -113,11 +127,11 @@ export async function GET(request: Request) {
     }
 
     // Sort by most recent activity (root or latest reply)
-    rootMessages.sort((a, b) => {
-      const aLatest = a.replies.length > 0 ? a.replies[0].sent_at : a.sent_at;
-      const bLatest = b.replies.length > 0 ? b.replies[0].sent_at : b.sent_at;
-      return bLatest.localeCompare(aLatest);
-    });
+    function latestTime(msg: typeof rootMessages[0]): string {
+      if (msg.replies.length === 0) return msg.sent_at;
+      return msg.replies.reduce((latest, r) => r.sent_at > latest ? r.sent_at : latest, msg.sent_at);
+    }
+    rootMessages.sort((a, b) => latestTime(b).localeCompare(latestTime(a)));
 
     conversations.push({
       chat_id: chatId,

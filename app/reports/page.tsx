@@ -473,7 +473,10 @@ function ForecastSection() {
 
   React.useEffect(() => {
     fetch("/api/forecast")
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`Forecast API ${r.status}`);
+        return r.json();
+      })
       .then(setData)
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -585,9 +588,9 @@ function ForecastSection() {
         <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
           <h3 className="text-sm font-medium text-foreground mb-3">Weekly Pipeline Trend (12 weeks)</h3>
           <div className="flex items-end gap-1 h-24">
-            {data.weeklyTrend.map((w) => {
+            {(() => {
               const max = Math.max(...data.weeklyTrend.map((t) => Math.max(t.created, t.won + t.lost)), 1);
-              return (
+              return data.weeklyTrend.map((w) => (
                 <div key={w.week} className="flex-1 flex flex-col items-center gap-0.5" title={`${w.week}: ${w.created} created, ${w.won} won, ${w.lost} lost`}>
                   <div className="w-full flex flex-col-reverse gap-px">
                     <div className="bg-primary/40 rounded-t" style={{ height: `${(w.created / max) * 80}px` }} />
@@ -596,8 +599,8 @@ function ForecastSection() {
                   </div>
                   <span className="text-[8px] text-muted-foreground/40 truncate w-full text-center">{w.week.slice(5)}</span>
                 </div>
-              );
-            })}
+              ));
+            })()}
           </div>
           <div className="flex items-center gap-4 mt-2 text-[10px] text-muted-foreground">
             <span className="flex items-center gap-1"><span className="h-2 w-2 rounded bg-primary/40" /> Created</span>

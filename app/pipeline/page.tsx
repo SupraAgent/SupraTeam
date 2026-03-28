@@ -98,6 +98,14 @@ export default function PipelinePage() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
+  // Refs to avoid stale closures in sync functions
+  const filtersRef = React.useRef(filters);
+  const boardRef = React.useRef(board);
+  const searchRef = React.useRef(search);
+  filtersRef.current = filters;
+  boardRef.current = board;
+  searchRef.current = search;
+
   // ── Sync filters from URL on mount ──────────────────────────────
   const initializedFromUrl = React.useRef(false);
   React.useEffect(() => {
@@ -151,17 +159,17 @@ export default function PipelinePage() {
 
   function setFiltersAndSync(f: PipelineFilters) {
     setFilters(f);
-    syncFiltersToUrl(f, board, search);
+    syncFiltersToUrl(f, boardRef.current, searchRef.current);
   }
 
   function setBoardAndSync(b: BoardType) {
     setBoard(b);
-    syncFiltersToUrl(filters, b, search);
+    syncFiltersToUrl(filtersRef.current, b, searchRef.current);
   }
 
   function setSearchAndSync(q: string) {
     setSearch(q);
-    syncFiltersToUrl(filters, board, q);
+    syncFiltersToUrl(filtersRef.current, boardRef.current, q);
   }
 
   // Unique assigned profiles for filter dropdown

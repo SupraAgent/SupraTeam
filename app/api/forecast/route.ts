@@ -16,14 +16,49 @@ export async function GET() {
   if ("error" in auth) return auth.error;
   const { admin: supabase } = auth;
 
-  // ── Monthly forecast: open deals grouped by expected_close_date ──
-  const { data: openDeals } = await supabase
-    .from("crm_deals")
-    .select("id, deal_name, value, probability, expected_close_date, board_type, stage:pipeline_stages(name)")
-    .eq("outcome", "open")
-    .not("expected_close_date", "is", null)
-    .order("expected_close_date");
+  const ninetyDaysAgo = new Date(Date.now() - 90 * 86400000).toISOString();
+  const twelveWeeksAgo = new Date(Date.now() - 84 * 86400000).toISOString();
 
+  // ── Run all 5 independent queries in parallel ──
+  const [
+    { data: openDeals },
+    { data: recentHistory },
+    { data: closedDeals },
+    { data: createdRecent },
+    { data: closedRecent },
+  ] = await Promise.all([
+    supabase
+      .from("crm_deals")
+      .select("id, deal_name, value, probability, expected_close_date, board_type, created_at, stage:pipeline_stages(name)")
+      .eq("outcome", "open")
+      .not("expected_close_date", "is", null)
+      .order("expected_close_date"),
+    supabase
+      .from("crm_deal_stage_history")
+      .select("deal_id, from_stage_id, to_stage_id, changed_at, from_stage:pipeline_stages!crm_deal_stage_history_from_stage_id_fkey(name), to_stage:pipeline_stages!crm_deal_stage_history_to_stage_id_fkey(name)")
+      .gte("changed_at", ninetyDaysAgo)
+      .order("changed_at"),
+    supabase
+      .from("crm_deals")
+      .select("expected_close_date, outcome_at, outcome")
+      .in("outcome", ["won", "lost"])
+      .not("expected_close_date", "is", null)
+      .not("outcome_at", "is", null)
+      .gte("outcome_at", ninetyDaysAgo)
+      .limit(200),
+    supabase
+      .from("crm_deals")
+      .select("created_at")
+      .gte("created_at", twelveWeeksAgo),
+    supabase
+      .from("crm_deals")
+      .select("outcome_at, outcome")
+      .in("outcome", ["won", "lost"])
+      .not("outcome_at", "is", null)
+      .gte("outcome_at", twelveWeeksAgo),
+  ]);
+
+  // ── Monthly forecast: open deals grouped by expected_close_date ──
   const monthlyForecast: Record<string, { count: number; totalValue: number; weightedValue: number }> = {};
   for (const deal of openDeals ?? []) {
     const month = (deal.expected_close_date as string).substring(0, 7); // YYYY-MM
@@ -35,40 +70,36 @@ export async function GET() {
     monthlyForecast[month].weightedValue += val * (prob / 100);
   }
 
-  // ── Deal velocity: avg days in each stage (from stage history of closed deals) ──
-  const ninetyDaysAgo = new Date(Date.now() - 90 * 86400000).toISOString();
-  const { data: recentHistory } = await supabase
-    .from("crm_deal_stage_history")
-    .select("deal_id, from_stage_id, to_stage_id, changed_at, from_stage:pipeline_stages!crm_deal_stage_history_from_stage_id_fkey(name), to_stage:pipeline_stages!crm_deal_stage_history_to_stage_id_fkey(name)")
-    .gte("changed_at", ninetyDaysAgo)
-    .order("changed_at");
+  // ── Deal velocity: avg days in each stage (from stage history) ──
+  // Build a map of deal_id → created_at for first-stage entry time
+  const dealCreatedAt = new Map<string, string>();
+  for (const deal of openDeals ?? []) {
+    dealCreatedAt.set(deal.id as string, deal.created_at as string);
+  }
 
-  // Group stage transitions by deal and compute time in each stage
-  const dealTransitions = new Map<string, Array<{ stage: string; enteredAt: string; leftAt: string }>>();
+  // Group stage transitions by deal
+  const dealTransitions = new Map<string, Array<{ stage: string; leftAt: string }>>();
   for (const h of recentHistory ?? []) {
     const dealId = h.deal_id as string;
     if (!dealTransitions.has(dealId)) dealTransitions.set(dealId, []);
     const fromName = (h.from_stage as unknown as { name: string } | null)?.name ?? "Unknown";
     dealTransitions.get(dealId)!.push({
       stage: fromName,
-      enteredAt: "", // will be computed
       leftAt: h.changed_at as string,
     });
   }
 
-  // Compute avg days per stage
+  // Compute avg days per stage (including first stage using deal created_at)
   const stageDurations: Record<string, number[]> = {};
-  for (const transitions of dealTransitions.values()) {
+  for (const [dealId, transitions] of dealTransitions) {
     for (let i = 0; i < transitions.length; i++) {
       const t = transitions[i];
-      // Find when this stage was entered (previous transition's changed_at, or deal creation)
-      const enteredAt = i > 0 ? transitions[i - 1].leftAt : t.leftAt; // approximation
-      if (i > 0) {
-        const days = (new Date(t.leftAt).getTime() - new Date(enteredAt).getTime()) / 86400000;
-        if (days >= 0 && days < 365) { // sanity check
-          if (!stageDurations[t.stage]) stageDurations[t.stage] = [];
-          stageDurations[t.stage].push(days);
-        }
+      // First transition: time from deal creation to first stage change
+      const enteredAt = i === 0 ? (dealCreatedAt.get(dealId) ?? t.leftAt) : transitions[i - 1].leftAt;
+      const days = (new Date(t.leftAt).getTime() - new Date(enteredAt).getTime()) / 86400000;
+      if (days >= 0 && days < 365) {
+        if (!stageDurations[t.stage]) stageDurations[t.stage] = [];
+        stageDurations[t.stage].push(days);
       }
     }
   }
@@ -80,15 +111,6 @@ export async function GET() {
   }
 
   // ── Forecast confidence: compare expected_close_date vs actual outcome_at ──
-  const { data: closedDeals } = await supabase
-    .from("crm_deals")
-    .select("expected_close_date, outcome_at, outcome")
-    .in("outcome", ["won", "lost"])
-    .not("expected_close_date", "is", null)
-    .not("outcome_at", "is", null)
-    .gte("outcome_at", ninetyDaysAgo)
-    .limit(200);
-
   let forecastAccuracy = 0;
   let onTimeCount = 0;
   let totalClosed = 0;
@@ -100,7 +122,6 @@ export async function GET() {
     const actual = new Date(deal.outcome_at as string).getTime();
     const lag = (actual - expected) / 86400000;
     lagDays.push(lag);
-    // "On time" = closed within 7 days of expected
     if (Math.abs(lag) <= 7) onTimeCount++;
   }
 
@@ -113,26 +134,17 @@ export async function GET() {
     : 0;
 
   // ── Weekly pipeline trend: deals created/closed per week (last 12 weeks) ──
-  const twelveWeeksAgo = new Date(Date.now() - 84 * 86400000).toISOString();
 
-  const { data: createdRecent } = await supabase
-    .from("crm_deals")
-    .select("created_at")
-    .gte("created_at", twelveWeeksAgo);
-
-  const { data: closedRecent } = await supabase
-    .from("crm_deals")
-    .select("outcome_at, outcome")
-    .in("outcome", ["won", "lost"])
-    .not("outcome_at", "is", null)
-    .gte("outcome_at", twelveWeeksAgo);
-
-  // Group into ISO weeks
+  // ISO 8601 week number calculation
   function toWeekKey(date: string): string {
     const d = new Date(date);
-    const yearStart = new Date(d.getFullYear(), 0, 1);
-    const weekNum = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + yearStart.getDay() + 1) / 7);
-    return `${d.getFullYear()}-W${String(weekNum).padStart(2, "0")}`;
+    // Set to nearest Thursday: current date + 4 - current day number (Mon=1, Sun=7)
+    const day = d.getDay() || 7; // convert Sun=0 to Sun=7
+    const thursday = new Date(d);
+    thursday.setDate(d.getDate() + 4 - day);
+    const yearStart = new Date(thursday.getFullYear(), 0, 1);
+    const weekNum = Math.ceil(((thursday.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+    return `${thursday.getFullYear()}-W${String(weekNum).padStart(2, "0")}`;
   }
 
   const weeklyTrend: Record<string, { created: number; won: number; lost: number }> = {};
