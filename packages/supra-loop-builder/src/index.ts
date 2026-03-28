@@ -11,6 +11,9 @@ export type {
   LLMExecuteResponse,
   FlowChatHandler,
   LLMExecuteHandler,
+  CustomPaletteItem,
+  CustomNodeTypeInfo,
+  CustomNodeEditor,
 } from "./types";
 export type { FlowTemplate } from "./lib/flow-templates";
 export type {

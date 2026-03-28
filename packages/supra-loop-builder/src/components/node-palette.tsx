@@ -573,9 +573,11 @@ type NodePaletteProps = {
   onAddNode?: (type: string, data: Record<string, unknown>) => void;
   /** External user node definitions (kept in sync by parent) */
   userNodeDefs?: UserNodeDefinition[];
+  /** Custom palette items injected by the host app */
+  customPaletteItems?: import("../types").CustomPaletteItem[];
 };
 
-export function NodePalette({ onAddNode, userNodeDefs: externalDefs }: NodePaletteProps) {
+export function NodePalette({ onAddNode, userNodeDefs: externalDefs, customPaletteItems }: NodePaletteProps) {
   const isMobile = useIsMobile();
   const [expanded, setExpanded] = React.useState(!isMobile);
   const { sheetRef, handleProps: swipeProps } = useSwipeToDismiss(() => setExpanded(false));
@@ -586,8 +588,21 @@ export function NodePalette({ onAddNode, userNodeDefs: externalDefs }: NodePalet
   const [logicExpanded, setLogicExpanded] = React.useState(true);
   const [aiExpanded, setAiExpanded] = React.useState(true);
   const [userExpanded, setUserExpanded] = React.useState(true);
+  const [customGroupsExpanded, setCustomGroupsExpanded] = React.useState<Record<string, boolean>>({});
   // Suppress onClick when a drag just completed (mouseup after drop fires onClick)
   const didDragRef = React.useRef(false);
+
+  // Group custom palette items by their group name
+  const customGroups = React.useMemo(() => {
+    if (!customPaletteItems?.length) return [];
+    const groups = new Map<string, typeof customPaletteItems>();
+    for (const item of customPaletteItems) {
+      const g = groups.get(item.group) ?? [];
+      g.push(item);
+      groups.set(item.group, g);
+    }
+    return Array.from(groups.entries()).map(([name, items]) => ({ name, items }));
+  }, [customPaletteItems]);
 
   // Use external defs if provided, otherwise load from storage
   const [localDefs, setLocalDefs] = React.useState<UserNodeDefinition[]>([]);
@@ -636,7 +651,7 @@ export function NodePalette({ onAddNode, userNodeDefs: externalDefs }: NodePalet
   const logicItems = PALETTE_ITEMS.filter((i) => i.group === "logic");
   const aiItems = PALETTE_ITEMS.filter((i) => i.group === "ai");
 
-  function renderItem(item: { type: string; label: string; emoji: string; description: string; help: string; data: Record<string, unknown> }) {
+  function renderItem(item: { type: string; label: string; emoji: string; description: string; help?: string; data: Record<string, unknown> }) {
     return (
       <div
         key={item.type}
@@ -766,6 +781,13 @@ export function NodePalette({ onAddNode, userNodeDefs: externalDefs }: NodePalet
                 <div className="my-1 border-t border-white/5" />
                 <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">AI</div>
                 {aiItems.map(renderItem)}
+                {customGroups.map((g) => (
+                  <React.Fragment key={g.name}>
+                    <div className="my-1 border-t border-white/5" />
+                    <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{g.name}</div>
+                    {g.items.map(renderItem)}
+                  </React.Fragment>
+                ))}
                 {userDefs.length > 0 && (
                   <>
                     <div className="my-1 border-t border-white/5" />
@@ -852,6 +874,24 @@ export function NodePalette({ onAddNode, userNodeDefs: externalDefs }: NodePalet
             <span className="ml-auto text-muted-foreground/50">{aiItems.length}</span>
           </button>
           {aiExpanded && aiItems.map(renderItem)}
+          {/* ── Custom Groups (injected by host app) ── */}
+          {customGroups.map((g) => {
+            const isExpanded = customGroupsExpanded[g.name] !== false;
+            return (
+              <React.Fragment key={g.name}>
+                <div className="my-1 border-t border-white/5" />
+                <button
+                  onClick={() => setCustomGroupsExpanded((prev) => ({ ...prev, [g.name]: !isExpanded }))}
+                  className="flex w-full items-center gap-1 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition"
+                >
+                  <span className="text-[8px]">{isExpanded ? "▼" : "▶"}</span>
+                  <span>{g.name}</span>
+                  <span className="ml-auto text-muted-foreground/50">{g.items.length}</span>
+                </button>
+                {isExpanded && g.items.map(renderItem)}
+              </React.Fragment>
+            );
+          })}
           {/* ── User Nodes ── */}
           {userDefs.length > 0 && (
             <>

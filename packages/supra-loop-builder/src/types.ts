@@ -77,6 +77,32 @@ export type StoredCredential = {
 
 // ── Component Props ──────────────────────────────────────────
 
+// ── Custom Extension Types ──────────────────────────────────
+
+/** A palette item that appears in the node sidebar */
+export type CustomPaletteItem = {
+  type: string;
+  label: string;
+  emoji: string;
+  description: string;
+  help?: string;
+  group: string;
+  data: Record<string, unknown>;
+};
+
+/** Display info for a custom node type in the inspector header */
+export type CustomNodeTypeInfo = {
+  emoji: string;
+  label: string;
+  color: string;
+};
+
+/** Editor component for a custom node type */
+export type CustomNodeEditor = React.ComponentType<{
+  data: Record<string, unknown>;
+  onChange: (partial: Record<string, unknown>) => void;
+}>;
+
 /** Configuration for the WorkflowBuilder component */
 export type WorkflowBuilderProps = {
   /** Optional initial nodes to load */
@@ -87,6 +113,12 @@ export type WorkflowBuilderProps = {
   category?: FlowTemplate["category"];
   /** Custom node types to register alongside built-in ones */
   customNodeTypes?: Record<string, React.ComponentType<unknown>>;
+  /** Custom palette items to show in the node sidebar */
+  customPaletteItems?: CustomPaletteItem[];
+  /** Custom node type display info for the inspector header */
+  customNodeTypeInfo?: Record<string, CustomNodeTypeInfo>;
+  /** Custom editor components for the inspector, keyed by node type */
+  customNodeEditors?: Record<string, CustomNodeEditor>;
   /** localStorage key prefix for workspaces/templates (default: "suprateam_loop") */
   storageKeyPrefix?: string;
   /** Disable auto-layout on template load */

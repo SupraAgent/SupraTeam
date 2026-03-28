@@ -12,6 +12,8 @@ const webhookBuffer = new Map<
 
 const MAX_EVENTS_PER_ID = 50;
 const EVENT_TTL_MS = 5 * 60 * 1000;
+const MAX_BODY_BYTES = 256 * 1024; // 256KB max body size
+const MAX_WEBHOOK_IDS = 1000; // Cap total tracked webhook IDs
 
 function pruneExpired(id: string) {
   const events = webhookBuffer.get(id);
@@ -33,9 +35,9 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const id = url.searchParams.get("id");
 
-  if (!id) {
+  if (!id || id.length > 128) {
     return NextResponse.json(
-      { error: "Missing 'id' query parameter" },
+      { error: "Missing or invalid 'id' query parameter" },
       { status: 400 }
     );
   }
@@ -57,16 +59,40 @@ export async function POST(request: Request) {
   const url = new URL(request.url);
   const id = url.searchParams.get("id");
 
-  if (!id) {
+  if (!id || id.length > 128) {
     return NextResponse.json(
-      { error: "Missing 'id' query parameter" },
+      { error: "Missing or invalid 'id' query parameter" },
       { status: 400 }
+    );
+  }
+
+  // Check content-length before reading body
+  const contentLength = request.headers.get("content-length");
+  if (contentLength && parseInt(contentLength) > MAX_BODY_BYTES) {
+    return NextResponse.json(
+      { error: `Body too large (max ${MAX_BODY_BYTES} bytes)` },
+      { status: 413 }
+    );
+  }
+
+  // Prevent unbounded memory growth
+  if (webhookBuffer.size >= MAX_WEBHOOK_IDS && !webhookBuffer.has(id)) {
+    return NextResponse.json(
+      { error: "Too many active webhook IDs" },
+      { status: 429 }
     );
   }
 
   let body = "{}";
   try {
-    body = await request.text();
+    const raw = await request.text();
+    if (raw.length > MAX_BODY_BYTES) {
+      return NextResponse.json(
+        { error: `Body too large (max ${MAX_BODY_BYTES} bytes)` },
+        { status: 413 }
+      );
+    }
+    body = raw || "{}";
   } catch {
     // Empty body is fine
   }

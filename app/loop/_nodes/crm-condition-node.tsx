@@ -10,8 +10,17 @@ export interface CrmConditionNodeData {
   value: string;
 }
 
+function getCrmConditionData(data: Record<string, unknown>): CrmConditionNodeData {
+  return {
+    label: (data.label as string) || "",
+    field: (data.field as CrmConditionNodeData["field"]) || "stage",
+    operator: (data.operator as CrmConditionNodeData["operator"]) || "equals",
+    value: (data.value as string) || "",
+  };
+}
+
 export const CrmConditionNode = React.memo(function CrmConditionNode({ data }: NodeProps) {
-  const d = data as unknown as CrmConditionNodeData;
+  const d = getCrmConditionData(data as Record<string, unknown>);
 
   return (
     <div className="rounded-xl border-2 border-yellow-500/40 bg-yellow-500/10 px-4 py-3 min-w-[180px] max-w-[240px]">

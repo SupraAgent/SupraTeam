@@ -8,6 +8,8 @@ import type {
   LLMExecuteResponse,
 } from "@supra/loop-builder";
 import { CRM_NODE_TYPES } from "./_lib/crm-node-types";
+import { CRM_PALETTE_ITEMS, CRM_NODE_TYPE_INFO } from "./_lib/crm-palette-items";
+import { CRM_NODE_EDITORS } from "./_lib/crm-node-editors";
 
 async function handleChat(
   req: FlowChatRequest
@@ -108,7 +110,10 @@ export default function LoopBuilderPage() {
     <WorkflowBuilder
       category="workflow"
       storageKeyPrefix="suprateam_loop"
-      customNodeTypes={CRM_NODE_TYPES}
+      customNodeTypes={CRM_NODE_TYPES as Record<string, React.ComponentType<unknown>>}
+      customPaletteItems={CRM_PALETTE_ITEMS}
+      customNodeTypeInfo={CRM_NODE_TYPE_INFO}
+      customNodeEditors={CRM_NODE_EDITORS}
       onChat={handleChat}
       onLLMExecute={handleLLMExecute}
       title="Loop Builder"

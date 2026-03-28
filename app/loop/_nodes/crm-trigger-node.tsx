@@ -38,8 +38,16 @@ const TRIGGER_META: Record<string, { icon: string; border: string; bg: string; l
   scheduled: { icon: "🕐", border: "border-slate-500/40", bg: "bg-slate-500/10", label: "Scheduled" },
 };
 
+function getCrmTriggerData(data: Record<string, unknown>): CrmTriggerNodeData {
+  return {
+    label: (data.label as string) || "",
+    crmTrigger: (data.crmTrigger as CrmTriggerNodeData["crmTrigger"]) || "deal_stage_change",
+    config: data.config as Record<string, string> | undefined,
+  };
+}
+
 export const CrmTriggerNode = React.memo(function CrmTriggerNode({ data }: NodeProps) {
-  const d = data as unknown as CrmTriggerNodeData;
+  const d = getCrmTriggerData(data as Record<string, unknown>);
   const meta = TRIGGER_META[d.crmTrigger] ?? TRIGGER_META.deal_stage_change;
 
   return (

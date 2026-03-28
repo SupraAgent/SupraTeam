@@ -226,6 +226,9 @@ export function WorkflowBuilder({
   initialEdges: propInitialEdges,
   category = "workflow",
   customNodeTypes,
+  customPaletteItems,
+  customNodeTypeInfo,
+  customNodeEditors,
   storageKeyPrefix = "suprateam_loop",
   disableAutoLayout = false,
   onNodesChange: onNodesChangeProp,
@@ -1456,6 +1459,9 @@ export function WorkflowBuilder({
             onNodesChange={setCanvasNodes}
             onEdgesChange={setCanvasEdges}
             customNodeTypes={mergedCustomNodeTypes}
+            customPaletteItems={customPaletteItems}
+            customNodeTypeInfo={customNodeTypeInfo}
+            customNodeEditors={customNodeEditors}
             disableAutoLayout={disableAutoLayout}
             executingNodeIds={execution?.runningNodeIds}
             userNodeDefs={userNodeDefs}

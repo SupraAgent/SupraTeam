@@ -46,8 +46,16 @@ const ACTION_META: Record<string, { icon: string; border: string; bg: string; la
   http_request: { icon: "🌐", border: "border-gray-500/40", bg: "bg-gray-500/10", label: "HTTP Request" },
 };
 
+function getCrmActionData(data: Record<string, unknown>): CrmActionNodeData {
+  return {
+    label: (data.label as string) || "",
+    crmAction: (data.crmAction as CrmActionNodeData["crmAction"]) || "update_deal",
+    config: data.config as Record<string, string> | undefined,
+  };
+}
+
 export const CrmActionNode = React.memo(function CrmActionNode({ data }: NodeProps) {
-  const d = data as unknown as CrmActionNodeData;
+  const d = getCrmActionData(data as Record<string, unknown>);
   const meta = ACTION_META[d.crmAction] ?? ACTION_META.update_deal;
 
   return (

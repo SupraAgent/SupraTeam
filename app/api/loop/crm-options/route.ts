@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 
+/** Strip characters that could break PostgREST filter syntax */
+function sanitizeSearch(raw: string): string {
+  return raw.replace(/[%(),.*\\]/g, "").trim().slice(0, 100);
+}
+
 /**
  * GET: Fetch CRM entity options for Loop Builder dropdowns.
  *
@@ -33,7 +38,7 @@ export async function GET(request: Request) {
     }
 
     case "contacts": {
-      const search = url.searchParams.get("search") || "";
+      const search = sanitizeSearch(url.searchParams.get("search") || "");
       let query = admin.from("crm_contacts").select("id, name, company, telegram_username").order("name").limit(50);
       if (search) query = query.or(`name.ilike.%${search}%,company.ilike.%${search}%,telegram_username.ilike.%${search}%`);
       const { data, error } = await query;
@@ -42,7 +47,7 @@ export async function GET(request: Request) {
     }
 
     case "deals": {
-      const search = url.searchParams.get("search") || "";
+      const search = sanitizeSearch(url.searchParams.get("search") || "");
       let query = admin.from("crm_deals").select("id, deal_name, board_type, value").order("updated_at", { ascending: false }).limit(50);
       if (search) query = query.ilike("deal_name", `%${search}%`);
       const { data, error } = await query;
