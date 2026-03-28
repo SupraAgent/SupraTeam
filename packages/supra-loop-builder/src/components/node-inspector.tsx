@@ -2146,6 +2146,7 @@ export function NodeInspector({
 
   const isMobile = useIsMobile();
   const panelRef = React.useRef<HTMLDivElement>(null);
+  const [collapsed, setCollapsed] = React.useState(false);
   useFocusTrap(panelRef, isMobile, onClose);
 
   // Debounce updates — accumulate partials in a ref to avoid stale closures
@@ -2418,10 +2419,88 @@ export function NodeInspector({
     );
   }
 
-  // Desktop: side panel
+  // Desktop: side panel (collapsible)
+  if (collapsed) {
+    return (
+      <div ref={panelRef} className="flex h-full w-10 flex-col items-center border-l border-white/10 bg-background/95 backdrop-blur-sm py-3 gap-2">
+        <button
+          onClick={() => setCollapsed(false)}
+          className="flex h-7 w-7 items-center justify-center rounded-lg hover:bg-white/10 text-muted-foreground hover:text-foreground transition"
+          title="Expand inspector"
+          aria-label="Expand inspector"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M15 18l-6-6 6-6" />
+          </svg>
+        </button>
+        <span className="text-base">{info.emoji}</span>
+        <span className={`text-[9px] font-medium ${info.color} [writing-mode:vertical-rl] rotate-180`}>
+          {info.label}
+        </span>
+        <button
+          onClick={onClose}
+          className="mt-auto flex h-7 w-7 items-center justify-center rounded-lg hover:bg-white/10 text-muted-foreground hover:text-foreground transition"
+          title="Close inspector"
+          aria-label="Close inspector"
+        >
+          <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
+            <path d="M3 3L11 11M11 3L3 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div ref={panelRef} className="flex h-full w-[300px] flex-col border-l border-white/10 bg-background/95 backdrop-blur-sm">
-      {content}
+      {/* Collapse toggle in header */}
+      <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+        <div className="flex items-center gap-2">
+          <span className="text-base">{info.emoji}</span>
+          <span className={`text-sm font-semibold ${info.color}`}>
+            {info.label}
+          </span>
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setCollapsed(true)}
+            className="rounded-md p-1 text-muted-foreground hover:bg-white/10 hover:text-foreground transition"
+            title="Collapse panel"
+            aria-label="Collapse inspector"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 18l6-6-6-6" />
+            </svg>
+          </button>
+          <button
+            onClick={onClose}
+            className="rounded-md p-1 text-muted-foreground hover:bg-white/10 hover:text-foreground transition"
+            aria-label="Close inspector"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M3 3L11 11M11 3L3 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {/* Fields */}
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+        {renderEditor()}
+      </div>
+
+      {/* Footer */}
+      <div className="border-t border-white/10 px-4 py-3 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+        <button
+          onClick={() => onDelete(node.id)}
+          className="w-full rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-500/10 transition"
+        >
+          Delete Node
+        </button>
+        <div className="mt-2 text-center text-[10px] text-muted-foreground">
+          ID: {node.id}
+        </div>
+      </div>
     </div>
   );
 }

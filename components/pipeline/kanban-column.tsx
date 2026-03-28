@@ -20,6 +20,7 @@ type KanbanColumnProps = {
   highlightedDealIds?: Set<string>;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
+  unreadCounts?: Record<string, number>;
 };
 
 function avgDaysInStage(deals: Deal[]): number | null {
@@ -41,6 +42,7 @@ export function KanbanColumn({
   selectedDealIds, onToggleSelect,
   highlightDealId, highlightedDealIds,
   collapsed, onToggleCollapse,
+  unreadCounts,
 }: KanbanColumnProps) {
   const totalValue = deals.reduce((sum, d) => sum + Number(d.value ?? 0), 0);
   const avgDays = avgDaysInStage(deals);
@@ -152,6 +154,7 @@ export function KanbanColumn({
                 onToggleSelect={() => onToggleSelect(deal.id)}
                 highlight={deal.id === highlightDealId}
                 tgHighlight={highlightedDealIds?.has(deal.id) ?? false}
+                unreadCount={unreadCounts?.[deal.id]}
               />
             ))}
             {provided.placeholder}

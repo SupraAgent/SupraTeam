@@ -18,6 +18,7 @@ type DealCardProps = {
   onToggleSelect: () => void;
   highlight?: boolean;
   tgHighlight?: boolean;
+  unreadCount?: number;
 };
 
 function getColdWeeks(updatedAt: string): number {
@@ -30,7 +31,7 @@ export function DealCard({
   deal, index, stages, onClick,
   onQuickMove, onQuickOutcome, onInlineEdit,
   selected, onToggleSelect,
-  highlight, tgHighlight,
+  highlight, tgHighlight, unreadCount,
 }: DealCardProps) {
   const coldWeeks = getColdWeeks(deal.updated_at);
   const iceClass = coldWeeks >= 1 ? `ice-stage-${coldWeeks}` : null;
@@ -158,7 +159,14 @@ export function DealCard({
 
           <div onClick={onClick}>
             <div className="flex items-start justify-between gap-1 pr-6">
-              <p className="text-sm font-medium text-foreground truncate">{deal.deal_name}</p>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <p className="text-sm font-medium text-foreground truncate">{deal.deal_name}</p>
+                {unreadCount && unreadCount > 0 ? (
+                  <span className="shrink-0 inline-flex items-center justify-center h-4 min-w-[16px] rounded-full bg-blue-500 text-white text-[9px] font-bold px-1">
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                ) : null}
+              </div>
               {tgHighlight && (
                 <MessageCircle className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
               )}

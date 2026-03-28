@@ -1,6 +1,8 @@
 import * as React from "react";
 
-const MQ = "(pointer: coarse)";
+// Detect mobile via coarse pointer OR narrow viewport (< 768px).
+// Some mobile browsers (especially in-app WebViews) don't report pointer: coarse.
+const MQ = "(pointer: coarse), (max-width: 767px)";
 
 function subscribe(callback: () => void): () => void {
   const mq = window.matchMedia(MQ);
@@ -17,13 +19,12 @@ function getServerSnapshot(): boolean {
 }
 
 /**
- * Detect coarse pointer (touch-primary) devices using matchMedia.
- * Uses useSyncExternalStore to avoid hydration mismatches and
- * unnecessary re-renders from useState+useEffect pattern.
+ * Detect mobile devices using matchMedia.
+ * Returns true when either:
+ *   - pointer: coarse (touch-primary device)
+ *   - viewport width < 768px (narrow screen fallback)
  *
- * Returns true on phones/tablets, false on desktop (even with touchscreen
- * if mouse is primary). Does NOT use 'ontouchstart' which fires true on
- * hybrid devices like Surface.
+ * Uses useSyncExternalStore to avoid hydration mismatches.
  */
 export function useIsMobile(): boolean {
   return React.useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);

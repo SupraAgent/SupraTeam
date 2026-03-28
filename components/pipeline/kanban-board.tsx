@@ -20,6 +20,7 @@ type KanbanBoardProps = {
   onToggleSelect: (dealId: string) => void;
   highlightDealId?: string | null;
   highlightedDealIds?: Set<string>;
+  unreadCounts?: Record<string, number>;
 };
 
 export function KanbanBoard({
@@ -27,6 +28,7 @@ export function KanbanBoard({
   onQuickMove, onQuickOutcome, onInlineEdit,
   selectedDealIds, onToggleSelect,
   highlightDealId, highlightedDealIds,
+  unreadCounts,
 }: KanbanBoardProps) {
   const filteredDeals = board === "All" ? deals : deals.filter((d) => d.board_type === board);
   const allFilteredDeals = board === "All" ? allDeals : allDeals.filter((d) => d.board_type === board);
@@ -119,6 +121,7 @@ export function KanbanBoard({
                 highlightedDealIds={highlightedDealIds}
                 collapsed={isCollapsed}
                 onToggleCollapse={() => toggleCollapse(stage.id)}
+                unreadCounts={unreadCounts}
               />
             );
           })}

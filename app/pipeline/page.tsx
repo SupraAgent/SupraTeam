@@ -94,6 +94,7 @@ export default function PipelinePage() {
   const [insightsLoading, setInsightsLoading] = React.useState(false);
   const [showInsights, setShowInsights] = React.useState(false);
   const [bulkSentimentLoading, setBulkSentimentLoading] = React.useState(false);
+  const [unreadCounts, setUnreadCounts] = React.useState<Record<string, number>>({});
 
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -240,6 +241,11 @@ export default function PipelinePage() {
         const { highlighted_deal_ids } = await highlightsRes.json();
         setHighlightedDealIds(new Set(highlighted_deal_ids ?? []));
       }
+
+      // Fetch unread counts (non-blocking)
+      fetch("/api/deals/unread-counts").then((r) => r.json()).then((d) => {
+        setUnreadCounts(d.counts ?? {});
+      }).catch(() => {});
 
       // Show sample deals if no real deals exist
       if (fetchedDeals.length === 0 && fetchedStages.length > 0) {
@@ -671,6 +677,7 @@ export default function PipelinePage() {
           onToggleSelect={toggleSelectDeal}
           highlightDealId={highlightDealId}
           highlightedDealIds={highlightedDealIds}
+          unreadCounts={unreadCounts}
         />
       ) : (
         <DealListView

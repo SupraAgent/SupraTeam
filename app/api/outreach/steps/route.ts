@@ -45,16 +45,18 @@ export async function PUT(request: Request) {
     .eq("sequence_id", sequence_id);
 
   if (steps.length > 0) {
-    const stepRows = steps.map((s: { message_template: string; delay_hours?: number; step_type?: string; condition_type?: string; condition_config?: Record<string, unknown>; on_true_step?: number; on_false_step?: number }, i: number) => ({
+    const stepRows = steps.map((s: { message_template: string; delay_hours?: number; step_type?: string; step_label?: string; condition_type?: string; condition_config?: Record<string, unknown>; on_true_step?: number; on_false_step?: number; split_percentage?: number }, i: number) => ({
       sequence_id,
       step_number: i + 1,
       delay_hours: s.delay_hours ?? 24,
       message_template: s.message_template,
       step_type: s.step_type ?? "message",
+      step_label: s.step_label || null,
       condition_type: s.condition_type ?? null,
       condition_config: s.condition_config ?? null,
       on_true_step: s.on_true_step ?? null,
       on_false_step: s.on_false_step ?? null,
+      split_percentage: s.split_percentage ?? null,
     }));
 
     const { error } = await supabase

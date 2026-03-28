@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { cn, timeAgo } from "@/lib/utils";
-import { Send, Loader2, ExternalLink, Search, ChevronUp, MessageCircle, Bot } from "lucide-react";
+import { Send, Loader2, ExternalLink, Search, ChevronUp, ChevronDown, MessageCircle, Bot, User } from "lucide-react";
 
 type Message = {
   id: string;
@@ -11,20 +11,26 @@ type Message = {
   sender_telegram_id: number | null;
   text: string | null;
   message_type: string;
+  media_type?: string | null;
   reply_to_message_id: number | null;
   sent_at: string;
   is_from_bot: boolean;
   tg_deep_link?: string;
   source: "synced" | "notification";
+  contact_id?: string | null;
+  contact_name?: string | null;
 };
 
 type ConversationTimelineProps = {
   dealId: string;
   telegramChatId: number | null;
   telegramChatLink?: string | null;
+  onUnreadChange?: (count: number) => void;
 };
 
-export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink }: ConversationTimelineProps) {
+const POLL_INTERVAL = 15_000; // 15 seconds
+
+export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink, onUnreadChange }: ConversationTimelineProps) {
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [hasMore, setHasMore] = React.useState(false);
@@ -33,7 +39,9 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink 
   const [sending, setSending] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState("");
   const [showSearch, setShowSearch] = React.useState(false);
+  const [newMessageCount, setNewMessageCount] = React.useState(0);
   const scrollRef = React.useRef<HTMLDivElement>(null);
+  const isAtBottomRef = React.useRef(true);
 
   const fetchMessages = React.useCallback(async (cursor?: string) => {
     try {
@@ -52,10 +60,65 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink 
     }
   }, [dealId]);
 
+  // Poll for new messages
+  const pollNewMessages = React.useCallback(async () => {
+    if (!telegramChatId || messages.length === 0) return;
+    const lastSentAt = messages[messages.length - 1]?.sent_at;
+    if (!lastSentAt) return;
+    try {
+      const url = `/api/deals/${dealId}/conversation?after=${encodeURIComponent(lastSentAt)}`;
+      const res = await fetch(url);
+      if (!res.ok) return;
+      const data = await res.json();
+      const newMsgs: Message[] = data.messages ?? [];
+      if (newMsgs.length === 0) return;
+
+      // Dedupe by id
+      setMessages((prev) => {
+        const existingIds = new Set(prev.map((m) => m.id));
+        const unique = newMsgs.filter((m) => !existingIds.has(m.id));
+        if (unique.length === 0) return prev;
+
+        if (isAtBottomRef.current) {
+          // Auto-scroll if user is at bottom
+          setTimeout(() => {
+            if (scrollRef.current) {
+              scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+            }
+          }, 50);
+          return [...prev, ...unique];
+        }
+        // User scrolled up — show "N new messages" pill
+        setNewMessageCount((c) => c + unique.length);
+        return [...prev, ...unique];
+      });
+    } catch {
+      // silent fail
+    }
+  }, [dealId, telegramChatId, messages]);
+
   React.useEffect(() => {
     setLoading(true);
     fetchMessages().finally(() => setLoading(false));
   }, [fetchMessages]);
+
+  // Auto-refresh polling
+  React.useEffect(() => {
+    if (!telegramChatId || loading) return;
+    const interval = setInterval(pollNewMessages, POLL_INTERVAL);
+    return () => clearInterval(interval);
+  }, [telegramChatId, loading, pollNewMessages]);
+
+  // Track scroll position to determine if user is at bottom
+  const handleScroll = React.useCallback(() => {
+    if (!scrollRef.current) return;
+    const el = scrollRef.current;
+    const threshold = 60; // px from bottom
+    isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+    if (isAtBottomRef.current && newMessageCount > 0) {
+      setNewMessageCount(0);
+    }
+  }, [newMessageCount]);
 
   // Scroll to bottom on initial load
   React.useEffect(() => {
@@ -63,6 +126,21 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink 
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [loading]);
+
+  // Mark as read when viewing conversation
+  React.useEffect(() => {
+    if (!loading && messages.length > 0) {
+      fetch(`/api/deals/${dealId}/read-cursor`, { method: "POST" }).catch(() => {});
+      onUnreadChange?.(0);
+    }
+  }, [dealId, loading, messages.length, onUnreadChange]);
+
+  function scrollToBottom() {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+    setNewMessageCount(0);
+  }
 
   async function handleLoadMore() {
     if (!hasMore || loadingMore || messages.length === 0) return;
@@ -166,7 +244,7 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink 
       )}
 
       {/* Messages area */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-1 pr-1">
+      <div ref={scrollRef} onScroll={handleScroll} className="relative flex-1 overflow-y-auto space-y-1 pr-1">
         {/* Load more */}
         {hasMore && (
           <div className="text-center py-2">
@@ -218,6 +296,8 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink 
                   <div className="flex items-center gap-1.5 mb-0.5 px-1">
                     {msg.is_from_bot ? (
                       <Bot className="h-3 w-3 text-blue-400" />
+                    ) : msg.contact_id ? (
+                      <User className="h-3 w-3 text-emerald-400" />
                     ) : (
                       <div className="h-3 w-3 rounded-full bg-primary/20 flex items-center justify-center">
                         <span className="text-[7px] text-primary font-bold">
@@ -226,10 +306,13 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink 
                       </div>
                     )}
                     <span className="text-[10px] font-medium text-foreground/80">
-                      {msg.sender_name || "Unknown"}
+                      {msg.contact_name || msg.sender_name || "Unknown"}
                     </span>
                     {msg.sender_username && (
                       <span className="text-[9px] text-muted-foreground/40">@{msg.sender_username}</span>
+                    )}
+                    {msg.contact_id && (
+                      <span className="text-[8px] text-emerald-400/60 bg-emerald-400/5 px-1 py-0.5 rounded">contact</span>
                     )}
                   </div>
                 )}
@@ -242,7 +325,12 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink 
                       ? "bg-blue-500/10 border border-blue-500/10"
                       : "bg-white/[0.04]"
                   )}>
-                    {msg.message_type !== "text" && !msg.text && (
+                    {msg.media_type && (
+                      <span className="text-[10px] text-muted-foreground/50 italic flex items-center gap-1 mb-0.5">
+                        [{msg.media_type}]
+                      </span>
+                    )}
+                    {msg.message_type !== "text" && !msg.text && !msg.media_type && (
                       <span className="text-[10px] text-muted-foreground/50 italic">[{msg.message_type}]</span>
                     )}
                     {msg.text && (
@@ -270,6 +358,17 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink 
           );
         })}
       </div>
+
+      {/* New messages pill */}
+      {newMessageCount > 0 && (
+        <button
+          onClick={scrollToBottom}
+          className="flex items-center gap-1 mx-auto py-1 px-3 rounded-full bg-primary text-primary-foreground text-[10px] font-medium shadow-lg hover:bg-primary/90 transition-colors shrink-0"
+        >
+          <ChevronDown className="h-3 w-3" />
+          {newMessageCount} new message{newMessageCount !== 1 ? "s" : ""}
+        </button>
+      )}
 
       {/* Reply input */}
       <div className="flex gap-2 pt-2 border-t border-white/5 shrink-0 mt-2">
