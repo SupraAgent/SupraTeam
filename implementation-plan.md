@@ -1,5 +1,7 @@
 # Implementation Plan: SupraCRM Remaining Features
-**Date:** 2026-03-28 | **Status:** Draft for CPO Review
+**Date:** 2026-03-28 | **Status:** CPO Approved (with modifications)
+
+> **CPO Review (2026-03-28):** Plan is 80% right. Key changes: killed TMA offline cache (unreliable in TMA WebView), slimmed Q2/Q5 (cut scopes, HMAC — v2 concerns), split chatbot into two drops, moved folder sync before chatbot (more visible), deferred auto-assignment, added 4 new items (bot commands, Zapier teaser, chatbot templates, group message search). Ship week 1 Monday.
 
 ---
 
