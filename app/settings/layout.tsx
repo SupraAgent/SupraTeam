@@ -25,6 +25,12 @@ const SETTINGS_GROUPS = [
     ],
   },
   {
+    label: "Inbox",
+    items: [
+      { href: "/settings/inbox/canned", label: "Canned Responses" },
+    ],
+  },
+  {
     label: "Pipeline",
     items: [
       { href: "/settings/pipeline", label: "Stages & Fields" },

@@ -192,17 +192,19 @@ export async function getMessages(
   );
 }
 
-/** Send a text message */
+/** Send a text message (optionally as a reply) */
 export async function sendMessage(
   client: TelegramClient,
   peer: Api.TypeInputPeer,
-  message: string
+  message: string,
+  replyToMsgId?: number
 ): Promise<Api.TypeUpdates> {
   return client.invoke(
     new Api.messages.SendMessage({
       peer,
       message,
       randomId: bigInt(Math.floor(Math.random() * Number.MAX_SAFE_INTEGER)),
+      ...(replyToMsgId ? { replyTo: new Api.InputReplyToMessage({ replyToMsgId }) } : {}),
     })
   );
 }
