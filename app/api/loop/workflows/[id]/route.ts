@@ -54,19 +54,10 @@ export async function PUT(request: NextRequest, ctx: RouteCtx) {
   if ("is_active" in body && typeof body.is_active === "boolean") update.is_active = body.is_active;
   if ("trigger_type" in body) update.trigger_type = body.trigger_type ?? null;
 
-  // If nodes or edges changed, bump version
-  if ("nodes" in body || "edges" in body) {
-    if ("nodes" in body) update.nodes = body.nodes;
-    if ("edges" in body) update.edges = body.edges;
-
-    // Fetch current version to increment
-    const { data: current } = await supabase
-      .from("crm_workflows")
-      .select("version")
-      .eq("id", id)
-      .single();
-    update.version = (current?.version ?? 0) + 1;
-  }
+  // If nodes or edges changed, bump version atomically via RPC
+  const bumpVersion = "nodes" in body || "edges" in body;
+  if ("nodes" in body) update.nodes = body.nodes;
+  if ("edges" in body) update.edges = body.edges;
 
   const { data, error } = await supabase
     .from("crm_workflows")
@@ -77,6 +68,15 @@ export async function PUT(request: NextRequest, ctx: RouteCtx) {
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  // Atomically bump version when nodes/edges changed (avoids SELECT+UPDATE race)
+  if (bumpVersion && data) {
+    const { error: rpcError } = await supabase.rpc("increment_workflow_version", { wf_id: id });
+    if (rpcError) {
+      // Fallback: non-atomic increment if RPC doesn't exist
+      await supabase.from("crm_workflows").update({ version: (data.version ?? 0) + 1 }).eq("id", id);
+    }
   }
 
   return NextResponse.json({ workflow: data, ok: true });

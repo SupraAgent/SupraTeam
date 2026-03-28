@@ -111,9 +111,11 @@ interface DbWorkflow {
 
 function WorkflowManagerPanel({
   onLoad,
+  onDelete,
   activeWorkflowId,
   activeWorkflowName,
   isSaving,
+  saveError,
   lastSaved,
   isActive,
   onToggleActive,
@@ -123,9 +125,11 @@ function WorkflowManagerPanel({
   lastRunStatus,
 }: {
   onLoad: (id: string) => void;
+  onDelete: (id: string) => void;
   activeWorkflowId: string | null;
   activeWorkflowName: string;
   isSaving: boolean;
+  saveError: string | null;
   lastSaved: string | null;
   isActive: boolean;
   onToggleActive: () => void;
@@ -188,7 +192,10 @@ function WorkflowManagerPanel({
         {isSaving && (
           <span className="text-[10px] text-muted-foreground animate-pulse">Saving...</span>
         )}
-        {!isSaving && lastSaved && (
+        {!isSaving && saveError && (
+          <span className="text-[10px] text-red-400" title={saveError}>Save failed</span>
+        )}
+        {!isSaving && !saveError && lastSaved && (
           <span className="text-[10px] text-muted-foreground">Saved</span>
         )}
       </div>
@@ -246,21 +253,32 @@ function WorkflowManagerPanel({
               </div>
             )}
             {workflows.map((wf) => (
-              <button
+              <div
                 key={wf.id}
-                onClick={() => { onLoad(wf.id); setShowList(false); }}
-                className={`w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/5 transition ${
+                className={`flex items-center gap-2 px-3 py-2 hover:bg-white/5 transition ${
                   wf.id === activeWorkflowId ? "bg-primary/5 border-l-2 border-primary" : ""
                 }`}
               >
-                <div className="flex-1 min-w-0">
+                <button
+                  onClick={() => { onLoad(wf.id); setShowList(false); }}
+                  className="flex-1 min-w-0 text-left"
+                >
                   <div className="text-xs font-medium text-foreground truncate">{wf.name}</div>
                   <div className="text-[10px] text-muted-foreground">
                     {wf.trigger_type || "No trigger"} · {wf.run_count} runs
                     {wf.is_active && <span className="ml-1 text-emerald-400">● active</span>}
                   </div>
-                </div>
-              </button>
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onDelete(wf.id); fetchWorkflows(); }}
+                  className="shrink-0 p-1 text-muted-foreground hover:text-red-400 transition"
+                  title="Delete workflow"
+                >
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                  </svg>
+                </button>
+              </div>
             ))}
           </div>
         </>
@@ -276,9 +294,12 @@ export default function LoopBuilderPage() {
   const [activeWorkflowName, setActiveWorkflowName] = React.useState("New Workflow");
   const [isActive, setIsActive] = React.useState(false);
   const [isSaving, setIsSaving] = React.useState(false);
+  const [saveError, setSaveError] = React.useState<string | null>(null);
   const [lastSaved, setLastSaved] = React.useState<string | null>(null);
   const [isRunning, setIsRunning] = React.useState(false);
   const [lastRunStatus, setLastRunStatus] = React.useState<string | null>(null);
+  const [showNameInput, setShowNameInput] = React.useState(false);
+  const [pendingName, setPendingName] = React.useState("");
 
   // Track current canvas state for save
   const nodesRef = React.useRef<Node[]>([]);
@@ -295,8 +316,9 @@ export default function LoopBuilderPage() {
   const saveToDb = React.useCallback(async (nodes: Node[], edges: Edge[]) => {
     if (!activeWorkflowId) return;
     setIsSaving(true);
+    setSaveError(null);
     try {
-      await fetch(`/api/loop/workflows/${activeWorkflowId}`, {
+      const res = await fetch(`/api/loop/workflows/${activeWorkflowId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -305,7 +327,14 @@ export default function LoopBuilderPage() {
           trigger_type: detectTriggerType(nodes),
         }),
       });
-      setLastSaved(new Date().toISOString());
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Save failed" }));
+        setSaveError(err.error || "Save failed");
+      } else {
+        setLastSaved(new Date().toISOString());
+      }
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Network error");
     } finally {
       setIsSaving(false);
     }
@@ -317,34 +346,46 @@ export default function LoopBuilderPage() {
       await saveToDb(nodes, edges);
       return;
     }
+    // Show inline name input for new workflows
+    nodesRef.current = nodes;
+    edgesRef.current = edges;
+    setPendingName(activeWorkflowName);
+    setShowNameInput(true);
+  }, [activeWorkflowId, activeWorkflowName, saveToDb]);
 
-    // Create new workflow
+  /** Confirm new workflow creation with the entered name */
+  const confirmCreateWorkflow = React.useCallback(async () => {
+    const name = pendingName.trim();
+    if (!name) return;
+    setShowNameInput(false);
     setIsSaving(true);
+    setSaveError(null);
     try {
-      const name = prompt("Workflow name:", activeWorkflowName);
-      if (!name) { setIsSaving(false); return; }
-
       const res = await fetch("/api/loop/workflows", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name,
-          nodes,
-          edges,
-          trigger_type: detectTriggerType(nodes),
+          nodes: nodesRef.current,
+          edges: edgesRef.current,
+          trigger_type: detectTriggerType(nodesRef.current),
         }),
       });
-
       if (res.ok) {
         const data = await res.json();
         setActiveWorkflowId(data.workflow.id);
         setActiveWorkflowName(data.workflow.name);
         setLastSaved(new Date().toISOString());
+      } else {
+        const err = await res.json().catch(() => ({ error: "Create failed" }));
+        setSaveError(err.error || "Create failed");
       }
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Network error");
     } finally {
       setIsSaving(false);
     }
-  }, [activeWorkflowId, activeWorkflowName, saveToDb]);
+  }, [pendingName]);
 
   /** Load a workflow from DB */
   const handleLoad = React.useCallback(async (id: string) => {
@@ -374,6 +415,21 @@ export default function LoopBuilderPage() {
     });
     setIsActive(newActive);
   }, [activeWorkflowId, isActive]);
+
+  /** Delete a workflow */
+  const handleDeleteWorkflow = React.useCallback(async (id: string) => {
+    await fetch(`/api/loop/workflows/${id}`, { method: "DELETE" });
+    if (id === activeWorkflowId) {
+      setActiveWorkflowId(null);
+      setActiveWorkflowName("New Workflow");
+      setIsActive(false);
+      setLastSaved(null);
+      setLastRunStatus(null);
+      nodesRef.current = [];
+      edgesRef.current = [];
+      setBuilderKey((k) => k + 1);
+    }
+  }, [activeWorkflowId]);
 
   /** New workflow */
   const handleNewWorkflow = React.useCallback(() => {
@@ -433,9 +489,11 @@ export default function LoopBuilderPage() {
     <div className="relative h-full">
       <WorkflowManagerPanel
         onLoad={handleLoad}
+        onDelete={handleDeleteWorkflow}
         activeWorkflowId={activeWorkflowId}
         activeWorkflowName={activeWorkflowName}
         isSaving={isSaving}
+        saveError={saveError}
         lastSaved={lastSaved}
         isActive={isActive}
         onToggleActive={handleToggleActive}
@@ -444,6 +502,27 @@ export default function LoopBuilderPage() {
         isRunning={isRunning}
         lastRunStatus={lastRunStatus}
       />
+
+      {/* Inline name input modal (replaces window.prompt) */}
+      {showNameInput && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="rounded-xl border border-white/10 bg-background p-4 shadow-2xl w-80">
+            <div className="text-sm font-semibold text-foreground mb-2">Save Workflow</div>
+            <input
+              autoFocus
+              className="w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none"
+              value={pendingName}
+              onChange={(e) => setPendingName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") confirmCreateWorkflow(); if (e.key === "Escape") setShowNameInput(false); }}
+              placeholder="Workflow name"
+            />
+            <div className="flex justify-end gap-2 mt-3">
+              <button onClick={() => setShowNameInput(false)} className="text-xs px-3 py-1.5 text-muted-foreground hover:text-foreground transition">Cancel</button>
+              <button onClick={confirmCreateWorkflow} className="text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition">Save</button>
+            </div>
+          </div>
+        </div>
+      )}
       <WorkflowBuilder
         key={builderKey}
         initialNodes={nodesRef.current}

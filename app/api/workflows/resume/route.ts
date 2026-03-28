@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdmin } from "@/lib/supabase";
 import { resumeWorkflowRun } from "@/lib/workflow-engine";
+import { resumeLoopWorkflowRun, isLoopBuilderWorkflow } from "@/lib/loop-workflow-engine";
 
 /**
  * Process due workflow resume messages from crm_scheduled_messages.
@@ -41,7 +42,18 @@ export async function POST(request: Request) {
       const payload = JSON.parse(msg.message_text);
       if (!payload._workflow_resume || !payload.run_id) continue;
 
-      const result = await resumeWorkflowRun(payload.run_id);
+      // Determine if this is a Loop Builder or classic workflow run
+      const { data: runData } = await supabase
+        .from("crm_workflow_runs")
+        .select("workflow:crm_workflows(nodes)")
+        .eq("id", payload.run_id)
+        .single();
+      const wfNodes = (runData?.workflow as { nodes?: unknown[] } | null)?.nodes ?? [];
+      const isLoop = isLoopBuilderWorkflow(wfNodes);
+
+      const result = isLoop
+        ? await resumeLoopWorkflowRun(payload.run_id)
+        : await resumeWorkflowRun(payload.run_id);
 
       // Mark the scheduled message as processed
       await supabase

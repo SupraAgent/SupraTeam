@@ -7,7 +7,7 @@ import { createSupabaseAdmin } from "@/lib/supabase";
 import { sendTelegramWithTracking } from "@/lib/telegram-send";
 import { renderTemplate } from "@/lib/telegram-templates";
 import { executeWorkflowFromData } from "@/lib/workflow-engine";
-import { triggerLoopWorkflowsByEvent } from "@/lib/loop-workflow-engine";
+import { triggerLoopWorkflowsByEvent, isLoopBuilderWorkflow } from "@/lib/loop-workflow-engine";
 import type { Workflow } from "@/lib/workflow-db-types";
 
 export interface AutomationEvent {
@@ -116,6 +116,9 @@ async function evaluateWorkflows(
   if (!workflows || workflows.length === 0) return;
 
   for (const wf of workflows) {
+    // Skip Loop Builder workflows — they are handled by triggerLoopWorkflowsByEvent()
+    if (isLoopBuilderWorkflow(wf.nodes ?? [])) continue;
+
     try {
       await executeWorkflowFromData(wf as unknown as Workflow, {
         type: event.type,
