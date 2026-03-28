@@ -93,6 +93,7 @@ export default function HomePage() {
   const [highlights, setHighlights] = React.useState<{ id: string; deal_id: string | null; sender_name: string | null; message_preview: string | null; tg_deep_link: string | null; highlight_type: string; created_at: string }[]>([]);
   const [extras, setExtras] = React.useState<DashboardExtras | null>(null);
   const [activityFeed, setActivityFeed] = React.useState<ActivityEvent[]>([]);
+  const [timeRange, setTimeRange] = React.useState<"7d" | "30d" | "90d" | "all">("30d");
   const [loading, setLoading] = React.useState(true);
 
   // Collapsible widget state (persisted in localStorage)
@@ -114,14 +115,16 @@ export default function HomePage() {
   }, []);
 
   React.useEffect(() => {
+    setLoading(true);
+    const rangeParam = timeRange !== "all" ? `?range=${timeRange}` : "";
     Promise.all([
-      fetch("/api/stats").then((r) => (r.ok ? r.json() : null)),
+      fetch(`/api/stats${rangeParam}`).then((r) => (r.ok ? r.json() : null)),
       fetch("/api/notifications?limit=10").then((r) => (r.ok ? r.json() : null)),
       fetch("/api/reminders").then((r) => (r.ok ? r.json() : null)).catch(() => null),
-      fetch("/api/analytics").then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      fetch(`/api/analytics${rangeParam}`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
       fetch("/api/stats/team").then((r) => (r.ok ? r.json() : null)).catch(() => null),
       fetch("/api/highlights").then((r) => (r.ok ? r.json() : null)).catch(() => null),
-      fetch("/api/dashboard/extras").then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      fetch(`/api/dashboard/extras${rangeParam}`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
       fetch("/api/dashboard/activity?limit=30").then((r) => (r.ok ? r.json() : null)).catch(() => null),
     ])
       .then(([statsData, notifData, reminderData, analyticsData, teamData, highlightsData, extrasData, activityData]) => {
@@ -135,7 +138,7 @@ export default function HomePage() {
         if (activityData) setActivityFeed(activityData.events ?? []);
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [timeRange]);
 
   if (loading) {
     return (
@@ -170,6 +173,20 @@ export default function HomePage() {
         <div>
           <h1 className="text-xl font-semibold text-foreground">Dashboard</h1>
           <p className="mt-1 text-sm text-muted-foreground">Command center for your CRM pipeline.</p>
+        </div>
+        <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-white/[0.035] p-0.5">
+          {(["7d", "30d", "90d", "all"] as const).map((range) => (
+            <button
+              key={range}
+              onClick={() => setTimeRange(range)}
+              className={cn(
+                "rounded-lg px-2.5 py-1 text-[11px] font-medium transition",
+                timeRange === range ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {range === "all" ? "All" : range}
+            </button>
+          ))}
         </div>
       </div>
 
