@@ -1378,7 +1378,7 @@ function GroupCard({
             className="inline-flex items-center gap-0.5 rounded-md border border-dashed border-white/10 px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:border-white/20 transition"
           >
             <Plus className="h-2.5 w-2.5" />
-            Add slug
+            Link Deal
           </button>
         )}
       </div>
