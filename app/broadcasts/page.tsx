@@ -862,6 +862,39 @@ export default function BroadcastsPage() {
                 )}
               </div>
 
+              {/* Audience preview panel */}
+              {selectedGroupIds.size > 0 && (() => {
+                const selectedGroups = groups.filter((g) => selectedGroupIds.has(g.id));
+                const notAdmin = selectedGroups.filter((g) => !g.bot_is_admin);
+                const noMembers = selectedGroups.filter((g) => !g.member_count);
+                return (
+                  <div className={cn(
+                    "rounded-lg border p-2.5 text-xs space-y-1.5",
+                    notAdmin.length > 0 ? "border-amber-500/30 bg-amber-500/5" : "border-white/10 bg-white/[0.02]"
+                  )}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground font-medium flex items-center gap-1.5">
+                        <Users className="h-3 w-3" /> Audience Preview
+                      </span>
+                      <span className="text-foreground font-medium">
+                        {selectedGroupIds.size} group{selectedGroupIds.size !== 1 ? "s" : ""} &middot; ~{totalRecipients.toLocaleString()} recipients
+                      </span>
+                    </div>
+                    {notAdmin.length > 0 && (
+                      <p className="text-[10px] text-amber-400 flex items-center gap-1">
+                        <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
+                        Bot is not admin in {notAdmin.length} group{notAdmin.length !== 1 ? "s" : ""} — delivery will fail: {notAdmin.slice(0, 3).map((g) => g.group_name).join(", ")}{notAdmin.length > 3 ? ` +${notAdmin.length - 3} more` : ""}
+                      </p>
+                    )}
+                    {noMembers.length > 0 && noMembers.length < selectedGroups.length && (
+                      <p className="text-[10px] text-muted-foreground/60">
+                        {noMembers.length} group{noMembers.length !== 1 ? "s" : ""} with unknown member count — recipient estimate may be low
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
+
               <div className="flex items-center justify-between">
                 <div className="text-xs text-muted-foreground space-y-0.5">
                   <p className="flex items-center gap-1.5">
@@ -876,12 +909,6 @@ export default function BroadcastsPage() {
                   {message.length > 4096 && (
                     <p className="text-[10px] text-red-400 flex items-center gap-1">
                       <AlertTriangle className="h-2.5 w-2.5" /> Exceeds Telegram&apos;s 4096 character limit
-                    </p>
-                  )}
-                  {totalRecipients > 0 && (
-                    <p className="text-[10px] flex items-center gap-1">
-                      <Users className="h-2.5 w-2.5" />
-                      ~{totalRecipients.toLocaleString()} total recipients
                     </p>
                   )}
                   {message.trim() && (

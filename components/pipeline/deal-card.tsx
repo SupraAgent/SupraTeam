@@ -4,7 +4,7 @@ import * as React from "react";
 import { Draggable } from "@hello-pangea/dnd";
 import type { Deal, PipelineStage } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { MessageCircle, Snowflake, MoreHorizontal, ArrowRight, Trophy, XCircle, Check, X, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { MessageCircle, Snowflake, MoreHorizontal, ArrowRight, Trophy, XCircle, Check, X, TrendingUp, TrendingDown, Minus, Clock } from "lucide-react";
 
 type DealCardProps = {
   deal: Deal;
@@ -18,8 +18,12 @@ type DealCardProps = {
   onToggleSelect: () => void;
   highlight?: boolean;
   tgHighlight?: boolean;
+  tgHighlightDetails?: { priority?: string; sentiment?: string; message_count?: number; sender_name?: string };
   unreadCount?: number;
 };
+
+// Response time threshold (hours) — will be configurable via SLA config in Stage 2
+const RESPONSE_OVERDUE_HOURS = 4;
 
 function getColdWeeks(updatedAt: string): number {
   const ms = Date.now() - new Date(updatedAt).getTime();
@@ -31,7 +35,7 @@ export function DealCard({
   deal, index, stages, onClick,
   onQuickMove, onQuickOutcome, onInlineEdit,
   selected, onToggleSelect,
-  highlight, tgHighlight, unreadCount,
+  highlight, tgHighlight, tgHighlightDetails, unreadCount,
 }: DealCardProps) {
   const coldWeeks = getColdWeeks(deal.updated_at);
   const iceClass = coldWeeks >= 1 ? `ice-stage-${coldWeeks}` : null;
@@ -167,9 +171,19 @@ export function DealCard({
                   </span>
                 ) : null}
               </div>
-              {tgHighlight && (
-                <MessageCircle className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
-              )}
+              {tgHighlight && (() => {
+                const p = tgHighlightDetails?.priority;
+                const iconColor = p === "urgent" ? "text-red-400" : p === "high" ? "text-orange-400" : "text-amber-400";
+                const count = tgHighlightDetails?.message_count ?? 1;
+                return (
+                  <span className="flex items-center gap-0.5 shrink-0 mt-0.5">
+                    <MessageCircle className={cn("h-3.5 w-3.5", iconColor)} />
+                    {count > 1 && (
+                      <span className={cn("text-[9px] font-bold", iconColor)}>{count}</span>
+                    )}
+                  </span>
+                );
+              })()}
             </div>
 
             {deal.contact && (
@@ -285,6 +299,17 @@ export function DealCard({
               </button>
             ) : null}
 
+            {/* Highlight sentiment dot */}
+            {tgHighlight && tgHighlightDetails?.sentiment && tgHighlightDetails.sentiment !== "neutral" && (
+              <span
+                className={cn(
+                  "h-2 w-2 rounded-full shrink-0",
+                  tgHighlightDetails.sentiment === "negative" ? "bg-red-400" : "bg-emerald-400"
+                )}
+                title={`Sentiment: ${tgHighlightDetails.sentiment}`}
+              />
+            )}
+
             {deal.assigned_profile && (
               <img
                 src={deal.assigned_profile.avatar_url}
@@ -294,6 +319,24 @@ export function DealCard({
               />
             )}
           </div>
+
+          {/* Response time indicator */}
+          {deal.awaiting_response_since && deal.outcome !== "won" && deal.outcome !== "lost" && (() => {
+            const waitMs = Date.now() - new Date(deal.awaiting_response_since).getTime();
+            const waitHours = Math.floor(waitMs / 3600000);
+            const waitMins = Math.floor((waitMs % 3600000) / 60000);
+            const isOverdue = waitHours >= RESPONSE_OVERDUE_HOURS;
+            const label = waitHours > 0 ? `${waitHours}h ${waitMins}m` : `${waitMins}m`;
+            return (
+              <div className={cn(
+                "mt-1.5 flex items-center gap-1 text-[9px] font-medium rounded px-1.5 py-0.5",
+                isOverdue ? "bg-red-500/10 text-red-400" : "bg-amber-500/10 text-amber-400"
+              )}>
+                <Clock className="h-2.5 w-2.5" />
+                Awaiting reply: {label}
+              </div>
+            );
+          })()}
         </div>
       )}
     </Draggable>

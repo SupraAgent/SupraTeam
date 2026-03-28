@@ -82,6 +82,7 @@ export default function PipelinePage() {
   const [usingSamples, setUsingSamples] = React.useState(false);
   const [highlightDealId, setHighlightDealId] = React.useState<string | null>(null);
   const [highlightedDealIds, setHighlightedDealIds] = React.useState<Set<string>>(new Set());
+  const [highlightDetails, setHighlightDetails] = React.useState<Record<string, { priority?: string; sentiment?: string; message_count?: number; sender_name?: string }>>({});
   const [filters, setFilters] = React.useState<PipelineFilters>(EMPTY_FILTERS);
   const [showFilters, setShowFilters] = React.useState(false);
   const [selectedDealIds, setSelectedDealIds] = React.useState<Set<string>>(new Set());
@@ -238,8 +239,24 @@ export default function PipelinePage() {
         setContacts(contacts);
       }
       if (highlightsRes.ok) {
-        const { highlighted_deal_ids } = await highlightsRes.json();
+        const { highlighted_deal_ids, highlights: hlList } = await highlightsRes.json();
         setHighlightedDealIds(new Set(highlighted_deal_ids ?? []));
+        // Build a details map keyed by deal_id (use highest priority highlight per deal)
+        const detailsMap: Record<string, { priority?: string; sentiment?: string; message_count?: number; sender_name?: string }> = {};
+        const priorityRank: Record<string, number> = { urgent: 4, high: 3, medium: 2, low: 1 };
+        for (const h of hlList ?? []) {
+          if (!h.deal_id) continue;
+          const existing = detailsMap[h.deal_id];
+          if (!existing || (priorityRank[h.priority] ?? 0) > (priorityRank[existing.priority ?? ""] ?? 0)) {
+            detailsMap[h.deal_id] = {
+              priority: h.priority,
+              sentiment: h.sentiment,
+              message_count: h.message_count,
+              sender_name: h.sender_name,
+            };
+          }
+        }
+        setHighlightDetails(detailsMap);
       }
 
       // Fetch unread counts (non-blocking)
@@ -677,6 +694,7 @@ export default function PipelinePage() {
           onToggleSelect={toggleSelectDeal}
           highlightDealId={highlightDealId}
           highlightedDealIds={highlightedDealIds}
+          highlightDetails={highlightDetails}
           unreadCounts={unreadCounts}
         />
       ) : (

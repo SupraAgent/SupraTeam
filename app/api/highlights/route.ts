@@ -17,7 +17,7 @@ export async function GET() {
   // Fetch active highlights
   const { data: highlights, error } = await supabase
     .from("crm_highlights")
-    .select("id, deal_id, contact_id, sender_name, message_preview, tg_deep_link, highlight_type, created_at")
+    .select("id, deal_id, contact_id, sender_name, message_preview, tg_deep_link, highlight_type, priority, sentiment, message_count, created_at")
     .eq("is_active", true)
     .order("created_at", { ascending: false });
 
