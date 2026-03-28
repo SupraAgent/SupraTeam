@@ -15,6 +15,30 @@ async function fireWorkflowTriggers(triggerType: string, payload: Record<string,
   }
 }
 
+// ── Team member detection cache (refreshed every 60s) ──────────
+let cachedTeamTelegramIds: Set<number> = new Set();
+let teamIdsFetchedAt = 0;
+const TEAM_IDS_TTL_MS = 60_000;
+
+async function getTeamTelegramIds(): Promise<Set<number>> {
+  if (cachedTeamTelegramIds.size > 0 && Date.now() - teamIdsFetchedAt < TEAM_IDS_TTL_MS) {
+    return cachedTeamTelegramIds;
+  }
+  const { data } = await supabase
+    .from("profiles")
+    .select("telegram_id")
+    .not("telegram_id", "is", null);
+  const ids = new Set<number>();
+  if (data) {
+    for (const p of data) {
+      if (p.telegram_id) ids.add(Number(p.telegram_id));
+    }
+  }
+  cachedTeamTelegramIds = ids;
+  teamIdsFetchedAt = Date.now();
+  return ids;
+}
+
 // ── AI Agent: cached config (refreshed every 60s) ──────────────
 interface AgentConfig {
   id: string;
@@ -438,7 +462,7 @@ export function registerMessageHandlers(bot: Bot) {
       // Find deals linked to this telegram chat (include assigned_to for push notifications)
       const { data: deals } = await supabase
         .from("crm_deals")
-        .select("id, deal_name, board_type, stage_id, assigned_to")
+        .select("id, deal_name, board_type, stage_id, assigned_to, contact_id")
         .eq("telegram_chat_id", chatId);
 
       // Store full message in tg_group_messages for conversation timeline
@@ -489,6 +513,10 @@ export function registerMessageHandlers(bot: Bot) {
 
       if (!deals || deals.length === 0) return; // No deals linked — skip notifications
 
+      // Detect if sender is a team member
+      const teamIds = await getTeamTelegramIds();
+      const isTeamMember = teamIds.has(ctx.from.id);
+
       // Create a notification for each linked deal + push DM to assigned rep
       for (const deal of deals) {
         await supabase.from("crm_notifications").insert({
@@ -520,6 +548,106 @@ export function registerMessageHandlers(bot: Bot) {
               tmaPath: `/tma/deals/${deal.id}`,
               dealId: deal.id,
             }).catch((err) => console.error("[bot/messages] push error:", err));
+          }
+        }
+
+        // ── Highlight creation / clearing ──────────────────────────
+        if (!ctx.from.is_bot) {
+          if (isTeamMember) {
+            // Team member responded — clear active highlights and record response time
+            const { data: activeHighlights } = await supabase
+              .from("crm_highlights")
+              .select("id, created_at")
+              .eq("deal_id", deal.id)
+              .eq("is_active", true);
+
+            if (activeHighlights && activeHighlights.length > 0) {
+              const now = new Date();
+              for (const h of activeHighlights) {
+                const responseTimeMs = now.getTime() - new Date(h.created_at).getTime();
+                await supabase
+                  .from("crm_highlights")
+                  .update({
+                    is_active: false,
+                    cleared_at: now.toISOString(),
+                    cleared_by: "team_response",
+                    responded_at: now.toISOString(),
+                    response_time_ms: responseTimeMs,
+                  })
+                  .eq("id", h.id);
+              }
+
+              // Clear awaiting_response on the deal
+              await supabase
+                .from("crm_deals")
+                .update({ awaiting_response_since: null })
+                .eq("id", deal.id);
+            }
+          } else {
+            // External sender — check for existing highlight dedup
+            const { data: activeHighlights } = await supabase
+              .from("crm_highlights")
+              .select("id, sender_name")
+              .eq("deal_id", deal.id)
+              .eq("is_active", true);
+
+            // If different sender responds, clear old highlights
+            if (activeHighlights && activeHighlights.length > 0) {
+              const fromDifferent = activeHighlights.some((h) => h.sender_name !== senderName);
+              if (fromDifferent) {
+                await supabase
+                  .from("crm_highlights")
+                  .update({ is_active: false, cleared_at: new Date().toISOString(), cleared_by: "response" })
+                  .eq("deal_id", deal.id)
+                  .eq("is_active", true);
+              }
+            }
+
+            // Dedup: only create if no active highlight from this sender in 24h
+            const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+            const { data: recentHighlight } = await supabase
+              .from("crm_highlights")
+              .select("id")
+              .eq("deal_id", deal.id)
+              .eq("sender_name", senderName)
+              .eq("is_active", true)
+              .gte("created_at", twentyFourHoursAgo)
+              .limit(1);
+
+            if (!recentHighlight || recentHighlight.length === 0) {
+              // Priority / sentiment detection
+              const lowerText = messageText.toLowerCase();
+              const urgentWords = ["urgent", "asap", "immediately", "critical", "deadline"];
+              const highWords = ["ready to sign", "contract", "payment", "invoice", "approve", "confirm"];
+              const negativeWords = ["cancel", "delay", "problem", "issue", "disappointed", "frustrated", "concerned"];
+              const positiveWords = ["excited", "great", "love", "perfect", "amazing", "deal", "agree", "yes"];
+
+              let priority: "low" | "medium" | "high" | "urgent" = "medium";
+              if (urgentWords.some((w) => lowerText.includes(w))) priority = "urgent";
+              else if (highWords.some((w) => lowerText.includes(w))) priority = "high";
+
+              let sentiment: "positive" | "neutral" | "negative" = "neutral";
+              if (negativeWords.some((w) => lowerText.includes(w))) sentiment = "negative";
+              else if (positiveWords.some((w) => lowerText.includes(w))) sentiment = "positive";
+
+              await supabase.from("crm_highlights").insert({
+                deal_id: deal.id,
+                contact_id: deal.contact_id ?? null,
+                tg_group_id: tgGroup.id,
+                sender_name: senderName,
+                message_preview: messageText.length > 100 ? messageText.slice(0, 100) + "..." : messageText,
+                tg_deep_link: tgDeepLink,
+                highlight_type: "tg_message",
+                priority,
+                sentiment,
+              });
+
+              // Set awaiting_response on the deal
+              await supabase
+                .from("crm_deals")
+                .update({ awaiting_response_since: new Date().toISOString() })
+                .eq("id", deal.id);
+            }
           }
         }
       }
