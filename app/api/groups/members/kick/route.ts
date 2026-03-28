@@ -1,13 +1,13 @@
 /**
  * POST /api/groups/members/kick — Kick a member from a specific group
- * Bot must be admin. Uses ban+unban (soft kick, user can rejoin via invite).
+ * Requires lead role. Uses ban+unban (soft kick, user can rejoin via invite).
  */
 import { NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth-guard";
+import { requireLeadRole } from "@/lib/auth-guard";
 import { logAudit } from "@/lib/audit";
 
 export async function POST(request: Request) {
-  const auth = await requireAuth();
+  const auth = await requireLeadRole();
   if ("error" in auth) return auth.error;
   const { user, admin: supabase } = auth;
 
@@ -16,11 +16,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Bot token not configured" }, { status: 503 });
   }
 
-  const body = await request.json();
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
   const { group_id, telegram_user_id, member_name } = body;
 
-  if (!group_id || !telegram_user_id) {
-    return NextResponse.json({ error: "group_id and telegram_user_id required" }, { status: 400 });
+  if (!group_id || typeof telegram_user_id !== "number" || !Number.isInteger(telegram_user_id) || telegram_user_id <= 0) {
+    return NextResponse.json({ error: "Valid group_id and numeric telegram_user_id required" }, { status: 400 });
   }
 
   // Get group info
@@ -60,7 +66,7 @@ export async function POST(request: Request) {
     }
 
     // Immediately unban so they can rejoin later via invite
-    await fetch(
+    const unbanRes = await fetch(
       `https://api.telegram.org/bot${botToken}/unbanChatMember`,
       {
         method: "POST",
@@ -72,6 +78,10 @@ export async function POST(request: Request) {
         }),
       }
     );
+    const unbanData = await unbanRes.json();
+    const unbanWarning = !unbanData.ok
+      ? "User was removed but unban failed — they may be permanently banned. Check manually."
+      : undefined;
 
     // Update member record to "left"
     await supabase
@@ -85,7 +95,7 @@ export async function POST(request: Request) {
       group_id,
       telegram_user_id,
       event_type: "banned",
-      metadata: { kicked_by: user.id, immediately_unbanned: true },
+      metadata: { kicked_by: user.id, immediately_unbanned: unbanData.ok },
     });
 
     // Audit log
@@ -100,10 +110,11 @@ export async function POST(request: Request) {
         telegram_user_id,
         member_name: member_name ?? "Unknown",
         group_name: group.group_name,
+        unban_succeeded: unbanData.ok,
       },
     });
 
-    return NextResponse.json({ ok: true, group_name: group.group_name });
+    return NextResponse.json({ ok: true, group_name: group.group_name, warning: unbanWarning });
   } catch (err) {
     console.error("[groups/members/kick] error:", err);
     return NextResponse.json({ error: "Failed to kick member" }, { status: 500 });

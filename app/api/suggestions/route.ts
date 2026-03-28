@@ -64,7 +64,7 @@ export async function POST(request: Request) {
     .insert({
       title: title.trim(),
       description: description.trim(),
-      category: category || "other",
+      category: ["ux", "telegram", "pipeline", "automation", "reporting", "integration", "other"].includes(category) ? category : "other",
       submitted_by: user.id,
       submitted_by_name: profile?.display_name ?? user.email ?? "Unknown",
     })
@@ -126,9 +126,25 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ ok: true, upvotes: newUpvotedBy.length, voted: !hasVoted });
   }
 
-  // Handle status update
+  // Handle status update (lead role required)
   if (action === "update_status") {
     const { status: newStatus } = body;
+    const validStatuses = ["pending", "approved", "deferred", "rejected"];
+    if (!validStatuses.includes(newStatus)) {
+      return NextResponse.json({ error: "Invalid status" }, { status: 400 });
+    }
+
+    // Check lead role for status changes
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("crm_role")
+      .eq("id", user.id)
+      .single();
+
+    if (!profile?.crm_role || !["bd_lead", "marketing_lead", "admin_lead"].includes(profile.crm_role)) {
+      return NextResponse.json({ error: "Only leads can change suggestion status" }, { status: 403 });
+    }
+
     const { error } = await supabase
       .from("crm_feature_suggestions")
       .update({ status: newStatus, updated_at: new Date().toISOString() })

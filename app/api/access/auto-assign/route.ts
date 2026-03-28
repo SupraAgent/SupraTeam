@@ -6,11 +6,13 @@
  * DELETE /api/access/auto-assign — Remove auto-assign rule and optionally kick from tagged groups
  */
 import { NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth-guard";
+import { requireLeadRole } from "@/lib/auth-guard";
 import { logAudit } from "@/lib/audit";
 
+const SLUG_REGEX = /^[a-z0-9_-]{1,50}$/;
+
 export async function POST(request: Request) {
-  const auth = await requireAuth();
+  const auth = await requireLeadRole();
   if ("error" in auth) return auth.error;
   const { user, admin: supabase } = auth;
 
@@ -19,11 +21,21 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Bot token not configured" }, { status: 503 });
   }
 
-  const body = await request.json();
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
   const { user_id, slug, auto_add_to_existing } = body;
 
   if (!user_id || !slug) {
     return NextResponse.json({ error: "user_id and slug required" }, { status: 400 });
+  }
+
+  if (!SLUG_REGEX.test(slug)) {
+    return NextResponse.json({ error: "Invalid slug format (lowercase alphanumeric, hyphens, underscores, max 50 chars)" }, { status: 400 });
   }
 
   // Get target user's telegram_id
@@ -126,7 +138,7 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const auth = await requireAuth();
+  const auth = await requireLeadRole();
   if ("error" in auth) return auth.error;
   const { user, admin: supabase } = auth;
 
@@ -184,8 +196,8 @@ export async function DELETE(request: Request) {
                 });
                 removedCount++;
               }
-            } catch {
-              // Continue with other groups
+            } catch (err) {
+              console.error("[auto-assign] Remove from group failed:", err);
             }
           }
         }
