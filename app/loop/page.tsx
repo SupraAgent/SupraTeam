@@ -7,6 +7,7 @@ import type {
   LLMExecuteRequest,
   LLMExecuteResponse,
 } from "@supra/loop-builder";
+import { CRM_NODE_TYPES } from "./_lib/crm-node-types";
 
 async function handleChat(
   req: FlowChatRequest
@@ -107,6 +108,7 @@ export default function LoopBuilderPage() {
     <WorkflowBuilder
       category="workflow"
       storageKeyPrefix="suprateam_loop"
+      customNodeTypes={CRM_NODE_TYPES}
       onChat={handleChat}
       onLLMExecute={handleLLMExecute}
       title="Loop Builder"
