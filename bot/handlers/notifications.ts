@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabase.js";
 import { formatStageChangeMessage } from "../../lib/telegram-templates.js";
 import { formatStageChangeForGroup } from "../../lib/bot-privacy.js";
 import type { PrivacyLevel } from "../../lib/bot-privacy.js";
+import { pushToDealAssignee } from "./push-notifications.js";
 
 const POLL_INTERVAL_MS = 10_000; // 10 seconds
 
@@ -120,4 +121,13 @@ async function processStageChange(
 
   await bot.api.sendMessage(deal.telegram_chat_id, message, { parse_mode: "HTML" });
   console.log(`[bot/notifications] Sent notification (privacy=${privacyLevel}) to chat ${deal.telegram_chat_id}`);
+
+  // Push DM to assigned rep (non-blocking)
+  pushToDealAssignee(
+    bot,
+    change.deal_id,
+    "stage_change",
+    `📊 ${deal.deal_name} moved to ${toName}`,
+    `${fromName} → ${toName} (${deal.board_type ?? "Unknown"}) by ${changedByName}`
+  ).catch((err) => console.error("[bot/notifications] push error:", err));
 }

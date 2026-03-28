@@ -33,7 +33,11 @@ export async function PUT(request: Request) {
   const { user, admin: supabase } = auth;
 
   const body = await request.json();
-  const { muted_types, quiet_hours_enabled, quiet_hours_start, quiet_hours_end, quiet_hours_tz, digest_frequency, digest_day, digest_hour } = body;
+  const {
+    muted_types, quiet_hours_enabled, quiet_hours_start, quiet_hours_end, quiet_hours_tz,
+    digest_frequency, digest_day, digest_hour,
+    push_enabled, push_stage_changes, push_tg_messages, push_escalations, push_outreach_replies,
+  } = body;
 
   const { data, error } = await supabase
     .from("crm_notification_preferences")
@@ -47,6 +51,11 @@ export async function PUT(request: Request) {
       digest_frequency: digest_frequency ?? "realtime",
       digest_day: digest_day ?? null,
       digest_hour: digest_hour ?? 9,
+      push_enabled: push_enabled ?? true,
+      push_stage_changes: push_stage_changes ?? true,
+      push_tg_messages: push_tg_messages ?? true,
+      push_escalations: push_escalations ?? true,
+      push_outreach_replies: push_outreach_replies ?? true,
       updated_at: new Date().toISOString(),
     }, { onConflict: "user_id" })
     .select()

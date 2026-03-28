@@ -1,5 +1,6 @@
 import type { Bot } from "grammy";
 import { supabase } from "../lib/supabase.js";
+import { pushToDealAssignee } from "./push-notifications.js";
 
 /**
  * Fire workflow automations for a given trigger type.
@@ -217,6 +218,38 @@ async function handleAIResponse(
       deal_id: dealId ?? null,
       is_private_dm: isDM,
     });
+
+    // Push escalation notification to assigned rep + admin
+    if (shouldEscalate && dealId) {
+      const matchedKeyword = escalationKeywords.find((kw) => lowerMsg.includes(kw.toLowerCase()));
+      pushToDealAssignee(
+        bot,
+        dealId,
+        "escalation",
+        `⚠️ Escalation: ${userName}`,
+        `Keyword "${matchedKeyword}" detected: ${messageText}`
+      ).catch((err) => console.error("[bot/ai-agent] escalation push error:", err));
+
+      // Also push to admin_lead users
+      const { data: admins } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("crm_role", "admin_lead");
+
+      if (admins) {
+        for (const admin of admins) {
+          const { sendTMAPush } = await import("./push-notifications.js");
+          sendTMAPush(bot, {
+            userId: admin.id,
+            triggerType: "escalation",
+            title: `⚠️ Escalation: ${userName}`,
+            body: `Keyword "${matchedKeyword}" detected: ${messageText}`,
+            tmaPath: `/tma/deals/${dealId}`,
+            dealId,
+          }).catch((err) => console.error("[bot/ai-agent] admin escalation push error:", err));
+        }
+      }
+    }
 
     // Send response to Telegram
     await bot.api.sendMessage(chatId, aiResponse, {
@@ -457,7 +490,7 @@ export function registerMessageHandlers(bot: Bot) {
 
       if (!deals || deals.length === 0) return; // No deals linked — skip notifications
 
-      // Create a notification for each linked deal
+      // Create a notification for each linked deal + push DM to assigned rep
       for (const deal of deals) {
         await supabase.from("crm_notifications").insert({
           type: "tg_message",
@@ -469,6 +502,32 @@ export function registerMessageHandlers(bot: Bot) {
           tg_sender_name: senderName,
           pipeline_link: `/pipeline?highlight=${deal.id}`,
         });
+
+        // Push DM to assigned rep (only if they're not the sender)
+        const { data: assignedDeal } = await supabase
+          .from("crm_deals")
+          .select("assigned_to")
+          .eq("id", deal.id)
+          .single();
+
+        if (assignedDeal?.assigned_to) {
+          // Check if sender IS the assigned rep (by telegram_id on profile)
+          const { data: assignedProfile } = await supabase
+            .from("profiles")
+            .select("telegram_id")
+            .eq("id", assignedDeal.assigned_to)
+            .single();
+
+          if (assignedProfile?.telegram_id && Number(assignedProfile.telegram_id) !== ctx.from.id) {
+            pushToDealAssignee(
+              bot,
+              deal.id,
+              "tg_message",
+              `💬 ${senderName} in ${tgGroup.group_name}`,
+              messageText
+            ).catch((err) => console.error("[bot/messages] push error:", err));
+          }
+        }
       }
       // Mark deals for AI refresh if significant new messages accumulated
       try {
@@ -508,6 +567,42 @@ export function registerMessageHandlers(bot: Bot) {
             });
             if (rpcErr) {
               console.error("[bot/messages] reply increment error:", rpcErr);
+            }
+          }
+
+          // Push notification: outreach reply detected
+          // Find the sequence creator to notify them
+          if (activeEnrollments.length > 0) {
+            const { data: enrollmentDetails } = await supabase
+              .from("crm_outreach_enrollments")
+              .select("sequence_id, contact_id, deal_id")
+              .eq("id", activeEnrollments[0].id)
+              .single();
+
+            if (enrollmentDetails?.sequence_id) {
+              const { data: sequence } = await supabase
+                .from("crm_outreach_sequences")
+                .select("created_by, name")
+                .eq("id", enrollmentDetails.sequence_id)
+                .single();
+
+              if (sequence?.created_by) {
+                const contactPath = enrollmentDetails.contact_id
+                  ? `/tma/contacts/${enrollmentDetails.contact_id}`
+                  : enrollmentDetails.deal_id
+                    ? `/tma/deals/${enrollmentDetails.deal_id}`
+                    : "/tma/deals";
+
+                const { sendTMAPush } = await import("./push-notifications.js");
+                sendTMAPush(bot, {
+                  userId: sequence.created_by,
+                  triggerType: "outreach_reply",
+                  title: `↩️ Reply from ${senderName}`,
+                  body: `Reply on "${sequence.name}": ${messageText}`,
+                  tmaPath: contactPath,
+                  dealId: enrollmentDetails.deal_id ?? undefined,
+                }).catch((err) => console.error("[bot/messages] outreach reply push error:", err));
+              }
             }
           }
         }
