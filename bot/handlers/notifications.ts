@@ -6,6 +6,8 @@ import type { PrivacyLevel } from "../../lib/bot-privacy.js";
 import { pushToDealAssignee } from "./push-notifications.js";
 
 const POLL_INTERVAL_MS = 10_000; // 10 seconds
+const MAX_RETRIES = 3;
+const RETRY_DELAYS_MS = [1_000, 3_000, 9_000]; // exponential-ish backoff
 
 export function startNotificationPoller(bot: Bot) {
   console.log("[bot/notifications] Starting notification poller (10s interval)");
@@ -15,7 +17,7 @@ export function startNotificationPoller(bot: Bot) {
       // Find unnotified stage changes
       const { data: changes, error } = await supabase
         .from("crm_deal_stage_history")
-        .select("id, deal_id, from_stage_id, to_stage_id, changed_by, changed_at")
+        .select("id, deal_id, from_stage_id, to_stage_id, changed_by, changed_at, delivery_attempts")
         .is("notified_at", null)
         .order("changed_at", { ascending: true })
         .limit(10);
@@ -28,17 +30,46 @@ export function startNotificationPoller(bot: Bot) {
       if (!changes || changes.length === 0) return;
 
       for (const change of changes) {
+        const attempts = (change.delivery_attempts ?? 0) + 1;
+
         try {
           await processStageChange(bot, change);
-        } catch (err) {
-          console.error(`[bot/notifications] Failed to process change ${change.id}:`, err);
-        }
 
-        // Mark as notified regardless (avoid retrying forever)
-        await supabase
-          .from("crm_deal_stage_history")
-          .update({ notified_at: new Date().toISOString() })
-          .eq("id", change.id);
+          // Mark as notified with success status
+          await supabase
+            .from("crm_deal_stage_history")
+            .update({
+              notified_at: new Date().toISOString(),
+              delivery_status: "delivered",
+              delivery_attempts: attempts,
+            })
+            .eq("id", change.id);
+        } catch (err) {
+          console.error(`[bot/notifications] Failed to process change ${change.id} (attempt ${attempts}/${MAX_RETRIES}):`, err);
+
+          if (attempts >= MAX_RETRIES) {
+            // Max retries exhausted — mark as failed so it doesn't block the queue
+            await supabase
+              .from("crm_deal_stage_history")
+              .update({
+                notified_at: new Date().toISOString(),
+                delivery_status: "failed",
+                delivery_attempts: attempts,
+              })
+              .eq("id", change.id);
+            console.error(`[bot/notifications] Giving up on change ${change.id} after ${MAX_RETRIES} attempts`);
+          } else {
+            // Record the attempt count but leave notified_at null for retry
+            await supabase
+              .from("crm_deal_stage_history")
+              .update({ delivery_attempts: attempts })
+              .eq("id", change.id);
+
+            // Wait before processing the next change (backoff)
+            const delay = RETRY_DELAYS_MS[attempts - 1] ?? 9_000;
+            await new Promise((resolve) => setTimeout(resolve, delay));
+          }
+        }
       }
     } catch (err) {
       console.error("[bot/notifications] Unexpected error:", err);
@@ -127,7 +158,7 @@ async function processStageChange(
     bot,
     change.deal_id,
     "stage_change",
-    `📊 ${deal.deal_name} moved to ${toName}`,
-    `${fromName} → ${toName} (${deal.board_type ?? "Unknown"}) by ${changedByName}`
+    `\u{1F4CA} ${deal.deal_name} moved to ${toName}`,
+    `${fromName} \u2192 ${toName} (${deal.board_type ?? "Unknown"}) by ${changedByName}`
   ).catch((err) => console.error("[bot/notifications] push error:", err));
 }
