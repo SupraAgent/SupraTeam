@@ -157,6 +157,14 @@ export async function PUT(request: Request) {
     is_active: body.is_active,
     headers: body.headers,
   };
+  // Validate URL if being updated
+  if (body.url !== undefined) {
+    const urlError = isValidWebhookUrl(body.url);
+    if (urlError) {
+      return NextResponse.json({ error: urlError }, { status: 400 });
+    }
+  }
+
   // Remove undefined values
   const updates = Object.fromEntries(
     Object.entries(allowed).filter(([_, v]) => v !== undefined)
