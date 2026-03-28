@@ -24,6 +24,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "message is required" }, { status: 400 });
   }
 
+  // Check if user is admin — admins can broadcast to any group
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("crm_role")
+    .eq("id", auth.user.id)
+    .single();
+
+  const isAdmin = profile?.crm_role === "admin_lead";
+
   // Resolve group IDs
   let targetGroupIds: string[] = group_ids ?? [];
   if (slug && !group_ids?.length) {
@@ -36,6 +45,35 @@ export async function POST(request: Request) {
 
   if (targetGroupIds.length === 0) {
     return NextResponse.json({ error: "No groups selected" }, { status: 400 });
+  }
+
+  // Non-admin users: verify slug access for target groups
+  if (!isAdmin) {
+    const { data: userSlugs } = await supabase
+      .from("crm_user_slug_access")
+      .select("slug")
+      .eq("user_id", auth.user.id);
+
+    const allowedSlugs = new Set((userSlugs ?? []).map((s: { slug: string }) => s.slug));
+
+    // Get slugs for target groups
+    const { data: groupSlugs } = await supabase
+      .from("tg_group_slugs")
+      .select("group_id, slug")
+      .in("group_id", targetGroupIds);
+
+    // Filter to only groups the user has slug access to
+    const groupsWithAccess = new Set<string>();
+    for (const gs of groupSlugs ?? []) {
+      if (allowedSlugs.has(gs.slug)) {
+        groupsWithAccess.add(gs.group_id);
+      }
+    }
+
+    targetGroupIds = targetGroupIds.filter((id) => groupsWithAccess.has(id));
+    if (targetGroupIds.length === 0) {
+      return NextResponse.json({ error: "No access to selected groups" }, { status: 403 });
+    }
   }
 
   // Fetch groups

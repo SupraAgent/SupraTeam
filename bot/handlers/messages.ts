@@ -96,7 +96,8 @@ async function handleAIResponse(
   userName: string,
   messageText: string,
   replyToMessageId: number | undefined,
-  dealId?: string
+  dealId?: string,
+  isDM = false
 ): Promise<void> {
   const config = await getAgentConfig();
   if (!config) return;
@@ -120,17 +121,20 @@ async function handleAIResponse(
 
   const conversationHistory = (history ?? []).reverse();
 
-  // Get deal context if available
+  // Get deal context if available — ONLY if the deal belongs to this chat
   let dealContext = "";
   if (dealId) {
     const { data: deal } = await supabase
       .from("crm_deals")
-      .select("deal_name, board_type, value, stage:pipeline_stages(name)")
+      .select("deal_name, board_type, value, telegram_chat_id, stage:pipeline_stages(name)")
       .eq("id", dealId)
       .single();
-    if (deal) {
+    // Context boundary: only inject deal info if it belongs to this chat
+    if (deal && String(deal.telegram_chat_id) === String(chatId)) {
       const stageName = ((deal.stage as unknown) as { name: string } | null)?.name ?? "Unknown";
       dealContext = `\n\nDeal context: "${deal.deal_name}" (${deal.board_type}), Stage: ${stageName}, Value: ${deal.value ?? "N/A"}`;
+    } else if (deal && deal.telegram_chat_id && String(deal.telegram_chat_id) !== String(chatId)) {
+      console.warn(`[bot/ai-agent] Context boundary: deal ${dealId} belongs to chat ${deal.telegram_chat_id}, not ${chatId}. Skipping context.`);
     }
   }
 
@@ -211,6 +215,7 @@ async function handleAIResponse(
         : null,
       agent_config_id: config.id,
       deal_id: dealId ?? null,
+      is_private_dm: isDM,
     });
 
     // Send response to Telegram
@@ -348,7 +353,9 @@ export function registerMessageHandlers(bot: Bot) {
       ctx.from.id,
       ctx.from.first_name + (ctx.from.last_name ? ` ${ctx.from.last_name}` : ""),
       ctx.message.text,
-      ctx.message.message_id
+      ctx.message.message_id,
+      undefined, // no dealId in DMs
+      true // isDM
     );
   });
 

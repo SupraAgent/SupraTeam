@@ -61,11 +61,22 @@ async function processStageChange(
   // Fetch the deal
   const { data: deal } = await supabase
     .from("crm_deals")
-    .select("deal_name, board_type, telegram_chat_id")
+    .select("deal_name, board_type, telegram_chat_id, tg_group_id")
     .eq("id", change.deal_id)
     .single();
 
   if (!deal || !deal.telegram_chat_id) return;
+
+  // Fetch group privacy level
+  let privacyLevel = "full" as string;
+  if (deal.tg_group_id) {
+    const { data: group } = await supabase
+      .from("tg_groups")
+      .select("privacy_level")
+      .eq("id", deal.tg_group_id)
+      .single();
+    if (group?.privacy_level) privacyLevel = group.privacy_level;
+  }
 
   // Fetch stage names
   const [fromRes, toRes] = await Promise.all([
@@ -91,14 +102,22 @@ async function processStageChange(
     if (profile?.display_name) changedByName = profile.display_name;
   }
 
-  const message = formatStageChangeMessage(
-    deal.deal_name,
-    fromName,
-    toName,
-    deal.board_type ?? "Unknown",
-    changedByName
-  );
+  // Use privacy-aware formatting
+  let message: string;
+  if (privacyLevel === "minimal") {
+    message = `📊 A deal moved to <b>${toName}</b>`;
+  } else if (privacyLevel === "limited") {
+    message = `📊 <b>${deal.deal_name}</b>\n${fromName} → ${toName}`;
+  } else {
+    message = formatStageChangeMessage(
+      deal.deal_name,
+      fromName,
+      toName,
+      deal.board_type ?? "Unknown",
+      changedByName
+    );
+  }
 
   await bot.api.sendMessage(deal.telegram_chat_id, message, { parse_mode: "HTML" });
-  console.log(`[bot/notifications] Sent notification for deal "${deal.deal_name}" to chat ${deal.telegram_chat_id}`);
+  console.log(`[bot/notifications] Sent notification for deal (privacy=${privacyLevel}) to chat ${deal.telegram_chat_id}`);
 }
