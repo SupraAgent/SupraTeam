@@ -107,7 +107,7 @@ export default function HomePage() {
   });
 
   const toggleCollapse = React.useCallback((key: string) => {
-    setCollapsed((prev) => {
+    setCollapsed((prev: Record<string, boolean>) => {
       const next = { ...prev, [key]: !prev[key] };
       try { localStorage.setItem("dashboard_collapsed", JSON.stringify(next)); } catch { /* noop */ }
       return next;
@@ -358,7 +358,7 @@ export default function HomePage() {
 
           {/* Live Activity Feed */}
           <Widget title="Activity Feed" icon={Zap} iconColor="text-primary" subtitle="Last 48h" empty={activityFeed.length === 0} emptyText="No recent activity." collapsible isCollapsed={collapsed["activity"]} onToggle={() => toggleCollapse("activity")}>
-            {activityFeed.slice(0, 12).map((evt) => {
+            {activityFeed.slice(0, 12).map((evt: ActivityEvent) => {
               const iconMap: Record<string, { icon: React.ElementType; color: string }> = {
                 stage_change: { icon: GitBranch, color: "text-purple-400" },
                 deal_created: { icon: ExternalLink, color: "text-green-400" },
