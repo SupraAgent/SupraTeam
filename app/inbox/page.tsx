@@ -114,6 +114,8 @@ export default function InboxPage() {
   const [cannedIndex, setCannedIndex] = React.useState(0);
   const cannedListRef = React.useRef<HTMLDivElement>(null);
   const replyTextareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const statusesRef = React.useRef(statuses);
+  statusesRef.current = statuses;
 
   // Snooze picker
   const [showSnooze, setShowSnooze] = React.useState<number | null>(null);
@@ -193,21 +195,47 @@ export default function InboxPage() {
           if (debounceTimer) clearTimeout(debounceTimer);
           debounceTimer = setTimeout(async () => {
             await fetchInbox();
-            // Auto-reopen: if the new message is in a closed conversation, reopen it
-            const chatId = (payload.new as Record<string, unknown>)?.telegram_chat_id;
-            if (chatId) {
-              setStatuses((prev) => {
-                const s = prev[chatId as number];
-                if (s?.status === "closed") {
-                  // Fire-and-forget PATCH to reopen server-side
-                  fetch("/api/inbox/status", {
-                    method: "PATCH",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ chat_id: chatId, status: "open" }),
-                  });
-                  return { ...prev, [chatId as number]: { ...s, status: "open" as const, closed_at: null } };
+            const newMsg = payload.new as Record<string, unknown>;
+            const chatId = newMsg?.telegram_chat_id as number | undefined;
+            if (!chatId) return;
+
+            // Read current status for side-effect decisions
+            const currentStatus = statusesRef.current[chatId];
+
+            // Auto-reopen closed conversations
+            if (currentStatus?.status === "closed") {
+              setStatuses((prev) => ({
+                ...prev,
+                [chatId]: { ...prev[chatId], status: "open" as const, closed_at: null } as InboxStatus,
+              }));
+              fetch("/api/inbox/status", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ chat_id: chatId, status: "open" }),
+              });
+            }
+            if (!currentStatus?.assigned_to) {
+              fetch("/api/inbox/assign", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  chat_id: chatId,
+                  message_text: newMsg.message_text ?? "",
+                  sender_telegram_id: newMsg.sender_telegram_id ?? 0,
+                }),
+              }).then(async (res) => {
+                if (res.ok) {
+                  const data = await res.json();
+                  if (data.assigned) {
+                    setStatuses((p) => ({
+                      ...p,
+                      [chatId]: {
+                        ...(p[chatId] ?? { chat_id: chatId, status: "open" as const, snoozed_until: null, closed_at: null, updated_at: new Date().toISOString() }),
+                        assigned_to: data.user_id,
+                      } as InboxStatus,
+                    }));
+                  }
                 }
-                return prev;
               });
             }
           }, 1000);
@@ -607,6 +635,13 @@ export default function InboxPage() {
                   ? teamMembers.find((m) => m.id === status.assigned_to)
                   : null;
 
+                // SLA: time since last customer (non-bot) message
+                const lastCustomerMsg = conv.messages.find((m) => !m.is_from_bot);
+                const slaMs = lastCustomerMsg ? Date.now() - new Date(lastCustomerMsg.sent_at).getTime() : null;
+                const slaHours = slaMs ? slaMs / 3600000 : null;
+                const slaColor = slaHours === null ? null : slaHours < 1 ? "text-emerald-400" : slaHours < 4 ? "text-amber-400" : "text-red-400";
+                const slaLabel = slaHours === null ? null : slaHours < 1 ? `${Math.round(slaHours * 60)}m` : `${Math.round(slaHours)}h`;
+
                 // Unread detection: messages newer than last_seen_at
                 const seenAt = lastSeen[conv.chat_id];
                 const neverSeen = !seenAt;
@@ -661,6 +696,11 @@ export default function InboxPage() {
                     <div className="flex items-center gap-2 pl-5 mt-0.5">
                       {conv.latest_at && (
                         <span className="text-[10px] text-muted-foreground/50">{timeAgo(conv.latest_at)}</span>
+                      )}
+                      {slaLabel && status?.status !== "closed" && (
+                        <span className={cn("text-[10px] font-medium", slaColor)} title="Time since last customer message">
+                          {slaLabel}
+                        </span>
                       )}
                       {assignee && (
                         <span className="text-[10px] text-primary/60 truncate max-w-[80px]">{assignee.display_name}</span>
