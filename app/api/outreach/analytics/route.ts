@@ -135,33 +135,46 @@ async function getSequenceDetail(supabase: any, sequenceId: string) {
     dailyEnrollments[day] = (dailyEnrollments[day] ?? 0) + 1;
   }
 
-  // A/B variant analytics
+  // A/B variant analytics — uses step_log.ab_variant (per-step tracking),
+  // NOT enrollment.ab_variant (which is for condition-level ab_split only).
   const hasAB = steps.some((s) => s.variant_b_template);
   let ab_stats = null;
   if (hasAB) {
-    const variantA = enrollments.filter((e) => e.ab_variant === "A");
-    const variantB = enrollments.filter((e) => e.ab_variant === "B");
-    const aReplied = variantA.filter((e) => e.reply_count > 0).length;
-    const bReplied = variantB.filter((e) => e.reply_count > 0).length;
-
     // Per-step variant sent counts from logs
     const stepVariantStats: Record<string, { a_sent: number; b_sent: number }> = {};
+    // Track which enrollments got A vs B (from their first A/B step log)
+    const enrollmentVariant = new Map<string, string>();
     for (const log of stepLogs) {
-      if (!stepVariantStats[log.step_id]) stepVariantStats[log.step_id] = { a_sent: 0, b_sent: 0 };
-      if (log.ab_variant === "A") stepVariantStats[log.step_id].a_sent++;
-      else if (log.ab_variant === "B") stepVariantStats[log.step_id].b_sent++;
+      if (log.ab_variant) {
+        if (!stepVariantStats[log.step_id]) stepVariantStats[log.step_id] = { a_sent: 0, b_sent: 0 };
+        if (log.ab_variant === "A") stepVariantStats[log.step_id].a_sent++;
+        else if (log.ab_variant === "B") stepVariantStats[log.step_id].b_sent++;
+        // First variant assignment wins for enrollment-level reply attribution
+        if (!enrollmentVariant.has(log.enrollment_id)) {
+          enrollmentVariant.set(log.enrollment_id, log.ab_variant);
+        }
+      }
+    }
+
+    const enrollmentMap = new Map(enrollments.map((e) => [e.id, e]));
+    let aTotal = 0, bTotal = 0, aReplied = 0, bReplied = 0;
+    for (const [eid, variant] of enrollmentVariant) {
+      const enrollment = enrollmentMap.get(eid);
+      if (!enrollment) continue;
+      if (variant === "A") { aTotal++; if (enrollment.reply_count > 0) aReplied++; }
+      else if (variant === "B") { bTotal++; if (enrollment.reply_count > 0) bReplied++; }
     }
 
     ab_stats = {
       variant_a: {
-        total: variantA.length,
+        total: aTotal,
         replied: aReplied,
-        reply_rate: variantA.length > 0 ? Math.round((aReplied / variantA.length) * 100) : 0,
+        reply_rate: aTotal > 0 ? Math.round((aReplied / aTotal) * 100) : 0,
       },
       variant_b: {
-        total: variantB.length,
+        total: bTotal,
         replied: bReplied,
-        reply_rate: variantB.length > 0 ? Math.round((bReplied / variantB.length) * 100) : 0,
+        reply_rate: bTotal > 0 ? Math.round((bReplied / bTotal) * 100) : 0,
       },
       step_variants: stepVariantStats,
     };

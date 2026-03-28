@@ -805,7 +805,7 @@ export default function OutreachPage() {
                       <>
                         <div className="flex items-center gap-1.5">
                           <span className="text-[9px] text-purple-400 uppercase tracking-wider">Variant B</span>
-                          <span className="text-[9px] text-muted-foreground/40">50/50 random split</span>
+                          <span className="text-[9px] text-muted-foreground/40">random split per enrollment</span>
                           <button
                             type="button"
                             onClick={() => updateStep(i, "variant_b_template", "")}

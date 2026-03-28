@@ -29,7 +29,7 @@ export async function GET() {
   if (seqIds.length > 0) {
     const { data: enrollments } = await supabase
       .from("crm_outreach_enrollments")
-      .select("sequence_id, status")
+      .select("sequence_id, status, reply_count")
       .in("sequence_id", seqIds);
 
     for (const e of enrollments ?? []) {
@@ -39,7 +39,7 @@ export async function GET() {
       enrollmentStats[e.sequence_id].total++;
       if (e.status === "active") enrollmentStats[e.sequence_id].active++;
       if (e.status === "completed") enrollmentStats[e.sequence_id].completed++;
-      if (e.status === "replied") enrollmentStats[e.sequence_id].replied++;
+      if (e.reply_count > 0) enrollmentStats[e.sequence_id].replied++;
     }
   }
 

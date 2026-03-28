@@ -177,16 +177,30 @@ ${context}`,
       }),
     });
 
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => "Unknown error");
+      console.error(`[outreach/ai-recommendations] Anthropic API ${res.status}:`, errBody);
+      return NextResponse.json({ error: `AI service error (${res.status})` }, { status: 502 });
+    }
+
     const data = await res.json();
     const rawText = data.content?.[0]?.text ?? "";
 
-    // Parse JSON from response (handle markdown code blocks)
+    // Parse JSON from response — use non-greedy match to avoid spanning multiple objects
     let recommendations;
     try {
-      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-      recommendations = jsonMatch ? JSON.parse(jsonMatch[0]) : { summary: rawText, recommendations: [] };
+      // Try direct parse first (ideal case: response is pure JSON)
+      recommendations = JSON.parse(rawText);
     } catch {
-      recommendations = { summary: rawText, recommendations: [] };
+      try {
+        // Extract JSON from markdown code blocks or surrounding text
+        const codeBlockMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/);
+        const jsonStr = codeBlockMatch ? codeBlockMatch[1].trim() : rawText;
+        const jsonMatch = jsonStr.match(/\{[\s\S]*?\}(?=[^}]*$)/);
+        recommendations = jsonMatch ? JSON.parse(jsonMatch[0]) : { summary: rawText, recommendations: [] };
+      } catch {
+        recommendations = { summary: rawText, recommendations: [] };
+      }
     }
 
     return NextResponse.json({ recommendations, source: "ai" });

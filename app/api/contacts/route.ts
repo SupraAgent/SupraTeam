@@ -17,7 +17,11 @@ export async function GET(request: Request) {
     .order("name");
 
   if (search) {
-    query = query.or(`name.ilike.%${search}%,company.ilike.%${search}%,telegram_username.ilike.%${search}%,email.ilike.%${search}%`);
+    // Sanitize search to prevent PostgREST filter injection — strip chars that break .or() syntax
+    const sanitized = search.replace(/[(),."\\]/g, "");
+    if (sanitized) {
+      query = query.or(`name.ilike.%${sanitized}%,company.ilike.%${sanitized}%,telegram_username.ilike.%${sanitized}%,email.ilike.%${sanitized}%`);
+    }
   }
 
   if (stageFilter) {
@@ -62,7 +66,7 @@ export async function POST(request: Request) {
       source: source || "manual",
       x_handle: x_handle || null,
       wallet_address: wallet_address || null,
-      wallet_chain: wallet_chain || null,
+      ...(wallet_chain ? { wallet_chain } : {}),
       created_by: user.id,
     })
     .select("*, stage:pipeline_stages(*)")

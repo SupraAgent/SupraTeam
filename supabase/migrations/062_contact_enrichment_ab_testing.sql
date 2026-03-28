@@ -9,7 +9,7 @@ ALTER TABLE crm_contacts
   ADD COLUMN IF NOT EXISTS x_handle text,
   ADD COLUMN IF NOT EXISTS wallet_address text,
   ADD COLUMN IF NOT EXISTS wallet_chain text DEFAULT 'supra',
-  ADD COLUMN IF NOT EXISTS on_chain_score integer DEFAULT 0;
+  ADD COLUMN IF NOT EXISTS on_chain_score integer DEFAULT 0 CHECK (on_chain_score >= 0 AND on_chain_score <= 100);
 
 -- Index for X handle lookups
 CREATE INDEX IF NOT EXISTS idx_contacts_x_handle ON crm_contacts (lower(x_handle)) WHERE x_handle IS NOT NULL;
@@ -26,4 +26,4 @@ ALTER TABLE crm_outreach_steps
 
 -- Add variant tracking to step log for per-variant analytics
 ALTER TABLE crm_outreach_step_log
-  ADD COLUMN IF NOT EXISTS ab_variant text;
+  ADD COLUMN IF NOT EXISTS ab_variant text CHECK (ab_variant IN ('A', 'B'));

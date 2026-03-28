@@ -97,20 +97,13 @@ async function processEnrollment(bot: Bot, enrollment: Enrollment) {
     const vars = await fetchTemplateVars(enrollment);
 
     if (currentStep.step_type === "message") {
-      // A/B variant selection: if variant_b_template exists, randomly assign A or B
+      // A/B variant selection: per-step random assignment, tracked in step_log only.
+      // This is independent of enrollment.ab_variant which is used by condition-level ab_split.
       let abVariant: string | null = null;
       let template = currentStep.message_template;
 
       if (currentStep.variant_b_template) {
-        // Use existing ab_variant if already assigned, otherwise randomly pick
-        if (enrollment.ab_variant === "A" || enrollment.ab_variant === "B") {
-          abVariant = enrollment.ab_variant;
-        } else {
-          abVariant = Math.random() < 0.5 ? "A" : "B";
-          await supabase.from("crm_outreach_enrollments").update({
-            ab_variant: abVariant,
-          }).eq("id", enrollment.id);
-        }
+        abVariant = Math.random() < 0.5 ? "A" : "B";
         template = abVariant === "B" ? currentStep.variant_b_template : currentStep.message_template;
       }
 
