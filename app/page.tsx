@@ -515,6 +515,77 @@ export default function HomePage() {
           {/* Actionable notifications */}
           <ActionableNotificationWidget />
 
+          {/* TG Group Health */}
+          {extras && extras.groups.length > 0 && (
+            <Widget title="TG Group Health" icon={Radio} iconColor="text-blue-400" subtitle={`${extras.groupHealthSummary.total} groups · ${extras.groupHealthSummary.total_messages_7d} msgs/7d`} collapsible isCollapsed={collapsed["tghealth"]} onToggle={() => toggleCollapse("tghealth")}>
+              {/* Health summary badges */}
+              <div className="flex gap-2 mb-2 flex-wrap">
+                {extras.groupHealthSummary.active > 0 && <span className="rounded-full bg-green-500/20 px-2 py-0.5 text-[10px] font-medium text-green-400">{extras.groupHealthSummary.active} active</span>}
+                {extras.groupHealthSummary.quiet > 0 && <span className="rounded-full bg-yellow-500/20 px-2 py-0.5 text-[10px] font-medium text-yellow-400">{extras.groupHealthSummary.quiet} quiet</span>}
+                {extras.groupHealthSummary.stale > 0 && <span className="rounded-full bg-orange-500/20 px-2 py-0.5 text-[10px] font-medium text-orange-400">{extras.groupHealthSummary.stale} stale</span>}
+                {extras.groupHealthSummary.dead > 0 && <span className="rounded-full bg-red-500/20 px-2 py-0.5 text-[10px] font-medium text-red-400">{extras.groupHealthSummary.dead} dead</span>}
+              </div>
+              {extras.groups.slice(0, 8).map((g) => {
+                const healthColors: Record<string, string> = { active: "bg-green-400", quiet: "bg-yellow-400", stale: "bg-orange-400", dead: "bg-red-400", unknown: "bg-gray-400" };
+                return (
+                  <Link key={g.id} href="/groups" className="flex items-center justify-between py-1.5 px-1 rounded-lg hover:bg-white/[0.03] transition">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={cn("h-2 w-2 rounded-full shrink-0", healthColors[g.health] ?? "bg-gray-400")} />
+                      <span className="text-xs text-foreground truncate">{g.name}</span>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <span className="text-[10px] text-muted-foreground">{g.member_count} members</span>
+                      <span className="text-[10px] text-muted-foreground">{g.messages_7d} msgs</span>
+                      {!g.bot_admin && <span className="text-[10px] text-red-400">No bot</span>}
+                    </div>
+                  </Link>
+                );
+              })}
+            </Widget>
+          )}
+
+          {/* Workflow Stats */}
+          {extras && extras.workflowStats.active_count > 0 && (
+            <Widget title="Workflows" icon={Radio} iconColor="text-cyan-400" subtitle={`${extras.workflowStats.active_count} active`} collapsible isCollapsed={collapsed["workflows"]} onToggle={() => toggleCollapse("workflows")}>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="rounded-lg bg-white/5 p-2 text-center">
+                  <p className="text-sm font-semibold text-foreground">{extras.workflowStats.runs_7d}</p>
+                  <p className="text-[10px] text-muted-foreground">Runs (7d)</p>
+                </div>
+                <div className="rounded-lg bg-white/5 p-2 text-center">
+                  <p className="text-sm font-semibold text-green-400">{extras.workflowStats.completed}</p>
+                  <p className="text-[10px] text-muted-foreground">Completed</p>
+                </div>
+                <div className="rounded-lg bg-white/5 p-2 text-center">
+                  <p className="text-sm font-semibold text-red-400">{extras.workflowStats.failed}</p>
+                  <p className="text-[10px] text-muted-foreground">Failed</p>
+                </div>
+              </div>
+            </Widget>
+          )}
+
+          {/* Top Suggestions */}
+          {extras && extras.suggestions.length > 0 && (
+            <Widget title="Top Suggestions" icon={FileText} iconColor="text-amber-400" subtitle={`${extras.suggestions.length} rated`} collapsible isCollapsed={collapsed["suggestions"]} onToggle={() => toggleCollapse("suggestions")}>
+              {extras.suggestions.slice(0, 3).map((sg) => (
+                <Link key={sg.id} href="/suggestions" className="flex items-center justify-between py-1.5 px-1 rounded-lg hover:bg-white/[0.03] transition">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs text-foreground truncate">{sg.title}</p>
+                    <p className="text-[10px] text-muted-foreground">{sg.category} · {sg.upvotes} upvote{sg.upvotes !== 1 ? "s" : ""}</p>
+                  </div>
+                  {sg.score != null && (
+                    <span className={cn(
+                      "rounded-full px-2 py-0.5 text-[10px] font-medium shrink-0 ml-2",
+                      sg.score >= 70 ? "bg-green-500/20 text-green-400" : sg.score >= 40 ? "bg-yellow-500/20 text-yellow-400" : "bg-red-500/20 text-red-400",
+                    )}>
+                      {sg.score}
+                    </span>
+                  )}
+                </Link>
+              ))}
+            </Widget>
+          )}
+
         </div>
       </div>
     </div>
