@@ -284,7 +284,7 @@ function isUrlAllowed(url: string): boolean {
     // Allow localhost / 127.0.0.1 (http only, common dev ports only)
     if (parsed.protocol === "http:" && (hostname === "localhost" || hostname === "127.0.0.1")) {
       const port = parsed.port ? parseInt(parsed.port) : 80;
-      const safePorts = [80, 3000, 3001, 4000, 5000, 5173, 8000, 8080, 8888];
+      const safePorts = [80, 3000, 3001, 3002, 4000, 5000, 5173, 8000, 8080, 8888];
       return safePorts.includes(port);
     }
 

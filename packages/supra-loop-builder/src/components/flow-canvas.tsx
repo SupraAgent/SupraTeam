@@ -206,6 +206,12 @@ type FlowCanvasProps = {
   /** Custom node types to register alongside built-in ones */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   customNodeTypes?: Record<string, React.ComponentType<any>>;
+  /** Custom palette items for the node sidebar */
+  customPaletteItems?: import("../types").CustomPaletteItem[];
+  /** Custom node type display info for the inspector */
+  customNodeTypeInfo?: Record<string, import("../types").CustomNodeTypeInfo>;
+  /** Custom editor components for the inspector */
+  customNodeEditors?: Record<string, import("../types").CustomNodeEditor>;
   /** Disable auto-layout on template load */
   disableAutoLayout?: boolean;
   /** IDs of nodes currently executing (shown with pulsing highlight) */
@@ -329,6 +335,9 @@ function FlowCanvasInner({
   onNodesChange: onNodesChangeCb,
   onEdgesChange: onEdgesChangeCb,
   customNodeTypes: customNodeTypesProp,
+  customPaletteItems,
+  customNodeTypeInfo,
+  customNodeEditors,
   disableAutoLayout = false,
   executingNodeIds,
   userNodeDefs,
@@ -1089,7 +1098,7 @@ function FlowCanvasInner({
         )}
 
         <div className="absolute left-3 top-3 z-10">
-          <NodePalette userNodeDefs={userNodeDefs} onAddNode={addNodeAtCenter} />
+          <NodePalette userNodeDefs={userNodeDefs} onAddNode={addNodeAtCenter} customPaletteItems={customPaletteItems} />
         </div>
 
         <div className="absolute right-3 top-3 z-10 flex flex-wrap items-center gap-1.5 max-w-[calc(100%-200px)] sm:max-w-none">
@@ -1435,6 +1444,8 @@ function FlowCanvasInner({
             onUpdate={handleNodeUpdate}
             onDelete={handleNodeDelete}
             onClose={() => setSelectedNodeId(null)}
+            customNodeTypeInfo={customNodeTypeInfo}
+            customNodeEditors={customNodeEditors}
           />
         </>
       )}

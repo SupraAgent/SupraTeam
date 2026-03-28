@@ -35,6 +35,10 @@ type NodeInspectorProps = {
   onUpdate: (nodeId: string, data: Record<string, unknown>) => void;
   onDelete: (nodeId: string) => void;
   onClose: () => void;
+  /** Custom node type display info (injected by host app) */
+  customNodeTypeInfo?: Record<string, { emoji: string; label: string; color: string }>;
+  /** Custom editor components keyed by node type (injected by host app) */
+  customNodeEditors?: Record<string, React.ComponentType<{ data: Record<string, unknown>; onChange: (partial: Record<string, unknown>) => void }>>;
 };
 
 // ── Shared field components ────────────────────────────────────
@@ -2127,13 +2131,18 @@ export function NodeInspector({
   onUpdate,
   onDelete,
   onClose,
+  customNodeTypeInfo,
+  customNodeEditors,
 }: NodeInspectorProps) {
   const nodeData = node.data as Record<string, unknown>;
   const userDef = (nodeData._userNodeDef as UserNodeDefinition | undefined)
     ?? (nodeData._userNodeId ? getUserNodeById(nodeData._userNodeId as string) : undefined);
-  const info = NODE_TYPE_INFO[node.type ?? ""] ?? (userDef
-    ? { emoji: userDef.emoji, label: userDef.label, color: "text-indigo-400" }
-    : { emoji: "?", label: "Unknown", color: "text-foreground" });
+  const nodeType = node.type ?? "";
+  const info = NODE_TYPE_INFO[nodeType]
+    ?? customNodeTypeInfo?.[nodeType]
+    ?? (userDef
+      ? { emoji: userDef.emoji, label: userDef.label, color: "text-indigo-400" }
+      : { emoji: "?", label: "Unknown", color: "text-foreground" });
 
   const isMobile = useIsMobile();
   const panelRef = React.useRef<HTMLDivElement>(null);
@@ -2305,6 +2314,11 @@ export function NodeInspector({
       case "rescoreNode":
         return <RescoreEditor data={node.data as Record<string, unknown>} onChange={handleChange} />;
       default: {
+        // Check custom editors injected by host app
+        const CustomEditor = customNodeEditors?.[node.type ?? ""];
+        if (CustomEditor) {
+          return <CustomEditor data={node.data as Record<string, unknown>} onChange={handleChange} />;
+        }
         // Check if this is a user-created node
         const d = node.data as Record<string, unknown>;
         if (d._userNodeId || d._userNodeDef) {

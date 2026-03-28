@@ -6,6 +6,68 @@ import { createSupabaseAdmin } from "@/lib/supabase";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
+// ── Token-bucket rate limiter ──────────────────────────────
+// Telegram allows ~30 msg/s globally, ~20 msg/min per group.
+// We use a conservative 25 msg/s global bucket.
+
+const RATE_LIMIT = {
+  tokensPerSec: 25,
+  maxTokens: 30,
+  perChatPerMin: 20,
+};
+
+let globalTokens = RATE_LIMIT.maxTokens;
+let lastRefill = Date.now();
+const chatBuckets = new Map<number, { tokens: number; lastRefill: number }>();
+
+function refillGlobal() {
+  const now = Date.now();
+  const elapsed = (now - lastRefill) / 1000;
+  globalTokens = Math.min(RATE_LIMIT.maxTokens, globalTokens + elapsed * RATE_LIMIT.tokensPerSec);
+  lastRefill = now;
+}
+
+function refillChat(chatId: number) {
+  const bucket = chatBuckets.get(chatId);
+  if (!bucket) {
+    chatBuckets.set(chatId, { tokens: RATE_LIMIT.perChatPerMin, lastRefill: Date.now() });
+    return;
+  }
+  const now = Date.now();
+  const elapsed = (now - bucket.lastRefill) / 60000; // minutes
+  bucket.tokens = Math.min(RATE_LIMIT.perChatPerMin, bucket.tokens + elapsed * RATE_LIMIT.perChatPerMin);
+  bucket.lastRefill = now;
+}
+
+async function acquireRateLimit(chatId: number): Promise<void> {
+  // Global bucket
+  refillGlobal();
+  if (globalTokens < 1) {
+    const waitMs = Math.ceil((1 - globalTokens) / RATE_LIMIT.tokensPerSec * 1000);
+    await new Promise((r) => setTimeout(r, waitMs));
+    refillGlobal();
+  }
+  globalTokens -= 1;
+
+  // Per-chat bucket
+  refillChat(chatId);
+  const bucket = chatBuckets.get(chatId)!;
+  if (bucket.tokens < 1) {
+    const waitMs = Math.ceil((1 - bucket.tokens) / RATE_LIMIT.perChatPerMin * 60000);
+    await new Promise((r) => setTimeout(r, Math.min(waitMs, 3000))); // cap wait at 3s
+    refillChat(chatId);
+  }
+  bucket.tokens -= 1;
+
+  // Evict old chat buckets to prevent memory leak
+  if (chatBuckets.size > 500) {
+    const cutoff = Date.now() - 120000;
+    for (const [id, b] of chatBuckets) {
+      if (b.lastRefill < cutoff) chatBuckets.delete(id);
+    }
+  }
+}
+
 export interface SendResult {
   success: boolean;
   messageId?: number;
@@ -25,9 +87,13 @@ export async function sendTelegramWithTracking(params: {
   if (!BOT_TOKEN) return { success: false, error: "No bot token configured" };
 
   const supabase = createSupabaseAdmin();
-  const preview = params.text.length > 200 ? params.text.slice(0, 200) + "..." : params.text;
+  const fullText = params.text;
+  const preview = fullText.length > 200 ? fullText.slice(0, 200) + "..." : fullText;
 
   try {
+    // Apply rate limiting before sending
+    await acquireRateLimit(params.chatId);
+
     const body: Record<string, unknown> = {
       chat_id: params.chatId,
       text: params.text,
@@ -67,6 +133,7 @@ export async function sendTelegramWithTracking(params: {
           deal_id: params.dealId ?? null,
           tg_chat_id: params.chatId,
           message_preview: preview,
+          message_full_text: fullText,
           status: "failed",
           last_error: errMsg,
           retry_count: 0,
@@ -120,12 +187,16 @@ export async function processRetries(): Promise<number> {
   let retried = 0;
   for (const entry of failed) {
     try {
+      // Rate-limit retries too
+      await acquireRateLimit(entry.tg_chat_id);
+
+      const retryText = entry.message_full_text || entry.message_preview;
       const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           chat_id: entry.tg_chat_id,
-          text: entry.message_preview, // Use stored preview for retry
+          text: retryText,
           parse_mode: "HTML",
         }),
       });
