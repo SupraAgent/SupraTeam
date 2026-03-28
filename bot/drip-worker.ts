@@ -214,6 +214,15 @@ async function markCompleted(enrollmentId: string) {
     status: "completed",
     completed_at: new Date().toISOString(),
   }).eq("id", enrollmentId);
+
+  // Fire sequence.completed webhook (non-blocking)
+  try {
+    const { dispatchWebhook } = await import("../lib/webhooks");
+    dispatchWebhook("sequence.completed", {
+      enrollment_id: enrollmentId,
+      type: "drip",
+    }).catch(() => {});
+  } catch { /* ignore */ }
 }
 
 async function fetchVars(enrollment: Enrollment): Promise<Record<string, string>> {

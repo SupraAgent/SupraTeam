@@ -14,6 +14,18 @@
 import type { Bot } from "grammy";
 import { supabase } from "../lib/supabase.js";
 
+/**
+ * Dispatch a webhook event (non-blocking).
+ */
+async function fireWebhookEvent(eventType: string, payload: Record<string, unknown>) {
+  try {
+    const { dispatchWebhook } = await import("../../lib/webhooks");
+    await dispatchWebhook(eventType as import("../../lib/webhooks").WebhookEvent, payload);
+  } catch (err) {
+    console.error(`[bot/drip-triggers] webhook ${eventType} error:`, err);
+  }
+}
+
 interface DripSequence {
   id: string;
   name: string;
@@ -125,43 +137,66 @@ function matchesGroup(sequence: DripSequence, chatId: number): boolean {
 }
 
 export function registerDripTriggers(bot: Bot) {
-  // ── group_join: fires when a new user joins a group ──────────────
+  // ── group_join / group_leave: fires when a user joins or leaves a group ──
   bot.on("chat_member", async (ctx) => {
     const update = ctx.chatMember;
     const chat = update.chat;
     const chatType = chat.type;
     if (chatType !== "group" && chatType !== "supergroup") return;
 
-    // Only trigger on user joining (was not member, now is member/admin)
     const oldStatus = update.old_chat_member.status;
     const newStatus = update.new_chat_member.status;
+    const user = update.new_chat_member.user;
+    if (user.is_bot) return;
+
+    const chatId = chat.id;
+    const chatTitle = "title" in chat ? (chat as { title: string }).title : String(chatId);
+    const userName = user.first_name + (user.last_name ? ` ${user.last_name}` : "");
+
     const isJoining =
       (oldStatus === "left" || oldStatus === "kicked") &&
       (newStatus === "member" || newStatus === "administrator" || newStatus === "restricted");
 
-    if (!isJoining) return;
+    const isLeaving =
+      (oldStatus === "member" || oldStatus === "administrator" || oldStatus === "restricted") &&
+      (newStatus === "left" || newStatus === "kicked");
 
-    const joinedUser = update.new_chat_member.user;
-    if (joinedUser.is_bot) return;
-
-    const chatId = chat.id;
-    const chatTitle = "title" in chat ? (chat as { title: string }).title : String(chatId);
-
-    const sequences = await getActiveSequences();
-    const joinSequences = sequences.filter(
-      (s) => s.trigger_event === "group_join" && matchesGroup(s, chatId)
-    );
-
-    for (const seq of joinSequences) {
-      const enrolled = await isAlreadyEnrolled(seq.id, joinedUser.id);
-      if (enrolled) continue;
-
-      await enrollUser(seq.id, joinedUser.id, chatId, "group_join", {
-        group_id: chatId,
+    if (isJoining) {
+      // Fire group.member_joined webhook (non-blocking)
+      fireWebhookEvent("group.member_joined", {
+        chat_id: chatId,
         group_name: chatTitle,
-        user_name: joinedUser.first_name + (joinedUser.last_name ? ` ${joinedUser.last_name}` : ""),
-        username: joinedUser.username ?? null,
-      });
+        user_id: user.id,
+        user_name: userName,
+        username: user.username ?? null,
+      }).catch(() => {});
+
+      // Drip sequence enrollment
+      const sequences = await getActiveSequences();
+      const joinSequences = sequences.filter(
+        (s) => s.trigger_event === "group_join" && matchesGroup(s, chatId)
+      );
+
+      for (const seq of joinSequences) {
+        const enrolled = await isAlreadyEnrolled(seq.id, user.id);
+        if (enrolled) continue;
+
+        await enrollUser(seq.id, user.id, chatId, "group_join", {
+          group_id: chatId,
+          group_name: chatTitle,
+          user_name: userName,
+          username: user.username ?? null,
+        });
+      }
+    } else if (isLeaving) {
+      // Fire group.member_left webhook (non-blocking)
+      fireWebhookEvent("group.member_left", {
+        chat_id: chatId,
+        group_name: chatTitle,
+        user_id: user.id,
+        user_name: userName,
+        username: user.username ?? null,
+      }).catch(() => {});
     }
   });
 

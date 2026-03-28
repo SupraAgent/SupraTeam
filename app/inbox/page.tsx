@@ -62,10 +62,22 @@ export default function InboxPage() {
   const [selectedChat, setSelectedChat] = React.useState<number | null>(null);
   const [expandedThreads, setExpandedThreads] = React.useState<Set<number>>(new Set());
   const [refreshing, setRefreshing] = React.useState(false);
+  const [bots, setBots] = React.useState<{ id: string; label: string }[]>([]);
+  const [selectedBotId, setSelectedBotId] = React.useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    return localStorage.getItem("inbox_bot_filter") ?? "";
+  });
+
+  React.useEffect(() => {
+    fetch("/api/bots").then((r) => r.ok ? r.json() : null).then((d) => {
+      if (d?.bots) setBots(d.bots.map((b: { id: string; label: string }) => ({ id: b.id, label: b.label })));
+    }).catch(() => {});
+  }, []);
 
   const fetchInbox = React.useCallback(async () => {
     try {
-      const res = await fetch("/api/inbox");
+      const params = selectedBotId ? `?bot_id=${selectedBotId}` : "";
+      const res = await fetch(`/api/inbox${params}`);
       if (res.ok) {
         const data = await res.json();
         setConversations(data.conversations ?? []);
@@ -75,7 +87,7 @@ export default function InboxPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [selectedBotId]);
 
   React.useEffect(() => {
     fetchInbox();
@@ -161,15 +173,33 @@ export default function InboxPage() {
         </Button>
       </div>
 
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search conversations, messages, or senders..."
-          className="pl-9 text-sm"
-        />
+      {/* Search + Bot Filter */}
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search conversations, messages, or senders..."
+            className="pl-9 text-sm"
+          />
+        </div>
+        {bots.length > 1 && (
+          <select
+            value={selectedBotId}
+            onChange={(e) => {
+              setSelectedBotId(e.target.value);
+              localStorage.setItem("inbox_bot_filter", e.target.value);
+              setLoading(true);
+            }}
+            className="h-9 rounded-lg border border-white/10 bg-transparent px-3 text-sm text-foreground"
+          >
+            <option value="">All Bots</option>
+            {bots.map((b) => (
+              <option key={b.id} value={b.id}>{b.label}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       {filtered.length === 0 ? (

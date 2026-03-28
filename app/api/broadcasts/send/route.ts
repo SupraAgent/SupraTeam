@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { formatBroadcastMessage } from "@/lib/telegram-templates";
 import { sendTelegramWithTracking, sendTelegramMediaWithTracking } from "@/lib/telegram-send";
+import { dispatchWebhook } from "@/lib/webhooks";
 
 export async function POST(request: Request) {
   const auth = await requireAuth();
@@ -248,6 +249,16 @@ export async function POST(request: Request) {
       sent_at: new Date().toISOString(),
     })
     .eq("id", broadcast.id);
+
+  // Fire broadcast.sent webhook (non-blocking)
+  dispatchWebhook("broadcast.sent", {
+    broadcast_id: broadcast.id,
+    message_preview: (message as string).slice(0, 200),
+    slug: slug ?? null,
+    sent_count: sent,
+    failed_count: failed,
+    total: results.length,
+  }).catch(() => {});
 
   return NextResponse.json({
     ok: true,

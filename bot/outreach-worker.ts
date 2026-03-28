@@ -271,6 +271,15 @@ async function markCompleted(enrollmentId: string) {
   await supabase.from("crm_outreach_enrollments").update({
     status: "completed",
   }).eq("id", enrollmentId);
+
+  // Fire sequence.completed webhook (non-blocking)
+  try {
+    const { dispatchWebhook } = await import("../lib/webhooks");
+    dispatchWebhook("sequence.completed", {
+      enrollment_id: enrollmentId,
+      type: "outreach",
+    }).catch(() => {});
+  } catch { /* ignore */ }
 }
 
 async function fetchTemplateVars(enrollment: Enrollment): Promise<Record<string, string>> {
