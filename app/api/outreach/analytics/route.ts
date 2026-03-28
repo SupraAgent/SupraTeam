@@ -80,21 +80,21 @@ async function getSequenceDetail(supabase: any, sequenceId: string) {
   // Phase 1: run independent queries in parallel
   const [seqRes, stepsRes, enrollmentsRes] = await Promise.all([
     supabase.from("crm_outreach_sequences").select("id, name, status, board_type").eq("id", sequenceId).single(),
-    supabase.from("crm_outreach_steps").select("id, step_number, step_type, step_label, delay_hours, message_template").eq("sequence_id", sequenceId).order("step_number"),
-    supabase.from("crm_outreach_enrollments").select("id, status, reply_count, current_step, enrolled_at").eq("sequence_id", sequenceId),
+    supabase.from("crm_outreach_steps").select("id, step_number, step_type, step_label, delay_hours, message_template, variant_b_template").eq("sequence_id", sequenceId).order("step_number"),
+    supabase.from("crm_outreach_enrollments").select("id, status, reply_count, current_step, enrolled_at, ab_variant").eq("sequence_id", sequenceId),
   ]);
 
   const sequence = seqRes.data;
-  const steps = (stepsRes.data ?? []) as Array<{ id: string; step_number: number; step_type: string; step_label: string | null; delay_hours: number; message_template: string }>;
-  const enrollments = (enrollmentsRes.data ?? []) as Array<{ id: string; status: string; reply_count: number; current_step: number; enrolled_at: string }>;
+  const steps = (stepsRes.data ?? []) as Array<{ id: string; step_number: number; step_type: string; step_label: string | null; delay_hours: number; message_template: string; variant_b_template: string | null }>;
+  const enrollments = (enrollmentsRes.data ?? []) as Array<{ id: string; status: string; reply_count: number; current_step: number; enrolled_at: string; ab_variant: string | null }>;
 
   // Phase 2: step logs depend on enrollment IDs from phase 1
   const enrollmentIds = enrollments.map((e) => e.id);
-  const stepLogs: Array<{ step_id: string; status: string; enrollment_id: string }> = [];
+  const stepLogs: Array<{ step_id: string; status: string; enrollment_id: string; ab_variant: string | null }> = [];
   if (enrollmentIds.length > 0) {
     const { data } = await supabase
       .from("crm_outreach_step_log")
-      .select("step_id, status, enrollment_id")
+      .select("step_id, status, enrollment_id, ab_variant")
       .eq("status", "sent")
       .in("enrollment_id", enrollmentIds);
     if (data) stepLogs.push(...data);
@@ -135,6 +135,51 @@ async function getSequenceDetail(supabase: any, sequenceId: string) {
     dailyEnrollments[day] = (dailyEnrollments[day] ?? 0) + 1;
   }
 
+  // A/B variant analytics — uses step_log.ab_variant (per-step tracking),
+  // NOT enrollment.ab_variant (which is for condition-level ab_split only).
+  const hasAB = steps.some((s) => s.variant_b_template);
+  let ab_stats = null;
+  if (hasAB) {
+    // Per-step variant sent counts from logs
+    const stepVariantStats: Record<string, { a_sent: number; b_sent: number }> = {};
+    // Track which enrollments got A vs B (from their first A/B step log)
+    const enrollmentVariant = new Map<string, string>();
+    for (const log of stepLogs) {
+      if (log.ab_variant) {
+        if (!stepVariantStats[log.step_id]) stepVariantStats[log.step_id] = { a_sent: 0, b_sent: 0 };
+        if (log.ab_variant === "A") stepVariantStats[log.step_id].a_sent++;
+        else if (log.ab_variant === "B") stepVariantStats[log.step_id].b_sent++;
+        // First variant assignment wins for enrollment-level reply attribution
+        if (!enrollmentVariant.has(log.enrollment_id)) {
+          enrollmentVariant.set(log.enrollment_id, log.ab_variant);
+        }
+      }
+    }
+
+    const enrollmentMap = new Map(enrollments.map((e) => [e.id, e]));
+    let aTotal = 0, bTotal = 0, aReplied = 0, bReplied = 0;
+    for (const [eid, variant] of enrollmentVariant) {
+      const enrollment = enrollmentMap.get(eid);
+      if (!enrollment) continue;
+      if (variant === "A") { aTotal++; if (enrollment.reply_count > 0) aReplied++; }
+      else if (variant === "B") { bTotal++; if (enrollment.reply_count > 0) bReplied++; }
+    }
+
+    ab_stats = {
+      variant_a: {
+        total: aTotal,
+        replied: aReplied,
+        reply_rate: aTotal > 0 ? Math.round((aReplied / aTotal) * 100) : 0,
+      },
+      variant_b: {
+        total: bTotal,
+        replied: bReplied,
+        reply_rate: bTotal > 0 ? Math.round((bReplied / bTotal) * 100) : 0,
+      },
+      step_variants: stepVariantStats,
+    };
+  }
+
   return NextResponse.json({
     sequence,
     total,
@@ -143,6 +188,7 @@ async function getSequenceDetail(supabase: any, sequenceId: string) {
     completion_rate: total > 0 ? Math.round(((statusCounts.completed ?? 0) / total) * 100) : 0,
     status_counts: statusCounts,
     step_stats: stepStats,
+    ab_stats,
     daily_enrollments: Object.entries(dailyEnrollments)
       .map(([date, count]) => ({ date, count }))
       .sort((a, b) => a.date.localeCompare(b.date))

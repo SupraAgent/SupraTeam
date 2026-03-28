@@ -24,6 +24,21 @@ function QualityDots({ score }: { score: number }) {
   );
 }
 
+function OnChainBadge({ score }: { score: number }) {
+  if (score === 0) return <span className="text-muted-foreground/30 text-[10px]">-</span>;
+  const label = score >= 70 ? "Active" : score >= 40 ? "Some" : "Low";
+  const color = score >= 70
+    ? "bg-emerald-500/20 text-emerald-400"
+    : score >= 40
+    ? "bg-amber-500/20 text-amber-400"
+    : "bg-slate-500/20 text-slate-400";
+  return (
+    <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-medium", color)} title={`On-chain: ${score}`}>
+      {label}
+    </span>
+  );
+}
+
 function EngagementBadge({ score }: { score: number }) {
   const label = score >= 70 ? "Hot" : score >= 40 ? "Warm" : score > 0 ? "Cool" : "-";
   const color = score >= 70
@@ -85,6 +100,8 @@ export function ContactTable({ contacts, onRowClick, dealCountMap, selected, onT
               <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Company</th>
               <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Telegram</th>
               <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Email</th>
+              <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">X</th>
+              <th className="text-center px-4 py-2.5 text-xs font-medium text-muted-foreground">On-Chain</th>
               <th className="text-center px-4 py-2.5 text-xs font-medium text-muted-foreground">Quality</th>
               <th className="text-center px-4 py-2.5 text-xs font-medium text-muted-foreground">Engagement</th>
               {dealCountMap && <th className="text-center px-4 py-2.5 text-xs font-medium text-muted-foreground">Deals</th>}
@@ -133,6 +150,18 @@ export function ContactTable({ contacts, onRowClick, dealCountMap, selected, onT
                   )}
                 </td>
                 <td className="px-4 py-3 text-muted-foreground" onClick={() => onRowClick(contact)}>{contact.email ?? "-"}</td>
+                <td className="px-4 py-3" onClick={() => onRowClick(contact)}>
+                  {contact.x_handle ? (
+                    <span className="text-muted-foreground">@{contact.x_handle}</span>
+                  ) : (
+                    <span className="text-muted-foreground/50">-</span>
+                  )}
+                </td>
+                <td className="px-4 py-3" onClick={() => onRowClick(contact)}>
+                  <div className="flex justify-center">
+                    <OnChainBadge score={contact.on_chain_score} />
+                  </div>
+                </td>
                 <td className="px-4 py-3" onClick={() => onRowClick(contact)}>
                   <div className="flex justify-center">
                     <QualityDots score={contact.quality_score} />
@@ -204,6 +233,7 @@ export function ContactTable({ contacts, onRowClick, dealCountMap, selected, onT
               {contact.company && <span>{contact.company}</span>}
               {contact.company && contact.telegram_username && <span className="text-white/20">·</span>}
               {contact.telegram_username && <span className="text-primary">@{contact.telegram_username}</span>}
+              {contact.x_handle && <><span className="text-white/20">·</span><span className="text-muted-foreground/70">𝕏 @{contact.x_handle}</span></>}
             </div>
             {contact.email && (
               <p className="mt-0.5 text-[11px] text-muted-foreground/60 truncate">{contact.email}</p>

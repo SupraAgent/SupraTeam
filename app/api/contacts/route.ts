@@ -17,7 +17,11 @@ export async function GET(request: Request) {
     .order("name");
 
   if (search) {
-    query = query.or(`name.ilike.%${search}%,company.ilike.%${search}%,telegram_username.ilike.%${search}%,email.ilike.%${search}%`);
+    // Sanitize search to prevent PostgREST filter injection — strip chars that break .or() syntax
+    const sanitized = search.replace(/[(),."\\]/g, "");
+    if (sanitized) {
+      query = query.or(`name.ilike.%${sanitized}%,company.ilike.%${sanitized}%,telegram_username.ilike.%${sanitized}%,email.ilike.%${sanitized}%`);
+    }
   }
 
   if (stageFilter) {
@@ -40,7 +44,7 @@ export async function POST(request: Request) {
   const { user, admin: supabase } = auth;
 
   const body = await request.json();
-  const { name, email, phone, telegram_username, telegram_user_id, company, title, notes, stage_id, lifecycle_stage, source } = body;
+  const { name, email, phone, telegram_username, telegram_user_id, company, title, notes, stage_id, lifecycle_stage, source, x_handle, wallet_address, wallet_chain } = body;
 
   if (!name) {
     return NextResponse.json({ error: "name is required" }, { status: 400 });
@@ -60,6 +64,9 @@ export async function POST(request: Request) {
       stage_id: stage_id || null,
       lifecycle_stage: lifecycle_stage || "prospect",
       source: source || "manual",
+      x_handle: x_handle || null,
+      wallet_address: wallet_address || null,
+      ...(wallet_chain ? { wallet_chain } : {}),
       created_by: user.id,
     })
     .select("*, stage:pipeline_stages(*)")

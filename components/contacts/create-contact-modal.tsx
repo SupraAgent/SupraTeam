@@ -43,6 +43,8 @@ export function CreateContactModal({ open, onClose, onCreated }: CreateContactMo
   const [title, setTitle] = React.useState("");
   const [notes, setNotes] = React.useState("");
   const [tgGroupLink, setTgGroupLink] = React.useState("");
+  const [xHandle, setXHandle] = React.useState("");
+  const [walletAddress, setWalletAddress] = React.useState("");
   const [stageId, setStageId] = React.useState("");
   const [lifecycle, setLifecycle] = React.useState<LifecycleStage>("prospect");
   const [source, setSource] = React.useState<ContactSource>("manual");
@@ -107,6 +109,8 @@ export function CreateContactModal({ open, onClose, onCreated }: CreateContactMo
           email: email || null,
           phone: phone || null,
           telegram_username: telegram || null,
+          x_handle: xHandle || null,
+          wallet_address: walletAddress || null,
           title: title || null,
           notes: notes ? (tgGroupLink ? `${notes}\nTG Group: ${tgGroupLink}` : notes) : (tgGroupLink ? `TG Group: ${tgGroupLink}` : null),
           stage_id: stageId || null,
@@ -119,7 +123,7 @@ export function CreateContactModal({ open, onClose, onCreated }: CreateContactMo
       if (res.ok) {
         toast.success("Contact added");
         setName(""); setCompany(""); setEmail(""); setPhone("");
-        setTelegram(""); setTitle(""); setNotes(""); setLifecycle("prospect");
+        setTelegram(""); setXHandle(""); setWalletAddress(""); setTitle(""); setNotes(""); setLifecycle("prospect");
         setSource("manual"); setStageId(stages[0]?.id ?? ""); setDuplicates([]); setCustomValues({});
         onCreated();
         onClose();
@@ -200,6 +204,17 @@ export function CreateContactModal({ open, onClose, onCreated }: CreateContactMo
           <div>
             <label className="text-xs font-medium text-muted-foreground">TG Group Link</label>
             <Input value={tgGroupLink} onChange={(e) => setTgGroupLink(e.target.value)} placeholder="https://t.me/+abc123" className="mt-1" />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">X / Twitter</label>
+            <Input value={xHandle} onChange={(e) => setXHandle(e.target.value)} placeholder="handle (without @)" className="mt-1" />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">Wallet Address</label>
+            <Input value={walletAddress} onChange={(e) => setWalletAddress(e.target.value)} placeholder="0x... or supra1..." className="mt-1" />
           </div>
         </div>
 

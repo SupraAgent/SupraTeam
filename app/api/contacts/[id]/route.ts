@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 
-const CONTACT_FIELDS = ["name", "email", "phone", "telegram_username", "telegram_user_id", "company", "title", "notes", "stage_id", "tg_group_link", "lifecycle_stage", "source", "quality_score"];
+const CONTACT_FIELDS = ["name", "email", "phone", "telegram_username", "telegram_user_id", "company", "title", "notes", "stage_id", "tg_group_link", "lifecycle_stage", "source", "quality_score", "x_handle", "wallet_address", "wallet_chain", "on_chain_score"];
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireAuth();

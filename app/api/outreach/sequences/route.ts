@@ -29,7 +29,7 @@ export async function GET() {
   if (seqIds.length > 0) {
     const { data: enrollments } = await supabase
       .from("crm_outreach_enrollments")
-      .select("sequence_id, status")
+      .select("sequence_id, status, reply_count")
       .in("sequence_id", seqIds);
 
     for (const e of enrollments ?? []) {
@@ -39,7 +39,7 @@ export async function GET() {
       enrollmentStats[e.sequence_id].total++;
       if (e.status === "active") enrollmentStats[e.sequence_id].active++;
       if (e.status === "completed") enrollmentStats[e.sequence_id].completed++;
-      if (e.status === "replied") enrollmentStats[e.sequence_id].replied++;
+      if (e.reply_count > 0) enrollmentStats[e.sequence_id].replied++;
     }
   }
 
@@ -83,6 +83,7 @@ export async function POST(request: Request) {
   if (Array.isArray(steps) && steps.length > 0) {
     const stepRows = steps.map((s: {
       message_template: string;
+      variant_b_template?: string;
       delay_hours?: number;
       step_type?: string;
       condition_type?: string;
@@ -94,6 +95,7 @@ export async function POST(request: Request) {
       step_number: i + 1,
       delay_hours: s.delay_hours ?? 24,
       message_template: s.message_template,
+      variant_b_template: s.variant_b_template || null,
       step_type: s.step_type ?? "message",
       condition_type: s.condition_type || null,
       condition_config: s.condition_config ?? {},
