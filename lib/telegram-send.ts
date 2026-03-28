@@ -39,33 +39,41 @@ function refillChat(chatId: number) {
   bucket.lastRefill = now;
 }
 
+// Serialize rate limit acquisition to prevent concurrent callers going negative
+let rateLimitQueue: Promise<void> = Promise.resolve();
+
 async function acquireRateLimit(chatId: number): Promise<void> {
-  // Global bucket
-  refillGlobal();
-  if (globalTokens < 1) {
-    const waitMs = Math.ceil((1 - globalTokens) / RATE_LIMIT.tokensPerSec * 1000);
-    await new Promise((r) => setTimeout(r, waitMs));
+  const acquire = async () => {
+    // Global bucket
     refillGlobal();
-  }
-  globalTokens -= 1;
-
-  // Per-chat bucket
-  refillChat(chatId);
-  const bucket = chatBuckets.get(chatId)!;
-  if (bucket.tokens < 1) {
-    const waitMs = Math.ceil((1 - bucket.tokens) / RATE_LIMIT.perChatPerMin * 60000);
-    await new Promise((r) => setTimeout(r, Math.min(waitMs, 3000))); // cap wait at 3s
-    refillChat(chatId);
-  }
-  bucket.tokens -= 1;
-
-  // Evict old chat buckets to prevent memory leak
-  if (chatBuckets.size > 500) {
-    const cutoff = Date.now() - 120000;
-    for (const [id, b] of chatBuckets) {
-      if (b.lastRefill < cutoff) chatBuckets.delete(id);
+    if (globalTokens < 1) {
+      const waitMs = Math.ceil((1 - globalTokens) / RATE_LIMIT.tokensPerSec * 1000);
+      await new Promise((r) => setTimeout(r, waitMs));
+      refillGlobal();
     }
-  }
+    globalTokens -= 1;
+
+    // Per-chat bucket
+    refillChat(chatId);
+    const bucket = chatBuckets.get(chatId)!;
+    if (bucket.tokens < 1) {
+      const waitMs = Math.ceil((1 - bucket.tokens) / RATE_LIMIT.perChatPerMin * 60000);
+      await new Promise((r) => setTimeout(r, Math.min(waitMs, 3000))); // cap wait at 3s
+      refillChat(chatId);
+    }
+    bucket.tokens -= 1;
+
+    // Evict old chat buckets to prevent memory leak
+    if (chatBuckets.size > 500) {
+      const cutoff = Date.now() - 120000;
+      for (const [id, b] of chatBuckets) {
+        if (b.lastRefill < cutoff) chatBuckets.delete(id);
+      }
+    }
+  };
+
+  rateLimitQueue = rateLimitQueue.then(acquire, acquire);
+  return rateLimitQueue;
 }
 
 export interface SendResult {

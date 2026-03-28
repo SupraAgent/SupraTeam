@@ -889,29 +889,13 @@ export function registerMessageHandlers(bot: Bot) {
         console.error("[bot/messages] drip reply detection error:", dripReplyErr);
       }
 
-      // Track reply hour for send-time optimization (non-blocking)
+      // Track reply hour for send-time optimization (non-blocking, atomic upsert)
       if (!isTeamMember && !ctx.from.is_bot) {
         const replyHour = new Date(ctx.message.date * 1000).getUTCHours();
-        (async () => {
-          const { data: existing } = await supabase
-            .from("crm_reply_hour_stats")
-            .select("reply_count")
-            .eq("tg_group_id", tgGroup.id)
-            .eq("hour_utc", replyHour)
-            .maybeSingle();
-
-          if (existing) {
-            await supabase
-              .from("crm_reply_hour_stats")
-              .update({ reply_count: existing.reply_count + 1, last_updated_at: new Date().toISOString() })
-              .eq("tg_group_id", tgGroup.id)
-              .eq("hour_utc", replyHour);
-          } else {
-            await supabase
-              .from("crm_reply_hour_stats")
-              .insert({ tg_group_id: tgGroup.id, hour_utc: replyHour, reply_count: 1 });
-          }
-        })().catch(() => {}); // Best effort
+        supabase.rpc("increment_reply_hour_stat", {
+          p_tg_group_id: tgGroup.id,
+          p_hour_utc: replyHour,
+        }).then(() => {}); // Best effort
       }
     } catch (err) {
       console.error("[bot/messages] error:", err);

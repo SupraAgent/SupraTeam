@@ -94,6 +94,7 @@ export async function GET() {
 
   const enriched = (webhooks ?? []).map((w) => ({
     ...w,
+    secret: w.secret ? "••••••••" : null,
     delivery_stats: deliveryStats[w.id] ?? { total: 0, success: 0, lastDelivery: null },
   }));
 

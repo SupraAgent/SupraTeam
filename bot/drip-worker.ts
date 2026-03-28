@@ -9,6 +9,8 @@
 
 import type { Bot } from "grammy";
 import { supabase } from "./lib/supabase.js";
+
+import { logDelivery } from "./lib/log-delivery.js";
 import { renderTemplate, buildOutreachVars } from "../lib/outreach-templates.js";
 import { getOptimalSendTime } from "./lib/send-time-optimizer.js";
 

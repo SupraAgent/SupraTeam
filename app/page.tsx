@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { timeAgo, cn } from "@/lib/utils";
 import {
-  MessageCircle, GitBranch, ExternalLink, UserPlus, AtSign, ArrowRight, Bell,
+  MessageCircle, GitBranch, ExternalLink, UserPlus, AtSign, Bell,
   AlertTriangle, Clock, TrendingUp, Flame, Zap, DollarSign, BarChart3, Pin, Plus, Download, Users,
   ChevronDown, ChevronRight, Radio, Send, Settings, FileText,
 } from "lucide-react";
@@ -96,7 +96,6 @@ export default function HomePage() {
   const [timeRange, setTimeRange] = React.useState<"7d" | "30d" | "90d" | "all">("30d");
   const [lastUpdated, setLastUpdated] = React.useState<Date | null>(null);
   const [loading, setLoading] = React.useState(true);
-  const [triaging, setTriaging] = React.useState(false);
 
   // Collapsible widget state (persisted in localStorage)
   const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>(() => {

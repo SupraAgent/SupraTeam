@@ -10,15 +10,16 @@ const MAX_RETRIES = 3;
 const RETRY_DELAYS_MS = [1_000, 3_000, 9_000]; // exponential-ish backoff
 
 export function startNotificationPoller(bot: Bot) {
-  console.log("[bot/notifications] Starting notification poller (10s interval)");
+  console.warn("[bot/notifications] Starting notification poller (10s interval)");
 
   async function poll() {
     try {
-      // Find unnotified stage changes
+      // Find unnotified stage changes (skip rows that already hit max retries)
       const { data: changes, error } = await supabase
         .from("crm_deal_stage_history")
         .select("id, deal_id, from_stage_id, to_stage_id, changed_by, changed_at, delivery_attempts")
         .is("notified_at", null)
+        .lt("delivery_attempts", MAX_RETRIES)
         .order("changed_at", { ascending: true })
         .limit(10);
 
@@ -150,8 +151,8 @@ async function processStageChange(
     ? formatStageChangeMessage(deal.deal_name, fromName, toName, deal.board_type ?? "Unknown", changedByName)
     : formatStageChangeForGroup(deal.deal_name, fromName, toName, deal.board_type ?? "Unknown", changedByName, privacyLevel);
 
-  await bot.api.sendMessage(deal.telegram_chat_id, message, { parse_mode: "HTML" });
-  console.log(`[bot/notifications] Sent notification (privacy=${privacyLevel}) to chat ${deal.telegram_chat_id}`);
+  await sendTracked(bot, deal.telegram_chat_id, message, change.deal_id);
+  console.warn(`[bot/notifications] Sent notification (privacy=${privacyLevel}) to chat ${deal.telegram_chat_id}`);
 
   // Push DM to assigned rep (non-blocking)
   pushToDealAssignee(

@@ -122,6 +122,18 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   if ("error" in auth) return auth.error;
   const { admin: supabase } = auth;
 
+  // Cancel active outreach/drip enrollments before deleting the deal
+  await supabase
+    .from("crm_outreach_enrollments")
+    .update({ status: "cancelled" })
+    .eq("deal_id", id)
+    .eq("status", "active");
+  await supabase
+    .from("crm_drip_enrollments")
+    .update({ status: "cancelled" })
+    .eq("deal_id", id)
+    .eq("status", "active");
+
   const { error } = await supabase.from("crm_deals").delete().eq("id", id);
 
   if (error) {
