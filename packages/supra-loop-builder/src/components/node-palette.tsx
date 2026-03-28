@@ -804,14 +804,35 @@ export function NodePalette({ onAddNode, userNodeDefs: externalDefs, customPalet
   }
 
   // ── Desktop: floating palette ──
-  return (
-    <div className="rounded-xl border border-white/10 bg-background/95 backdrop-blur-sm shadow-xl max-h-[80vh] overflow-y-auto">
+  if (!expanded) {
+    // Collapsed: compact icon button
+    return (
       <button
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => setExpanded(true)}
+        className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-background/95 backdrop-blur-sm shadow-xl text-foreground hover:bg-white/10 transition"
+        title="Open node palette"
+        aria-label="Open node palette"
+      >
+        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+        </svg>
+      </button>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-background/95 backdrop-blur-sm shadow-xl max-h-[80vh] overflow-y-auto w-[240px]">
+      <button
+        onClick={() => setExpanded(false)}
         className="flex w-full items-center gap-2 px-3 py-2 text-xs font-medium text-foreground hover:bg-white/5 rounded-t-xl transition"
       >
-        <span>{expanded ? "▼" : "▶"}</span>
-        <span>Node Palette</span>
+        <span>▼</span>
+        <span>Nodes</span>
+        <span className="ml-auto text-muted-foreground/50">
+          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+          </svg>
+        </span>
       </button>
       {expanded && (
         <div className="border-t border-white/10 p-2 space-y-1">
