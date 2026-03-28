@@ -77,19 +77,28 @@ export async function GET(request: Request) {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function getSequenceDetail(supabase: any, sequenceId: string) {
-  const [seqRes, stepsRes, enrollmentsRes, stepLogsRes] = await Promise.all([
+  // Phase 1: run independent queries in parallel
+  const [seqRes, stepsRes, enrollmentsRes] = await Promise.all([
     supabase.from("crm_outreach_sequences").select("id, name, status, board_type").eq("id", sequenceId).single(),
     supabase.from("crm_outreach_steps").select("id, step_number, step_type, step_label, delay_hours, message_template").eq("sequence_id", sequenceId).order("step_number"),
     supabase.from("crm_outreach_enrollments").select("id, status, reply_count, current_step, enrolled_at").eq("sequence_id", sequenceId),
-    supabase.from("crm_outreach_step_log").select("step_id, status, enrollment_id").eq("status", "sent").in("enrollment_id",
-      (await supabase.from("crm_outreach_enrollments").select("id").eq("sequence_id", sequenceId)).data?.map((e: { id: string }) => e.id) ?? []
-    ),
   ]);
 
   const sequence = seqRes.data;
   const steps = (stepsRes.data ?? []) as Array<{ id: string; step_number: number; step_type: string; step_label: string | null; delay_hours: number; message_template: string }>;
   const enrollments = (enrollmentsRes.data ?? []) as Array<{ id: string; status: string; reply_count: number; current_step: number; enrolled_at: string }>;
-  const stepLogs = (stepLogsRes.data ?? []) as Array<{ step_id: string; status: string; enrollment_id: string }>;
+
+  // Phase 2: step logs depend on enrollment IDs from phase 1
+  const enrollmentIds = enrollments.map((e) => e.id);
+  const stepLogs: Array<{ step_id: string; status: string; enrollment_id: string }> = [];
+  if (enrollmentIds.length > 0) {
+    const { data } = await supabase
+      .from("crm_outreach_step_log")
+      .select("step_id, status, enrollment_id")
+      .eq("status", "sent")
+      .in("enrollment_id", enrollmentIds);
+    if (data) stepLogs.push(...data);
+  }
 
   // Status counts
   const statusCounts: Record<string, number> = {};

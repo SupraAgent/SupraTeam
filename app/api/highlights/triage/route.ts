@@ -6,6 +6,7 @@
 
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
+import { callClaudeForJson, sanitizeForPrompt } from "@/lib/claude-api";
 
 export async function POST() {
   const auth = await requireAuth();
@@ -46,31 +47,23 @@ export async function POST() {
     }
   }
 
-  // Build highlight descriptions for AI
+  // Build highlight descriptions for AI (sanitized to prevent prompt injection)
   const highlightDescriptions = highlights.map((h, i) => {
     const deal = h.deal_id ? dealMap.get(h.deal_id) : null;
-    const dealCtx = deal ? ` (Deal: ${deal.deal_name}, Stage: ${deal.stage_name})` : "";
+    const dealCtx = deal ? ` (Deal: ${sanitizeForPrompt(deal.deal_name)}, Stage: ${deal.stage_name})` : "";
     const msgCount = h.message_count > 1 ? ` [${h.message_count} messages]` : "";
-    return `${i + 1}. [${h.highlight_type}] From: ${h.sender_name ?? "Unknown"}${dealCtx}${msgCount}\n   Message: "${h.message_preview ?? "No preview"}"${h.sentiment ? `\n   Sentiment: ${h.sentiment}` : ""}`;
+    return `${i + 1}. [${h.highlight_type}] From: ${sanitizeForPrompt(h.sender_name ?? "Unknown")}${dealCtx}${msgCount}\n   Message: "${sanitizeForPrompt(h.message_preview ?? "No preview")}"${h.sentiment ? `\n   Sentiment: ${h.sentiment}` : ""}`;
   }).join("\n");
 
-  try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 600,
-        messages: [{
-          role: "user",
-          content: `You are a CRM triage assistant for a blockchain company (Supra). Categorize these Telegram highlights by urgency and topic.
+  const { data: triageResults, error } = await callClaudeForJson<{ index: number; category: string; urgency: string; summary: string }>({
+    apiKey,
+    model: "claude-haiku-4-5-20251001",
+    maxTokens: 600,
+    prompt: `You are a CRM triage assistant for a blockchain company (Supra). Categorize these Telegram highlights by urgency and topic.
 
-Highlights to triage:
+<highlights>
 ${highlightDescriptions}
+</highlights>
 
 Return ONLY valid JSON array with one object per highlight:
 [
@@ -82,50 +75,41 @@ Urgency guide:
 - high: direct questions needing response, meeting requests, partnership interest
 - medium: follow-ups, general business discussion, feature requests
 - low: greetings, casual chat, automated messages, FYI messages`,
-        }],
-      }),
-    });
+  });
 
-    const data = await res.json();
-    const rawText = data.content?.[0]?.text ?? "[]";
+  if (error) {
+    console.error("[highlights/triage] Claude error:", error);
+    return NextResponse.json({ error: "Triage failed: " + error }, { status: 500 });
+  }
 
-    let triageResults: Array<{ index: number; category: string; urgency: string; summary: string }>;
-    try {
-      const jsonMatch = rawText.match(/\[[\s\S]*\]/);
-      triageResults = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
-    } catch {
-      triageResults = [];
-    }
+  // Build update operations and run in parallel
+  const triaged: Array<{ id: string; category: string; urgency: string; summary: string }> = [];
+  const updatePromises: PromiseLike<unknown>[] = [];
 
-    // Update highlights with triage data
-    const triaged: Array<{ id: string; category: string; urgency: string; summary: string }> = [];
-    for (const result of triageResults) {
-      const highlight = highlights[result.index - 1];
-      if (!highlight) continue;
+  for (const result of triageResults) {
+    const highlight = highlights[result.index - 1];
+    if (!highlight) continue;
+    if (typeof result.category !== "string" || typeof result.summary !== "string") continue;
 
-      const urgency = ["critical", "high", "medium", "low"].includes(result.urgency) ? result.urgency : "medium";
+    const urgency = ["critical", "high", "medium", "low"].includes(result.urgency) ? result.urgency : "medium";
+    const category = result.category.toLowerCase().slice(0, 50);
 
-      await supabase
+    updatePromises.push(
+      supabase
         .from("crm_highlights")
         .update({
-          triage_category: result.category,
+          triage_category: category,
           triage_urgency: urgency,
-          triage_summary: result.summary?.slice(0, 200),
+          triage_summary: result.summary.slice(0, 200),
           triaged_at: new Date().toISOString(),
         })
-        .eq("id", highlight.id);
+        .eq("id", highlight.id)
+    );
 
-      triaged.push({
-        id: highlight.id,
-        category: result.category,
-        urgency,
-        summary: result.summary,
-      });
-    }
-
-    return NextResponse.json({ triaged, total: highlights.length });
-  } catch (err) {
-    console.error("[highlights/triage] error:", err);
-    return NextResponse.json({ error: "Triage failed" }, { status: 500 });
+    triaged.push({ id: highlight.id, category, urgency, summary: result.summary });
   }
+
+  await Promise.all(updatePromises);
+
+  return NextResponse.json({ triaged, total: highlights.length });
 }
