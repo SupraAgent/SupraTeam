@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import {
   Shield, ShieldOff, Users, MessageCircle, Tag, ExternalLink,
   Activity, TrendingUp, BarChart3, Star, StarOff, RefreshCw, UserCheck,
-  UserMinus, UserPlus, AlertTriangle, Loader2, Trash2,
+  UserMinus, UserPlus, AlertTriangle, Loader2, Trash2, Sparkles,
 } from "lucide-react";
 
 type MessageHistoryEntry = { date: string; count: number };
@@ -79,19 +79,30 @@ export function GroupDetailPanel({ group, open, onClose }: GroupDetailPanelProps
   const [confirmAction, setConfirmAction] = React.useState<{ type: "kick" | "nuclear"; member: GroupMember } | null>(null);
   const [nuclearLoading, setNuclearLoading] = React.useState(false);
   const [nuclearConfirmText, setNuclearConfirmText] = React.useState("");
+  const [summary, setSummary] = React.useState<string | null>(null);
+  const [summaryLoading, setSummaryLoading] = React.useState(false);
+  const [summaryMeta, setSummaryMeta] = React.useState<{ message_count: number; from: string; to: string } | null>(null);
+  const [customFields, setCustomFields] = React.useState<{ id: string; field_name: string; label: string; field_type: string; options: string[] | null }[]>([]);
+  const [fieldValues, setFieldValues] = React.useState<Record<string, string>>({});
+  const [fieldsSaving, setFieldsSaving] = React.useState(false);
 
   React.useEffect(() => {
     if (group && open) {
       setLoading(true);
       setShowMembers(false);
+      setSummary(null);
+      setSummaryMeta(null);
       // Fetch deals and members in parallel
       Promise.all([
         fetch(`/api/deals?tg_group_id=${group.id}`).then((r) => r.json()).catch(() => ({ deals: [] })),
         fetch(`/api/groups/members?group_id=${group.id}`).then((r) => r.json()).catch(() => ({ members: [], summary: null })),
-      ]).then(([dealsData, membersData]) => {
+        fetch(`/api/groups/fields?group_id=${group.id}`).then((r) => r.json()).catch(() => ({ fields: [], values: {} })),
+      ]).then(([dealsData, membersData, fieldsData]) => {
         setLinkedDeals(dealsData.deals ?? []);
         setMembers(membersData.members ?? []);
         setMemberSummary(membersData.summary ?? null);
+        setCustomFields(fieldsData.fields ?? []);
+        setFieldValues(fieldsData.values ?? {});
       }).finally(() => setLoading(false));
     }
   }, [group, open]);
@@ -161,6 +172,43 @@ export function GroupDetailPanel({ group, open, onClose }: GroupDetailPanelProps
         next.delete(member.telegram_user_id);
         return next;
       });
+    }
+  }
+
+  async function saveCustomFields() {
+    if (!group) return;
+    setFieldsSaving(true);
+    try {
+      const res = await fetch("/api/groups/fields", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ group_id: group.id, values: fieldValues }),
+      });
+      if (res.ok) toast.success("Custom fields saved");
+      else toast.error("Failed to save custom fields");
+    } catch {
+      toast.error("Failed to save custom fields");
+    } finally {
+      setFieldsSaving(false);
+    }
+  }
+
+  async function generateSummary() {
+    if (!group) return;
+    setSummaryLoading(true);
+    try {
+      const res = await fetch(`/api/groups/${group.id}/summary`, { method: "POST" });
+      const data = await res.json();
+      if (res.ok && data.summary) {
+        setSummary(data.summary);
+        setSummaryMeta({ message_count: data.message_count, from: data.timespan?.from, to: data.timespan?.to });
+      } else {
+        toast.error(data.error || "Failed to generate summary");
+      }
+    } catch {
+      toast.error("Failed to generate summary");
+    } finally {
+      setSummaryLoading(false);
     }
   }
 
@@ -333,6 +381,45 @@ export function GroupDetailPanel({ group, open, onClose }: GroupDetailPanelProps
           </div>
         )}
 
+        {/* AI Summary */}
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <p className="text-[11px] font-medium text-muted-foreground">AI Summary</p>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 text-[10px] px-2"
+              onClick={generateSummary}
+              disabled={summaryLoading}
+            >
+              {summaryLoading ? (
+                <Loader2 className="mr-1 h-2.5 w-2.5 animate-spin" />
+              ) : (
+                <Sparkles className="mr-1 h-2.5 w-2.5" />
+              )}
+              {summaryLoading ? "Summarizing..." : "Summarize"}
+            </Button>
+          </div>
+          {summary && (
+            <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-1">
+              <div className="text-xs text-foreground whitespace-pre-wrap leading-relaxed prose-sm"
+                dangerouslySetInnerHTML={{ __html: summary.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br/>') }}
+              />
+              {summaryMeta && (
+                <p className="text-[9px] text-muted-foreground pt-1 border-t border-white/5">
+                  Based on {summaryMeta.message_count} messages
+                  {summaryMeta.from && summaryMeta.to && (
+                    <> · {new Date(summaryMeta.from).toLocaleDateString()} — {new Date(summaryMeta.to).toLocaleDateString()}</>
+                  )}
+                </p>
+              )}
+            </div>
+          )}
+          {!summary && !summaryLoading && (
+            <p className="text-[10px] text-muted-foreground/50">Click Summarize to get an AI-powered overview of recent conversations.</p>
+          )}
+        </div>
+
         {/* Slugs */}
         {group.slugs.length > 0 && (
           <div>
@@ -342,6 +429,58 @@ export function GroupDetailPanel({ group, open, onClose }: GroupDetailPanelProps
                 <span key={slug} className="inline-flex items-center gap-1 rounded-md bg-primary/10 border border-primary/20 px-2 py-0.5 text-[10px] font-medium text-primary">
                   <Tag className="h-2.5 w-2.5" /> {slug}
                 </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Custom Fields */}
+        {customFields.length > 0 && (
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <p className="text-[11px] font-medium text-muted-foreground">Custom Fields</p>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 text-[10px] px-2"
+                onClick={saveCustomFields}
+                disabled={fieldsSaving}
+              >
+                {fieldsSaving ? <Loader2 className="mr-1 h-2.5 w-2.5 animate-spin" /> : null}
+                Save
+              </Button>
+            </div>
+            <div className="space-y-2">
+              {customFields.map((field) => (
+                <div key={field.id}>
+                  <label className="text-[10px] text-muted-foreground">{field.label}</label>
+                  {field.field_type === "select" && field.options ? (
+                    <select
+                      value={fieldValues[field.id] ?? ""}
+                      onChange={(e) => setFieldValues((prev) => ({ ...prev, [field.id]: e.target.value }))}
+                      className="w-full mt-0.5 h-7 rounded-md border border-white/10 bg-white/[0.04] px-2 text-xs text-foreground"
+                    >
+                      <option value="">—</option>
+                      {(field.options as string[]).map((opt) => (
+                        <option key={opt} value={opt}>{opt}</option>
+                      ))}
+                    </select>
+                  ) : field.field_type === "textarea" ? (
+                    <textarea
+                      value={fieldValues[field.id] ?? ""}
+                      onChange={(e) => setFieldValues((prev) => ({ ...prev, [field.id]: e.target.value }))}
+                      className="w-full mt-0.5 rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-xs text-foreground resize-none"
+                      rows={2}
+                    />
+                  ) : (
+                    <input
+                      type={field.field_type === "number" ? "number" : field.field_type === "date" ? "date" : field.field_type === "url" ? "url" : "text"}
+                      value={fieldValues[field.id] ?? ""}
+                      onChange={(e) => setFieldValues((prev) => ({ ...prev, [field.id]: e.target.value }))}
+                      className="w-full mt-0.5 h-7 rounded-md border border-white/10 bg-white/[0.04] px-2 text-xs text-foreground"
+                    />
+                  )}
+                </div>
               ))}
             </div>
           </div>

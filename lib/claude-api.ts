@@ -63,3 +63,41 @@ export async function callClaudeForJson<T>(params: {
     return { data: [], error: errMsg };
   }
 }
+
+/**
+ * Call Claude API and return raw text response.
+ */
+export async function callClaudeForText(params: {
+  apiKey: string;
+  model: "claude-sonnet-4-20250514" | "claude-haiku-4-5-20251001";
+  maxTokens: number;
+  prompt: string;
+}): Promise<{ text: string; error?: string }> {
+  try {
+    const res = await fetch(ANTHROPIC_API_URL, {
+      method: "POST",
+      headers: {
+        "x-api-key": params.apiKey,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: params.model,
+        max_tokens: params.maxTokens,
+        messages: [{ role: "user", content: params.prompt }],
+      }),
+    });
+
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => "Unknown error");
+      return { text: "", error: `Claude API returned ${res.status}: ${errBody.slice(0, 100)}` };
+    }
+
+    const data = await res.json();
+    const text = data.content?.[0]?.text ?? "";
+    return { text };
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : "Unknown error";
+    return { text: "", error: errMsg };
+  }
+}

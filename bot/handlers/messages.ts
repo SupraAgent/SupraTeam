@@ -15,6 +15,19 @@ async function fireWorkflowTriggers(triggerType: string, payload: Record<string,
   }
 }
 
+/**
+ * Dispatch a webhook event (non-blocking).
+ * Uses dynamic import to avoid bundling webhook lib in the bot process.
+ */
+async function fireWebhookEvent(eventType: string, payload: Record<string, unknown>) {
+  try {
+    const { dispatchWebhook } = await import("../../lib/webhooks");
+    await dispatchWebhook(eventType as import("../../lib/webhooks").WebhookEvent, payload);
+  } catch (err) {
+    console.error(`[bot/messages] webhook ${eventType} error:`, err);
+  }
+}
+
 // ── Team member detection cache (refreshed every 60s) ──────────
 let cachedTeamTelegramIds: Set<number> = new Set();
 let teamIdsFetchedAt = 0;
@@ -397,17 +410,29 @@ export function registerMessageHandlers(bot: Bot) {
   bot.on("message:text", async (ctx) => {
     if (ctx.chat.type !== "private") return;
 
-    const config = await getAgentConfig();
-    if (!config?.respond_to_dms) return;
-
     // Don't respond to bot commands
     if (ctx.message.text.startsWith("/")) return;
+
+    const senderName = ctx.from.first_name + (ctx.from.last_name ? ` ${ctx.from.last_name}` : "");
+    const senderUsername = ctx.from.username ?? "";
+
+    // Fire bot_dm_received workflow trigger (always, even if AI agent is off)
+    fireWorkflowTriggers("bot_dm_received", {
+      sender_id: ctx.from.id,
+      sender_name: senderName,
+      sender_username: senderUsername,
+      message_text: ctx.message.text,
+      chat_id: ctx.chat.id,
+    }).catch(() => {});
+
+    const config = await getAgentConfig();
+    if (!config?.respond_to_dms) return;
 
     await handleAIResponse(
       bot,
       ctx.chat.id,
       ctx.from.id,
-      ctx.from.first_name + (ctx.from.last_name ? ` ${ctx.from.last_name}` : ""),
+      senderName,
       ctx.message.text,
       ctx.message.message_id,
       undefined, // no dealId in DMs
@@ -521,6 +546,17 @@ export function registerMessageHandlers(bot: Bot) {
         sent_at: new Date(ctx.message.date * 1000).toISOString(),
         is_from_bot: false,
       }, { onConflict: "telegram_chat_id,telegram_message_id" });
+
+      // Fire group.message webhook (non-blocking)
+      fireWebhookEvent("group.message", {
+        chat_id: chatId,
+        group_name: tgGroup.group_name,
+        sender_name: senderName,
+        sender_username: senderUsername,
+        message_text: messageText,
+        message_type: detectedMediaType || "text",
+        sent_at: new Date(ctx.message.date * 1000).toISOString(),
+      }).catch(() => {});
 
       // Update contact last_activity_at if contact exists for this TG user (non-blocking)
       supabase.from("crm_contacts")

@@ -74,6 +74,7 @@ export const CRM_TRIGGERS: NodePaletteItem[] = [
   { type: "trigger", subType: "deal_lost", label: "Deal Lost", description: "Deal marked as lost", icon: "XCircle", defaultConfig: {} },
   { type: "trigger", subType: "scheduled", label: "Scheduled", description: "Runs on a cron schedule", icon: "Clock", defaultConfig: { cron_expression: "0 9 * * 1-5" } },
   { type: "trigger", subType: "lead_qualified", label: "Lead Qualified", description: "AI agent qualifies a lead from TG conversation", icon: "Sparkles", defaultConfig: {} },
+  { type: "trigger", subType: "bot_dm_received", label: "Bot DM Received", description: "When someone DMs the bot", icon: "MessageCircle", defaultConfig: {} },
 ];
 
 export const CRM_ACTIONS: NodePaletteItem[] = [
@@ -212,6 +213,13 @@ export const CRM_REGISTRY: NodeRegistry = {
         { key: "board_type", label: "Board type (optional)", type: "select", options: BOARD_OPTIONS },
       ],
       infoText: "Fires when the AI agent qualifies a lead from a Telegram conversation and auto-creates a deal. Available vars: {{deal_name}}, {{contact_name}}, {{stage}}, {{qualification}}.",
+    },
+    bot_dm_received: {
+      subType: "bot_dm_received",
+      configFields: [
+        { key: "keyword", label: "Keyword match (optional)", type: "text", placeholder: "e.g. pricing, support, help" },
+      ],
+      infoText: "Fires when a user sends a direct message to the bot. Available vars: {{sender_name}}, {{sender_username}}, {{sender_id}}, {{message_text}}.",
     },
   },
 
@@ -409,6 +417,7 @@ export const CRM_ICON_MAP: Record<string, React.ElementType> = {
   deal_won: Trophy,
   deal_lost: XCircle,
   scheduled: Clock,
+  bot_dm_received: MessageCircle,
   // Action icons
   send_telegram: Send,
   send_email: Mail,

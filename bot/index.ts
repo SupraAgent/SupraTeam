@@ -41,6 +41,14 @@ bot.catch((err) => {
   console.error("[bot] Error:", err.message);
 });
 
+// Set bot command menu
+bot.api.setMyCommands([
+  { command: "start", description: "Start the bot and get help" },
+  { command: "deals", description: "View your active deals" },
+  { command: "pipeline", description: "Pipeline summary" },
+  { command: "help", description: "Show available commands" },
+]).catch((err) => console.error("[bot] Failed to set commands:", err.message));
+
 // Start long-polling
 console.log("[bot] Starting SupraCRM bot...");
 bot.start({
