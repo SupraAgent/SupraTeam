@@ -18,6 +18,7 @@ type KanbanColumnProps = {
   onToggleSelect: (dealId: string) => void;
   highlightDealId?: string | null;
   highlightedDealIds?: Set<string>;
+  highlightDetails?: Record<string, { priority?: string; sentiment?: string; message_count?: number; sender_name?: string }>;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
   unreadCounts?: Record<string, number>;
@@ -40,7 +41,7 @@ export function KanbanColumn({
   stage, deals, allStageDealsCount, stages,
   onDealClick, onQuickMove, onQuickOutcome, onInlineEdit,
   selectedDealIds, onToggleSelect,
-  highlightDealId, highlightedDealIds,
+  highlightDealId, highlightedDealIds, highlightDetails,
   collapsed, onToggleCollapse,
   unreadCounts,
 }: KanbanColumnProps) {
@@ -167,6 +168,7 @@ export function KanbanColumn({
                 onToggleSelect={() => onToggleSelect(deal.id)}
                 highlight={deal.id === highlightDealId}
                 tgHighlight={highlightedDealIds?.has(deal.id) ?? false}
+                tgHighlightDetails={highlightDetails?.[deal.id]}
                 unreadCount={unreadCounts?.[deal.id]}
               />
             ))}

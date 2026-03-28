@@ -217,6 +217,36 @@ export default function OutreachPage() {
         </Button>
       </div>
 
+      {/* Aggregate stats */}
+      {sequences.length > 0 && (() => {
+        const totals = sequences.reduce((acc, s) => {
+          acc.total += s.enrollment_stats.total;
+          acc.active += s.enrollment_stats.active;
+          acc.completed += s.enrollment_stats.completed;
+          acc.replied += s.enrollment_stats.replied;
+          return acc;
+        }, { total: 0, active: 0, completed: 0, replied: 0 });
+        const replyRate = totals.total > 0 ? Math.round((totals.replied / totals.total) * 100) : 0;
+        const completionRate = totals.total > 0 ? Math.round((totals.completed / totals.total) * 100) : 0;
+        const activeSeqs = sequences.filter((s) => s.status === "active").length;
+        return (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[
+              { label: "Total Enrollments", value: totals.total, sub: `${activeSeqs} active sequence${activeSeqs !== 1 ? "s" : ""}`, color: "text-foreground" },
+              { label: "In Progress", value: totals.active, sub: "currently active", color: "text-blue-400" },
+              { label: "Reply Rate", value: `${replyRate}%`, sub: `${totals.replied} replies`, color: replyRate >= 20 ? "text-emerald-400" : "text-amber-400" },
+              { label: "Completion Rate", value: `${completionRate}%`, sub: `${totals.completed} completed`, color: "text-muted-foreground" },
+            ].map((card) => (
+              <div key={card.label} className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{card.label}</p>
+                <p className={cn("text-xl font-semibold mt-0.5", card.color ?? "text-foreground")}>{card.value}</p>
+                <p className="text-[10px] text-muted-foreground/60 mt-0.5">{card.sub}</p>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
       {/* Create form */}
       {showCreate && (
         <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-3">

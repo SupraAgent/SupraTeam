@@ -61,6 +61,7 @@ export type Deal = {
   ai_summary?: string | null;
   ai_summary_at?: string | null;
   ai_sentiment_at?: string | null;
+  awaiting_response_since?: string | null;
   // Joined fields
   contact?: Contact | null;
   stage?: PipelineStage | null;

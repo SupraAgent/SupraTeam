@@ -603,50 +603,108 @@ export function registerMessageHandlers(bot: Bot) {
               }
             }
 
-            // Dedup: only create if no active highlight from this sender in 24h
-            const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-            const { data: recentHighlight } = await supabase
+            // Burst grouping: merge messages from same sender within 5 min into one highlight
+            const BURST_WINDOW_MS = 5 * 60 * 1000;
+            const burstCutoff = new Date(Date.now() - BURST_WINDOW_MS).toISOString();
+            const { data: burstHighlight } = await supabase
               .from("crm_highlights")
-              .select("id")
+              .select("id, message_count, message_preview, priority")
               .eq("deal_id", deal.id)
               .eq("sender_name", senderName)
               .eq("is_active", true)
-              .gte("created_at", twentyFourHoursAgo)
+              .gte("last_message_at", burstCutoff)
+              .order("last_message_at", { ascending: false })
               .limit(1);
 
-            if (!recentHighlight || recentHighlight.length === 0) {
-              // Priority / sentiment detection
+            if (burstHighlight && burstHighlight.length > 0) {
+              // Merge into existing burst highlight — escalate priority if new message is higher
+              const existing = burstHighlight[0];
+              const newCount = (existing.message_count ?? 1) + 1;
+              const preview = newCount <= 2
+                ? `${existing.message_preview}\n${messageText.length > 80 ? messageText.slice(0, 80) + "..." : messageText}`
+                : `${existing.message_preview.split("\n")[0]}\n+${newCount - 1} more messages`;
+
+              // Re-evaluate priority/sentiment from latest message and escalate if higher
               const lowerText = messageText.toLowerCase();
               const urgentWords = ["urgent", "asap", "immediately", "critical", "deadline"];
               const highWords = ["ready to sign", "contract", "payment", "invoice", "approve", "confirm"];
               const negativeWords = ["cancel", "delay", "problem", "issue", "disappointed", "frustrated", "concerned"];
-              const positiveWords = ["excited", "great", "love", "perfect", "amazing", "deal", "agree", "yes"];
 
-              let priority: "low" | "medium" | "high" | "urgent" = "medium";
-              if (urgentWords.some((w) => lowerText.includes(w))) priority = "urgent";
-              else if (highWords.some((w) => lowerText.includes(w))) priority = "high";
+              const priorityRank: Record<string, number> = { low: 1, medium: 2, high: 3, urgent: 4 };
+              let newPriority: string | undefined;
+              if (urgentWords.some((w) => lowerText.includes(w))) newPriority = "urgent";
+              else if (highWords.some((w) => lowerText.includes(w))) newPriority = "high";
 
-              let sentiment: "positive" | "neutral" | "negative" = "neutral";
-              if (negativeWords.some((w) => lowerText.includes(w))) sentiment = "negative";
-              else if (positiveWords.some((w) => lowerText.includes(w))) sentiment = "positive";
+              let newSentiment: string | undefined;
+              if (negativeWords.some((w) => lowerText.includes(w))) newSentiment = "negative";
 
-              await supabase.from("crm_highlights").insert({
-                deal_id: deal.id,
-                contact_id: deal.contact_id ?? null,
-                tg_group_id: tgGroup.id,
-                sender_name: senderName,
-                message_preview: messageText.length > 100 ? messageText.slice(0, 100) + "..." : messageText,
+              const updatePayload: Record<string, unknown> = {
+                message_count: newCount,
+                message_preview: preview.slice(0, 200),
+                last_message_at: new Date().toISOString(),
                 tg_deep_link: tgDeepLink,
-                highlight_type: "tg_message",
-                priority,
-                sentiment,
-              });
+              };
+              // Only escalate priority, never downgrade
+              if (newPriority && (priorityRank[newPriority] ?? 0) > (priorityRank[existing.priority ?? "medium"] ?? 0)) {
+                updatePayload.priority = newPriority;
+              }
+              // Negative sentiment overrides neutral/positive
+              if (newSentiment === "negative") {
+                updatePayload.sentiment = "negative";
+              }
 
-              // Set awaiting_response on the deal
               await supabase
-                .from("crm_deals")
-                .update({ awaiting_response_since: new Date().toISOString() })
-                .eq("id", deal.id);
+                .from("crm_highlights")
+                .update(updatePayload)
+                .eq("id", existing.id);
+            } else {
+              // Dedup: only create if no active highlight from this sender in 24h
+              const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+              const { data: recentHighlight } = await supabase
+                .from("crm_highlights")
+                .select("id")
+                .eq("deal_id", deal.id)
+                .eq("sender_name", senderName)
+                .eq("is_active", true)
+                .gte("created_at", twentyFourHoursAgo)
+                .limit(1);
+
+              if (!recentHighlight || recentHighlight.length === 0) {
+                // Priority / sentiment detection
+                const lowerText = messageText.toLowerCase();
+                const urgentWords = ["urgent", "asap", "immediately", "critical", "deadline"];
+                const highWords = ["ready to sign", "contract", "payment", "invoice", "approve", "confirm"];
+                const negativeWords = ["cancel", "delay", "problem", "issue", "disappointed", "frustrated", "concerned"];
+                const positiveWords = ["excited", "great", "love", "perfect", "amazing", "deal", "agree", "yes"];
+
+                let priority: "low" | "medium" | "high" | "urgent" = "medium";
+                if (urgentWords.some((w) => lowerText.includes(w))) priority = "urgent";
+                else if (highWords.some((w) => lowerText.includes(w))) priority = "high";
+
+                let sentiment: "positive" | "neutral" | "negative" = "neutral";
+                if (negativeWords.some((w) => lowerText.includes(w))) sentiment = "negative";
+                else if (positiveWords.some((w) => lowerText.includes(w))) sentiment = "positive";
+
+                await supabase.from("crm_highlights").insert({
+                  deal_id: deal.id,
+                  contact_id: deal.contact_id ?? null,
+                  tg_group_id: tgGroup.id,
+                  sender_name: senderName,
+                  message_preview: messageText.length > 100 ? messageText.slice(0, 100) + "..." : messageText,
+                  tg_deep_link: tgDeepLink,
+                  highlight_type: "tg_message",
+                  priority,
+                  sentiment,
+                  message_count: 1,
+                  last_message_at: new Date().toISOString(),
+                });
+
+                // Set awaiting_response on the deal
+                await supabase
+                  .from("crm_deals")
+                  .update({ awaiting_response_since: new Date().toISOString() })
+                  .eq("id", deal.id);
+              }
             }
           }
         }
