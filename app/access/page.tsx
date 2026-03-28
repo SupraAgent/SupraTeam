@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
-  Shield, Check, X, Plus, UserPlus, UserMinus, History, Link2, Loader2,
+  Shield, Check, X, Plus, UserPlus, UserMinus, History, Link2, Loader2, Zap,
 } from "lucide-react";
 
 type Grant = {
@@ -64,6 +64,9 @@ export default function AccessControlPage() {
   const [newSlug, setNewSlug] = React.useState("");
   const [bulkLoading, setBulkLoading] = React.useState<string | null>(null);
   const [bulkSlugAction, setBulkSlugAction] = React.useState<{ slug: string; action: "add_to_groups" | "remove_from_groups" } | null>(null);
+  const [autoAssignUser, setAutoAssignUser] = React.useState("");
+  const [autoAssignSlug, setAutoAssignSlug] = React.useState("");
+  const [autoAssignLoading, setAutoAssignLoading] = React.useState(false);
 
   const fetchData = React.useCallback(async () => {
     try {
@@ -184,6 +187,37 @@ export default function AccessControlPage() {
     }
   }
 
+  async function handleAutoAssign(e: React.FormEvent) {
+    e.preventDefault();
+    if (!autoAssignUser || !autoAssignSlug) return;
+    setAutoAssignLoading(true);
+    try {
+      const res = await fetch("/api/access/auto-assign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: autoAssignUser,
+          slug: autoAssignSlug,
+          auto_add_to_existing: true,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        const linkCount = data.invite_links?.length ?? 0;
+        toast.success(`Assigned "${autoAssignSlug}" access + created ${linkCount} invite link(s)`);
+        setAutoAssignUser("");
+        setAutoAssignSlug("");
+        fetchData();
+      } else {
+        toast.error(data.error || "Auto-assign failed");
+      }
+    } catch {
+      toast.error("Auto-assign failed");
+    } finally {
+      setAutoAssignLoading(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="space-y-4">
@@ -275,6 +309,48 @@ export default function AccessControlPage() {
               <Plus className="h-3.5 w-3.5 mr-1" /> Add Slug
             </Button>
           </form>
+
+          {/* Quick auto-assign */}
+          {allSlugs.length > 0 && members.length > 0 && (
+            <form onSubmit={handleAutoAssign} className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <Zap className="h-3.5 w-3.5 text-amber-400" />
+                <span className="text-xs font-medium text-foreground">Quick Auto-Assign</span>
+                <span className="text-[10px] text-muted-foreground">Grant slug access + generate invite links for all tagged groups</span>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <select
+                  value={autoAssignUser}
+                  onChange={(e) => setAutoAssignUser(e.target.value)}
+                  className="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 text-xs text-foreground focus:outline-none min-w-[160px]"
+                >
+                  <option value="">Select member...</option>
+                  {members.filter((m) => m.telegram_id).map((m) => (
+                    <option key={m.id} value={m.id}>{m.display_name ?? "Unknown"}</option>
+                  ))}
+                </select>
+                <select
+                  value={autoAssignSlug}
+                  onChange={(e) => setAutoAssignSlug(e.target.value)}
+                  className="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 text-xs text-foreground focus:outline-none min-w-[120px]"
+                >
+                  <option value="">Select tag...</option>
+                  {allSlugs.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={!autoAssignUser || !autoAssignSlug || autoAssignLoading}
+                  className="h-8 text-xs"
+                >
+                  {autoAssignLoading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <UserPlus className="h-3 w-3 mr-1" />}
+                  Auto-Assign
+                </Button>
+              </div>
+            </form>
+          )}
 
           {allSlugs.length === 0 ? (
             <div className="rounded-xl border border-white/10 bg-white/[0.02] p-8 text-center">

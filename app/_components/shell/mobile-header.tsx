@@ -22,6 +22,7 @@ const NAV_ITEMS = [
   { href: "/access", label: "Access Control" },
   { href: "/graph", label: "Graph" },
   { href: "/docs", label: "Docs" },
+  { href: "/suggestions", label: "Suggestions" },
   { href: "/settings", label: "Settings" },
 ] as const;
 
