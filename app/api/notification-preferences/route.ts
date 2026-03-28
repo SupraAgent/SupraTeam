@@ -23,6 +23,11 @@ export async function GET() {
       digest_frequency: "realtime",
       digest_day: null,
       digest_hour: 9,
+      push_enabled: true,
+      push_stage_changes: true,
+      push_tg_messages: true,
+      push_escalations: true,
+      push_outreach_replies: true,
     },
   });
 }
@@ -32,12 +37,26 @@ export async function PUT(request: Request) {
   if ("error" in auth) return auth.error;
   const { user, admin: supabase } = auth;
 
-  const body = await request.json();
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
   const {
     muted_types, quiet_hours_enabled, quiet_hours_start, quiet_hours_end, quiet_hours_tz,
     digest_frequency, digest_day, digest_hour,
     push_enabled, push_stage_changes, push_tg_messages, push_escalations, push_outreach_replies,
   } = body;
+
+  // Validate boolean push fields
+  const boolFields = { push_enabled, push_stage_changes, push_tg_messages, push_escalations, push_outreach_replies, quiet_hours_enabled };
+  for (const [key, val] of Object.entries(boolFields)) {
+    if (val !== undefined && typeof val !== "boolean") {
+      return NextResponse.json({ error: `${key} must be a boolean` }, { status: 400 });
+    }
+  }
 
   const { data, error } = await supabase
     .from("crm_notification_preferences")

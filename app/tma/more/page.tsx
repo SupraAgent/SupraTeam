@@ -46,6 +46,7 @@ export default function TMAMorePage() {
   const [prefs, setPrefs] = React.useState<PushPrefs>(DEFAULT_PREFS);
   const [prefsLoaded, setPrefsLoaded] = React.useState(false);
   const saveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingPrefs = React.useRef<PushPrefs | null>(null);
 
   React.useEffect(() => {
     if (typeof window !== "undefined" && (window as unknown as Record<string, unknown>).Telegram) {
@@ -72,28 +73,37 @@ export default function TMAMorePage() {
       .catch(() => setPrefsLoaded(true));
   }, []);
 
+  // Flush pending save to server
+  const flushSave = React.useCallback(() => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = null;
+    if (pendingPrefs.current) {
+      fetch("/api/notification-preferences", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(pendingPrefs.current),
+      }).catch((err) => console.error("[tma/more] save prefs error:", err));
+      pendingPrefs.current = null;
+    }
+  }, []);
+
   // Debounced save
   const updatePref = React.useCallback((key: keyof PushPrefs, value: boolean) => {
     setPrefs((prev) => {
       const next = { ...prev, [key]: value };
+      pendingPrefs.current = next;
 
-      // Debounce save to avoid rapid API calls on toggle spam
       if (saveTimer.current) clearTimeout(saveTimer.current);
-      saveTimer.current = setTimeout(() => {
-        fetch("/api/notification-preferences", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(next),
-        }).catch((err) => console.error("[tma/more] save prefs error:", err));
-      }, 500);
+      saveTimer.current = setTimeout(flushSave, 500);
 
       return next;
     });
-  }, []);
+  }, [flushSave]);
 
+  // Flush on unmount (don't lose the last toggle)
   React.useEffect(() => {
-    return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
-  }, []);
+    return () => flushSave();
+  }, [flushSave]);
 
   const PUSH_ITEMS: { key: keyof PushPrefs; label: string; description: string }[] = [
     { key: "push_stage_changes", label: "Stage Changes", description: "When a deal moves stages" },

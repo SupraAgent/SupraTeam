@@ -24,70 +24,75 @@ interface PushParams {
 }
 
 /**
+ * Convert "HH:MM" or "HH:MM:SS" time string to minutes since midnight.
+ */
+function timeToMinutes(time: string): number {
+  const parts = time.split(":");
+  return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+}
+
+/**
+ * Get current time in a timezone as minutes since midnight.
+ */
+function nowInTzMinutes(tz: string): number {
+  const now = new Date();
+  const hour = parseInt(now.toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: tz }), 10);
+  const minute = parseInt(now.toLocaleString("en-US", { minute: "numeric", timeZone: tz }), 10);
+  return hour * 60 + minute;
+}
+
+/**
  * Look up user's Telegram ID from profiles and check if push is enabled.
  * Returns null if user has no telegram_id or push is disabled.
+ * Single query for preferences (avoids N+1).
  */
 async function resolveRecipient(
   userId: string,
   triggerType: PushParams["triggerType"]
 ): Promise<{ telegramId: number } | null> {
-  // Get profile with telegram_id
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("telegram_id")
-    .eq("id", userId)
-    .single();
+  // Parallel: profile + all preferences in one round trip each
+  const [profileRes, prefsRes] = await Promise.all([
+    supabase.from("profiles").select("telegram_id").eq("id", userId).single(),
+    supabase.from("crm_notification_preferences")
+      .select("push_enabled, push_stage_changes, push_tg_messages, push_escalations, push_outreach_replies, quiet_hours_enabled, quiet_hours_start, quiet_hours_end, quiet_hours_tz")
+      .eq("user_id", userId)
+      .maybeSingle(),
+  ]);
 
-  if (!profile?.telegram_id) return null;
+  if (!profileRes.data?.telegram_id) return null;
 
-  // Check notification preferences
-  const { data: prefs } = await supabase
-    .from("crm_notification_preferences")
-    .select("push_enabled, push_stage_changes, push_tg_messages, push_escalations, push_outreach_replies")
-    .eq("user_id", userId)
-    .single();
+  const prefs = prefsRes.data;
 
   // Default: all enabled if no preferences set
-  const pushEnabled = prefs?.push_enabled ?? true;
-  if (!pushEnabled) return null;
+  if (prefs && prefs.push_enabled === false) return null;
 
   // Check per-type preference
-  const typeEnabled = (() => {
-    if (!prefs) return true; // No prefs = all enabled
-    switch (triggerType) {
-      case "stage_change": return prefs.push_stage_changes ?? true;
-      case "tg_message": return prefs.push_tg_messages ?? true;
-      case "escalation": return prefs.push_escalations ?? true;
-      case "outreach_reply": return prefs.push_outreach_replies ?? true;
-    }
-  })();
+  if (prefs) {
+    const typeMap: Record<string, boolean | null> = {
+      stage_change: prefs.push_stage_changes,
+      tg_message: prefs.push_tg_messages,
+      escalation: prefs.push_escalations,
+      outreach_reply: prefs.push_outreach_replies,
+    };
+    if (typeMap[triggerType] === false) return null;
+  }
 
-  if (!typeEnabled) return null;
+  // Check quiet hours (integer math, not string comparison)
+  if (prefs?.quiet_hours_enabled && prefs.quiet_hours_start && prefs.quiet_hours_end) {
+    const tz = prefs.quiet_hours_tz ?? "UTC";
+    const currentMinutes = nowInTzMinutes(tz);
+    const startMinutes = timeToMinutes(prefs.quiet_hours_start);
+    const endMinutes = timeToMinutes(prefs.quiet_hours_end);
 
-  // Check quiet hours
-  const { data: quietPrefs } = await supabase
-    .from("crm_notification_preferences")
-    .select("quiet_hours_enabled, quiet_hours_start, quiet_hours_end, quiet_hours_tz")
-    .eq("user_id", userId)
-    .single();
-
-  if (quietPrefs?.quiet_hours_enabled && quietPrefs.quiet_hours_start && quietPrefs.quiet_hours_end) {
-    const now = new Date();
-    const tz = quietPrefs.quiet_hours_tz ?? "UTC";
-    const formatter = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: tz });
-    const currentTime = formatter.format(now);
-    const start = quietPrefs.quiet_hours_start.slice(0, 5); // "HH:MM"
-    const end = quietPrefs.quiet_hours_end.slice(0, 5);
-
-    // Simple range check (handles overnight ranges like 22:00-08:00)
-    if (start <= end) {
-      if (currentTime >= start && currentTime < end) return null;
+    if (startMinutes <= endMinutes) {
+      if (currentMinutes >= startMinutes && currentMinutes < endMinutes) return null;
     } else {
-      if (currentTime >= start || currentTime < end) return null;
+      // Overnight range (e.g. 22:00-08:00)
+      if (currentMinutes >= startMinutes || currentMinutes < endMinutes) return null;
     }
   }
 
-  return { telegramId: Number(profile.telegram_id) };
+  return { telegramId: Number(profileRes.data.telegram_id) };
 }
 
 /**
@@ -158,7 +163,7 @@ export async function sendTMAPush(bot: Bot, params: PushParams): Promise<boolean
       delivered: true,
     });
 
-    console.log(`[push] Sent ${triggerType} push to user ${userId} (tg:${recipient.telegramId})`);
+    console.warn(`[push] Sent ${triggerType} push to user ${userId} (tg:${recipient.telegramId})`);
     return true;
   } catch (err) {
     console.error(`[push] Failed to send ${triggerType} push to user ${userId}:`, err);

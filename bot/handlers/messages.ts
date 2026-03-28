@@ -1,6 +1,6 @@
 import type { Bot } from "grammy";
 import { supabase } from "../lib/supabase.js";
-import { pushToDealAssignee } from "./push-notifications.js";
+import { pushToDealAssignee, sendTMAPush } from "./push-notifications.js";
 
 /**
  * Fire workflow automations for a given trigger type.
@@ -238,7 +238,6 @@ async function handleAIResponse(
 
       if (admins) {
         for (const admin of admins) {
-          const { sendTMAPush } = await import("./push-notifications.js");
           sendTMAPush(bot, {
             userId: admin.id,
             triggerType: "escalation",
@@ -436,10 +435,10 @@ export function registerMessageHandlers(bot: Bot) {
         tg_group_id: tgGroup.id,
       });
 
-      // Find deals linked to this telegram chat
+      // Find deals linked to this telegram chat (include assigned_to for push notifications)
       const { data: deals } = await supabase
         .from("crm_deals")
-        .select("id, deal_name, board_type, stage_id")
+        .select("id, deal_name, board_type, stage_id, assigned_to")
         .eq("telegram_chat_id", chatId);
 
       // Store full message in tg_group_messages for conversation timeline
@@ -504,28 +503,23 @@ export function registerMessageHandlers(bot: Bot) {
         });
 
         // Push DM to assigned rep (only if they're not the sender)
-        const { data: assignedDeal } = await supabase
-          .from("crm_deals")
-          .select("assigned_to")
-          .eq("id", deal.id)
-          .single();
-
-        if (assignedDeal?.assigned_to) {
+        if (deal.assigned_to) {
           // Check if sender IS the assigned rep (by telegram_id on profile)
           const { data: assignedProfile } = await supabase
             .from("profiles")
             .select("telegram_id")
-            .eq("id", assignedDeal.assigned_to)
+            .eq("id", deal.assigned_to)
             .single();
 
           if (assignedProfile?.telegram_id && Number(assignedProfile.telegram_id) !== ctx.from.id) {
-            pushToDealAssignee(
-              bot,
-              deal.id,
-              "tg_message",
-              `💬 ${senderName} in ${tgGroup.group_name}`,
-              messageText
-            ).catch((err) => console.error("[bot/messages] push error:", err));
+            sendTMAPush(bot, {
+              userId: deal.assigned_to,
+              triggerType: "tg_message",
+              title: `💬 ${senderName} in ${tgGroup.group_name}`,
+              body: messageText,
+              tmaPath: `/tma/deals/${deal.id}`,
+              dealId: deal.id,
+            }).catch((err) => console.error("[bot/messages] push error:", err));
           }
         }
       }
@@ -593,7 +587,6 @@ export function registerMessageHandlers(bot: Bot) {
                     ? `/tma/deals/${enrollmentDetails.deal_id}`
                     : "/tma/deals";
 
-                const { sendTMAPush } = await import("./push-notifications.js");
                 sendTMAPush(bot, {
                   userId: sequence.created_by,
                   triggerType: "outreach_reply",
