@@ -339,6 +339,36 @@ export default function HomePage() {
         {/* Left column */}
         <div className="space-y-4">
 
+          {/* Live Activity Feed */}
+          <Widget title="Activity Feed" icon={Zap} iconColor="text-primary" subtitle="Last 48h" empty={activityFeed.length === 0} emptyText="No recent activity." collapsible isCollapsed={collapsed["activity"]} onToggle={() => toggleCollapse("activity")}>
+            {activityFeed.slice(0, 12).map((evt) => {
+              const iconMap: Record<string, { icon: React.ElementType; color: string }> = {
+                stage_change: { icon: GitBranch, color: "text-purple-400" },
+                deal_created: { icon: ExternalLink, color: "text-green-400" },
+                broadcast: { icon: Send, color: "text-blue-400" },
+                tg_message: { icon: MessageCircle, color: "text-blue-400" },
+                member_event: { icon: UserPlus, color: "text-yellow-400" },
+                workflow_run: { icon: Radio, color: "text-cyan-400" },
+              };
+              const { icon: EvtIcon, color } = iconMap[evt.type] ?? { icon: Zap, color: "text-muted-foreground" };
+              const isFailed = evt.meta?.status === "failed";
+              return (
+                <div key={evt.id} className="flex items-start gap-2 py-1.5">
+                  <EvtIcon className={cn("h-3.5 w-3.5 mt-0.5 shrink-0", isFailed ? "text-red-400" : color)} />
+                  <div className="min-w-0 flex-1">
+                    {evt.link ? (
+                      <Link href={evt.link} className="text-xs text-foreground hover:underline truncate block">{evt.title}</Link>
+                    ) : (
+                      <p className="text-xs text-foreground truncate">{evt.title}</p>
+                    )}
+                    <p className={cn("text-[10px] truncate", isFailed ? "text-red-400" : "text-muted-foreground")}>{evt.description}</p>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground/50 shrink-0">{timeAgo(evt.timestamp)}</span>
+                </div>
+              );
+            })}
+          </Widget>
+
           {/* Stale deals */}
           <Widget title="Stale Deals" icon={AlertTriangle} iconColor="text-red-400" subtitle="No activity in 7+ days" empty={s.staleDeals.length === 0} emptyText="No stale deals. Pipeline is healthy." collapsible isCollapsed={collapsed["stale"]} onToggle={() => toggleCollapse("stale")}>
             {s.staleDeals.map((d) => (
