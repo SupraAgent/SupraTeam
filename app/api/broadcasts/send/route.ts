@@ -18,7 +18,7 @@ export async function POST(request: Request) {
     auth.user.user_metadata?.full_name ??
     undefined;
 
-  const { message, group_ids, slug, scheduled_at } = await request.json();
+  const { message, variant_b_message, group_ids, slug, scheduled_at } = await request.json();
 
   if (!message?.trim()) {
     return NextResponse.json({ error: "message is required" }, { status: 400 });
@@ -87,6 +87,8 @@ export async function POST(request: Request) {
   }
 
   const formattedMessage = formatBroadcastMessage(message.trim(), senderName);
+  const hasVariantB = variant_b_message?.trim();
+  const formattedVariantB = hasVariantB ? formatBroadcastMessage(variant_b_message.trim(), senderName) : null;
 
   // Create broadcast record
   const isScheduled = scheduled_at && new Date(scheduled_at) > new Date();
@@ -101,6 +103,7 @@ export async function POST(request: Request) {
       group_count: groups.length,
       status: isScheduled ? "scheduled" : "sending",
       scheduled_at: isScheduled ? scheduled_at : null,
+      variant_b_message: hasVariantB ? variant_b_message.trim() : null,
     })
     .select()
     .single();
@@ -110,13 +113,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Failed to create broadcast" }, { status: 500 });
   }
 
-  // Create recipient records
-  const recipientRows = groups.map((g) => ({
+  // Create recipient records with A/B variant assignment (shuffle for randomness)
+  const shuffled = [...groups].sort(() => Math.random() - 0.5);
+  const halfPoint = Math.ceil(shuffled.length / 2);
+  const recipientRows = shuffled.map((g, i) => ({
     broadcast_id: broadcast.id,
     tg_group_id: g.id,
     group_name: g.group_name,
     telegram_group_id: g.telegram_group_id,
     status: "pending",
+    variant: hasVariantB ? (i < halfPoint ? "A" : "B") : null,
   }));
   await supabase.from("crm_broadcast_recipients").insert(recipientRows);
 
@@ -131,13 +137,17 @@ export async function POST(request: Request) {
     });
   }
 
-  // Send immediately
+  // Send immediately — use variant B message for B recipients
   const results: { group_name: string; success: boolean; error?: string }[] = [];
+  const variantMap = new Map(recipientRows.map((r) => [r.tg_group_id, r.variant]));
 
   for (const group of groups) {
+    const variant = variantMap.get(group.id);
+    const msgToSend = (variant === "B" && formattedVariantB) ? formattedVariantB : formattedMessage;
+
     const result = await sendTelegramWithTracking({
       chatId: group.telegram_group_id,
-      text: formattedMessage,
+      text: msgToSend,
       notificationType: "broadcast",
     });
 
