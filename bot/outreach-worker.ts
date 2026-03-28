@@ -7,6 +7,7 @@
 import type { Bot } from "grammy";
 import { supabase } from "./lib/supabase.js";
 import { renderTemplate, buildOutreachVars } from "../lib/outreach-templates.js";
+import { getOptimalSendTime } from "./lib/send-time-optimizer.js";
 
 type Enrollment = {
   id: string;
@@ -246,9 +247,23 @@ async function advanceToNextStep(enrollment: Enrollment, steps: Step[], currentS
     return;
   }
 
+  // Use send-time optimization for message steps with delay > 1 hour
+  let nextSendAt: string;
+  if (nextStep.step_type === "message" && nextStep.delay_hours >= 1) {
+    // Resolve tg_group_id from telegram_chat_id for optimization lookup
+    const { data: group } = await supabase
+      .from("tg_groups")
+      .select("id")
+      .eq("telegram_group_id", Number(enrollment.tg_chat_id))
+      .maybeSingle();
+    nextSendAt = await getOptimalSendTime(group?.id ?? null, nextStep.delay_hours);
+  } else {
+    nextSendAt = new Date(Date.now() + (nextStep.delay_hours || 0) * 3600000).toISOString();
+  }
+
   await supabase.from("crm_outreach_enrollments").update({
     current_step: nextStep.step_number,
-    next_send_at: new Date(Date.now() + (nextStep.delay_hours || 0) * 3600000).toISOString(),
+    next_send_at: nextSendAt,
   }).eq("id", enrollment.id);
 }
 

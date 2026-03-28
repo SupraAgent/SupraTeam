@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { cn, timeAgo } from "@/lib/utils";
-import { Send, Loader2, ExternalLink, Search, ChevronUp, ChevronDown, MessageCircle, Bot, User } from "lucide-react";
+import { Send, Loader2, ExternalLink, Search, ChevronUp, ChevronDown, MessageCircle, Bot, User, Image, FileText, Sparkles } from "lucide-react";
 
 type Message = {
   id: string;
@@ -12,6 +12,9 @@ type Message = {
   text: string | null;
   message_type: string;
   media_type?: string | null;
+  media_file_id?: string | null;
+  media_thumb_id?: string | null;
+  media_mime?: string | null;
   reply_to_message_id: number | null;
   sent_at: string;
   is_from_bot: boolean;
@@ -40,6 +43,8 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
   const [searchQuery, setSearchQuery] = React.useState("");
   const [showSearch, setShowSearch] = React.useState(false);
   const [newMessageCount, setNewMessageCount] = React.useState(0);
+  const [suggestions, setSuggestions] = React.useState<Array<{ label: string; text: string }>>([]);
+  const [loadingSuggestions, setLoadingSuggestions] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const isAtBottomRef = React.useRef(true);
 
@@ -147,6 +152,21 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
     setLoadingMore(true);
     await fetchMessages(messages[0].sent_at);
     setLoadingMore(false);
+  }
+
+  async function fetchSuggestions() {
+    setLoadingSuggestions(true);
+    try {
+      const res = await fetch(`/api/deals/${dealId}/suggest-replies`, { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        setSuggestions(data.suggestions ?? []);
+      }
+    } catch {
+      // silent fail
+    } finally {
+      setLoadingSuggestions(false);
+    }
   }
 
   async function handleSend() {
@@ -325,7 +345,14 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
                       ? "bg-blue-500/10 border border-blue-500/10"
                       : "bg-white/[0.04]"
                   )}>
-                    {msg.media_type && (
+                    {msg.media_type && msg.media_file_id && (
+                      <MediaPreview
+                        mediaType={msg.media_type}
+                        fileId={msg.media_thumb_id ?? msg.media_file_id}
+                        mime={msg.media_mime}
+                      />
+                    )}
+                    {msg.media_type && !msg.media_file_id && (
                       <span className="text-[10px] text-muted-foreground/50 italic flex items-center gap-1 mb-0.5">
                         [{msg.media_type}]
                       </span>
@@ -370,6 +397,42 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
         </button>
       )}
 
+      {/* Smart reply suggestions */}
+      {messages.length > 0 && (
+        <div className="shrink-0 mt-1">
+          {suggestions.length > 0 ? (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <Sparkles className="h-3 w-3 text-purple-400 shrink-0" />
+              {suggestions.map((s, i) => (
+                <button
+                  key={i}
+                  onClick={() => { setReply(s.text); setSuggestions([]); }}
+                  className="rounded-lg border border-purple-500/20 bg-purple-500/5 px-2.5 py-1 text-[10px] text-purple-300 hover:bg-purple-500/10 transition-colors truncate max-w-[180px]"
+                  title={s.text}
+                >
+                  {s.label}
+                </button>
+              ))}
+              <button
+                onClick={() => setSuggestions([])}
+                className="text-[9px] text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+              >
+                dismiss
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={fetchSuggestions}
+              disabled={loadingSuggestions}
+              className="flex items-center gap-1 text-[10px] text-muted-foreground/50 hover:text-purple-400 transition-colors"
+            >
+              {loadingSuggestions ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+              {loadingSuggestions ? "Thinking..." : "Suggest replies"}
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Reply input */}
       <div className="flex gap-2 pt-2 border-t border-white/5 shrink-0 mt-2">
         <input
@@ -398,5 +461,64 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
         </button>
       </div>
     </div>
+  );
+}
+
+/** Inline media preview for photos and documents */
+function MediaPreview({ mediaType, fileId, mime }: { mediaType: string; fileId: string; mime?: string | null }) {
+  const [loaded, setLoaded] = React.useState(false);
+  const [error, setError] = React.useState(false);
+  const proxyUrl = `/api/telegram-media?file_id=${encodeURIComponent(fileId)}`;
+
+  if (mediaType === "photo" || mediaType === "animation") {
+    return (
+      <div className="mb-1 relative">
+        {!loaded && !error && (
+          <div className="h-32 w-full max-w-[240px] rounded bg-white/5 animate-pulse flex items-center justify-center">
+            <Image className="h-5 w-5 text-muted-foreground/20" />
+          </div>
+        )}
+        {!error && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={proxyUrl}
+            alt="Photo"
+            className={cn(
+              "rounded max-w-[240px] max-h-[200px] object-cover cursor-pointer hover:opacity-90 transition-opacity",
+              !loaded && "hidden"
+            )}
+            onLoad={() => setLoaded(true)}
+            onError={() => setError(true)}
+            onClick={() => window.open(proxyUrl, "_blank")}
+          />
+        )}
+        {error && (
+          <span className="text-[10px] text-muted-foreground/50 italic flex items-center gap-1">
+            <Image className="h-3 w-3" /> [photo unavailable]
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  if (mediaType === "document" || mediaType === "video" || mediaType === "voice" || mediaType === "sticker") {
+    return (
+      <a
+        href={proxyUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-center gap-2 rounded-lg bg-white/[0.03] border border-white/5 px-2.5 py-1.5 mb-1 w-fit hover:bg-white/[0.06] transition-colors"
+      >
+        <FileText className="h-4 w-4 text-blue-400 shrink-0" />
+        <span className="text-[10px] text-foreground/80">{mediaType}</span>
+        {mime && <span className="text-[9px] text-muted-foreground/40">{mime}</span>}
+      </a>
+    );
+  }
+
+  return (
+    <span className="text-[10px] text-muted-foreground/50 italic flex items-center gap-1 mb-0.5">
+      [{mediaType}]
+    </span>
   );
 }

@@ -28,6 +28,12 @@ import {
   Search,
   AlertTriangle,
   Save,
+  Image,
+  Paperclip,
+  Link,
+  Trash2,
+  Plus,
+  Upload,
 } from "lucide-react";
 import { MERGE_VARIABLES, TEMPLATE_FILTERS } from "@/lib/telegram-templates";
 import { cn } from "@/lib/utils";
@@ -94,6 +100,21 @@ export default function BroadcastsPage() {
   const [scheduleDate, setScheduleDate] = React.useState("");
   const [scheduleTime, setScheduleTime] = React.useState("");
 
+  // Suppression rules
+  const [suppressionHours, setSuppressionHours] = React.useState<number | null>(null);
+  const [excludeStageIds, setExcludeStageIds] = React.useState<Set<string>>(new Set());
+  const [pipelineStages, setPipelineStages] = React.useState<Array<{ id: string; name: string }>>([]);
+
+  // Rich media
+  const [mediaType, setMediaType] = React.useState<"photo" | "document" | null>(null);
+  const [mediaFileId, setMediaFileId] = React.useState<string | null>(null);
+  const [mediaFilename, setMediaFilename] = React.useState<string | null>(null);
+  const [uploading, setUploading] = React.useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  // Inline buttons
+  const [inlineButtons, setInlineButtons] = React.useState<Array<{ text: string; url: string }>>([]);
+
   // History
   const [broadcasts, setBroadcasts] = React.useState<Broadcast[]>([]);
   const [showHistory, setShowHistory] = React.useState(false);
@@ -101,12 +122,20 @@ export default function BroadcastsPage() {
   const [historyLoading, setHistoryLoading] = React.useState(false);
 
   // Analytics
+  type AbResult = {
+    broadcast_id: string;
+    message_preview: string;
+    variant_a: { sent: number; responded: number; rate: number };
+    variant_b: { sent: number; responded: number; rate: number };
+  };
   type AnalyticsData = {
     overview: { totalBroadcasts: number; totalSent: number; totalFailed: number; deliveryRate: number; thisWeek: number; lastWeek: number; weeklyChange: number };
     byStatus: Record<string, number>;
     slugStats: { slug: string; count: number; sent: number; failed: number; deliveryRate: number }[];
     senderStats: { name: string; count: number }[];
     dailyVolume: { date: string; count: number }[];
+    abResults?: AbResult[];
+    bestSendTime?: { hour: number; sent: number; responded: number; responseRate: number }[];
   };
   const [analytics, setAnalytics] = React.useState<AnalyticsData | null>(null);
   const [showAnalytics, setShowAnalytics] = React.useState(false);
@@ -156,6 +185,7 @@ export default function BroadcastsPage() {
   }, [message, scheduleDate, scheduleTime]);
 
   React.useEffect(() => {
+    fetch("/api/pipeline").then((r) => r.json()).then((d) => setPipelineStages(d.stages ?? [])).catch(() => {});
     Promise.all([
       fetch("/api/groups").then((r) => r.json()).catch(() => ({ groups: [] })),
       fetch("/api/groups/slugs").then((r) => r.json()).catch(() => ({ slugs: [] })),
@@ -276,6 +306,47 @@ export default function BroadcastsPage() {
     }
   }
 
+  async function handleMediaUpload(file: File, type: "photo" | "document") {
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("media_type", type);
+      const res = await fetch("/api/broadcasts/upload-media", { method: "POST", body: form });
+      const data = await res.json();
+      if (data.ok) {
+        setMediaType(type);
+        setMediaFileId(data.file_id);
+        setMediaFilename(data.filename);
+        toast.success(`${type === "photo" ? "Photo" : "Document"} uploaded`);
+      } else {
+        toast.error(data.error ?? "Upload failed");
+      }
+    } catch {
+      toast.error("Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function removeMedia() {
+    setMediaType(null);
+    setMediaFileId(null);
+    setMediaFilename(null);
+  }
+
+  function addInlineButton() {
+    setInlineButtons((prev) => [...prev, { text: "", url: "" }]);
+  }
+
+  function updateInlineButton(idx: number, field: "text" | "url", value: string) {
+    setInlineButtons((prev) => prev.map((b, i) => i === idx ? { ...b, [field]: value } : b));
+  }
+
+  function removeInlineButton(idx: number) {
+    setInlineButtons((prev) => prev.filter((_, i) => i !== idx));
+  }
+
   function requestSend() {
     if (!message.trim() || selectedGroupIds.size === 0) return;
     setShowConfirm(true);
@@ -296,6 +367,15 @@ export default function BroadcastsPage() {
       if (scheduleMode && scheduleDate && scheduleTime) {
         body.scheduled_at = new Date(`${scheduleDate}T${scheduleTime}`).toISOString();
       }
+      if (suppressionHours) body.suppression_hours = suppressionHours;
+      if (excludeStageIds.size > 0) body.exclude_stage_ids = [...excludeStageIds];
+      if (mediaType && mediaFileId) {
+        body.media_type = mediaType;
+        body.media_file_id = mediaFileId;
+        body.media_filename = mediaFilename;
+      }
+      const validButtons = inlineButtons.filter((b) => b.text.trim() && b.url.trim());
+      if (validButtons.length > 0) body.inline_buttons = validButtons;
 
       const res = await fetch("/api/broadcasts/send", {
         method: "POST",
@@ -314,7 +394,11 @@ export default function BroadcastsPage() {
         } else {
           setResults(data.results);
           toast.success(`Sent to ${data.sent}/${data.total} groups`);
-          if (data.sent === data.total) setMessage("");
+          if (data.sent === data.total) {
+            setMessage("");
+            removeMedia();
+            setInlineButtons([]);
+          }
         }
         // Refresh history if visible
         if (showHistory) fetchHistory();
@@ -499,6 +583,68 @@ export default function BroadcastsPage() {
                   </div>
                 </div>
               )}
+
+              {/* A/B test results with winner auto-send */}
+              {analytics.abResults && analytics.abResults.length > 0 && (
+                <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4 space-y-3">
+                  <h3 className="text-sm font-medium text-foreground">A/B Test Results</h3>
+                  {analytics.abResults.map((ab) => (
+                    <AbResultCard key={ab.broadcast_id} result={ab} />
+                  ))}
+                </div>
+              )}
+
+              {/* Engagement heatmap — best send times */}
+              {analytics.bestSendTime && analytics.bestSendTime.length > 0 && (() => {
+                const hours = Array.from({ length: 24 }, (_, i) => i);
+                const hourMap = new Map(analytics.bestSendTime!.map((h) => [h.hour, h]));
+                const maxRate = Math.max(...analytics.bestSendTime!.map((h) => h.responseRate), 1);
+                const bestHour = analytics.bestSendTime!.reduce((best, h) => h.responseRate > best.responseRate ? h : best, analytics.bestSendTime![0]);
+
+                return (
+                  <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-medium text-foreground">Best Send Times</h3>
+                      {bestHour && (
+                        <span className="text-[10px] text-emerald-400">
+                          Peak: {bestHour.hour.toString().padStart(2, "0")}:00 UTC ({bestHour.responseRate}% response rate)
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-12 gap-1">
+                      {hours.map((hour) => {
+                        const data = hourMap.get(hour);
+                        const rate = data?.responseRate ?? 0;
+                        const intensity = maxRate > 0 ? rate / maxRate : 0;
+                        const bg = rate === 0 ? "bg-white/5"
+                          : intensity >= 0.75 ? "bg-emerald-500/60"
+                          : intensity >= 0.5 ? "bg-emerald-500/40"
+                          : intensity >= 0.25 ? "bg-emerald-500/20"
+                          : "bg-emerald-500/10";
+                        return (
+                          <div
+                            key={hour}
+                            className={cn("rounded aspect-square flex flex-col items-center justify-center transition-colors hover:ring-1 hover:ring-white/20", bg)}
+                            title={`${hour.toString().padStart(2, "0")}:00 UTC — ${data?.sent ?? 0} sent, ${data?.responded ?? 0} responses (${rate}%)`}
+                          >
+                            <span className="text-[8px] text-muted-foreground leading-none">{hour.toString().padStart(2, "0")}</span>
+                            {data && data.sent > 0 && (
+                              <span className="text-[8px] font-medium text-foreground leading-none mt-0.5">{rate}%</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="flex items-center gap-2 justify-end">
+                      <span className="text-[9px] text-muted-foreground">Response rate:</span>
+                      {["bg-white/5", "bg-emerald-500/10", "bg-emerald-500/20", "bg-emerald-500/40", "bg-emerald-500/60"].map((bg, i) => (
+                        <div key={i} className={cn("h-2.5 w-5 rounded", bg)} />
+                      ))}
+                      <span className="text-[9px] text-muted-foreground">high</span>
+                    </div>
+                  </div>
+                );
+              })()}
             </>
           )}
         </div>
@@ -829,6 +975,85 @@ export default function BroadcastsPage() {
                 />
               )}
 
+              {/* Media attachment */}
+              <div className="space-y-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  accept={mediaType === "document" ? "*/*" : "image/*"}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const type = file.type.startsWith("image/") ? "photo" as const : "document" as const;
+                    handleMediaUpload(file, type);
+                    e.target.value = "";
+                  }}
+                />
+                {mediaFileId ? (
+                  <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2">
+                    {mediaType === "photo" ? <Image className="h-4 w-4 text-blue-400 shrink-0" /> : <Paperclip className="h-4 w-4 text-emerald-400 shrink-0" />}
+                    <span className="text-xs text-foreground truncate flex-1">{mediaFilename ?? "Attached file"}</span>
+                    <span className="text-[10px] text-muted-foreground uppercase">{mediaType}</span>
+                    <button onClick={removeMedia} className="text-muted-foreground hover:text-red-400 transition-colors p-1">
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => { fileInputRef.current?.setAttribute("accept", "image/*"); fileInputRef.current?.click(); }}
+                      disabled={uploading}
+                      className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-muted-foreground hover:bg-white/5 transition-colors"
+                    >
+                      {uploading ? <Upload className="h-3 w-3 animate-pulse" /> : <Image className="h-3 w-3" />}
+                      Photo
+                    </button>
+                    <button
+                      onClick={() => { fileInputRef.current?.setAttribute("accept", "*/*"); fileInputRef.current?.click(); }}
+                      disabled={uploading}
+                      className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-muted-foreground hover:bg-white/5 transition-colors"
+                    >
+                      {uploading ? <Upload className="h-3 w-3 animate-pulse" /> : <Paperclip className="h-3 w-3" />}
+                      Document
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Inline buttons builder */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+                    <Link className="h-3 w-3" /> Inline Buttons
+                  </span>
+                  {inlineButtons.length < 3 && (
+                    <button onClick={addInlineButton} className="flex items-center gap-1 text-[10px] text-primary hover:text-primary/80 transition-colors">
+                      <Plus className="h-3 w-3" /> Add Button
+                    </button>
+                  )}
+                </div>
+                {inlineButtons.map((btn, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <Input
+                      value={btn.text}
+                      onChange={(e) => updateInlineButton(idx, "text", e.target.value)}
+                      placeholder="Button text"
+                      className="h-7 text-xs flex-1"
+                    />
+                    <Input
+                      value={btn.url}
+                      onChange={(e) => updateInlineButton(idx, "url", e.target.value)}
+                      placeholder="https://..."
+                      className="h-7 text-xs flex-1"
+                    />
+                    <button onClick={() => removeInlineButton(idx)} className="text-muted-foreground hover:text-red-400 transition-colors p-1">
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
               {/* Schedule toggle */}
               <div className="flex items-center gap-3">
                 <button
@@ -860,6 +1085,51 @@ export default function BroadcastsPage() {
                     />
                   </div>
                 )}
+              </div>
+
+              {/* Suppression rules */}
+              <div className="flex items-center gap-3 flex-wrap">
+                <select
+                  value={suppressionHours ?? ""}
+                  onChange={(e) => setSuppressionHours(e.target.value ? Number(e.target.value) : null)}
+                  className="rounded-lg border border-white/10 bg-transparent px-2 py-1 text-[11px] text-muted-foreground"
+                  title="Skip groups that received a broadcast within this window"
+                >
+                  <option value="">No suppression</option>
+                  <option value="12">Suppress 12h</option>
+                  <option value="24">Suppress 24h</option>
+                  <option value="48">Suppress 48h</option>
+                  <option value="72">Suppress 72h</option>
+                </select>
+                {pipelineStages.length > 0 && (
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        setExcludeStageIds((prev) => new Set([...prev, e.target.value]));
+                        e.target.value = "";
+                      }
+                    }}
+                    className="rounded-lg border border-white/10 bg-transparent px-2 py-1 text-[11px] text-muted-foreground"
+                    title="Exclude groups linked to deals at these stages"
+                  >
+                    <option value="">Exclude stage...</option>
+                    {pipelineStages.filter((s) => !excludeStageIds.has(s.id)).map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                )}
+                {[...excludeStageIds].map((sid) => {
+                  const stage = pipelineStages.find((s) => s.id === sid);
+                  return stage ? (
+                    <span key={sid} className="flex items-center gap-1 rounded bg-red-500/10 text-red-400 px-2 py-0.5 text-[10px]">
+                      {stage.name}
+                      <button onClick={() => setExcludeStageIds((prev) => { const n = new Set(prev); n.delete(sid); return n; })} className="hover:text-red-300">
+                        <X className="h-2.5 w-2.5" />
+                      </button>
+                    </span>
+                  ) : null;
+                })}
               </div>
 
               {/* Audience preview panel */}
@@ -898,17 +1168,24 @@ export default function BroadcastsPage() {
               <div className="flex items-center justify-between">
                 <div className="text-xs text-muted-foreground space-y-0.5">
                   <p className="flex items-center gap-1.5">
-                    <span className={cn(
-                      message.length > 4096 ? "text-red-400 font-medium" : message.length > 3600 ? "text-amber-400" : ""
-                    )}>
-                      {message.length.toLocaleString()}/{(4096).toLocaleString()}
-                    </span>
+                    {(() => {
+                      const charLimit = mediaFileId ? 1024 : 4096;
+                      const warnAt = mediaFileId ? 900 : 3600;
+                      return (
+                        <span className={cn(
+                          message.length > charLimit ? "text-red-400 font-medium" : message.length > warnAt ? "text-amber-400" : ""
+                        )}>
+                          {message.length.toLocaleString()}/{charLimit.toLocaleString()}
+                          {mediaFileId && <span className="text-muted-foreground/60 ml-1">(caption)</span>}
+                        </span>
+                      );
+                    })()}
                     <span className="text-white/20">|</span>
                     {selectedGroupIds.size} group{selectedGroupIds.size !== 1 ? "s" : ""} selected
                   </p>
-                  {message.length > 4096 && (
+                  {message.length > (mediaFileId ? 1024 : 4096) && (
                     <p className="text-[10px] text-red-400 flex items-center gap-1">
-                      <AlertTriangle className="h-2.5 w-2.5" /> Exceeds Telegram&apos;s 4096 character limit
+                      <AlertTriangle className="h-2.5 w-2.5" /> Exceeds Telegram&apos;s {mediaFileId ? "1024 caption" : "4096 character"} limit
                     </p>
                   )}
                   {message.trim() && (
@@ -922,7 +1199,7 @@ export default function BroadcastsPage() {
                   disabled={
                     sending ||
                     !message.trim() ||
-                    message.length > 4096 ||
+                    message.length > (mediaFileId ? 1024 : 4096) ||
                     selectedGroupIds.size === 0 ||
                     (scheduleMode && (!scheduleDate || !scheduleTime))
                   }
@@ -1165,6 +1442,91 @@ export default function BroadcastsPage() {
             </div>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+// ── A/B Result Card with Winner Auto-Send ──
+
+function AbResultCard({ result }: { result: { broadcast_id: string; message_preview: string; variant_a: { sent: number; responded: number; rate: number }; variant_b: { sent: number; responded: number; rate: number } } }) {
+  const [sending, setSending] = React.useState(false);
+  const [sent, setSent] = React.useState(false);
+  const [winnerData, setWinnerData] = React.useState<{ winner: string | null; already_sent: boolean } | null>(null);
+
+  React.useEffect(() => {
+    fetch(`/api/broadcasts/ab-winner?broadcast_id=${result.broadcast_id}`)
+      .then((r) => r.json())
+      .then((d) => setWinnerData({ winner: d.winner, already_sent: d.already_sent }))
+      .catch(() => {});
+  }, [result.broadcast_id]);
+
+  async function sendWinner(winner: string) {
+    setSending(true);
+    try {
+      const res = await fetch("/api/broadcasts/ab-winner", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ broadcast_id: result.broadcast_id, winner }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setSent(true);
+        toast.success(`Winner variant ${winner} sent to ${data.sent} groups`);
+      } else {
+        toast.error(data.error ?? "Failed to send winner");
+      }
+    } finally {
+      setSending(false);
+    }
+  }
+
+  const aWins = result.variant_a.rate > result.variant_b.rate;
+  const bWins = result.variant_b.rate > result.variant_a.rate;
+  const winner = winnerData?.winner;
+  const alreadySent = winnerData?.already_sent || sent;
+
+  return (
+    <div className="rounded-lg border border-white/5 bg-white/[0.02] p-3 space-y-2">
+      <p className="text-xs text-muted-foreground truncate">{result.message_preview || "Broadcast"}</p>
+      <div className="grid grid-cols-2 gap-3">
+        <div className={cn("rounded-lg p-2 border", aWins ? "border-emerald-500/30 bg-emerald-500/5" : "border-white/5")}>
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-medium text-foreground">Variant A</span>
+            {aWins && <span className="text-[9px] text-emerald-400 font-medium">Winner</span>}
+          </div>
+          <p className={cn("text-lg font-bold", aWins ? "text-emerald-400" : "text-foreground")}>{result.variant_a.rate}%</p>
+          <p className="text-[10px] text-muted-foreground">{result.variant_a.responded}/{result.variant_a.sent} responses</p>
+        </div>
+        <div className={cn("rounded-lg p-2 border", bWins ? "border-emerald-500/30 bg-emerald-500/5" : "border-white/5")}>
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-medium text-foreground">Variant B</span>
+            {bWins && <span className="text-[9px] text-emerald-400 font-medium">Winner</span>}
+          </div>
+          <p className={cn("text-lg font-bold", bWins ? "text-emerald-400" : "text-foreground")}>{result.variant_b.rate}%</p>
+          <p className="text-[10px] text-muted-foreground">{result.variant_b.responded}/{result.variant_b.sent} responses</p>
+        </div>
+      </div>
+      {winner && !alreadySent && (
+        <Button
+          size="sm"
+          onClick={() => sendWinner(winner)}
+          disabled={sending}
+          className="w-full"
+        >
+          <Send className="mr-1.5 h-3.5 w-3.5" />
+          {sending ? "Sending..." : `Send Variant ${winner} to remaining groups`}
+        </Button>
+      )}
+      {alreadySent && (
+        <p className="text-[10px] text-emerald-400/60 text-center flex items-center justify-center gap-1">
+          <Check className="h-3 w-3" /> Winner sent to remaining groups
+        </p>
+      )}
+      {!winner && !alreadySent && (
+        <p className="text-[10px] text-muted-foreground/60 text-center">
+          Need more data to determine winner (min 3 recipients + 2 responses per variant)
+        </p>
       )}
     </div>
   );

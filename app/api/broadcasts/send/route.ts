@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { formatBroadcastMessage } from "@/lib/telegram-templates";
-import { sendTelegramWithTracking } from "@/lib/telegram-send";
+import { sendTelegramWithTracking, sendTelegramMediaWithTracking } from "@/lib/telegram-send";
 
 export async function POST(request: Request) {
   const auth = await requireAuth();
@@ -18,7 +18,7 @@ export async function POST(request: Request) {
     auth.user.user_metadata?.full_name ??
     undefined;
 
-  const { message, variant_b_message, group_ids, slug, scheduled_at } = await request.json();
+  const { message, variant_b_message, group_ids, slug, scheduled_at, suppression_hours, exclude_stage_ids, media_type, media_file_id, media_filename, inline_buttons, variant_b_media_file_id } = await request.json();
 
   if (!message?.trim()) {
     return NextResponse.json({ error: "message is required" }, { status: 400 });
@@ -77,13 +77,50 @@ export async function POST(request: Request) {
   }
 
   // Fetch groups
-  const { data: groups } = await supabase
+  const { data: allGroups } = await supabase
     .from("tg_groups")
     .select("id, telegram_group_id, group_name")
     .in("id", targetGroupIds);
 
-  if (!groups?.length) {
+  if (!allGroups?.length) {
     return NextResponse.json({ error: "No valid groups found" }, { status: 404 });
+  }
+
+  // Apply suppression rules
+  let groups = allGroups;
+  const effectiveSuppression = suppression_hours ?? null;
+  const effectiveExcludeStages: string[] = exclude_stage_ids ?? [];
+
+  if (effectiveSuppression && effectiveSuppression > 0) {
+    // Exclude groups that received a broadcast within the suppression window
+    const cutoff = new Date(Date.now() - effectiveSuppression * 3600000).toISOString();
+    const { data: recentRecipients } = await supabase
+      .from("crm_broadcast_recipients")
+      .select("tg_group_id")
+      .eq("status", "sent")
+      .gte("sent_at", cutoff)
+      .limit(2000);
+
+    const recentGroupIds = new Set((recentRecipients ?? []).map((r: { tg_group_id: string }) => r.tg_group_id));
+    groups = groups.filter((g) => !recentGroupIds.has(g.id));
+  }
+
+  if (effectiveExcludeStages.length > 0) {
+    // Exclude groups linked to deals at excluded stages
+    const groupIds = groups.map((g) => g.id);
+    const { data: excludedDeals } = await supabase
+      .from("crm_deals")
+      .select("tg_group_id")
+      .in("tg_group_id", groupIds)
+      .in("stage_id", effectiveExcludeStages)
+      .eq("outcome", "open");
+
+    const excludedGroupIds = new Set((excludedDeals ?? []).map((d: { tg_group_id: string }) => d.tg_group_id));
+    groups = groups.filter((g) => !excludedGroupIds.has(g.id));
+  }
+
+  if (groups.length === 0) {
+    return NextResponse.json({ error: "All groups filtered by suppression rules", suppressed: allGroups.length }, { status: 200 });
   }
 
   const formattedMessage = formatBroadcastMessage(message.trim(), senderName);
@@ -104,6 +141,13 @@ export async function POST(request: Request) {
       status: isScheduled ? "scheduled" : "sending",
       scheduled_at: isScheduled ? scheduled_at : null,
       variant_b_message: hasVariantB ? variant_b_message.trim() : null,
+      suppression_hours: effectiveSuppression,
+      exclude_stage_ids: effectiveExcludeStages.length > 0 ? effectiveExcludeStages : null,
+      media_type: media_type ?? null,
+      media_file_id: media_file_id ?? null,
+      media_filename: media_filename ?? null,
+      inline_buttons: inline_buttons?.length ? inline_buttons : null,
+      variant_b_media_file_id: variant_b_media_file_id ?? null,
     })
     .select()
     .single();
@@ -137,6 +181,11 @@ export async function POST(request: Request) {
     });
   }
 
+  // Build inline keyboard if buttons provided
+  const replyMarkup = inline_buttons?.length
+    ? { inline_keyboard: [inline_buttons.map((b: { text: string; url: string }) => ({ text: b.text, url: b.url }))] }
+    : undefined;
+
   // Send immediately — use variant B message for B recipients
   const results: { group_name: string; success: boolean; error?: string }[] = [];
   const variantMap = new Map(recipientRows.map((r) => [r.tg_group_id, r.variant]));
@@ -144,12 +193,26 @@ export async function POST(request: Request) {
   for (const group of groups) {
     const variant = variantMap.get(group.id);
     const msgToSend = (variant === "B" && formattedVariantB) ? formattedVariantB : formattedMessage;
+    const fileId = (variant === "B" && variant_b_media_file_id) ? variant_b_media_file_id : media_file_id;
 
-    const result = await sendTelegramWithTracking({
-      chatId: group.telegram_group_id,
-      text: msgToSend,
-      notificationType: "broadcast",
-    });
+    let result;
+    if (media_type && fileId) {
+      result = await sendTelegramMediaWithTracking({
+        chatId: group.telegram_group_id,
+        mediaType: media_type,
+        fileId,
+        caption: msgToSend,
+        notificationType: "broadcast",
+        replyMarkup,
+      });
+    } else {
+      result = await sendTelegramWithTracking({
+        chatId: group.telegram_group_id,
+        text: msgToSend,
+        notificationType: "broadcast",
+        replyMarkup,
+      });
+    }
 
     // Update recipient record
     await supabase
@@ -159,6 +222,8 @@ export async function POST(request: Request) {
         tg_message_id: result.messageId ?? null,
         error: result.error ?? null,
         sent_at: result.success ? new Date().toISOString() : null,
+        delivery_attempts: 1,
+        last_attempt_at: new Date().toISOString(),
       })
       .eq("broadcast_id", broadcast.id)
       .eq("tg_group_id", group.id);

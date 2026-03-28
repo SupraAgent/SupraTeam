@@ -57,7 +57,7 @@ export async function POST(request: Request) {
   if ("error" in auth) return auth.error;
   const { user, admin: supabase } = auth;
 
-  const { name, description, board_type, steps } = await request.json();
+  const { name, description, board_type, goal_stage_id, steps } = await request.json();
 
   if (!name?.trim()) {
     return NextResponse.json({ error: "name required" }, { status: 400 });
@@ -69,6 +69,7 @@ export async function POST(request: Request) {
       name: name.trim(),
       description: description || null,
       board_type: board_type || null,
+      goal_stage_id: goal_stage_id || null,
       created_by: user.id,
     })
     .select()
