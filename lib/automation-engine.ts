@@ -7,6 +7,7 @@ import { createSupabaseAdmin } from "@/lib/supabase";
 import { sendTelegramWithTracking } from "@/lib/telegram-send";
 import { renderTemplate } from "@/lib/telegram-templates";
 import { executeWorkflowFromData } from "@/lib/workflow-engine";
+import { triggerLoopWorkflowsByEvent } from "@/lib/loop-workflow-engine";
 import type { Workflow } from "@/lib/workflow-db-types";
 
 export interface AutomationEvent {
@@ -67,10 +68,21 @@ export async function evaluateAutomationRules(event: AutomationEvent): Promise<n
     }
   }
 
-  // Also evaluate visual workflows (non-blocking)
+  // Also evaluate visual workflows (non-blocking) — both old builder and Loop Builder
   evaluateWorkflows(event, supabase).catch((err) =>
     console.error("[automation-engine] Workflow evaluation error:", err)
   );
+
+  // Trigger Loop Builder workflows (non-blocking)
+  const loopTrigger = EVENT_TO_WORKFLOW_TRIGGER[event.type];
+  if (loopTrigger) {
+    triggerLoopWorkflowsByEvent(loopTrigger, {
+      ...event.payload,
+      deal_id: event.dealId,
+    }).catch((err) =>
+      console.error("[automation-engine] Loop workflow trigger error:", err)
+    );
+  }
 
   return executed;
 }

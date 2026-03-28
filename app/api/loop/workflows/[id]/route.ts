@@ -1,0 +1,103 @@
+import { NextResponse, type NextRequest } from "next/server";
+import { requireAuth } from "@/lib/auth-guard";
+import { createSupabaseAdmin } from "@/lib/supabase";
+
+type RouteCtx = { params: Promise<{ id: string }> };
+
+/**
+ * GET: Load a single Loop Builder workflow (full nodes/edges).
+ * PUT: Update a workflow (nodes, edges, name, etc.).
+ * DELETE: Delete a workflow.
+ */
+export async function GET(_req: NextRequest, ctx: RouteCtx) {
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+
+  const { id } = await ctx.params;
+  const supabase = createSupabaseAdmin();
+  if (!supabase) return NextResponse.json({ error: "Supabase not configured" }, { status: 500 });
+
+  const { data, error } = await supabase
+    .from("crm_workflows")
+    .select("*")
+    .eq("id", id)
+    .single();
+
+  if (error || !data) {
+    return NextResponse.json({ error: "Workflow not found" }, { status: 404 });
+  }
+
+  return NextResponse.json({ workflow: data });
+}
+
+export async function PUT(request: NextRequest, ctx: RouteCtx) {
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+
+  const { id } = await ctx.params;
+
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const supabase = createSupabaseAdmin();
+  if (!supabase) return NextResponse.json({ error: "Supabase not configured" }, { status: 500 });
+
+  // Build update object — only include fields that were provided
+  const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
+
+  if ("name" in body && typeof body.name === "string") update.name = body.name.trim();
+  if ("description" in body) update.description = body.description ?? null;
+  if ("is_active" in body && typeof body.is_active === "boolean") update.is_active = body.is_active;
+  if ("trigger_type" in body) update.trigger_type = body.trigger_type ?? null;
+
+  // If nodes or edges changed, bump version
+  if ("nodes" in body || "edges" in body) {
+    if ("nodes" in body) update.nodes = body.nodes;
+    if ("edges" in body) update.edges = body.edges;
+
+    // Fetch current version to increment
+    const { data: current } = await supabase
+      .from("crm_workflows")
+      .select("version")
+      .eq("id", id)
+      .single();
+    update.version = (current?.version ?? 0) + 1;
+  }
+
+  const { data, error } = await supabase
+    .from("crm_workflows")
+    .update(update)
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ workflow: data, ok: true });
+}
+
+export async function DELETE(_req: NextRequest, ctx: RouteCtx) {
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+
+  const { id } = await ctx.params;
+  const supabase = createSupabaseAdmin();
+  if (!supabase) return NextResponse.json({ error: "Supabase not configured" }, { status: 500 });
+
+  const { error } = await supabase
+    .from("crm_workflows")
+    .delete()
+    .eq("id", id);
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true });
+}
