@@ -1,20 +1,12 @@
 "use client";
 
 import * as React from "react";
+import { TourCard } from "./tour-card";
+import type { TourStepDef } from "./tour-card";
 
 // ── Step definitions ────────────────────────────────────────────
 
-type BridgeTourStep = {
-  title: string;
-  description: string;
-  target: string; // CSS selector or area name
-  position: "top" | "bottom" | "left" | "right" | "center";
-  action?: string; // what the user should do
-  /** Optional icon rendered before the title */
-  icon?: string;
-};
-
-const BRIDGE_TOUR_STEPS: BridgeTourStep[] = [
+const BRIDGE_TOUR_STEPS: TourStepDef[] = [
   {
     title: "The Improvement Loop",
     description:
@@ -82,6 +74,18 @@ const BRIDGE_TOUR_STEPS: BridgeTourStep[] = [
   },
 ];
 
+const BRIDGE_SELECTOR_MAP: Record<string, string> = {
+  "bridge-trigger": "[data-id='bridge-trigger'], [data-tour='bridge-trigger']",
+  "bridge-llm-1": "[data-id='bridge-llm-1'], [data-tour='bridge-llm-1']",
+  "bridge-llm-2": "[data-id='bridge-llm-2'], [data-tour='bridge-llm-2']",
+  "bridge-llm-3": "[data-id='bridge-llm-3'], [data-tour='bridge-llm-3']",
+  "bridge-merge": "[data-id='bridge-merge'], [data-tour='bridge-merge']",
+  "bridge-cpo": "[data-id='bridge-cpo'], [data-tour='bridge-cpo']",
+  "bridge-rescore": "[data-id='bridge-rescore'], [data-tour='bridge-rescore']",
+  "bridge-output": "[data-id='bridge-output'], [data-tour='bridge-output']",
+  "run-button": "[data-tour='run'], button[aria-label*='Run'], button[aria-label*='Validate']",
+};
+
 // ── Hook: manage bridge tour state ──────────────────────────────
 
 export function useBridgeTour(prefix = "suprateam_loop") {
@@ -132,196 +136,14 @@ export function BridgeWalkthroughTour({
   onComplete,
   onSkip,
 }: BridgeWalkthroughTourProps) {
-  const [step, setStep] = React.useState(0);
-  const current = BRIDGE_TOUR_STEPS[step];
-  const isFirst = step === 0;
-  const isLast = step === BRIDGE_TOUR_STEPS.length - 1;
-
-  // Position the card relative to the target node on the canvas
-  const [positionStyles, setPositionStyles] = React.useState<React.CSSProperties>({
-    top: "50%",
-    left: "50%",
-    transform: "translate(-50%, -50%)",
-  });
-
-  React.useEffect(() => {
-    const styles: React.CSSProperties = {};
-    const isMobile = window.innerWidth < 640;
-    const cardWidth = isMobile ? window.innerWidth - 32 : 320;
-    const pad = 16;
-
-    if (current.position === "center" || current.target === "center") {
-      if (isMobile) {
-        styles.bottom = `${pad}px`;
-        styles.left = `${pad}px`;
-        styles.right = `${pad}px`;
-      } else {
-        styles.top = "50%";
-        styles.left = "50%";
-        styles.transform = "translate(-50%, -50%)";
-      }
-      setPositionStyles(styles);
-      return;
-    }
-
-    // On mobile, always position card at the bottom of the viewport
-    if (isMobile) {
-      styles.bottom = `${pad}px`;
-      styles.left = `${pad}px`;
-      styles.right = `${pad}px`;
-      setPositionStyles(styles);
-      return;
-    }
-
-    // Bridge-specific targets: look for nodes by their data-id on the React Flow canvas,
-    // then fall back to data-tour attributes and generic selectors
-    const selectorMap: Record<string, string> = {
-      "bridge-trigger":
-        "[data-id='bridge-trigger'], [data-tour='bridge-trigger']",
-      "bridge-llm-1":
-        "[data-id='bridge-llm-1'], [data-tour='bridge-llm-1']",
-      "bridge-llm-2":
-        "[data-id='bridge-llm-2'], [data-tour='bridge-llm-2']",
-      "bridge-llm-3":
-        "[data-id='bridge-llm-3'], [data-tour='bridge-llm-3']",
-      "bridge-merge":
-        "[data-id='bridge-merge'], [data-tour='bridge-merge']",
-      "bridge-cpo":
-        "[data-id='bridge-cpo'], [data-tour='bridge-cpo']",
-      "bridge-rescore":
-        "[data-id='bridge-rescore'], [data-tour='bridge-rescore']",
-      "bridge-output":
-        "[data-id='bridge-output'], [data-tour='bridge-output']",
-      "run-button":
-        "[data-tour='run'], button[aria-label*='Run'], button[aria-label*='Validate']",
-    };
-
-    const selector = selectorMap[current.target];
-    const el = selector ? document.querySelector(selector) : null;
-
-    if (el) {
-      const rect = el.getBoundingClientRect();
-
-      if (current.position === "right") {
-        styles.top = `${Math.min(Math.max(80, rect.top), window.innerHeight - 300)}px`;
-        styles.left = `${Math.min(rect.right + pad, window.innerWidth - cardWidth - pad)}px`;
-      } else if (current.position === "left") {
-        styles.top = `${Math.min(Math.max(80, rect.top), window.innerHeight - 300)}px`;
-        styles.right = `${Math.max(pad, window.innerWidth - rect.left + pad)}px`;
-      } else if (current.position === "bottom") {
-        styles.top = `${Math.min(rect.bottom + 12, window.innerHeight - 300)}px`;
-        styles.left = `${Math.min(rect.left, window.innerWidth - cardWidth - pad)}px`;
-      } else if (current.position === "top") {
-        styles.bottom = `${Math.max(pad, window.innerHeight - rect.top + 12)}px`;
-        styles.left = `${Math.min(rect.left, window.innerWidth - cardWidth - pad)}px`;
-      }
-    } else {
-      // Fallback positions when nodes are not yet rendered
-      styles.top = "50%";
-      styles.left = "50%";
-      styles.transform = "translate(-50%, -50%)";
-    }
-
-    setPositionStyles(styles);
-  }, [step, current.target, current.position]);
-
-  // Scroll the target node into view when advancing steps
-  React.useEffect(() => {
-    if (current.target === "center" || current.target === "run-button") return;
-
-    const el = document.querySelector(
-      `[data-id='${current.target}']`
-    );
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
-    }
-  }, [step, current.target]);
-
   return (
-    <div className="absolute inset-0 z-50 pointer-events-none">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/40 pointer-events-auto"
-        onClick={onSkip}
-      />
-
-      {/* Tour card */}
-      <div
-        className="absolute z-50 w-[calc(100vw-2rem)] sm:w-80 pointer-events-auto"
-        style={positionStyles}
-      >
-        <div className="rounded-xl border border-primary/30 bg-neutral-900/98 p-4 sm:p-5 shadow-2xl backdrop-blur-md">
-          {/* Progress dots */}
-          <div className="flex items-center gap-1.5 mb-3">
-            {BRIDGE_TOUR_STEPS.map((_, i) => (
-              <div
-                key={i}
-                className={`h-1.5 rounded-full transition-all ${
-                  i === step
-                    ? "w-6 bg-primary"
-                    : i < step
-                      ? "w-1.5 bg-primary/40"
-                      : "w-1.5 bg-white/10"
-                }`}
-              />
-            ))}
-          </div>
-
-          {/* Title with optional icon */}
-          <h3 className="text-sm font-semibold text-foreground mb-2">
-            {current.icon && (
-              <span className="mr-1.5">{current.icon}</span>
-            )}
-            {current.title}
-          </h3>
-
-          <p className="text-xs text-muted-foreground leading-relaxed mb-3">
-            {current.description}
-          </p>
-
-          {/* Action hint */}
-          {current.action && (
-            <div className="flex items-center gap-2 rounded-lg bg-primary/10 border border-primary/20 px-3 py-2 mb-4">
-              <span className="text-primary text-xs shrink-0">{"\u2192"}</span>
-              <span className="text-xs text-primary/80">
-                {current.action}
-              </span>
-            </div>
-          )}
-
-          {/* Navigation */}
-          <div className="flex items-center justify-between">
-            <button
-              onClick={onSkip}
-              className="text-xs text-muted-foreground hover:text-foreground transition"
-            >
-              Skip tour
-            </button>
-            <div className="flex items-center gap-2">
-              {!isFirst && (
-                <button
-                  onClick={() => setStep((s) => s - 1)}
-                  className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-white/10 transition"
-                >
-                  Back
-                </button>
-              )}
-              <button
-                onClick={() => {
-                  if (isLast) {
-                    onComplete();
-                  } else {
-                    setStep((s) => s + 1);
-                  }
-                }}
-                className="rounded-lg bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground hover:opacity-90 transition"
-              >
-                {isLast ? "Start Improving" : "Next"}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+    <TourCard
+      steps={BRIDGE_TOUR_STEPS}
+      selectorMap={BRIDGE_SELECTOR_MAP}
+      onComplete={onComplete}
+      onSkip={onSkip}
+      lastButtonLabel="Start Improving"
+      scrollToTarget
+    />
   );
 }
