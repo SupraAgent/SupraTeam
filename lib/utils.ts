@@ -16,6 +16,11 @@ export function formatDuration(startedAt: string, completedAt: string): string {
   return rem > 0 ? `${minutes}m ${rem}s` : `${minutes}m`;
 }
 
+/** Strip PostgREST filter metacharacters from a user-supplied value. */
+export function sanitizePostgrestValue(val: string): string {
+  return val.replace(/[,.()"\\]/g, "");
+}
+
 /** Relative time string from an ISO timestamp. */
 export function timeAgo(timestamp: string): string {
   const seconds = Math.floor((Date.now() - new Date(timestamp).getTime()) / 1000);

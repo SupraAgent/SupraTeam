@@ -7,6 +7,49 @@
 
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
+import { encryptToken } from "@/lib/crypto";
+
+/** Validate webhook URL to prevent SSRF attacks */
+function isValidWebhookUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+
+    // Must be HTTPS in production, allow http://localhost in dev
+    const isDev = process.env.NODE_ENV === "development";
+    if (parsed.protocol === "http:" && !(isDev && parsed.hostname === "localhost")) {
+      return false;
+    }
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return false;
+    }
+
+    // Block private/internal IP ranges
+    const hostname = parsed.hostname;
+    const privatePatterns = [
+      /^127\./,          // loopback
+      /^10\./,           // Class A private
+      /^192\.168\./,     // Class C private
+      /^169\.254\./,     // link-local
+      /^172\.(1[6-9]|2\d|3[01])\./,  // Class B private
+      /^0\./,            // current network
+      /^::1$/,           // IPv6 loopback
+      /^fc00:/i,         // IPv6 unique local
+      /^fe80:/i,         // IPv6 link-local
+      /^localhost$/i,
+    ];
+
+    // In dev mode we already allowed localhost above, but block other private ranges
+    if (!isDev || hostname !== "localhost") {
+      for (const pattern of privatePatterns) {
+        if (pattern.test(hostname)) return false;
+      }
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 const VALID_EVENTS = [
   "deal.created", "deal.updated", "deal.stage_changed", "deal.won", "deal.lost",
@@ -67,16 +110,22 @@ export async function POST(request: Request) {
   if (!name?.trim() || !url?.trim()) {
     return NextResponse.json({ error: "name and url required" }, { status: 400 });
   }
+  if (!isValidWebhookUrl(url.trim())) {
+    return NextResponse.json({ error: "Invalid webhook URL. Must be HTTPS and not target private networks." }, { status: 400 });
+  }
   if (!Array.isArray(events) || events.length === 0) {
     return NextResponse.json({ error: "At least one event required" }, { status: 400 });
   }
+
+  // Encrypt the webhook secret before storing
+  const encryptedSecret = secret ? encryptToken(secret) : null;
 
   const { data, error } = await supabase
     .from("crm_webhooks")
     .insert({
       name: name.trim(),
       url: url.trim(),
-      secret: secret || null,
+      secret: encryptedSecret,
       events,
       headers: headers ?? {},
       created_by: user.id,
@@ -96,8 +145,22 @@ export async function PUT(request: Request) {
   if ("error" in auth) return auth.error;
   const { admin: supabase } = auth;
 
-  const { id, ...updates } = await request.json();
+  const body = await request.json();
+  const { id } = body;
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+
+  // Pick only allowed fields explicitly to prevent mass assignment
+  const allowed: Record<string, unknown> = {
+    name: body.name,
+    url: body.url,
+    events: body.events,
+    is_active: body.is_active,
+    headers: body.headers,
+  };
+  // Remove undefined values
+  const updates = Object.fromEntries(
+    Object.entries(allowed).filter(([_, v]) => v !== undefined)
+  );
 
   updates.updated_at = new Date().toISOString();
 

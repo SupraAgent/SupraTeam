@@ -1,19 +1,15 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
+import { SupabaseClient } from "@supabase/supabase-js";
 
-// Calculate health score for all deals and update them
-// Score 0-100: higher is healthier
-export async function POST() {
-  const auth = await requireAuth();
-  if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
-
+// Shared recalculation logic used by both POST and GET
+async function recalculateHealthScores(supabase: SupabaseClient): Promise<number> {
   const { data: deals } = await supabase
     .from("crm_deals")
     .select("id, stage_id, value, probability, updated_at, stage_changed_at, created_at, outcome, telegram_chat_id, tg_group_id")
     .eq("outcome", "open");
 
-  if (!deals || deals.length === 0) return NextResponse.json({ updated: 0 });
+  if (!deals || deals.length === 0) return 0;
 
   const { data: stages } = await supabase.from("pipeline_stages").select("id, position").order("position");
   const stagePositions: Record<string, number> = {};
@@ -65,18 +61,28 @@ export async function POST() {
     updated++;
   }
 
+  return updated;
+}
+
+// Calculate health score for all deals and update them
+// Score 0-100: higher is healthier
+export async function POST() {
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+  const { admin: supabase } = auth;
+
+  const updated = await recalculateHealthScores(supabase);
   return NextResponse.json({ updated });
 }
 
 // GET to recalculate and return all scores
 export async function GET() {
-  // Trigger recalculation
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
-  const calcRes = await fetch(new URL("/api/deals/health", baseUrl), { method: "POST" });
-
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
   const { admin: supabase } = auth;
+
+  // Recalculate directly instead of self-fetching
+  await recalculateHealthScores(supabase);
 
   const { data: deals } = await supabase
     .from("crm_deals")

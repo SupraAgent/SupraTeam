@@ -60,13 +60,30 @@ export async function PUT(request: Request) {
   const { admin: supabase } = auth;
 
   const body = await request.json();
-  const { id, ...updates } = body;
+  const { id } = body;
 
   if (!id) {
     return NextResponse.json({ error: "id required" }, { status: 400 });
   }
 
-  updates.updated_at = new Date().toISOString();
+  const allowed: Record<string, unknown> = {
+    name: body.name,
+    is_active: body.is_active,
+    role_prompt: body.role_prompt,
+    knowledge_base: body.knowledge_base,
+    qualification_fields: body.qualification_fields,
+    auto_qualify: body.auto_qualify,
+    respond_to_dms: body.respond_to_dms,
+    respond_to_groups: body.respond_to_groups,
+    respond_to_mentions: body.respond_to_mentions,
+    max_tokens: body.max_tokens,
+    escalation_keywords: body.escalation_keywords,
+    auto_create_deals: body.auto_create_deals,
+    updated_at: new Date().toISOString(),
+  };
+  const updates = Object.fromEntries(
+    Object.entries(allowed).filter(([, v]) => v !== undefined)
+  );
 
   const { data, error } = await supabase
     .from("crm_ai_agent_config")

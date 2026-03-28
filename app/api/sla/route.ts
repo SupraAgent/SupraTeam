@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth-guard";
+import { requireAuth, requireLeadRole } from "@/lib/auth-guard";
 
 export async function GET() {
   const auth = await requireAuth();
@@ -19,7 +19,7 @@ export async function GET() {
 }
 
 export async function PUT(request: Request) {
-  const auth = await requireAuth();
+  const auth = await requireLeadRole();
   if ("error" in auth) return auth.error;
   const { admin: supabase } = auth;
 

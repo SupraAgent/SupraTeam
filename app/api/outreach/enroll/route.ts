@@ -42,6 +42,24 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "deal_id or contact_id required" }, { status: 400 });
   }
 
+  // Check for duplicate active enrollment
+  const duplicateQuery = supabase
+    .from("crm_outreach_enrollments")
+    .select("id")
+    .eq("sequence_id", sequence_id)
+    .in("status", ["active", "paused"]);
+
+  if (deal_id) duplicateQuery.eq("deal_id", deal_id);
+  if (contact_id) duplicateQuery.eq("contact_id", contact_id);
+
+  const { data: existing } = await duplicateQuery.limit(1);
+  if (existing?.length) {
+    return NextResponse.json(
+      { error: "Already enrolled in this sequence" },
+      { status: 409 }
+    );
+  }
+
   // Get first step's delay to calculate next_send_at
   const { data: firstStep } = await supabase
     .from("crm_outreach_steps")

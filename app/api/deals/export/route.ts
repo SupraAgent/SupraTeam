@@ -1,6 +1,16 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 
+function escapeCSV(val: string): string {
+  // Escape double quotes by doubling them
+  let escaped = val.replace(/"/g, '""');
+  // Prevent formula injection in spreadsheets
+  if (/^[=+\-@\t\r]/.test(escaped)) {
+    escaped = "'" + escaped;
+  }
+  return `"${escaped}"`;
+}
+
 export async function GET() {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
@@ -31,7 +41,7 @@ export async function GET() {
     ];
   });
 
-  const csv = [headers.join(","), ...rows.map((r) => r.map((v) => `"${v}"`).join(","))].join("\n");
+  const csv = [headers.join(","), ...rows.map((r) => r.map((v) => escapeCSV(String(v ?? ""))).join(","))].join("\n");
 
   return new NextResponse(csv, {
     headers: {
