@@ -7,8 +7,7 @@ ALTER TABLE crm_broadcast_recipients
 
 -- A/B variant message on broadcast
 ALTER TABLE crm_broadcasts
-  ADD COLUMN IF NOT EXISTS variant_b_message TEXT,
-  ADD COLUMN IF NOT EXISTS variant_b_parse_mode TEXT;
+  ADD COLUMN IF NOT EXISTS variant_b_message TEXT;
 
 -- Cached aggregate metrics on broadcast (updated by response tracker)
 ALTER TABLE crm_broadcasts

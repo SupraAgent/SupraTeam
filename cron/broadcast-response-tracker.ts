@@ -1,7 +1,9 @@
 /**
  * Broadcast Response Tracker
- * Runs hourly. For broadcasts sent in the last 48h, checks if recipients
- * sent a message in the same group after the broadcast, marking it as a response.
+ * Runs hourly. For broadcasts sent in the last 48h, checks if the group
+ * had any non-bot activity after the broadcast (within 24h window).
+ * This measures "did the broadcast spark conversation?" — not individual responses,
+ * since broadcasts go to groups, not individuals.
  * Updates aggregate metrics on the broadcast record.
  */
 
@@ -68,30 +70,22 @@ async function trackResponses() {
 
     if (!messages || messages.length === 0) continue;
 
-    // For each recipient, check if there's a message in the response window
+    // For each recipient, check if the group had any activity in the response window
     for (const recipient of groupRecipients) {
       const broadcastTime = new Date(recipient.sent_at).getTime();
       const windowEnd = broadcastTime + RESPONSE_WINDOW_HOURS * 3600_000;
 
-      const hasResponse = messages.some((m) => {
+      const firstResponse = messages.find((m) => {
         const msgTime = new Date(m.sent_at).getTime();
         return msgTime > broadcastTime && msgTime <= windowEnd;
       });
 
-      if (hasResponse) {
-        // Find the first response message time
-        const firstResponse = messages.find((m) => {
-          const msgTime = new Date(m.sent_at).getTime();
-          return msgTime > broadcastTime && msgTime <= windowEnd;
-        });
-
-        if (firstResponse) {
-          await supabase
-            .from("crm_broadcast_recipients")
-            .update({ responded_at: firstResponse.sent_at })
-            .eq("id", recipient.id);
-          updatedCount++;
-        }
+      if (firstResponse) {
+        await supabase
+          .from("crm_broadcast_recipients")
+          .update({ responded_at: firstResponse.sent_at })
+          .eq("id", recipient.id);
+        updatedCount++;
       }
     }
   }
