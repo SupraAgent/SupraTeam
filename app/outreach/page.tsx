@@ -20,6 +20,8 @@ import {
   Copy,
   BarChart3,
   TrendingUp,
+  FlaskConical,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { timeAgo } from "@/lib/utils";
@@ -44,6 +46,7 @@ type Step = {
   step_number: number;
   delay_hours: number;
   message_template: string;
+  variant_b_template: string | null;
   step_type: string;
   step_label: string | null;
   condition_type: string | null;
@@ -67,6 +70,12 @@ type SequenceAnalytics = {
   completion_rate: number;
 };
 
+type ABStats = {
+  variant_a: { total: number; replied: number; reply_rate: number };
+  variant_b: { total: number; replied: number; reply_rate: number };
+  step_variants: Record<string, { a_sent: number; b_sent: number }>;
+};
+
 type SequenceDetail = {
   sequence: { id: string; name: string; status: string } | null;
   total: number;
@@ -75,6 +84,7 @@ type SequenceDetail = {
   completion_rate: number;
   status_counts: Record<string, number>;
   step_stats: Array<{ step_number: number; step_label: string; step_type: string; delay_hours: number; sent: number; preview: string }>;
+  ab_stats: ABStats | null;
   daily_enrollments: Array<{ date: string; count: number }>;
 };
 
@@ -92,6 +102,12 @@ export default function OutreachPage() {
   const [detailLoading, setDetailLoading] = React.useState(false);
   const [selectedSeqId, setSelectedSeqId] = React.useState<string | null>(null);
 
+  // AI recommendations
+  type AIRecommendation = { type: string; step: number | null; title: string; detail: string; suggested_change: string };
+  type AIRecommendations = { summary: string; recommendations: AIRecommendation[]; ab_winner: string | null; ab_confidence: string | null };
+  const [aiRecs, setAiRecs] = React.useState<AIRecommendations | null>(null);
+  const [aiRecsLoading, setAiRecsLoading] = React.useState(false);
+
   // Create form
   const [newName, setNewName] = React.useState("");
   const [newDesc, setNewDesc] = React.useState("");
@@ -99,6 +115,7 @@ export default function OutreachPage() {
   const [newGoalStage, setNewGoalStage] = React.useState("");
   const [newSteps, setNewSteps] = React.useState<Array<{
     message_template: string;
+    variant_b_template: string;
     delay_hours: number;
     step_type: string;
     step_label: string;
@@ -108,9 +125,9 @@ export default function OutreachPage() {
     on_false_step: number | null;
     split_percentage: number | null;
   }>>([
-    { message_template: "", delay_hours: 0, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
-    { message_template: "", delay_hours: 24, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
-    { message_template: "", delay_hours: 48, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
+    { message_template: "", variant_b_template: "", delay_hours: 0, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
+    { message_template: "", variant_b_template: "", delay_hours: 24, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
+    { message_template: "", variant_b_template: "", delay_hours: 48, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
   ]);
   const [pipelineStages, setPipelineStages] = React.useState<Array<{ id: string; name: string }>>([]);
 
@@ -165,6 +182,7 @@ export default function OutreachPage() {
   async function fetchSequenceDetail(seqId: string) {
     setSelectedSeqId(seqId);
     setDetailLoading(true);
+    setAiRecs(null);
     try {
       const res = await fetch(`/api/outreach/analytics?sequence_id=${seqId}`);
       if (res.ok) {
@@ -173,6 +191,25 @@ export default function OutreachPage() {
       }
     } finally {
       setDetailLoading(false);
+    }
+  }
+
+  async function fetchAIRecommendations(seqId: string) {
+    setAiRecsLoading(true);
+    try {
+      const res = await fetch("/api/outreach/ai-recommendations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sequence_id: seqId }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAiRecs(data.recommendations ?? null);
+      } else {
+        toast.error("Failed to get AI recommendations");
+      }
+    } finally {
+      setAiRecsLoading(false);
     }
   }
 
@@ -203,9 +240,9 @@ export default function OutreachPage() {
       setNewDesc("");
       setNewBoard("");
       setNewSteps([
-        { message_template: "", delay_hours: 0, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
-        { message_template: "", delay_hours: 24, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
-        { message_template: "", delay_hours: 48, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
+        { message_template: "", variant_b_template: "", delay_hours: 0, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
+        { message_template: "", variant_b_template: "", delay_hours: 24, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
+        { message_template: "", variant_b_template: "", delay_hours: 48, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
       ]);
       fetchSequences();
     }
@@ -247,7 +284,7 @@ export default function OutreachPage() {
   }
 
   function addStep(type: string = "message") {
-    setNewSteps([...newSteps, { message_template: "", delay_hours: 24, step_type: type, step_label: "", condition_type: type === "condition" ? "reply_received" : "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: type === "condition" ? 50 : null }]);
+    setNewSteps([...newSteps, { message_template: "", variant_b_template: "", delay_hours: 24, step_type: type, step_label: "", condition_type: type === "condition" ? "reply_received" : "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: type === "condition" ? 50 : null }]);
   }
 
   function removeStep(index: number) {
@@ -320,7 +357,19 @@ export default function OutreachPage() {
           ) : selectedSeqId && detailData ? (
             // Detail view for selected sequence
             <div className="space-y-4">
-              <button onClick={() => { setSelectedSeqId(null); setDetailData(null); }} className="text-xs text-primary hover:underline">&larr; Back to overview</button>
+              <div className="flex items-center justify-between">
+                <button onClick={() => { setSelectedSeqId(null); setDetailData(null); setAiRecs(null); }} className="text-xs text-primary hover:underline">&larr; Back to overview</button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => fetchAIRecommendations(selectedSeqId!)}
+                  disabled={aiRecsLoading}
+                  className="text-purple-400 hover:text-purple-300"
+                >
+                  <Sparkles className="mr-1 h-3.5 w-3.5" />
+                  {aiRecsLoading ? "Analyzing..." : "AI Recommendations"}
+                </Button>
+              </div>
 
               {detailLoading ? (
                 <div className="h-40 rounded-xl bg-white/[0.02] animate-pulse" />
@@ -357,6 +406,42 @@ export default function OutreachPage() {
                             <span className="text-muted-foreground ml-1.5">{count}</span>
                           </span>
                         ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* A/B Test Results */}
+                  {detailData.ab_stats && (
+                    <div className="rounded-xl border border-purple-500/20 bg-purple-500/5 p-4 space-y-3">
+                      <div className="flex items-center gap-2">
+                        <FlaskConical className="h-3.5 w-3.5 text-purple-400" />
+                        <h4 className="text-xs font-medium text-purple-400">A/B Test Results</h4>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        {(["variant_a", "variant_b"] as const).map((variant) => {
+                          const data = detailData.ab_stats![variant];
+                          const isWinner = detailData.ab_stats!.variant_a.reply_rate !== detailData.ab_stats!.variant_b.reply_rate &&
+                            data.reply_rate >= Math.max(detailData.ab_stats!.variant_a.reply_rate, detailData.ab_stats!.variant_b.reply_rate);
+                          return (
+                            <div key={variant} className={cn(
+                              "rounded-lg border p-3 space-y-1",
+                              isWinner ? "border-emerald-500/30 bg-emerald-500/5" : "border-white/10 bg-white/[0.02]"
+                            )}>
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-medium text-foreground">
+                                  Variant {variant === "variant_a" ? "A" : "B"}
+                                </span>
+                                {isWinner && data.total > 0 && (
+                                  <span className="rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-[9px] text-emerald-400 font-medium">Winner</span>
+                                )}
+                              </div>
+                              <p className="text-lg font-semibold text-foreground">{data.reply_rate}%</p>
+                              <p className="text-[10px] text-muted-foreground">
+                                {data.replied}/{data.total} replied
+                              </p>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -416,6 +501,65 @@ export default function OutreachPage() {
                       <div className="flex justify-between text-[9px] text-muted-foreground">
                         <span>{detailData.daily_enrollments[0]?.date}</span>
                         <span>{detailData.daily_enrollments[detailData.daily_enrollments.length - 1]?.date}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* AI Recommendations */}
+                  {aiRecs && (
+                    <div className="rounded-xl border border-purple-500/20 bg-purple-500/5 p-4 space-y-3">
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="h-3.5 w-3.5 text-purple-400" />
+                        <h4 className="text-xs font-medium text-purple-400">AI Recommendations</h4>
+                      </div>
+                      <p className="text-xs text-foreground">{aiRecs.summary}</p>
+
+                      {aiRecs.ab_winner && (
+                        <div className="flex items-center gap-2 rounded-lg bg-white/[0.03] px-3 py-2">
+                          <FlaskConical className="h-3.5 w-3.5 text-emerald-400" />
+                          <span className="text-xs text-foreground">
+                            A/B Winner: <span className="font-medium text-emerald-400">Variant {aiRecs.ab_winner}</span>
+                          </span>
+                          {aiRecs.ab_confidence && (
+                            <span className={cn(
+                              "rounded-full px-1.5 py-0.5 text-[9px] font-medium",
+                              aiRecs.ab_confidence === "high" ? "bg-emerald-500/20 text-emerald-400" :
+                              aiRecs.ab_confidence === "medium" ? "bg-amber-500/20 text-amber-400" :
+                              "bg-slate-500/20 text-slate-400"
+                            )}>
+                              {aiRecs.ab_confidence} confidence
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="space-y-2">
+                        {aiRecs.recommendations.map((rec, i) => {
+                          const typeColors: Record<string, string> = {
+                            message: "text-blue-400 bg-blue-500/10",
+                            timing: "text-amber-400 bg-amber-500/10",
+                            ab_test: "text-purple-400 bg-purple-500/10",
+                            structure: "text-cyan-400 bg-cyan-500/10",
+                            quick_win: "text-emerald-400 bg-emerald-500/10",
+                          };
+                          return (
+                            <div key={i} className="rounded-lg border border-white/10 bg-white/[0.02] p-3 space-y-1.5">
+                              <div className="flex items-center gap-2">
+                                <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-medium capitalize", typeColors[rec.type] ?? "text-muted-foreground bg-white/5")}>
+                                  {rec.type.replace("_", " ")}
+                                </span>
+                                {rec.step && <span className="text-[9px] text-muted-foreground">Step {rec.step}</span>}
+                                <span className="text-xs font-medium text-foreground">{rec.title}</span>
+                              </div>
+                              <p className="text-[11px] text-muted-foreground">{rec.detail}</p>
+                              {rec.suggested_change && (
+                                <div className="rounded bg-white/[0.03] px-2 py-1.5 text-[11px] font-mono text-foreground/80 whitespace-pre-wrap">
+                                  {rec.suggested_change}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -637,13 +781,49 @@ export default function OutreachPage() {
                 </div>
 
                 {step.step_type === "message" && (
-                  <textarea
-                    value={step.message_template}
-                    onChange={(e) => updateStep(i, "message_template", e.target.value)}
-                    placeholder={`Step ${i + 1} message. Use {{contact_name}}, {{deal_name}}, {{stage}}. Defaults: {{contact_first_name|there}}`}
-                    rows={2}
-                    className="w-full rounded-lg border border-white/10 bg-transparent px-2 py-1.5 text-xs font-mono resize-none"
-                  />
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[9px] text-muted-foreground/50 uppercase tracking-wider">Variant A</span>
+                      {!step.variant_b_template && (
+                        <button
+                          type="button"
+                          onClick={() => updateStep(i, "variant_b_template", step.message_template || " ")}
+                          className="flex items-center gap-0.5 text-[9px] text-purple-400 hover:underline ml-auto"
+                        >
+                          <FlaskConical className="h-2.5 w-2.5" /> Add A/B variant
+                        </button>
+                      )}
+                    </div>
+                    <textarea
+                      value={step.message_template}
+                      onChange={(e) => updateStep(i, "message_template", e.target.value)}
+                      placeholder={`Step ${i + 1} message. Use {{contact_name}}, {{deal_name}}, {{stage}}. Defaults: {{contact_first_name|there}}`}
+                      rows={2}
+                      className="w-full rounded-lg border border-white/10 bg-transparent px-2 py-1.5 text-xs font-mono resize-none"
+                    />
+                    {step.variant_b_template && (
+                      <>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[9px] text-purple-400 uppercase tracking-wider">Variant B</span>
+                          <span className="text-[9px] text-muted-foreground/40">50/50 random split</span>
+                          <button
+                            type="button"
+                            onClick={() => updateStep(i, "variant_b_template", "")}
+                            className="text-[9px] text-red-400 hover:underline ml-auto"
+                          >
+                            Remove B
+                          </button>
+                        </div>
+                        <textarea
+                          value={step.variant_b_template}
+                          onChange={(e) => updateStep(i, "variant_b_template", e.target.value)}
+                          placeholder="Variant B message..."
+                          rows={2}
+                          className="w-full rounded-lg border border-purple-500/20 bg-purple-500/5 px-2 py-1.5 text-xs font-mono resize-none"
+                        />
+                      </>
+                    )}
+                  </div>
                 )}
 
                 {step.step_type === "condition" && (

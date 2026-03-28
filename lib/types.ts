@@ -27,6 +27,10 @@ export type Contact = {
   quality_score: number;
   engagement_score: number;
   engagement_updated_at: string | null;
+  x_handle: string | null;
+  wallet_address: string | null;
+  wallet_chain: string | null;
+  on_chain_score: number;
   created_by: string | null;
   created_at: string;
   updated_at: string;

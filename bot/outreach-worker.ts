@@ -20,6 +20,7 @@ type Enrollment = {
   next_send_at: string;
   last_reply_at: string | null;
   reply_count: number;
+  ab_variant: string | null;
   enrolled_at: string;
 };
 
@@ -30,6 +31,7 @@ type Step = {
   step_type: string; // 'message' | 'wait' | 'condition'
   delay_hours: number;
   message_template: string;
+  variant_b_template: string | null;
   step_label: string | null;
   condition_type: string | null;
   condition_config: Record<string, unknown> | null;
@@ -95,29 +97,46 @@ async function processEnrollment(bot: Bot, enrollment: Enrollment) {
     const vars = await fetchTemplateVars(enrollment);
 
     if (currentStep.step_type === "message") {
-      // Send the message
-      const text = renderTemplate(currentStep.message_template, vars);
+      // A/B variant selection: if variant_b_template exists, randomly assign A or B
+      let abVariant: string | null = null;
+      let template = currentStep.message_template;
+
+      if (currentStep.variant_b_template) {
+        // Use existing ab_variant if already assigned, otherwise randomly pick
+        if (enrollment.ab_variant === "A" || enrollment.ab_variant === "B") {
+          abVariant = enrollment.ab_variant;
+        } else {
+          abVariant = Math.random() < 0.5 ? "A" : "B";
+          await supabase.from("crm_outreach_enrollments").update({
+            ab_variant: abVariant,
+          }).eq("id", enrollment.id);
+        }
+        template = abVariant === "B" ? currentStep.variant_b_template : currentStep.message_template;
+      }
+
+      const text = renderTemplate(template, vars);
       const chatId = Number(enrollment.tg_chat_id);
 
       try {
         await bot.api.sendMessage(chatId, text);
       } catch (sendErr) {
         console.error(`[outreach-worker] send failed for enrollment ${enrollment.id}:`, sendErr);
-        // Log the failure
         await supabase.from("crm_outreach_step_log").insert({
           enrollment_id: enrollment.id,
           step_id: currentStep.id,
           status: "failed",
           error: sendErr instanceof Error ? sendErr.message : "Send failed",
+          ab_variant: abVariant,
         });
         return; // Don't advance, retry next poll
       }
 
-      // Log success
+      // Log success with variant info
       await supabase.from("crm_outreach_step_log").insert({
         enrollment_id: enrollment.id,
         step_id: currentStep.id,
         status: "sent",
+        ab_variant: abVariant,
       });
 
       // Advance to next step

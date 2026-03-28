@@ -83,6 +83,7 @@ export async function POST(request: Request) {
   if (Array.isArray(steps) && steps.length > 0) {
     const stepRows = steps.map((s: {
       message_template: string;
+      variant_b_template?: string;
       delay_hours?: number;
       step_type?: string;
       condition_type?: string;
@@ -94,6 +95,7 @@ export async function POST(request: Request) {
       step_number: i + 1,
       delay_hours: s.delay_hours ?? 24,
       message_template: s.message_template,
+      variant_b_template: s.variant_b_template || null,
       step_type: s.step_type ?? "message",
       condition_type: s.condition_type || null,
       condition_config: s.condition_config ?? {},

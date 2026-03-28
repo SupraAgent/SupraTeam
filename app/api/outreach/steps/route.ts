@@ -45,11 +45,12 @@ export async function PUT(request: Request) {
     .eq("sequence_id", sequence_id);
 
   if (steps.length > 0) {
-    const stepRows = steps.map((s: { message_template: string; delay_hours?: number; step_type?: string; step_label?: string; condition_type?: string; condition_config?: Record<string, unknown>; on_true_step?: number; on_false_step?: number; split_percentage?: number }, i: number) => ({
+    const stepRows = steps.map((s: { message_template: string; variant_b_template?: string; delay_hours?: number; step_type?: string; step_label?: string; condition_type?: string; condition_config?: Record<string, unknown>; on_true_step?: number; on_false_step?: number; split_percentage?: number }, i: number) => ({
       sequence_id,
       step_number: i + 1,
       delay_hours: s.delay_hours ?? 24,
       message_template: s.message_template,
+      variant_b_template: s.variant_b_template || null,
       step_type: s.step_type ?? "message",
       step_label: s.step_label || null,
       condition_type: s.condition_type ?? null,

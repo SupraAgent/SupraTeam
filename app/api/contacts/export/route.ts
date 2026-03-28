@@ -8,14 +8,14 @@ export async function GET() {
 
   const { data: contacts } = await supabase
     .from("crm_contacts")
-    .select("name, email, phone, company, title, telegram_username, notes, created_at")
+    .select("name, email, phone, company, title, telegram_username, x_handle, wallet_address, wallet_chain, on_chain_score, notes, created_at")
     .order("name");
 
   if (!contacts || contacts.length === 0) {
     return new NextResponse("No contacts to export", { status: 404 });
   }
 
-  const headers = ["Name", "Email", "Phone", "Company", "Title", "Telegram", "Notes", "Created"];
+  const headers = ["Name", "Email", "Phone", "Company", "Title", "Telegram", "X Handle", "Wallet Address", "Wallet Chain", "On-Chain Score", "Notes", "Created"];
   const rows = contacts.map((c) => [
     c.name,
     c.email ?? "",
@@ -23,6 +23,10 @@ export async function GET() {
     c.company ?? "",
     c.title ?? "",
     c.telegram_username ?? "",
+    c.x_handle ?? "",
+    c.wallet_address ?? "",
+    c.wallet_chain ?? "",
+    String(c.on_chain_score ?? 0),
     (c.notes ?? "").replace(/,/g, ";"),
     c.created_at?.split("T")[0] ?? "",
   ]);

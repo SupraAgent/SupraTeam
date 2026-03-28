@@ -9,7 +9,7 @@ import { Select } from "@/components/ui/select";
 import type { Contact, PipelineStage, LifecycleStage, ContactSource } from "@/lib/types";
 import { timeAgo, cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { Save, Trash2, MessageCircle, FileText, GitMerge, AlertTriangle } from "lucide-react";
+import { Save, Trash2, MessageCircle, FileText, GitMerge, AlertTriangle, Twitter } from "lucide-react";
 import Link from "next/link";
 
 const LIFECYCLE_OPTIONS: { value: LifecycleStage; label: string }[] = [
@@ -53,6 +53,9 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
   const [email, setEmail] = React.useState("");
   const [phone, setPhone] = React.useState("");
   const [telegram, setTelegram] = React.useState("");
+  const [xHandle, setXHandle] = React.useState("");
+  const [walletAddress, setWalletAddress] = React.useState("");
+  const [walletChain, setWalletChain] = React.useState("supra");
   const [stageId, setStageId] = React.useState("");
   const [lifecycle, setLifecycle] = React.useState<LifecycleStage>("prospect");
   const [source, setSource] = React.useState<ContactSource>("manual");
@@ -77,6 +80,9 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
       setEmail(contact.email ?? "");
       setPhone(contact.phone ?? "");
       setTelegram(contact.telegram_username ?? "");
+      setXHandle(contact.x_handle ?? "");
+      setWalletAddress(contact.wallet_address ?? "");
+      setWalletChain(contact.wallet_chain ?? "supra");
       setStageId(contact.stage_id ?? "");
       setLifecycle(contact.lifecycle_stage ?? "prospect");
       setSource(contact.source ?? "manual");
@@ -115,6 +121,9 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
           email: email || null,
           phone: phone || null,
           telegram_username: telegram || null,
+          x_handle: xHandle || null,
+          wallet_address: walletAddress || null,
+          wallet_chain: walletChain || null,
           stage_id: stageId || null,
           lifecycle_stage: lifecycle,
           source,
@@ -172,17 +181,32 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
   return (
     <SlideOver open={open} onClose={onClose} title={name || contact.name}>
       <div className="space-y-4">
-        {/* TG link if username exists */}
-        {telegram && (
-          <a
-            href={`https://t.me/${telegram}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-center gap-2 rounded-xl bg-[#2AABEE] text-white px-4 py-2.5 text-sm font-medium transition hover:bg-[#2AABEE]/90 w-full"
-          >
-            <MessageCircle className="h-4 w-4" />
-            Message on Telegram
-          </a>
+        {/* TG + X links */}
+        {(telegram || xHandle) && (
+          <div className="flex gap-2">
+            {telegram && (
+              <a
+                href={`https://t.me/${telegram}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#2AABEE] text-white px-4 py-2.5 text-sm font-medium transition hover:bg-[#2AABEE]/90"
+              >
+                <MessageCircle className="h-4 w-4" />
+                Telegram
+              </a>
+            )}
+            {xHandle && (
+              <a
+                href={`https://x.com/${xHandle}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-white/10 text-foreground px-4 py-2.5 text-sm font-medium transition hover:bg-white/15"
+              >
+                <Twitter className="h-4 w-4" />
+                X / Twitter
+              </a>
+            )}
+          </div>
         )}
 
         {/* Duplicate warning */}
@@ -280,6 +304,32 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
           <label className="text-[11px] font-medium text-muted-foreground">Telegram Username</label>
           <Input value={telegram} onChange={(e) => setTelegram(e.target.value)} placeholder="without @" className="mt-1" />
         </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-[11px] font-medium text-muted-foreground">X / Twitter</label>
+            <Input value={xHandle} onChange={(e) => setXHandle(e.target.value)} placeholder="handle (without @)" className="mt-1" />
+          </div>
+          <div>
+            <label className="text-[11px] font-medium text-muted-foreground">Wallet Address</label>
+            <Input value={walletAddress} onChange={(e) => setWalletAddress(e.target.value)} placeholder="0x... or supra1..." className="mt-1" />
+          </div>
+        </div>
+
+        {/* On-chain score display */}
+        {contact.on_chain_score > 0 && (
+          <div className="flex items-center justify-between rounded-lg bg-white/[0.03] px-3 py-2">
+            <span className="text-[11px] text-muted-foreground">On-Chain Score</span>
+            <span className={cn(
+              "rounded-full px-2 py-0.5 text-[10px] font-medium",
+              contact.on_chain_score >= 70 ? "bg-emerald-500/20 text-emerald-400" :
+              contact.on_chain_score >= 40 ? "bg-amber-500/20 text-amber-400" :
+              "bg-slate-500/20 text-slate-400"
+            )}>
+              {contact.on_chain_score}/100
+            </span>
+          </div>
+        )}
 
         <div>
           <label className="text-[11px] font-medium text-muted-foreground">Pipeline Stage</label>
