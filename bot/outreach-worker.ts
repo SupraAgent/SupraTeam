@@ -7,17 +7,7 @@
 import type { Bot } from "grammy";
 import { supabase } from "./lib/supabase.js";
 
-/** Non-blocking delivery log to crm_notification_log */
-async function logDelivery(chatId: number, text: string, type: string, success: boolean, error?: string) {
-  await supabase.from("crm_notification_log").insert({
-    notification_type: type,
-    tg_chat_id: chatId,
-    message_preview: text.length > 200 ? text.slice(0, 200) + "..." : text,
-    status: success ? "sent" : "failed",
-    last_error: error ?? null,
-    sent_at: success ? new Date().toISOString() : null,
-  });
-}
+import { logDelivery } from "./lib/log-delivery.js";
 import { renderTemplate, buildOutreachVars } from "../lib/outreach-templates.js";
 import { getOptimalSendTime } from "./lib/send-time-optimizer.js";
 
@@ -237,10 +227,18 @@ async function evaluateCondition(step: Step, enrollment: Enrollment): Promise<bo
     }
 
     case "ab_split": {
+      // Check if variant was already assigned (idempotent on restart)
+      const { data: current } = await supabase
+        .from("crm_outreach_enrollments")
+        .select("ab_variant")
+        .eq("id", enrollment.id)
+        .single();
+      if (current?.ab_variant) {
+        return current.ab_variant === "A";
+      }
       // Randomly assign A or B based on split_percentage (% that goes to true branch)
       const splitPct = step.split_percentage ?? 50;
       const isA = Math.random() * 100 < splitPct;
-      // Persist the variant assignment
       await supabase.from("crm_outreach_enrollments").update({
         ab_variant: isA ? "A" : "B",
       }).eq("id", enrollment.id);

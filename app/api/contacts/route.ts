@@ -17,7 +17,11 @@ export async function GET(request: Request) {
     .order("name");
 
   if (search) {
-    query = query.or(`name.ilike.%${search}%,company.ilike.%${search}%,telegram_username.ilike.%${search}%,email.ilike.%${search}%`);
+    // Escape special PostgREST characters to prevent filter injection
+    const sanitized = search.replace(/[%_(),.\\]/g, "");
+    if (sanitized) {
+      query = query.or(`name.ilike.%${sanitized}%,company.ilike.%${sanitized}%,telegram_username.ilike.%${sanitized}%,email.ilike.%${sanitized}%`);
+    }
   }
 
   if (stageFilter) {

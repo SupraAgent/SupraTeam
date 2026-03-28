@@ -51,6 +51,7 @@ export async function GET() {
 
   const enriched = (webhooks ?? []).map((w) => ({
     ...w,
+    secret: w.secret ? "••••••••" : null,
     delivery_stats: deliveryStats[w.id] ?? { total: 0, success: 0, lastDelivery: null },
   }));
 
@@ -96,14 +97,17 @@ export async function PUT(request: Request) {
   if ("error" in auth) return auth.error;
   const { admin: supabase } = auth;
 
-  const { id, ...updates } = await request.json();
+  const { id, name, url, events, headers, is_active } = await request.json();
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
-  updates.updated_at = new Date().toISOString();
-
-  // Reset failure count if re-activating
-  if (updates.is_active === true) {
-    updates.failure_count = 0;
+  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (name !== undefined) updates.name = name;
+  if (url !== undefined) updates.url = url;
+  if (events !== undefined) updates.events = events;
+  if (headers !== undefined) updates.headers = headers;
+  if (is_active !== undefined) {
+    updates.is_active = is_active;
+    if (is_active === true) updates.failure_count = 0;
   }
 
   const { error } = await supabase

@@ -40,9 +40,11 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith("/apply") ||
     pathname.startsWith("/tma");
 
-  // Dev access bypass: cookie set by /api/auth/dev-login
+  // Dev access bypass: cookie set by /api/auth/dev-login (dev only)
   const hasDevAuth =
-    process.env.DEV_ACCESS_PASSWORD && request.cookies.get("dev-auth")?.value === "true";
+    process.env.NODE_ENV !== "production" &&
+    process.env.DEV_ACCESS_PASSWORD &&
+    request.cookies.get("dev-auth")?.value === "true";
 
   if ((user || hasDevAuth) && pathname === "/login") {
     return NextResponse.redirect(new URL("/", request.url));

@@ -79,7 +79,10 @@ export async function bulkUpdateFields({
     await supabase.from(fieldsTable).delete().in("id", toDelete);
   }
 
-  // Upsert each field
+  // Batch upsert: separate updates from inserts
+  const toUpdate: Array<Record<string, unknown>> = [];
+  const toInsert: Array<Record<string, unknown>> = [];
+
   for (let i = 0; i < fields.length; i++) {
     const f = fields[i];
     const data: Record<string, unknown> = {
@@ -91,16 +94,26 @@ export async function bulkUpdateFields({
       position: i + 1,
     };
 
-    // Allow extra columns (e.g. board_type for deal fields)
     if (extraColumns) {
       Object.assign(data, extraColumns(f as Record<string, unknown>));
     }
 
     if (f.id && existingIds.has(f.id)) {
-      await supabase.from(fieldsTable).update(data).eq("id", f.id);
+      toUpdate.push({ ...data, id: f.id });
     } else {
-      await supabase.from(fieldsTable).insert(data);
+      toInsert.push(data);
     }
+  }
+
+  // Batch update existing fields
+  for (const row of toUpdate) {
+    const { id, ...rest } = row;
+    await supabase.from(fieldsTable).update(rest).eq("id", id);
+  }
+
+  // Batch insert new fields
+  if (toInsert.length > 0) {
+    await supabase.from(fieldsTable).insert(toInsert);
   }
 
   // Return fresh list
@@ -123,15 +136,14 @@ export async function saveFieldValues(
   values: Record<string, string>,
   conflictKey: string
 ) {
-  for (const [fieldId, value] of Object.entries(values)) {
-    await supabase.from(valuesTable).upsert(
-      {
-        [entityColumn]: entityId,
-        field_id: fieldId,
-        value: value || null,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: conflictKey }
-    );
+  const rows = Object.entries(values).map(([fieldId, value]) => ({
+    [entityColumn]: entityId,
+    field_id: fieldId,
+    value: value || null,
+    updated_at: new Date().toISOString(),
+  }));
+
+  if (rows.length > 0) {
+    await supabase.from(valuesTable).upsert(rows, { onConflict: conflictKey });
   }
 }
