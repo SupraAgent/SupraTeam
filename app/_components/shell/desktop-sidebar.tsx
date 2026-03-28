@@ -20,6 +20,7 @@ const NAV_ITEMS = [
   { href: "/outreach", label: "Outreach", icon: OutreachIcon },
   { href: "/drip", label: "Drip Sequences", icon: DripIcon },
   { href: "/automations", label: "Automations", icon: WorkflowIcon },
+  { href: "/loop", label: "Loop Builder", icon: LoopBuilderIcon },
   { href: "/calendar", label: "Calendar", icon: CalendarIcon },
   { href: "/reports", label: "Reports", icon: ChartIcon },
   { href: "/access", label: "Access Control", icon: ShieldIcon },
@@ -340,6 +341,17 @@ function ChartIcon({ className }: { className?: string }) {
       <line x1="18" y1="20" x2="18" y2="10" />
       <line x1="12" y1="20" x2="12" y2="4" />
       <line x1="6" y1="20" x2="6" y2="14" />
+    </svg>
+  );
+}
+
+function LoopBuilderIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10" />
+      <path d="M22 12c0-5.52-4.48-10-10-10" />
+      <path d="M16 12l4 4-4 4" />
+      <circle cx="12" cy="12" r="3" />
     </svg>
   );
 }

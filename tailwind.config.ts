@@ -6,7 +6,8 @@ export default {
     "./app/**/*.{ts,tsx}",
     "./components/**/*.{ts,tsx}",
     "./lib/**/*.{ts,tsx}",
-    "./node_modules/@supra/automation-builder/dist/**/*.js"
+    "./node_modules/@supra/automation-builder/dist/**/*.js",
+    "./packages/supra-loop-builder/src/**/*.{ts,tsx}"
   ],
   theme: {
     extend: {
