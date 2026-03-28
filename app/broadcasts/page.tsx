@@ -94,6 +94,11 @@ export default function BroadcastsPage() {
   const [scheduleDate, setScheduleDate] = React.useState("");
   const [scheduleTime, setScheduleTime] = React.useState("");
 
+  // Suppression rules
+  const [suppressionHours, setSuppressionHours] = React.useState<number | null>(null);
+  const [excludeStageIds, setExcludeStageIds] = React.useState<Set<string>>(new Set());
+  const [pipelineStages, setPipelineStages] = React.useState<Array<{ id: string; name: string }>>([]);
+
   // History
   const [broadcasts, setBroadcasts] = React.useState<Broadcast[]>([]);
   const [showHistory, setShowHistory] = React.useState(false);
@@ -156,6 +161,7 @@ export default function BroadcastsPage() {
   }, [message, scheduleDate, scheduleTime]);
 
   React.useEffect(() => {
+    fetch("/api/pipeline").then((r) => r.json()).then((d) => setPipelineStages(d.stages ?? [])).catch(() => {});
     Promise.all([
       fetch("/api/groups").then((r) => r.json()).catch(() => ({ groups: [] })),
       fetch("/api/groups/slugs").then((r) => r.json()).catch(() => ({ slugs: [] })),
@@ -296,6 +302,8 @@ export default function BroadcastsPage() {
       if (scheduleMode && scheduleDate && scheduleTime) {
         body.scheduled_at = new Date(`${scheduleDate}T${scheduleTime}`).toISOString();
       }
+      if (suppressionHours) body.suppression_hours = suppressionHours;
+      if (excludeStageIds.size > 0) body.exclude_stage_ids = [...excludeStageIds];
 
       const res = await fetch("/api/broadcasts/send", {
         method: "POST",
@@ -860,6 +868,51 @@ export default function BroadcastsPage() {
                     />
                   </div>
                 )}
+              </div>
+
+              {/* Suppression rules */}
+              <div className="flex items-center gap-3 flex-wrap">
+                <select
+                  value={suppressionHours ?? ""}
+                  onChange={(e) => setSuppressionHours(e.target.value ? Number(e.target.value) : null)}
+                  className="rounded-lg border border-white/10 bg-transparent px-2 py-1 text-[11px] text-muted-foreground"
+                  title="Skip groups that received a broadcast within this window"
+                >
+                  <option value="">No suppression</option>
+                  <option value="12">Suppress 12h</option>
+                  <option value="24">Suppress 24h</option>
+                  <option value="48">Suppress 48h</option>
+                  <option value="72">Suppress 72h</option>
+                </select>
+                {pipelineStages.length > 0 && (
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        setExcludeStageIds((prev) => new Set([...prev, e.target.value]));
+                        e.target.value = "";
+                      }
+                    }}
+                    className="rounded-lg border border-white/10 bg-transparent px-2 py-1 text-[11px] text-muted-foreground"
+                    title="Exclude groups linked to deals at these stages"
+                  >
+                    <option value="">Exclude stage...</option>
+                    {pipelineStages.filter((s) => !excludeStageIds.has(s.id)).map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                )}
+                {[...excludeStageIds].map((sid) => {
+                  const stage = pipelineStages.find((s) => s.id === sid);
+                  return stage ? (
+                    <span key={sid} className="flex items-center gap-1 rounded bg-red-500/10 text-red-400 px-2 py-0.5 text-[10px]">
+                      {stage.name}
+                      <button onClick={() => setExcludeStageIds((prev) => { const n = new Set(prev); n.delete(sid); return n; })} className="hover:text-red-300">
+                        <X className="h-2.5 w-2.5" />
+                      </button>
+                    </span>
+                  ) : null;
+                })}
               </div>
 
               {/* Audience preview panel */}

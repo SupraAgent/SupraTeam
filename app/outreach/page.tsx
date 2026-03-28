@@ -17,6 +17,7 @@ import {
   ArrowRight,
   GitBranch,
   Timer,
+  Copy,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { timeAgo } from "@/lib/utils";
@@ -62,6 +63,7 @@ export default function OutreachPage() {
   const [newName, setNewName] = React.useState("");
   const [newDesc, setNewDesc] = React.useState("");
   const [newBoard, setNewBoard] = React.useState("");
+  const [newGoalStage, setNewGoalStage] = React.useState("");
   const [newSteps, setNewSteps] = React.useState<Array<{
     message_template: string;
     delay_hours: number;
@@ -129,6 +131,7 @@ export default function OutreachPage() {
         name: newName.trim(),
         description: newDesc || undefined,
         board_type: newBoard || undefined,
+        goal_stage_id: newGoalStage || undefined,
         steps: validSteps,
       }),
     });
@@ -166,6 +169,21 @@ export default function OutreachPage() {
     });
     setSequences((prev) => prev.filter((s) => s.id !== id));
     toast.success("Sequence deleted");
+  }
+
+  async function cloneSequence(id: string) {
+    const res = await fetch("/api/outreach/sequences/clone", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sequence_id: id }),
+    });
+    if (res.ok) {
+      toast.success("Sequence cloned");
+      fetchSequences();
+    } else {
+      const data = await res.json();
+      toast.error(data.error ?? "Clone failed");
+    }
   }
 
   function addStep(type: string = "message") {
@@ -271,12 +289,25 @@ export default function OutreachPage() {
             </select>
           </div>
 
-          <Input
-            value={newDesc}
-            onChange={(e) => setNewDesc(e.target.value)}
-            placeholder="Description (optional)"
-            className="text-xs"
-          />
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              value={newDesc}
+              onChange={(e) => setNewDesc(e.target.value)}
+              placeholder="Description (optional)"
+              className="text-xs"
+            />
+            <select
+              value={newGoalStage}
+              onChange={(e) => setNewGoalStage(e.target.value)}
+              className="rounded-lg border border-white/10 bg-transparent px-3 py-2 text-xs"
+              title="Auto-complete sequence when deal reaches this stage"
+            >
+              <option value="">No goal stage</option>
+              {pipelineStages.map((s) => (
+                <option key={s.id} value={s.id}>{s.name} (auto-complete)</option>
+              ))}
+            </select>
+          </div>
 
           {/* Steps */}
           <div className="space-y-2">
@@ -584,6 +615,14 @@ export default function OutreachPage() {
                     className="text-muted-foreground hover:text-foreground p-1"
                   >
                     {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  </button>
+
+                  <button
+                    onClick={() => cloneSequence(seq.id)}
+                    className="text-muted-foreground hover:text-primary p-1"
+                    title="Duplicate sequence"
+                  >
+                    <Copy className="h-4 w-4" />
                   </button>
 
                   <button
