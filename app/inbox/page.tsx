@@ -81,10 +81,12 @@ export default function InboxPage() {
     fetchInbox();
   }, [fetchInbox]);
 
-  // Supabase realtime: subscribe to new group messages
+  // Supabase realtime: subscribe to new group messages (debounced)
   React.useEffect(() => {
     const supabase = createClient();
     if (!supabase) return;
+
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
     const channel = supabase
       .channel("inbox-messages")
@@ -92,13 +94,14 @@ export default function InboxPage() {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "tg_group_messages" },
         () => {
-          // Refresh on new message
-          fetchInbox();
+          if (debounceTimer) clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(() => fetchInbox(), 1000);
         }
       )
       .subscribe();
 
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       supabase.removeChannel(channel);
     };
   }, [fetchInbox]);
