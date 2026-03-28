@@ -87,7 +87,8 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ data: parsed, source: "ai" });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "AI request failed";
+    console.error("[ai-chat] Claude API error:", err);
+    const message = "AI request failed. Please try again.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

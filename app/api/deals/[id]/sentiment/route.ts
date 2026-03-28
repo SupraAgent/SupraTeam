@@ -5,6 +5,7 @@
 
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
+import { sanitizeForPrompt } from "@/lib/claude-api";
 
 export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -27,11 +28,11 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
   let conversationText = "";
 
   if (notifsRes.data && notifsRes.data.length > 0) {
-    conversationText += "Telegram messages:\n" + notifsRes.data.map((n) => `- ${n.title}: ${n.body ?? ""}`).join("\n") + "\n\n";
+    conversationText += "Telegram messages:\n" + notifsRes.data.map((n) => `- ${sanitizeForPrompt(n.title)}: ${sanitizeForPrompt(n.body ?? "")}`).join("\n") + "\n\n";
   }
 
   if (notesRes.data && notesRes.data.length > 0) {
-    conversationText += "Deal notes:\n" + notesRes.data.map((n) => `- ${n.text}`).join("\n") + "\n\n";
+    conversationText += "Deal notes:\n" + notesRes.data.map((n) => `- ${sanitizeForPrompt(n.text)}`).join("\n") + "\n\n";
   }
 
   if (historyRes.data && historyRes.data.length > 0) {

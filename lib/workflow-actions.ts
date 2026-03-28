@@ -215,6 +215,12 @@ export async function executeUpdateDeal(
 
   const value = renderTemplate(config.value || "", ctx.vars);
 
+  // Allowlist of safe fields to prevent arbitrary column writes
+  const ALLOWED_FIELDS = ["deal_name", "value", "probability", "board_type", "notes", "priority", "assigned_to", "stage"];
+  if (!ALLOWED_FIELDS.includes(config.field)) {
+    return { success: false, error: `Invalid deal field: ${config.field}` };
+  }
+
   // Handle stage changes specially — need to resolve stage ID
   if (config.field === "stage") {
     const { data: stage } = await supabase

@@ -16,6 +16,20 @@ export function formatDuration(startedAt: string, completedAt: string): string {
   return rem > 0 ? `${minutes}m ${rem}s` : `${minutes}m`;
 }
 
+/** Strip PostgREST filter metacharacters from a user-supplied value. */
+export function sanitizePostgrestValue(val: string): string {
+  return val.replace(/[,.()"\\]/g, "");
+}
+
+/** Escape a CSV cell value: RFC 4180 double-quote escaping + formula injection prevention. */
+export function escapeCSV(val: string): string {
+  let escaped = val.replace(/"/g, '""');
+  if (/^[=+\-@\t\r]/.test(escaped)) {
+    escaped = "'" + escaped;
+  }
+  return `"${escaped}"`;
+}
+
 /** Relative time string from an ISO timestamp. */
 export function timeAgo(timestamp: string): string {
   const seconds = Math.floor((Date.now() - new Date(timestamp).getTime()) / 1000);

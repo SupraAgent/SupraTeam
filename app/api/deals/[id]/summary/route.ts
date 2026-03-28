@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
+import { sanitizeForPrompt } from "@/lib/claude-api";
 
 export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -26,11 +27,11 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
   const contactName = (deal.contact as unknown as { name: string } | null)?.name ?? "Unknown";
   const stageName = (deal.stage as unknown as { name: string } | null)?.name ?? "Unknown";
 
-  // Build context string
-  let context = `Deal: ${deal.deal_name}\nBoard: ${deal.board_type}\nStage: ${stageName}\nValue: $${deal.value ?? 0}\nProbability: ${deal.probability ?? 50}%\nContact: ${contactName}\n`;
+  // Build context string (sanitize all user-generated content)
+  let context = `Deal: ${sanitizeForPrompt(deal.deal_name)}\nBoard: ${deal.board_type}\nStage: ${stageName}\nValue: $${deal.value ?? 0}\nProbability: ${deal.probability ?? 50}%\nContact: ${sanitizeForPrompt(contactName)}\n`;
 
   if (notesRes.data && notesRes.data.length > 0) {
-    context += "\nRecent notes:\n" + notesRes.data.map((n) => `- ${n.text}`).join("\n");
+    context += "\nRecent notes:\n" + notesRes.data.map((n) => `- ${sanitizeForPrompt(n.text)}`).join("\n");
   }
 
   if (historyRes.data && historyRes.data.length > 0) {
@@ -42,7 +43,7 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
   }
 
   if (notifsRes.data && notifsRes.data.length > 0) {
-    context += "\nRecent TG messages:\n" + notifsRes.data.map((n) => `- ${n.title}: ${n.body ?? ""}`).join("\n");
+    context += "\nRecent TG messages:\n" + notifsRes.data.map((n) => `- ${sanitizeForPrompt(n.title)}: ${sanitizeForPrompt(n.body ?? "")}`).join("\n");
   }
 
   // Call Claude

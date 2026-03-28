@@ -15,7 +15,11 @@ export function verifyCron(request: Request): NextResponse | null {
   if (process.env.RAILWAY_ENVIRONMENT) return null;
 
   const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) return null; // No secret configured, allow (dev mode)
+  if (!cronSecret) {
+    // Only skip auth in development; deny by default in production
+    if (process.env.NODE_ENV === "development") return null;
+    return NextResponse.json({ error: "Unauthorized: CRON_SECRET not configured" }, { status: 401 });
+  }
 
   const authHeader = request.headers.get("authorization");
   if (authHeader === `Bearer ${cronSecret}`) return null; // Valid

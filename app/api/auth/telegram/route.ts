@@ -69,7 +69,9 @@ export async function POST(request: Request) {
 
   // Synthetic email for Supabase (never used for actual email)
   const email = `tg_${data.id}@supracrm.tg`;
-  const password = `tg_${data.id}_${botToken.slice(0, 16)}`;
+  const password = createHmac("sha256", process.env.TOKEN_ENCRYPTION_KEY || "")
+    .update(`tg_user_${data.id}`)
+    .digest("hex");
   const displayName = [data.first_name, data.last_name].filter(Boolean).join(" ");
 
   const userMetadata = {
