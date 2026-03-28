@@ -3,102 +3,17 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Search, Menu, X, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useShell } from "./shell-context";
 import { NotificationCenter } from "@/components/notifications/notification-center";
-
-// --- Navigation structure (mirrors desktop sidebar groupings) ---
-
-interface MobileNavItem {
-  href: string;
-  label: string;
-}
-
-interface MobileNavSection {
-  key: string;
-  label: string;
-  items: MobileNavItem[];
-}
-
-const TOP_ITEMS: MobileNavItem[] = [
-  { href: "/", label: "Home" },
-  { href: "/pipeline", label: "Pipeline" },
-  { href: "/inbox", label: "Inbox" },
-  { href: "/contacts", label: "Contacts" },
-];
-
-const NAV_SECTIONS: MobileNavSection[] = [
-  {
-    key: "messaging",
-    label: "Messaging",
-    items: [
-      { href: "/broadcasts", label: "Broadcasts" },
-      { href: "/email", label: "Email" },
-      { href: "/outreach", label: "Outreach" },
-    ],
-  },
-  {
-    key: "automation",
-    label: "Automation",
-    items: [
-      { href: "/automations", label: "Automations" },
-      { href: "/loop", label: "Loop Builder" },
-      { href: "/drip", label: "Drip Sequences" },
-      { href: "/tasks", label: "Tasks" },
-    ],
-  },
-  {
-    key: "telegram",
-    label: "Telegram",
-    items: [
-      { href: "/groups", label: "TG Groups" },
-      { href: "/access", label: "Access Control" },
-    ],
-  },
-  {
-    key: "insights",
-    label: "Insights",
-    items: [
-      { href: "/reports", label: "Reports" },
-      { href: "/graph", label: "Graph" },
-      { href: "/calendar", label: "Calendar" },
-    ],
-  },
-];
-
-const BOTTOM_ITEMS: MobileNavItem[] = [
-  { href: "/docs", label: "Docs" },
-  { href: "/suggestions", label: "Suggestions" },
-  { href: "/settings", label: "Settings" },
-];
-
-const STORAGE_KEY = "supracrm-nav-sections";
-
-function useMobileSections() {
-  const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>({});
-
-  React.useEffect(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) setCollapsed(JSON.parse(stored));
-    } catch { /* ignore */ }
-  }, []);
-
-  const toggle = React.useCallback((key: string) => {
-    setCollapsed((prev) => {
-      const next = { ...prev, [key]: !prev[key] };
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch { /* ignore */ }
-      return next;
-    });
-  }, []);
-
-  return { collapsed, toggle };
-}
+import { TOP_ITEMS, NAV_SECTIONS, BOTTOM_ITEMS, ADMIN_ITEM } from "./nav-config";
+import { useCollapsedSections } from "./use-collapsed-sections";
 
 export function MobileHeader() {
   const pathname = usePathname();
   const { mobileNavOpen, setMobileNavOpen, crmRole } = useShell();
-  const sections = useMobileSections();
+  const sections = useCollapsedSections();
 
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
@@ -122,30 +37,20 @@ export function MobileHeader() {
           <span className="text-sm font-semibold">SupraCRM</span>
         </div>
         <div className="flex items-center gap-1">
-          {/* Search button */}
           <button
             onClick={() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }))}
             className="rounded-lg p-2 text-muted-foreground hover:text-foreground hover:bg-white/5 transition"
+            aria-label="Search"
           >
-            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round">
-              <circle cx="11" cy="11" r="8" />
-              <path d="m21 21-4.3-4.3" />
-            </svg>
+            <Search className="h-4 w-4" />
           </button>
-          {/* Notifications */}
           <NotificationCenter />
-          {/* Hamburger */}
           <button
             onClick={() => setMobileNavOpen(!mobileNavOpen)}
             className="rounded-lg p-2 text-muted-foreground hover:text-foreground hover:bg-white/5 transition"
+            aria-label={mobileNavOpen ? "Close menu" : "Open menu"}
           >
-            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-              {mobileNavOpen ? (
-                <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
-              ) : (
-                <path d="M4 6h16M4 12h16M4 18h16" strokeLinecap="round" strokeLinejoin="round" />
-              )}
-            </svg>
+            {mobileNavOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
         </div>
       </div>
@@ -177,18 +82,9 @@ export function MobileHeader() {
                       ? "text-primary"
                       : "text-muted-foreground/60"
                   )}
+                  aria-expanded={isOpen}
                 >
-                  <svg
-                    className={cn("h-3 w-3 mr-1.5 shrink-0 transition-transform", isOpen ? "rotate-90" : "rotate-0")}
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M9 18l6-6-6-6" />
-                  </svg>
+                  <ChevronRight className={cn("h-3 w-3 mr-1.5 shrink-0 transition-transform", isOpen && "rotate-90")} />
                   {section.label}
                 </button>
                 {isOpen && (
@@ -212,8 +108,8 @@ export function MobileHeader() {
               </Link>
             ))}
             {crmRole === "admin_lead" && (
-              <Link href="/admin" onClick={() => setMobileNavOpen(false)} className={linkClass("/admin")}>
-                Admin
+              <Link href={ADMIN_ITEM.href} onClick={() => setMobileNavOpen(false)} className={linkClass(ADMIN_ITEM.href)}>
+                {ADMIN_ITEM.label}
               </Link>
             )}
           </div>
