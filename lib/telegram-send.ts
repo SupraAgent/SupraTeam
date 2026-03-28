@@ -87,7 +87,8 @@ export async function sendTelegramWithTracking(params: {
   if (!BOT_TOKEN) return { success: false, error: "No bot token configured" };
 
   const supabase = createSupabaseAdmin();
-  const preview = params.text.length > 200 ? params.text.slice(0, 200) + "..." : params.text;
+  const fullText = params.text;
+  const preview = fullText.length > 200 ? fullText.slice(0, 200) + "..." : fullText;
 
   try {
     // Apply rate limiting before sending
@@ -132,6 +133,7 @@ export async function sendTelegramWithTracking(params: {
           deal_id: params.dealId ?? null,
           tg_chat_id: params.chatId,
           message_preview: preview,
+          message_full_text: fullText,
           status: "failed",
           last_error: errMsg,
           retry_count: 0,
@@ -185,12 +187,16 @@ export async function processRetries(): Promise<number> {
   let retried = 0;
   for (const entry of failed) {
     try {
+      // Rate-limit retries too
+      await acquireRateLimit(entry.tg_chat_id);
+
+      const retryText = entry.message_full_text || entry.message_preview;
       const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           chat_id: entry.tg_chat_id,
-          text: entry.message_preview, // Use stored preview for retry
+          text: retryText,
           parse_mode: "HTML",
         }),
       });

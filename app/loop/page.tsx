@@ -290,7 +290,12 @@ function WorkflowManagerPanel({
                   </div>
                 </button>
                 <button
-                  onClick={(e) => { e.stopPropagation(); onDelete(wf.id); fetchWorkflows(); }}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    if (!window.confirm(`Delete "${wf.name}"? This cannot be undone.`)) return;
+                    await onDelete(wf.id);
+                    await fetchWorkflows();
+                  }}
                   className="shrink-0 p-1 text-muted-foreground hover:text-red-400 transition"
                   title="Delete workflow"
                 >
@@ -432,12 +437,12 @@ export default function LoopBuilderPage() {
   const handleToggleActive = React.useCallback(async () => {
     if (!activeWorkflowId) return;
     const newActive = !isActive;
-    await fetch(`/api/loop/workflows/${activeWorkflowId}`, {
+    const res = await fetch(`/api/loop/workflows/${activeWorkflowId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ is_active: newActive }),
     });
-    setIsActive(newActive);
+    if (res.ok) setIsActive(newActive);
   }, [activeWorkflowId, isActive]);
 
   /** Delete a workflow */
@@ -508,17 +513,21 @@ export default function LoopBuilderPage() {
     } catch { /* ignore */ }
   }, []);
 
-  /** Search deals in test modal */
-  const searchTestDeals = React.useCallback(async (query: string) => {
+  /** Search deals in test modal (debounced) */
+  const dealSearchTimerRef = React.useRef<ReturnType<typeof setTimeout>>(undefined);
+  const searchTestDeals = React.useCallback((query: string) => {
     setTestDealSearch(query);
-    try {
-      const qs = new URLSearchParams({ type: "deals", search: query });
-      const res = await fetch(`/api/loop/crm-options?${qs}`);
-      if (res.ok) {
-        const data = await res.json();
-        setTestDeals(data.options ?? []);
-      }
-    } catch { /* ignore */ }
+    if (dealSearchTimerRef.current) clearTimeout(dealSearchTimerRef.current);
+    dealSearchTimerRef.current = setTimeout(async () => {
+      try {
+        const qs = new URLSearchParams({ type: "deals", search: query });
+        const res = await fetch(`/api/loop/crm-options?${qs}`);
+        if (res.ok) {
+          const data = await res.json();
+          setTestDeals(data.options ?? []);
+        }
+      } catch { /* ignore */ }
+    }, 300);
   }, []);
 
   const [builderKey, setBuilderKey] = React.useState(0);
@@ -533,6 +542,13 @@ export default function LoopBuilderPage() {
       saveToDb(nodes, edgesRef.current);
     }, 2000);
   }, [activeWorkflowId, saveToDb]);
+
+  // Cleanup auto-save timer on unmount
+  React.useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, []);
 
   const handleEdgesChange = React.useCallback((edges: Edge[]) => {
     edgesRef.current = edges;

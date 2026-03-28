@@ -36,6 +36,26 @@ import type { Workflow } from "@/lib/workflow-db-types";
 // Re-export for consumers
 export type { Workflow } from "@/lib/workflow-db-types";
 
+/** Check if a hostname resolves to private/internal network ranges (SSRF protection) */
+function isPrivateHost(host: string): boolean {
+  // Block link-local, metadata, and private range hostnames
+  const blocked = [
+    /^10\./,
+    /^172\.(1[6-9]|2\d|3[01])\./,
+    /^192\.168\./,
+    /^127\./,
+    /^0\./,
+    /^169\.254\./,
+    /^fc00:/i,
+    /^fe80:/i,
+    /^::1$/,
+    /^localhost$/i,
+    /\.internal$/i,
+    /\.local$/i,
+  ];
+  return blocked.some((re) => re.test(host));
+}
+
 export interface LoopWorkflowEvent {
   type: string;
   dealId?: string;
@@ -231,6 +251,11 @@ async function executeExtendedAction(
         if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1"))) {
           return { success: false, error: "Only HTTPS allowed (except localhost)" };
         }
+        // Block private/internal IPs to prevent SSRF
+        const host = parsed.hostname;
+        if (isPrivateHost(host)) {
+          return { success: false, error: "Requests to private/internal IPs are not allowed" };
+        }
       } catch { return { success: false, error: "Invalid URL" }; }
       const method = (config.method || "GET").toUpperCase();
       const controller = new AbortController();
@@ -249,6 +274,70 @@ async function executeExtendedAction(
         clearTimeout(timeout);
         return { success: false, error: e instanceof Error ? e.message : "HTTP request failed" };
       }
+    }
+
+    case "tg_manage_access": {
+      if (!config.slug) return { success: false, error: "slug required" };
+      const tgUserId = ctx.contactId;
+      if (!tgUserId) return { success: false, error: "contactId required for TG access management" };
+      const op = config.operation || "add";
+      if (op === "add") {
+        const { error } = await supabase.from("crm_user_slug_access").upsert({
+          user_id: tgUserId,
+          slug: config.slug,
+          granted_by: ctx.userId,
+        }, { onConflict: "user_id,slug" });
+        return error ? { success: false, error: error.message } : { success: true, output: { operation: "add", slug: config.slug } };
+      } else {
+        const { error } = await supabase.from("crm_user_slug_access").delete().eq("user_id", tgUserId).eq("slug", config.slug);
+        return error ? { success: false, error: error.message } : { success: true, output: { operation: "remove", slug: config.slug } };
+      }
+    }
+
+    case "ai_summarize": {
+      if (!ctx.dealId) return { success: false, error: "dealId required for AI summary" };
+      const { data: deal } = await supabase.from("crm_deals")
+        .select("*, stage:pipeline_stages(name), contact:crm_contacts(name, company)")
+        .eq("id", ctx.dealId).single();
+      if (!deal) return { success: false, error: "Deal not found" };
+      const summary = `Deal: ${deal.deal_name}, Stage: ${(deal.stage as { name: string } | null)?.name ?? "Unknown"}, Board: ${deal.board_type}, Contact: ${(deal.contact as { name?: string } | null)?.name ?? "Unknown"}, Company: ${(deal.contact as { company?: string } | null)?.company ?? "Unknown"}, Value: ${deal.value ?? "N/A"}`;
+      return { success: true, output: { summary, note: "Full AI summary requires ANTHROPIC_API_KEY configuration" } };
+    }
+
+    case "ai_classify": {
+      const categories = (config.categories || "hot,warm,cold").split(",").map((c: string) => c.trim());
+      if (!ctx.dealId) return { success: false, error: "dealId required for AI classification" };
+      const { data: deal } = await supabase.from("crm_deals").select("value, quality_score").eq("id", ctx.dealId).single();
+      if (!deal) return { success: false, error: "Deal not found" };
+      // Simple rule-based classification (AI-powered version requires API key)
+      const score = deal.quality_score ?? 50;
+      const idx = score >= 70 ? 0 : score >= 40 ? Math.min(1, categories.length - 1) : Math.min(2, categories.length - 1);
+      const classification = categories[idx] || categories[0];
+      return { success: true, output: { classification, score, categories } };
+    }
+
+    case "add_to_sequence": {
+      if (!config.sequence_id) return { success: false, error: "sequence_id required" };
+      if (!ctx.contactId) return { success: false, error: "contactId required to add to sequence" };
+      const { error } = await supabase.from("crm_sequence_enrollments").insert({
+        sequence_id: config.sequence_id,
+        contact_id: ctx.contactId,
+        deal_id: ctx.dealId || null,
+        status: "active",
+        enrolled_by: ctx.userId,
+      });
+      return error ? { success: false, error: error.message } : { success: true, output: { enrolled: config.sequence_id } };
+    }
+
+    case "remove_from_sequence": {
+      if (!config.sequence_id) return { success: false, error: "sequence_id required" };
+      if (!ctx.contactId) return { success: false, error: "contactId required to remove from sequence" };
+      const { error } = await supabase.from("crm_sequence_enrollments")
+        .update({ status: "removed", completed_at: new Date().toISOString() })
+        .eq("sequence_id", config.sequence_id)
+        .eq("contact_id", ctx.contactId)
+        .eq("status", "active");
+      return error ? { success: false, error: error.message } : { success: true, output: { removed: config.sequence_id } };
     }
 
     default:

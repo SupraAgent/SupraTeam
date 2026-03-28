@@ -20,12 +20,13 @@ interface CrmOption {
   meta?: Record<string, unknown>;
 }
 
-function useCrmOptions(type: string, params?: Record<string, string>) {
+function useCrmOptions(type: string, params?: Record<string, string>, enabled = true) {
   const [options, setOptions] = React.useState<CrmOption[]>([]);
   const [loading, setLoading] = React.useState(false);
   const paramsKey = params ? JSON.stringify(params) : "";
 
   React.useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     setLoading(true);
     const qs = new URLSearchParams({ type, ...params });
@@ -41,7 +42,7 @@ function useCrmOptions(type: string, params?: Record<string, string>) {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [type, paramsKey]);
+  }, [type, paramsKey, enabled]);
 
   return { options, loading };
 }
@@ -225,11 +226,20 @@ const CrmActionEditor: CustomNodeEditor = ({ data, onChange }) => {
   const config = (d.config ?? {}) as Record<string, string>;
   const crmAction = d.crmAction || "send_telegram";
 
-  // Fetch options conditionally based on which action is selected
-  const { options: groupOptions, loading: groupsLoading } = useCrmOptions("groups");
-  const { options: teamOptions, loading: teamLoading } = useCrmOptions("team");
-  const { options: stageOptions, loading: stagesLoading } = useCrmOptions("stages");
-  const { options: boardOptions } = useCrmOptions("boards");
+  // Fetch options lazily — only when the selected action needs them
+  const needsGroups = crmAction === "send_telegram";
+  const needsTeam = ["assign_deal", "create_task", "update_deal"].includes(crmAction);
+  const needsStages = ["update_deal", "create_deal"].includes(crmAction);
+  const needsBoards = ["update_deal", "create_deal"].includes(crmAction);
+  const needsSequences = ["add_to_sequence", "remove_from_sequence"].includes(crmAction);
+  const needsSlugs = ["send_broadcast", "tg_manage_access"].includes(crmAction);
+
+  const { options: groupOptions, loading: groupsLoading } = useCrmOptions("groups", undefined, needsGroups);
+  const { options: teamOptions, loading: teamLoading } = useCrmOptions("team", undefined, needsTeam);
+  const { options: stageOptions, loading: stagesLoading } = useCrmOptions("stages", undefined, needsStages);
+  const { options: boardOptions } = useCrmOptions("boards", undefined, needsBoards);
+  const { options: sequenceOptions, loading: sequencesLoading } = useCrmOptions("sequences", undefined, needsSequences);
+  const { options: slugOptions, loading: slugsLoading } = useCrmOptions("slugs", undefined, needsSlugs);
 
   function updateConfig(key: string, value: string) {
     onChange({ config: { ...config, [key]: value } });
@@ -282,10 +292,14 @@ const CrmActionEditor: CustomNodeEditor = ({ data, onChange }) => {
             />
           )}
           {crmAction === "send_broadcast" && (
-            <div>
-              <label className={labelClass}>Slug Filter</label>
-              <input className={inputClass} value={config.slug || ""} onChange={(e) => updateConfig("slug", e.target.value)} placeholder="e.g. partners" />
-            </div>
+            <AsyncSelect
+              label="Slug Filter"
+              options={slugOptions}
+              loading={slugsLoading}
+              value={config.slug || ""}
+              onChange={(v) => updateConfig("slug", v)}
+              placeholder="Select slug"
+            />
           )}
         </>
       )}
@@ -484,18 +498,26 @@ const CrmActionEditor: CustomNodeEditor = ({ data, onChange }) => {
       )}
 
       {(crmAction === "add_to_sequence" || crmAction === "remove_from_sequence") && (
-        <div>
-          <label className={labelClass}>Sequence ID</label>
-          <input className={inputClass} value={config.sequence_id || ""} onChange={(e) => updateConfig("sequence_id", e.target.value)} placeholder="Sequence ID" />
-        </div>
+        <AsyncSelect
+          label="Sequence"
+          options={sequenceOptions}
+          loading={sequencesLoading}
+          value={config.sequence_id || ""}
+          onChange={(v) => updateConfig("sequence_id", v)}
+          placeholder="Select sequence"
+        />
       )}
 
       {crmAction === "tg_manage_access" && (
         <>
-          <div>
-            <label className={labelClass}>Slug</label>
-            <input className={inputClass} value={config.slug || ""} onChange={(e) => updateConfig("slug", e.target.value)} placeholder="Access slug" />
-          </div>
+          <AsyncSelect
+            label="Slug"
+            options={slugOptions}
+            loading={slugsLoading}
+            value={config.slug || ""}
+            onChange={(v) => updateConfig("slug", v)}
+            placeholder="Select slug"
+          />
           <div>
             <label className={labelClass}>Operation</label>
             <select className={selectClass} value={config.operation || "add"} onChange={(e) => updateConfig("operation", e.target.value)}>
@@ -533,9 +555,10 @@ const CONDITION_OPERATORS = [
 
 const CrmConditionEditor: CustomNodeEditor = ({ data, onChange }) => {
   const d = data as Partial<CrmConditionNodeData>;
-  const { options: stageOptions, loading: stagesLoading } = useCrmOptions("stages");
-  const { options: teamOptions, loading: teamLoading } = useCrmOptions("team");
-  const { options: boardOptions } = useCrmOptions("boards");
+  const field = d.field || "stage";
+  const { options: stageOptions, loading: stagesLoading } = useCrmOptions("stages", undefined, field === "stage");
+  const { options: teamOptions, loading: teamLoading } = useCrmOptions("team", undefined, field === "assigned_to");
+  const { options: boardOptions } = useCrmOptions("boards", undefined, field === "board_type");
 
   // Show async picker for certain field+operator combos
   const showPicker = d.operator !== "is_empty" && ["stage", "board_type", "assigned_to"].includes(d.field || "");
