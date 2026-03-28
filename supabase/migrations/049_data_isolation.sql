@@ -5,7 +5,8 @@
 --    full = internal team groups (show everything)
 --    limited = partner groups (stage names but not values)
 --    minimal = external groups (generic messages only)
-ALTER TABLE tg_groups ADD COLUMN IF NOT EXISTS privacy_level TEXT DEFAULT 'full'
+-- Default to 'minimal' (safest) — admins explicitly upgrade trusted groups to 'limited' or 'full'
+ALTER TABLE tg_groups ADD COLUMN IF NOT EXISTS privacy_level TEXT DEFAULT 'minimal'
   CHECK (privacy_level IN ('full', 'limited', 'minimal'));
 
 -- 2. DM flag on AI conversations for visibility scoping

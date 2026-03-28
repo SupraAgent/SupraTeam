@@ -8,7 +8,6 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import {
-  escapeHtml,
   formatDailyDigest,
   type DailyDigestStats,
 } from "../lib/telegram-templates";
@@ -28,12 +27,18 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: false },
 });
 
-async function sendTelegramMessage(chatId: number, text: string) {
-  await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+async function sendTelegramMessage(chatId: number, text: string): Promise<boolean> {
+  const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
   });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    console.error(`[daily-digest] Telegram API ${res.status} for chat ${chatId}: ${body}`);
+    return false;
+  }
+  return true;
 }
 
 interface TgGroup {
@@ -43,7 +48,7 @@ interface TgGroup {
   privacy_level: PrivacyLevel;
 }
 
-async function buildGroupDigest(group: TgGroup): Promise<string | null> {
+async function buildGroupDigest(group: TgGroup, customTemplate?: string): Promise<string | null> {
   const privacy = group.privacy_level ?? "full";
 
   // Fetch deals linked to THIS group only
@@ -118,15 +123,7 @@ async function buildGroupDigest(group: TgGroup): Promise<string | null> {
     topDeals,
   };
 
-  // Load custom template
-  const { data: digestTpl } = await supabase
-    .from("crm_bot_templates")
-    .select("body_template")
-    .eq("template_key", "daily_digest")
-    .eq("is_active", true)
-    .single();
-
-  return formatDailyDigest(stats, digestTpl?.body_template ?? undefined);
+  return formatDailyDigest(stats, customTemplate);
 }
 
 async function main() {
@@ -148,16 +145,25 @@ async function main() {
     process.exit(0);
   }
 
+  // Load custom template once (shared across all groups)
+  const { data: digestTpl } = await supabase
+    .from("crm_bot_templates")
+    .select("body_template")
+    .eq("template_key", "daily_digest")
+    .eq("is_active", true)
+    .single();
+  const customTemplate = digestTpl?.body_template ?? undefined;
+
   let sent = 0;
   for (const group of groups as TgGroup[]) {
     try {
-      const message = await buildGroupDigest(group);
+      const message = await buildGroupDigest(group, customTemplate);
       if (!message) {
         console.log(`[daily-digest] Skipping ${group.group_name} (no content)`);
         continue;
       }
-      await sendTelegramMessage(group.telegram_group_id, message);
-      sent++;
+      const ok = await sendTelegramMessage(group.telegram_group_id, message);
+      if (ok) sent++;
     } catch (err) {
       console.error(`[daily-digest] Failed for ${group.group_name}:`, err);
     }

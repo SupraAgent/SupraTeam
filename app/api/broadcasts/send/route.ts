@@ -116,7 +116,7 @@ export async function POST(request: Request) {
     tg_group_id: g.id,
     group_name: g.group_name,
     telegram_group_id: g.telegram_group_id,
-    status: isScheduled ? "pending" : "pending",
+    status: "pending",
   }));
   await supabase.from("crm_broadcast_recipients").insert(recipientRows);
 

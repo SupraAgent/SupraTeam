@@ -424,11 +424,11 @@ export function registerMessageHandlers(bot: Bot) {
         is_from_bot: false,
       }, { onConflict: "telegram_chat_id,telegram_message_id" });
 
-      // Update contact last_activity_at if contact exists for this TG user
+      // Update contact last_activity_at if contact exists for this TG user (non-blocking)
       supabase.from("crm_contacts")
         .update({ last_activity_at: new Date().toISOString() })
         .eq("telegram_user_id", ctx.from.id)
-        .then(() => {});
+        .then(({ error }) => { if (error) console.error("[bot/messages] last_activity_at update failed:", error); });
 
       // AI agent: respond if bot is mentioned or respond_to_groups is enabled
       const config = await getAgentConfig();

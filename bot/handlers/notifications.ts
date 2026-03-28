@@ -1,6 +1,8 @@
 import type { Bot } from "grammy";
 import { supabase } from "../lib/supabase.js";
 import { formatStageChangeMessage } from "../../lib/telegram-templates.js";
+import { formatStageChangeForGroup } from "../../lib/bot-privacy.js";
+import type { PrivacyLevel } from "../../lib/bot-privacy.js";
 
 const POLL_INTERVAL_MS = 10_000; // 10 seconds
 
@@ -67,15 +69,24 @@ async function processStageChange(
 
   if (!deal || !deal.telegram_chat_id) return;
 
-  // Fetch group privacy level
-  let privacyLevel = "full" as string;
+  // Fetch group privacy level — default to 'minimal' if group not found (safest)
+  let privacyLevel: PrivacyLevel = "minimal";
   if (deal.tg_group_id) {
     const { data: group } = await supabase
       .from("tg_groups")
       .select("privacy_level")
       .eq("id", deal.tg_group_id)
       .single();
-    if (group?.privacy_level) privacyLevel = group.privacy_level;
+    if (group?.privacy_level) privacyLevel = group.privacy_level as PrivacyLevel;
+  }
+  // If no tg_group_id, try looking up by telegram_chat_id
+  if (!deal.tg_group_id && deal.telegram_chat_id) {
+    const { data: group } = await supabase
+      .from("tg_groups")
+      .select("privacy_level")
+      .eq("telegram_group_id", deal.telegram_chat_id)
+      .single();
+    if (group?.privacy_level) privacyLevel = group.privacy_level as PrivacyLevel;
   }
 
   // Fetch stage names
@@ -102,22 +113,11 @@ async function processStageChange(
     if (profile?.display_name) changedByName = profile.display_name;
   }
 
-  // Use privacy-aware formatting
-  let message: string;
-  if (privacyLevel === "minimal") {
-    message = `📊 A deal moved to <b>${toName}</b>`;
-  } else if (privacyLevel === "limited") {
-    message = `📊 <b>${deal.deal_name}</b>\n${fromName} → ${toName}`;
-  } else {
-    message = formatStageChangeMessage(
-      deal.deal_name,
-      fromName,
-      toName,
-      deal.board_type ?? "Unknown",
-      changedByName
-    );
-  }
+  // Use privacy-aware formatting (with proper HTML escaping)
+  const message = privacyLevel === "full"
+    ? formatStageChangeMessage(deal.deal_name, fromName, toName, deal.board_type ?? "Unknown", changedByName)
+    : formatStageChangeForGroup(deal.deal_name, fromName, toName, deal.board_type ?? "Unknown", changedByName, privacyLevel);
 
   await bot.api.sendMessage(deal.telegram_chat_id, message, { parse_mode: "HTML" });
-  console.log(`[bot/notifications] Sent notification for deal (privacy=${privacyLevel}) to chat ${deal.telegram_chat_id}`);
+  console.log(`[bot/notifications] Sent notification (privacy=${privacyLevel}) to chat ${deal.telegram_chat_id}`);
 }

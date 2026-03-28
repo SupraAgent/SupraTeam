@@ -7,6 +7,8 @@
  *   minimal — External groups. Generic messages only, no deal-specific data.
  */
 
+import { escapeHtml } from "./telegram-templates";
+
 export type PrivacyLevel = "full" | "limited" | "minimal";
 
 interface DealInfo {
@@ -63,11 +65,4 @@ export function shouldShowTopDeals(privacy: PrivacyLevel): boolean {
  */
 export function shouldShowValues(privacy: PrivacyLevel): boolean {
   return privacy === "full";
-}
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
 }
