@@ -123,5 +123,18 @@ export async function GET(request: Request) {
     console.error("[poll-notifications] reminder generation error:", err);
   }
 
-  return NextResponse.json({ processed, retried, scheduled, remindersGenerated });
+  // 5. Trigger scheduled Loop Builder workflows
+  let scheduledWorkflows = 0;
+  try {
+    const { triggerLoopWorkflowsByEvent } = await import("@/lib/loop-workflow-engine");
+    await triggerLoopWorkflowsByEvent("scheduled", {
+      triggered_at: new Date().toISOString(),
+      source: "cron",
+    });
+    scheduledWorkflows = 1; // flag that we ran the check
+  } catch (err) {
+    console.error("[poll-notifications] Scheduled workflow error:", err);
+  }
+
+  return NextResponse.json({ processed, retried, scheduled, remindersGenerated, scheduledWorkflows });
 }

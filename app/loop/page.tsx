@@ -95,7 +95,27 @@ async function handleLLMExecute(req: LLMExecuteRequest): Promise<LLMExecuteRespo
   return res.json();
 }
 
-// ── DB Workflow Type ────────────────────────────────────────
+// ── Types ──────────────────────────────────────────────────
+
+interface ReplayRun {
+  id: string;
+  status: string;
+  started_at: string;
+  completed_at: string | null;
+  error: string | null;
+  node_outputs: Record<string, unknown>;
+  trigger_event: Record<string, unknown> | null;
+}
+
+interface WorkflowTemplate {
+  id: string;
+  name: string;
+  description: string | null;
+  category: string;
+  trigger_type: string | null;
+  nodes: unknown[];
+  edges: unknown[];
+}
 
 interface DbWorkflow {
   id: string;
@@ -123,6 +143,8 @@ function WorkflowManagerPanel({
   onNewWorkflow,
   onRunWorkflow,
   onShowTestModal,
+  onOpenReplay,
+  onOpenTemplates,
   isRunning,
   lastRunStatus,
 }: {
@@ -138,6 +160,8 @@ function WorkflowManagerPanel({
   onNewWorkflow: () => void;
   onRunWorkflow: (testMode: boolean, dealId?: string) => void;
   onShowTestModal: () => void;
+  onOpenReplay: () => void;
+  onOpenTemplates: () => void;
   isRunning: boolean;
   lastRunStatus: string | null;
 }) {
@@ -241,7 +265,16 @@ function WorkflowManagerPanel({
         </div>
       )}
 
-      {/* Runs dashboard link */}
+      {/* Runs & replay */}
+      {activeWorkflowId && (
+        <button
+          onClick={() => onOpenReplay()}
+          className="rounded-lg border border-white/10 bg-background/95 backdrop-blur-sm px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-white/5 shadow-lg transition"
+          title="View execution history for this workflow"
+        >
+          History
+        </button>
+      )}
       <Link
         href="/automations/runs"
         className="rounded-lg border border-white/10 bg-background/95 backdrop-blur-sm px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-white/5 shadow-lg transition"
@@ -249,6 +282,15 @@ function WorkflowManagerPanel({
       >
         Runs
       </Link>
+
+      {/* Templates */}
+      <button
+        onClick={() => onOpenTemplates()}
+        className="rounded-lg border border-white/10 bg-background/95 backdrop-blur-sm px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-white/5 shadow-lg transition"
+        title="Load from template library"
+      >
+        Templates
+      </button>
 
       {/* New workflow button */}
       <button
@@ -329,6 +371,11 @@ export default function LoopBuilderPage() {
   const [testDeals, setTestDeals] = React.useState<Array<{ value: string; label: string; meta?: Record<string, unknown> }>>([]);
   const [testDealSearch, setTestDealSearch] = React.useState("");
   const [lastRunError, setLastRunError] = React.useState<string | null>(null);
+  const [showReplayPanel, setShowReplayPanel] = React.useState(false);
+  const [replayRuns, setReplayRuns] = React.useState<ReplayRun[]>([]);
+  const [selectedRunId, setSelectedRunId] = React.useState<string | null>(null);
+  const [showTemplateModal, setShowTemplateModal] = React.useState(false);
+  const [templates, setTemplates] = React.useState<WorkflowTemplate[]>([]);
 
   // Track current canvas state for save
   const nodesRef = React.useRef<Node[]>([]);
@@ -543,6 +590,43 @@ export default function LoopBuilderPage() {
     }, 2000);
   }, [activeWorkflowId, saveToDb]);
 
+  /** Open replay panel and fetch runs */
+  const handleOpenReplay = React.useCallback(async () => {
+    if (!activeWorkflowId) return;
+    setShowReplayPanel(true);
+    try {
+      const res = await fetch(`/api/workflows/${activeWorkflowId}/runs`);
+      if (res.ok) {
+        const data = await res.json();
+        setReplayRuns(data.runs ?? []);
+      }
+    } catch { /* ignore */ }
+  }, [activeWorkflowId]);
+
+  /** Open template modal and fetch templates */
+  const handleOpenTemplates = React.useCallback(async () => {
+    setShowTemplateModal(true);
+    try {
+      const res = await fetch("/api/workflow-templates");
+      if (res.ok) {
+        const data = await res.json();
+        setTemplates(data.templates ?? []);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  /** Load a template into the canvas */
+  const handleLoadTemplate = React.useCallback((tmpl: WorkflowTemplate) => {
+    nodesRef.current = tmpl.nodes as Node[];
+    edgesRef.current = tmpl.edges as Edge[];
+    setActiveWorkflowId(null);
+    setActiveWorkflowName(tmpl.name);
+    setIsActive(false);
+    setLastSaved(null);
+    setShowTemplateModal(false);
+    setBuilderKey((k) => k + 1);
+  }, []);
+
   // Cleanup auto-save timer on unmount
   React.useEffect(() => {
     return () => {
@@ -574,6 +658,8 @@ export default function LoopBuilderPage() {
         onNewWorkflow={handleNewWorkflow}
         onRunWorkflow={handleRunWorkflow}
         onShowTestModal={handleShowTestModal}
+        onOpenReplay={handleOpenReplay}
+        onOpenTemplates={handleOpenTemplates}
         isRunning={isRunning}
         lastRunStatus={lastRunStatus}
       />
@@ -654,6 +740,113 @@ export default function LoopBuilderPage() {
           </div>
         </div>
       )}
+      {/* Execution Replay Panel (slide-out) */}
+      {showReplayPanel && (
+        <>
+          <div className="fixed inset-0 z-40 bg-black/30" onClick={() => setShowReplayPanel(false)} />
+          <div className="fixed right-0 top-0 bottom-0 w-96 z-50 bg-background border-l border-white/10 shadow-2xl overflow-y-auto">
+            <div className="sticky top-0 bg-background border-b border-white/10 px-4 py-3 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-foreground">Execution History</h3>
+              <button onClick={() => setShowReplayPanel(false)} className="text-muted-foreground hover:text-foreground text-xs">&#x2715;</button>
+            </div>
+            {replayRuns.length === 0 && (
+              <div className="px-4 py-8 text-xs text-muted-foreground text-center">No runs yet. Execute the workflow to see results here.</div>
+            )}
+            {replayRuns.map((run) => (
+              <div key={run.id} className="border-b border-white/5">
+                <button
+                  onClick={() => setSelectedRunId(selectedRunId === run.id ? null : run.id)}
+                  className="w-full text-left px-4 py-3 hover:bg-white/5 transition"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+                      run.status === "completed" ? "bg-emerald-500/20 text-emerald-400"
+                      : run.status === "failed" ? "bg-red-500/20 text-red-400"
+                      : run.status === "paused" ? "bg-amber-500/20 text-amber-400"
+                      : "bg-blue-500/20 text-blue-400"
+                    }`}>
+                      {run.status}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">
+                      {new Date(run.started_at).toLocaleString()}
+                    </span>
+                  </div>
+                  {run.error && (
+                    <div className="text-[11px] text-red-400/80 mt-1 truncate">{run.error}</div>
+                  )}
+                </button>
+                {/* Step-by-step replay view */}
+                {selectedRunId === run.id && run.node_outputs && (
+                  <div className="px-4 pb-3 space-y-1.5">
+                    {Object.entries(run.node_outputs)
+                      .filter(([k]) => !k.startsWith("_"))
+                      .map(([nodeId, output]) => {
+                        const o = output as Record<string, unknown>;
+                        const ok = o.success !== false && !o.error;
+                        return (
+                          <div key={nodeId} className={`rounded-md border px-3 py-2 text-[11px] ${
+                            ok ? "border-emerald-500/20 bg-emerald-500/5" : "border-red-500/20 bg-red-500/5"
+                          }`}>
+                            <div className="flex items-center gap-1.5">
+                              <span className={ok ? "text-emerald-400" : "text-red-400"}>{ok ? "✓" : "✗"}</span>
+                              <span className="font-medium text-foreground font-mono">{nodeId.slice(0, 12)}</span>
+                              {o.duration_ms != null && (
+                                <span className="text-muted-foreground ml-auto">{String(o.duration_ms)}ms</span>
+                              )}
+                            </div>
+                            {o.error ? <div className="text-red-400/80 mt-1">{String(o.error)}</div> : null}
+                            {o.output != null && (
+                              <pre className="text-muted-foreground mt-1 text-[10px] max-h-24 overflow-auto whitespace-pre-wrap">
+                                {JSON.stringify(o.output, null, 2)}
+                              </pre>
+                            )}
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* Template Library Modal */}
+      {showTemplateModal && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="rounded-xl border border-white/10 bg-background p-4 shadow-2xl w-[500px] max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-sm font-semibold text-foreground">Workflow Templates</div>
+              <button onClick={() => setShowTemplateModal(false)} className="text-muted-foreground hover:text-foreground text-xs">&#x2715;</button>
+            </div>
+            <p className="text-[11px] text-muted-foreground mb-3">Load a pre-built workflow template. This will replace the current canvas.</p>
+            {templates.length === 0 && (
+              <div className="px-3 py-8 text-xs text-muted-foreground text-center">No templates available</div>
+            )}
+            <div className="space-y-2">
+              {templates.map((tmpl) => (
+                <button
+                  key={tmpl.id}
+                  onClick={() => handleLoadTemplate(tmpl)}
+                  className="w-full text-left rounded-lg border border-white/10 px-3 py-3 hover:bg-white/5 transition"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs font-medium text-foreground">{tmpl.name}</div>
+                    <span className="text-[10px] text-muted-foreground px-1.5 py-0.5 rounded bg-white/5">{tmpl.category}</span>
+                  </div>
+                  {tmpl.description && (
+                    <div className="text-[11px] text-muted-foreground mt-1">{tmpl.description}</div>
+                  )}
+                  {tmpl.trigger_type && (
+                    <div className="text-[10px] text-primary/60 mt-1">Trigger: {tmpl.trigger_type}</div>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       <WorkflowBuilder
         key={builderKey}
         initialNodes={nodesRef.current}
