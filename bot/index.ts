@@ -7,6 +7,7 @@ import { startNotificationPoller } from "./handlers/notifications.js";
 import { startOutreachWorker } from "./outreach-worker.js";
 import { startDripWorker } from "./drip-worker.js";
 import { startSlaPoller } from "./handlers/sla-poller.js";
+import { registerCallbackHandler } from "./handlers/callback-actions.js";
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 if (!token) {
@@ -21,6 +22,7 @@ registerCommands(bot);
 registerGroupHandlers(bot);
 registerMessageHandlers(bot);
 registerDripTriggers(bot);
+registerCallbackHandler(bot);
 
 // Start notification poller (stage changes -> TG messages)
 startNotificationPoller(bot);

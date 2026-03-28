@@ -465,6 +465,43 @@ export function registerMessageHandlers(bot: Bot) {
         .select("id, deal_name, board_type, stage_id, assigned_to, contact_id")
         .eq("telegram_chat_id", chatId);
 
+      // Detect media in message
+      const msg = ctx.message;
+      let detectedMediaType: string | null = null;
+      let detectedMediaFileId: string | null = null;
+      let detectedMediaThumbId: string | null = null;
+      let detectedMediaMime: string | null = null;
+      let detectedMediaSize: number | null = null;
+
+      if (msg.photo && msg.photo.length > 0) {
+        detectedMediaType = "photo";
+        detectedMediaFileId = msg.photo[msg.photo.length - 1].file_id;
+        if (msg.photo.length > 1) detectedMediaThumbId = msg.photo[0].file_id;
+      } else if (msg.document) {
+        detectedMediaType = "document";
+        detectedMediaFileId = msg.document.file_id;
+        detectedMediaThumbId = msg.document.thumbnail?.file_id ?? null;
+        detectedMediaMime = msg.document.mime_type ?? null;
+        detectedMediaSize = msg.document.file_size ?? null;
+      } else if (msg.video) {
+        detectedMediaType = "video";
+        detectedMediaFileId = msg.video.file_id;
+        detectedMediaThumbId = msg.video.thumbnail?.file_id ?? null;
+        detectedMediaMime = msg.video.mime_type ?? null;
+      } else if (msg.voice) {
+        detectedMediaType = "voice";
+        detectedMediaFileId = msg.voice.file_id;
+        detectedMediaMime = msg.voice.mime_type ?? null;
+      } else if (msg.sticker) {
+        detectedMediaType = "sticker";
+        detectedMediaFileId = msg.sticker.file_id;
+        detectedMediaThumbId = msg.sticker.thumbnail?.file_id ?? null;
+      } else if (msg.animation) {
+        detectedMediaType = "animation";
+        detectedMediaFileId = msg.animation.file_id;
+        detectedMediaThumbId = msg.animation.thumbnail?.file_id ?? null;
+      }
+
       // Store full message in tg_group_messages for conversation timeline
       await supabase.from("tg_group_messages").upsert({
         tg_group_id: tgGroup.id,
@@ -473,8 +510,13 @@ export function registerMessageHandlers(bot: Bot) {
         sender_telegram_id: ctx.from.id,
         sender_name: senderName,
         sender_username: senderUsername || null,
-        message_text: messageText,
-        message_type: "text",
+        message_text: messageText || (msg.caption ?? null),
+        message_type: detectedMediaType ? detectedMediaType : "text",
+        media_type: detectedMediaType,
+        media_file_id: detectedMediaFileId,
+        media_thumb_id: detectedMediaThumbId,
+        media_mime: detectedMediaMime,
+        media_size_bytes: detectedMediaSize,
         reply_to_message_id: ctx.message.reply_to_message?.message_id ?? null,
         sent_at: new Date(ctx.message.date * 1000).toISOString(),
         is_from_bot: false,
@@ -809,6 +851,31 @@ export function registerMessageHandlers(bot: Bot) {
         }
       } catch (dripReplyErr) {
         console.error("[bot/messages] drip reply detection error:", dripReplyErr);
+      }
+
+      // Track reply hour for send-time optimization (non-blocking)
+      if (!isTeamMember && !ctx.from.is_bot) {
+        const replyHour = new Date(ctx.message.date * 1000).getUTCHours();
+        (async () => {
+          const { data: existing } = await supabase
+            .from("crm_reply_hour_stats")
+            .select("reply_count")
+            .eq("tg_group_id", tgGroup.id)
+            .eq("hour_utc", replyHour)
+            .maybeSingle();
+
+          if (existing) {
+            await supabase
+              .from("crm_reply_hour_stats")
+              .update({ reply_count: existing.reply_count + 1, last_updated_at: new Date().toISOString() })
+              .eq("tg_group_id", tgGroup.id)
+              .eq("hour_utc", replyHour);
+          } else {
+            await supabase
+              .from("crm_reply_hour_stats")
+              .insert({ tg_group_id: tgGroup.id, hour_utc: replyHour, reply_count: 1 });
+          }
+        })().catch(() => {}); // Best effort
       }
     } catch (err) {
       console.error("[bot/messages] error:", err);

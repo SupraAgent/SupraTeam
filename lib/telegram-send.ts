@@ -165,6 +165,98 @@ export async function sendTelegramWithTracking(params: {
 }
 
 /**
+ * Send a photo or document via Telegram Bot API with tracking.
+ * Uses sendPhoto or sendDocument depending on mediaType.
+ */
+export async function sendTelegramMediaWithTracking(params: {
+  chatId: number;
+  mediaType: "photo" | "document";
+  fileId: string;
+  caption?: string;
+  notificationType: string;
+  dealId?: string;
+  parseMode?: string;
+  replyMarkup?: object;
+}): Promise<SendResult> {
+  if (!BOT_TOKEN) return { success: false, error: "No bot token configured" };
+
+  const supabase = createSupabaseAdmin();
+  const preview = params.caption
+    ? params.caption.length > 200 ? params.caption.slice(0, 200) + "..." : params.caption
+    : `[${params.mediaType}]`;
+
+  try {
+    await acquireRateLimit(params.chatId);
+
+    const method = params.mediaType === "photo" ? "sendPhoto" : "sendDocument";
+    const fileKey = params.mediaType === "photo" ? "photo" : "document";
+
+    const body: Record<string, unknown> = {
+      chat_id: params.chatId,
+      [fileKey]: params.fileId,
+    };
+    if (params.caption) {
+      body.caption = params.caption;
+      body.parse_mode = params.parseMode ?? "HTML";
+    }
+    if (params.replyMarkup) body.reply_markup = params.replyMarkup;
+
+    const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    const data = await res.json();
+
+    if (data.ok) {
+      if (supabase) {
+        await supabase.from("crm_notification_log").insert({
+          notification_type: params.notificationType,
+          deal_id: params.dealId ?? null,
+          tg_chat_id: params.chatId,
+          message_preview: preview,
+          status: "sent",
+          tg_message_id: data.result?.message_id ?? null,
+          sent_at: new Date().toISOString(),
+        });
+      }
+      return { success: true, messageId: data.result?.message_id };
+    } else {
+      const errMsg = data.description ?? "Unknown Telegram error";
+      if (supabase) {
+        await supabase.from("crm_notification_log").insert({
+          notification_type: params.notificationType,
+          deal_id: params.dealId ?? null,
+          tg_chat_id: params.chatId,
+          message_preview: preview,
+          status: "failed",
+          last_error: errMsg,
+          retry_count: 0,
+          next_retry_at: new Date(Date.now() + 60_000).toISOString(),
+        });
+      }
+      return { success: false, error: errMsg };
+    }
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : "Network error";
+    if (supabase) {
+      await supabase.from("crm_notification_log").insert({
+        notification_type: params.notificationType,
+        deal_id: params.dealId ?? null,
+        tg_chat_id: params.chatId,
+        message_preview: preview,
+        status: "failed",
+        last_error: errMsg,
+        retry_count: 0,
+        next_retry_at: new Date(Date.now() + 60_000).toISOString(),
+      });
+    }
+    return { success: false, error: errMsg };
+  }
+}
+
+/**
  * Process failed notifications that need retry.
  * Called from cron jobs.
  */

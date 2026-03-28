@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { formatBroadcastMessage } from "@/lib/telegram-templates";
-import { sendTelegramWithTracking } from "@/lib/telegram-send";
+import { sendTelegramWithTracking, sendTelegramMediaWithTracking } from "@/lib/telegram-send";
 
 export async function POST(request: Request) {
   const auth = await requireAuth();
@@ -18,7 +18,7 @@ export async function POST(request: Request) {
     auth.user.user_metadata?.full_name ??
     undefined;
 
-  const { message, variant_b_message, group_ids, slug, scheduled_at, suppression_hours, exclude_stage_ids } = await request.json();
+  const { message, variant_b_message, group_ids, slug, scheduled_at, suppression_hours, exclude_stage_ids, media_type, media_file_id, media_filename, inline_buttons, variant_b_media_file_id } = await request.json();
 
   if (!message?.trim()) {
     return NextResponse.json({ error: "message is required" }, { status: 400 });
@@ -143,6 +143,11 @@ export async function POST(request: Request) {
       variant_b_message: hasVariantB ? variant_b_message.trim() : null,
       suppression_hours: effectiveSuppression,
       exclude_stage_ids: effectiveExcludeStages.length > 0 ? effectiveExcludeStages : null,
+      media_type: media_type ?? null,
+      media_file_id: media_file_id ?? null,
+      media_filename: media_filename ?? null,
+      inline_buttons: inline_buttons?.length ? inline_buttons : null,
+      variant_b_media_file_id: variant_b_media_file_id ?? null,
     })
     .select()
     .single();
@@ -176,6 +181,11 @@ export async function POST(request: Request) {
     });
   }
 
+  // Build inline keyboard if buttons provided
+  const replyMarkup = inline_buttons?.length
+    ? { inline_keyboard: [inline_buttons.map((b: { text: string; url: string }) => ({ text: b.text, url: b.url }))] }
+    : undefined;
+
   // Send immediately — use variant B message for B recipients
   const results: { group_name: string; success: boolean; error?: string }[] = [];
   const variantMap = new Map(recipientRows.map((r) => [r.tg_group_id, r.variant]));
@@ -183,12 +193,26 @@ export async function POST(request: Request) {
   for (const group of groups) {
     const variant = variantMap.get(group.id);
     const msgToSend = (variant === "B" && formattedVariantB) ? formattedVariantB : formattedMessage;
+    const fileId = (variant === "B" && variant_b_media_file_id) ? variant_b_media_file_id : media_file_id;
 
-    const result = await sendTelegramWithTracking({
-      chatId: group.telegram_group_id,
-      text: msgToSend,
-      notificationType: "broadcast",
-    });
+    let result;
+    if (media_type && fileId) {
+      result = await sendTelegramMediaWithTracking({
+        chatId: group.telegram_group_id,
+        mediaType: media_type,
+        fileId,
+        caption: msgToSend,
+        notificationType: "broadcast",
+        replyMarkup,
+      });
+    } else {
+      result = await sendTelegramWithTracking({
+        chatId: group.telegram_group_id,
+        text: msgToSend,
+        notificationType: "broadcast",
+        replyMarkup,
+      });
+    }
 
     // Update recipient record
     await supabase

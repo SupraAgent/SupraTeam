@@ -7,6 +7,7 @@
  */
 
 import type { Bot } from "grammy";
+import { InlineKeyboard } from "grammy";
 import { supabase } from "../lib/supabase.js";
 
 const TMA_BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3002";
@@ -142,13 +143,18 @@ export async function sendTMAPush(bot: Bot, params: PushParams): Promise<boolean
     // Build TMA deep link URL
     const tmaUrl = `${TMA_BASE_URL}${tmaPath}`;
 
-    // Send DM with inline keyboard button
+    // Build inline keyboard with CRM quick actions
+    const kb = new InlineKeyboard().webApp("Open in CRM", tmaUrl);
+
+    // Add quick action buttons for deal-related notifications
+    if (dealId && (triggerType === "tg_message" || triggerType === "escalation")) {
+      kb.row()
+        .text("\u2705 Mark Follow-up", `crm:followup:${dealId}`)
+        .text("\u23e9 Skip Stage", `crm:skip_stage:${dealId}`);
+    }
+
     await bot.api.sendMessage(recipient.telegramId, messageText, {
-      reply_markup: {
-        inline_keyboard: [[
-          { text: "Open in CRM", web_app: { url: tmaUrl } },
-        ]],
-      },
+      reply_markup: kb,
     });
 
     // Log the push
