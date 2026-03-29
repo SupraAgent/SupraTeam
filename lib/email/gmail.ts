@@ -96,26 +96,26 @@ export class GmailDriver implements MailDriver {
   }
 
   async listThreads(params: ListThreadsParams): Promise<ThreadList> {
-    const res = await this.gmail.users.threads.list({
+    const res = await withBackoff(() => this.gmail.users.threads.list({
       userId: "me",
       labelIds: params.labelIds,
       q: params.query,
       maxResults: params.maxResults ?? 25,
       pageToken: params.pageToken,
-    });
+    }));
 
     // Fetch threads in batches of 10 to avoid hitting Gmail rate limits
     // HTTP/2 multiplexes these over a single TCP connection on Railway
     const rawThreads = (res.data.threads ?? []).filter((t) => t.id);
     const BATCH_SIZE = 10;
     const fetchThread = (id: string) =>
-      this.gmail.users.threads.get({
+      withBackoff(() => this.gmail.users.threads.get({
         userId: "me",
         id,
         format: "METADATA",
         metadataHeaders: ["Subject", "From", "To", "Date"],
         fields: "id,snippet,messages(id,labelIds,internalDate,payload/headers)",
-      });
+      }));
     const threadData: Awaited<ReturnType<typeof fetchThread>>[] = [];
     for (let i = 0; i < rawThreads.length; i += BATCH_SIZE) {
       const batch = await Promise.all(
@@ -135,11 +135,11 @@ export class GmailDriver implements MailDriver {
   }
 
   async getThread(threadId: string): Promise<Thread> {
-    const res = await this.gmail.users.threads.get({
+    const res = await withBackoff(() => this.gmail.users.threads.get({
       userId: "me",
       id: threadId,
       format: "FULL",
-    });
+    }));
     return this.parseThread(res.data);
   }
 
@@ -222,16 +222,16 @@ export class GmailDriver implements MailDriver {
 
   async send(params: SendParams): Promise<Message> {
     const raw = this.buildRawEmail(params);
-    const res = await this.gmail.users.messages.send({
+    const res = await withBackoff(() => this.gmail.users.messages.send({
       userId: "me",
       requestBody: { raw },
-    });
+    }));
     if (!res.data.id) throw new Error("Gmail did not return a message ID after send");
-    const msg = await this.gmail.users.messages.get({
+    const msg = await withBackoff(() => this.gmail.users.messages.get({
       userId: "me",
-      id: res.data.id,
+      id: res.data.id!,
       format: "FULL",
-    });
+    }));
     return this.parseMessage(msg.data);
   }
 
