@@ -168,11 +168,12 @@ export function ComposeModal({
         attachments.map(async (file) => {
           const buffer = await file.arrayBuffer();
           const bytes = new Uint8Array(buffer);
-          let binary = "";
-          for (let i = 0; i < bytes.length; i++) {
-            binary += String.fromCharCode(bytes[i]);
+          const chunkSize = 8192;
+          const chunks: string[] = [];
+          for (let i = 0; i < bytes.length; i += chunkSize) {
+            chunks.push(String.fromCharCode(...bytes.subarray(i, i + chunkSize)));
           }
-          const base64 = btoa(binary);
+          const base64 = btoa(chunks.join(""));
           return { filename: file.name, mimeType: file.type || "application/octet-stream", data: base64 };
         })
       );

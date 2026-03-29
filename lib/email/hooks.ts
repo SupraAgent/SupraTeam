@@ -12,6 +12,19 @@ const listCache = new Map<string, { data: ThreadListItem[]; ts: number; nextPage
 const CACHE_TTL = 30_000; // 30s stale-while-revalidate window
 const POLL_INTERVAL = 120_000; // 120s fallback polling (push handles real-time)
 const PREFETCH_BATCH = 3; // prefetch first N threads on list load
+const THREAD_CACHE_MAX = 500;
+const LIST_CACHE_MAX = 50;
+const AI_CATEGORY_CACHE_MAX = 1000;
+
+function evictIfNeeded<V>(map: Map<string, V>, maxSize: number) {
+  if (map.size <= maxSize) return;
+  const toDelete = map.size - maxSize;
+  let i = 0;
+  for (const key of map.keys()) {
+    if (i++ >= toDelete) break;
+    map.delete(key);
+  }
+}
 
 function getCachedThread(id: string): Thread | null {
   const entry = threadCache.get(id);
@@ -21,6 +34,7 @@ function getCachedThread(id: string): Thread | null {
 
 function setCachedThread(id: string, data: Thread) {
   threadCache.set(id, { data, ts: Date.now() });
+  evictIfNeeded(threadCache, THREAD_CACHE_MAX);
 }
 
 function isCacheStale(key: string, cache: Map<string, { ts: number }>): boolean {
@@ -125,11 +139,13 @@ export function useThreads(options?: {
         setThreads((prev) => {
           const merged = [...prev, ...data.threads];
           listCache.set(cacheKey, { data: merged, ts: Date.now(), nextPageToken: data.nextPageToken });
+          evictIfNeeded(listCache, LIST_CACHE_MAX);
           return merged;
         });
       } else {
         setThreads(data.threads);
         listCache.set(cacheKey, { data: data.threads, ts: Date.now(), nextPageToken: data.nextPageToken });
+          evictIfNeeded(listCache, LIST_CACHE_MAX);
       }
       setNextPageToken(data.nextPageToken);
 
@@ -146,6 +162,7 @@ export function useThreads(options?: {
           });
         }
       }
+      evictIfNeeded(threadCache, THREAD_CACHE_MAX);
     } catch {
       setError("Network error");
     } finally {
@@ -392,13 +409,20 @@ export function useAICategories(threads: ThreadListItem[]) {
   const [categories, setCategories] = React.useState<Map<string, InboxCategory>>(new Map());
   const fetchedRef = React.useRef(new Set<string>());
 
+  // Keep a ref to the latest threads so the effect body reads fresh data
+  // while the dependency is a stable string of IDs.
+  const threadsRef = React.useRef(threads);
+  threadsRef.current = threads;
+  const threadIdsKey = threads.map(t => t.id).join(",");
+
   React.useEffect(() => {
+    const currentThreads = threadsRef.current;
     // Find threads not yet categorized by AI
-    const uncategorized = threads.filter(t => !aiCategoryCache.has(t.id) && !fetchedRef.current.has(t.id));
+    const uncategorized = currentThreads.filter(t => !aiCategoryCache.has(t.id) && !fetchedRef.current.has(t.id));
     if (uncategorized.length === 0) {
       // Return cached results
       const cached = new Map<string, InboxCategory>();
-      for (const t of threads) {
+      for (const t of currentThreads) {
         const cat = aiCategoryCache.get(t.id);
         if (cat) cached.set(t.id, cat);
       }
@@ -436,6 +460,7 @@ export function useAICategories(threads: ThreadListItem[]) {
             aiCategoryCache.set(id, cat as InboxCategory);
             updated.set(id, cat as InboxCategory);
           }
+          evictIfNeeded(aiCategoryCache, AI_CATEGORY_CACHE_MAX);
           return updated;
         });
       })
@@ -443,7 +468,7 @@ export function useAICategories(threads: ThreadListItem[]) {
         // Un-mark on network error so threads can be retried
         for (const t of batch) fetchedRef.current.delete(t.id);
       });
-  }, [threads]);
+  }, [threadIdsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return categories;
 }
@@ -524,13 +549,17 @@ export function useEmailActions(
 ) {
   // Undo support — use ref to avoid dependency loop in performAction
   const [undoAction, setUndoAction] = React.useState<{
-    threadId: string;
+    threadId: string | string[];
     action: string;
     undo: () => void;
     timer: ReturnType<typeof setTimeout>;
   } | null>(null);
   const undoActionRef = React.useRef(undoAction);
   undoActionRef.current = undoAction;
+
+  // Refs for values captured inside setThreads updaters (concurrent-mode safe)
+  const removedThreadRef = React.useRef<ThreadListItem | undefined>(undefined);
+  const currentlyStarredRef = React.useRef(false);
 
   // Flush pending undo action on unmount — ensures the API call fires
   // even if the user navigates away within the 5-second undo window.
@@ -539,11 +568,14 @@ export function useEmailActions(
       const pending = undoActionRef.current;
       if (pending) {
         clearTimeout(pending.timer);
-        fetch(`/api/email/threads/${pending.threadId}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: pending.action }),
-        }).catch(() => {});
+        const ids = Array.isArray(pending.threadId) ? pending.threadId : [pending.threadId];
+        for (const id of ids) {
+          fetch(`/api/email/threads/${id}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: pending.action }),
+          }).catch(() => {});
+        }
       }
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -553,14 +585,14 @@ export function useEmailActions(
       let extra = extraIn;
       // Optimistic update
       if (action === "archive" || action === "trash") {
-        let removedThread: ThreadListItem | undefined;
+        removedThreadRef.current = undefined;
         setThreads((prev) => {
-          removedThread = prev.find((t) => t.id === threadId);
+          removedThreadRef.current = prev.find((t) => t.id === threadId);
           return prev.filter((t) => t.id !== threadId);
         });
 
         // Undo support — 5 second window
-        if (removedThread) {
+        if (removedThreadRef.current) {
           // Execute the PREVIOUS pending undo action immediately before replacing it,
           // so rapid archive on thread A then B doesn't silently drop A's API call.
           if (undoActionRef.current) {
@@ -583,7 +615,7 @@ export function useEmailActions(
             setUndoAction(null);
           }, 5000);
 
-          const captured = removedThread;
+          const captured = removedThreadRef.current;
           setUndoAction({
             threadId,
             action,
@@ -600,17 +632,17 @@ export function useEmailActions(
 
       if (action === "star") {
         // Track current state before optimistic toggle so server can skip the extra GET
-        let currentlyStarred = false;
+        currentlyStarredRef.current = false;
         setThreads((prev) =>
           prev.map((t) => {
             if (t.id === threadId) {
-              currentlyStarred = t.isStarred;
+              currentlyStarredRef.current = t.isStarred;
               return { ...t, isStarred: !t.isStarred };
             }
             return t;
           })
         );
-        extra = { ...extra, currentlyStarred };
+        extra = { ...extra, currentlyStarred: currentlyStarredRef.current };
       }
 
       if (action === "read") {
@@ -667,7 +699,67 @@ export function useEmailActions(
     [setThreads]
   );
 
-  return { performAction, undoAction };
+  const performBulkAction = React.useCallback(
+    (threadIds: string[], action: string) => {
+      if (threadIds.length === 0) return;
+
+      if (action === "archive" || action === "trash") {
+        const idSet = new Set(threadIds);
+        let removedThreads: ThreadListItem[] = [];
+        setThreads((prev) => {
+          removedThreads = prev.filter((t) => idSet.has(t.id));
+          return prev.filter((t) => !idSet.has(t.id));
+        });
+
+        // Commit the PREVIOUS pending undo action before replacing
+        if (undoActionRef.current) {
+          clearTimeout(undoActionRef.current.timer);
+          const prev = undoActionRef.current;
+          const prevIds = Array.isArray(prev.threadId) ? prev.threadId : [prev.threadId];
+          for (const id of prevIds) {
+            fetch(`/api/email/threads/${id}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ action: prev.action }),
+            }).catch(() => {});
+          }
+        }
+
+        // Single undo timer for the entire batch
+        const timer = setTimeout(() => {
+          for (const id of threadIds) {
+            fetch(`/api/email/threads/${id}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ action }),
+            });
+          }
+          setUndoAction(null);
+        }, 5000);
+
+        const captured = removedThreads;
+        setUndoAction({
+          threadId: threadIds,
+          action,
+          timer,
+          undo: () => {
+            clearTimeout(timer);
+            setThreads((prev) => [...captured, ...prev]);
+            setUndoAction(null);
+          },
+        });
+        return;
+      }
+
+      // Non-undoable bulk actions (star, read, etc.) — delegate individually
+      for (const id of threadIds) {
+        performAction(id, action);
+      }
+    },
+    [setThreads, performAction]
+  );
+
+  return { performAction, performBulkAction, undoAction };
 }
 
 // ── Keyboard shortcuts ──────────────────────────────────────

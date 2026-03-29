@@ -18,6 +18,16 @@ import type {
   AttachmentMeta,
 } from "./types";
 
+/** Escape HTML special characters to prevent XSS in interpolated values */
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 /** Retry Gmail API calls on 429/5xx with exponential backoff (Google requirement) */
 async function withBackoff<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -182,13 +192,13 @@ export class GmailDriver implements MailDriver {
     if (currentlyStarred !== undefined) {
       // Fast path: client tells us current state
       // Use messages.list (lightweight) instead of threads.get to get the first message ID
-      const msgList = await this.gmail.users.messages.list({
+      const threadData = await this.gmail.users.threads.get({
         userId: "me",
-        q: `in:thread:${threadId}`,
-        maxResults: 1,
+        id: threadId,
+        format: "minimal",
         fields: "messages(id)",
       });
-      const firstMsgId = msgList.data.messages?.[0]?.id;
+      const firstMsgId = threadData.data.messages?.[0]?.id;
       if (!firstMsgId) return;
 
       await this.gmail.users.messages.modify({
@@ -322,7 +332,7 @@ export class GmailDriver implements MailDriver {
 
     const forwardBody = params.body
       ? `${params.body}<br><br>---------- Forwarded message ----------<br>${sanitizedOriginal}`
-      : `---------- Forwarded message ----------<br>From: ${parsed.from.email}<br>Date: ${parsed.date}<br>Subject: ${parsed.subject}<br><br>${sanitizedOriginal}`;
+      : `---------- Forwarded message ----------<br>From: ${escapeHtml(parsed.from.email)}<br>Date: ${escapeHtml(parsed.date)}<br>Subject: ${escapeHtml(parsed.subject)}<br><br>${sanitizedOriginal}`;
 
     // Carry over original attachments in parallel (convert Buffer → base64 string for send)
     const originalAttachments: { filename: string; mimeType: string; data: string }[] = [];
@@ -605,8 +615,8 @@ export class GmailDriver implements MailDriver {
     let inAngle = false;
     for (const ch of raw) {
       if (ch === '"') inQuotes = !inQuotes;
-      else if (ch === "<" && !inQuotes) inAngle = true;
-      else if (ch === ">" && !inQuotes) inAngle = false;
+      else if (ch === "<" && !inQuotes) { inAngle = true; current += ch; continue; }
+      else if (ch === ">" && !inQuotes) { inAngle = false; current += ch; continue; }
       else if (ch === "," && !inQuotes && !inAngle) {
         if (current.trim()) addresses.push(current.trim());
         current = "";
@@ -712,14 +722,14 @@ export class GmailDriver implements MailDriver {
         "",
         `--${boundary}`,
         "Content-Type: text/plain; charset=UTF-8",
-        "Content-Transfer-Encoding: quoted-printable",
+        "Content-Transfer-Encoding: base64",
         "",
-        textPart,
+        Buffer.from(textPart, "utf-8").toString("base64"),
         `--${boundary}`,
         "Content-Type: text/html; charset=UTF-8",
-        "Content-Transfer-Encoding: quoted-printable",
+        "Content-Transfer-Encoding: base64",
         "",
-        params.body,
+        Buffer.from(params.body, "utf-8").toString("base64"),
         `--${boundary}--`,
       ];
 
@@ -749,14 +759,14 @@ export class GmailDriver implements MailDriver {
         "",
         `--${boundary}`,
         "Content-Type: text/plain; charset=UTF-8",
-        "Content-Transfer-Encoding: quoted-printable",
+        "Content-Transfer-Encoding: base64",
         "",
-        textPart,
+        Buffer.from(textPart, "utf-8").toString("base64"),
         `--${boundary}`,
         "Content-Type: text/html; charset=UTF-8",
-        "Content-Transfer-Encoding: quoted-printable",
+        "Content-Transfer-Encoding: base64",
         "",
-        params.body,
+        Buffer.from(params.body, "utf-8").toString("base64"),
         `--${boundary}--`,
       ].join("\r\n");
 

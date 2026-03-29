@@ -47,8 +47,9 @@ function openDB(): Promise<IDBDatabase> {
 
 /** Cache thread list items for offline access */
 export async function cacheThreads(threads: ThreadCacheItem[]): Promise<void> {
+  let db: IDBDatabase | undefined;
   try {
-    const db = await openDB();
+    db = await openDB();
     const tx = db.transaction(STORE_THREADS, "readwrite");
     const store = tx.objectStore(STORE_THREADS);
 
@@ -62,20 +63,25 @@ export async function cacheThreads(threads: ThreadCacheItem[]): Promise<void> {
     });
 
     // Evict old entries beyond limit
+    db.close();
+    db = undefined;
     await evictOldThreads();
   } catch {
     // Silently fail — IDB is best-effort
+  } finally {
+    db?.close();
   }
 }
 
 /** Get cached thread list (for offline or instant first paint) */
 export async function getCachedThreads(labelId?: string): Promise<ThreadCacheItem[]> {
+  let db: IDBDatabase | undefined;
   try {
-    const db = await openDB();
+    db = await openDB();
     const tx = db.transaction(STORE_THREADS, "readonly");
     const store = tx.objectStore(STORE_THREADS);
 
-    return new Promise((resolve) => {
+    return await new Promise((resolve) => {
       const request = store.getAll();
       request.onsuccess = () => {
         let threads = request.result as ThreadCacheItem[];
@@ -90,13 +96,16 @@ export async function getCachedThreads(labelId?: string): Promise<ThreadCacheIte
     });
   } catch {
     return [];
+  } finally {
+    db?.close();
   }
 }
 
 /** Cache full thread (messages) for offline reading */
 export async function cacheFullThread(threadId: string, messages: MessageCacheItem[]): Promise<void> {
+  let db: IDBDatabase | undefined;
   try {
-    const db = await openDB();
+    db = await openDB();
     const tx = db.transaction(STORE_MESSAGES, "readwrite");
     const store = tx.objectStore(STORE_MESSAGES);
 
@@ -110,18 +119,21 @@ export async function cacheFullThread(threadId: string, messages: MessageCacheIt
     });
   } catch {
     // Silently fail
+  } finally {
+    db?.close();
   }
 }
 
 /** Get cached messages for a thread */
 export async function getCachedMessages(threadId: string): Promise<MessageCacheItem[]> {
+  let db: IDBDatabase | undefined;
   try {
-    const db = await openDB();
+    db = await openDB();
     const tx = db.transaction(STORE_MESSAGES, "readonly");
     const store = tx.objectStore(STORE_MESSAGES);
     const index = store.index("threadId");
 
-    return new Promise((resolve) => {
+    return await new Promise((resolve) => {
       const request = index.getAll(threadId);
       request.onsuccess = () => {
         const messages = request.result as MessageCacheItem[];
@@ -132,13 +144,16 @@ export async function getCachedMessages(threadId: string): Promise<MessageCacheI
     });
   } catch {
     return [];
+  } finally {
+    db?.close();
   }
 }
 
 /** Evict oldest cached threads beyond the limit */
 async function evictOldThreads(): Promise<void> {
+  let db: IDBDatabase | undefined;
   try {
-    const db = await openDB();
+    db = await openDB();
     const tx = db.transaction(STORE_THREADS, "readwrite");
     const store = tx.objectStore(STORE_THREADS);
     const index = store.index("lastMessageAt");
@@ -171,13 +186,16 @@ async function evictOldThreads(): Promise<void> {
     });
   } catch {
     // Silently fail
+  } finally {
+    db?.close();
   }
 }
 
 /** Clear all cached email data */
 export async function clearEmailCache(): Promise<void> {
+  let db: IDBDatabase | undefined;
   try {
-    const db = await openDB();
+    db = await openDB();
     const tx = db.transaction([STORE_THREADS, STORE_MESSAGES], "readwrite");
     tx.objectStore(STORE_THREADS).clear();
     tx.objectStore(STORE_MESSAGES).clear();
@@ -187,6 +205,8 @@ export async function clearEmailCache(): Promise<void> {
     });
   } catch {
     // Silently fail
+  } finally {
+    db?.close();
   }
 }
 

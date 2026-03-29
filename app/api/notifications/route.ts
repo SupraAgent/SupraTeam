@@ -4,7 +4,7 @@ import { requireAuth } from "@/lib/auth-guard";
 export async function GET(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { user, supabase } = auth;
 
   const { searchParams } = new URL(request.url);
   const limit = Math.min(Number(searchParams.get("limit") ?? 50), 100);
@@ -18,6 +18,7 @@ export async function GET(request: Request) {
       contact:crm_contacts(id, name, telegram_username),
       tg_group:tg_groups(id, group_name, group_url)
     `)
+    .eq("user_id", user.id)
     .order("created_at", { ascending: false })
     .limit(limit);
 
@@ -32,10 +33,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Failed to fetch notifications" }, { status: 500 });
   }
 
-  // Get unread count
+  // Get unread count (scoped to this user)
   const { count } = await supabase
     .from("crm_notifications")
     .select("*", { count: "exact", head: true })
+    .eq("user_id", user.id)
     .eq("is_read", false);
 
   return NextResponse.json({
@@ -48,7 +50,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { user, supabase } = auth;
 
   const body = await request.json();
   const { type, deal_id, contact_id, tg_group_id, title, body: notifBody, tg_deep_link, tg_sender_name, pipeline_link } = body;
@@ -60,6 +62,7 @@ export async function POST(request: Request) {
   const { data: notification, error } = await supabase
     .from("crm_notifications")
     .insert({
+      user_id: user.id,
       type,
       deal_id: deal_id || null,
       contact_id: contact_id || null,
@@ -85,15 +88,16 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { user, supabase } = auth;
 
   const { ids, mark_all, action, until } = await request.json();
 
-  // Legacy: mark as read
+  // Legacy: mark all as read (scoped to this user)
   if (mark_all) {
     await supabase
       .from("crm_notifications")
       .update({ is_read: true })
+      .eq("user_id", user.id)
       .eq("is_read", false);
     return NextResponse.json({ ok: true });
   }
@@ -102,28 +106,32 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ ok: true });
   }
 
-  // New action-based states
+  // New action-based states (all scoped to this user's notifications)
   if (action === "snooze" && until) {
     await supabase
       .from("crm_notifications")
       .update({ status: "snoozed", snoozed_until: until })
+      .eq("user_id", user.id)
       .in("id", ids);
   } else if (action === "dismiss") {
     await supabase
       .from("crm_notifications")
       .update({ status: "dismissed", is_read: true })
+      .eq("user_id", user.id)
       .in("id", ids);
   } else if (action === "handled") {
     // Mark as handled + clear corresponding highlights
     await supabase
       .from("crm_notifications")
       .update({ status: "handled", is_read: true })
+      .eq("user_id", user.id)
       .in("id", ids);
 
-    // Get deal_ids from these notifications to clear highlights
+    // Get deal_ids from this user's notifications to clear highlights
     const { data: notifs } = await supabase
       .from("crm_notifications")
       .select("deal_id")
+      .eq("user_id", user.id)
       .in("id", ids);
     const dealIds = [...new Set((notifs ?? []).map((n) => n.deal_id).filter(Boolean))];
     if (dealIds.length > 0) {
@@ -138,6 +146,7 @@ export async function PATCH(request: Request) {
     await supabase
       .from("crm_notifications")
       .update({ is_read: true })
+      .eq("user_id", user.id)
       .in("id", ids);
   }
 

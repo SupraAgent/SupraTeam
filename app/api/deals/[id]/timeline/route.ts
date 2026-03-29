@@ -121,12 +121,12 @@ async function buildContactMap(
 
   const { data: contacts } = await admin
     .from("crm_contacts")
-    .select("id, name, telegram_id")
-    .in("telegram_id", senderTgIds);
+    .select("id, name, telegram_user_id")
+    .in("telegram_user_id", senderTgIds);
 
   if (contacts) {
-    for (const c of contacts as Array<{ id: string; name: string; telegram_id: number | null }>) {
-      if (c.telegram_id) contactMap[c.telegram_id] = { id: c.id, name: c.name };
+    for (const c of contacts as Array<{ id: string; name: string; telegram_user_id: number | null }>) {
+      if (c.telegram_user_id) contactMap[c.telegram_user_id] = { id: c.id, name: c.name };
     }
   }
 

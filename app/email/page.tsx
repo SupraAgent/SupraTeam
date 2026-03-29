@@ -75,7 +75,7 @@ function EmailPageInner() {
   });
   const { thread: activeThread, loading: threadLoading } = useThread(selectedThreadId);
   const { labels, loading: labelsLoading } = useLabels();
-  const { performAction, undoAction } = useEmailActions(setThreads);
+  const { performAction, performBulkAction, undoAction } = useEmailActions(setThreads);
   const undoActionRef = React.useRef(undoAction);
   undoActionRef.current = undoAction;
   const aiCategories = useAICategories(threads);
@@ -158,15 +158,21 @@ function EmailPageInner() {
 
   // Bulk actions on multi-selected threads
   function handleBulkArchive() {
-    for (const id of selectedIds) performAction(id, "archive");
-    toast(`Archived ${selectedIds.size} threads`);
+    const ids = Array.from(selectedIds);
+    performBulkAction(ids, "archive");
+    toast(`Archived ${ids.length} threads`, {
+      action: { label: "Undo", onClick: () => undoActionRef.current?.undo() },
+    });
     setSelectedIds(new Set());
     setSelectedThreadId(null);
   }
 
   function handleBulkTrash() {
-    for (const id of selectedIds) performAction(id, "trash");
-    toast(`Trashed ${selectedIds.size} threads`);
+    const ids = Array.from(selectedIds);
+    performBulkAction(ids, "trash");
+    toast(`Trashed ${ids.length} threads`, {
+      action: { label: "Undo", onClick: () => undoActionRef.current?.undo() },
+    });
     setSelectedIds(new Set());
     setSelectedThreadId(null);
   }
