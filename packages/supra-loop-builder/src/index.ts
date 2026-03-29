@@ -1,6 +1,10 @@
 // ── Main component ──────────────────────────────────────────────
 export { WorkflowBuilder } from "./components/workflow-builder";
 
+// ── Configuration ───────────────────────────────────────────────
+export { configureBuilder, getBuilderConfig, resetBuilderConfig } from "./lib/builder-config";
+export type { BuilderConfig } from "./lib/builder-config";
+
 // ── Types ───────────────────────────────────────────────────────
 export type {
   WorkflowBuilderProps,
@@ -66,6 +70,9 @@ export { ExpressionEditor } from "./components/expression-editor";
 export { VersionPanel } from "./components/version-panel";
 export type { VersionPanelProps } from "./components/version-panel";
 
+// ── Inspector primitives (for building custom node editors) ─────
+export { Field, inputClass, selectClass, textareaClass } from "./components/node-inspector";
+export { Combobox, type ComboboxOption } from "./components/combobox";
 
 // ── Node components (for custom composition) ────────────────────
 export { PersonaNode } from "./components/nodes/persona-node";
@@ -129,7 +136,13 @@ export {
   getExecutionOrder,
 } from "./lib/workflow-engine";
 export {
+  /** @deprecated Use getBuiltInTemplates() which includes dynamically registered extras */
   BUILT_IN_TEMPLATES,
+  GENERIC_BUILT_IN_TEMPLATES,
+  DOMAIN_BUILT_IN_TEMPLATES,
+  DOMAIN_TEMPLATE_IDS,
+  getBuiltInTemplates,
+  setBuiltInTemplates,
   getCustomTemplates,
   saveCustomTemplate,
   deleteCustomTemplate,
@@ -241,3 +254,13 @@ export type {
 // ── Bridge (Loop ↔ Builder) ─────────────────────────────────────
 export { generateGapWorkflow } from "./lib/gap-to-workflow";
 export type { GapInput, CpoInput, GapWorkflowOptions } from "./lib/gap-to-workflow";
+
+// ── Domain-specific (opt-in, SupraLoop-specific) ─────────────────
+// These exports are for SupraLoop's competitive benchmarking domain.
+// Forkers should import from the domain barrel or delete entirely.
+// Re-exported here for backward compatibility.
+export {
+  domainNodeTypes,
+  DOMAIN_PALETTE_ITEMS,
+  domainInspectorEditors,
+} from "./components/nodes/domain";

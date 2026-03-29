@@ -19,6 +19,7 @@ const NAV_ITEMS = [
   { href: "/outreach", label: "Outreach" },
   { href: "/drip", label: "Drip Sequences" },
   { href: "/automations", label: "Automations" },
+  { href: "/automations2", label: "Automations 2" },
   { href: "/access", label: "Access Control" },
   { href: "/graph", label: "Graph" },
   { href: "/docs", label: "Docs" },

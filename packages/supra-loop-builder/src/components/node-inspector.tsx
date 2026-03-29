@@ -43,7 +43,7 @@ type NodeInspectorProps = {
 
 // ── Shared field components ────────────────────────────────────
 
-function Field({
+export function Field({
   label,
   children,
 }: {
@@ -63,13 +63,13 @@ function Field({
   );
 }
 
-const inputClass =
+export const inputClass =
   "w-full rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30";
 
-const selectClass =
+export const selectClass =
   "w-full rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30";
 
-const textareaClass =
+export const textareaClass =
   "w-full rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 resize-none";
 
 // ── Combobox option constants ──────────────────────────────────
