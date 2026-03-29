@@ -4,6 +4,7 @@ import { getDriverForUser } from "@/lib/email/driver";
 import type { SendParams, ReplyParams, ForwardParams } from "@/lib/email/types";
 import { logEmailAction } from "@/lib/email/audit";
 import { rateLimit } from "@/lib/rate-limit";
+import { sanitizeEmailError } from "@/lib/email/errors";
 
 /** POST: Send, reply, or forward an email */
 export async function POST(request: Request) {
@@ -129,7 +130,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ data: result, source: "gmail" });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Failed to send";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const { message, status, reconnect } = sanitizeEmailError(err, "Failed to send");
+    return NextResponse.json({ error: message, reconnect }, { status });
   }
 }

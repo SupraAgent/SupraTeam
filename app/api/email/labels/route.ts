@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { getDriverForUser } from "@/lib/email/driver";
 import { serverCache, TTL } from "@/lib/email/server-cache";
+import { sanitizeEmailError } from "@/lib/email/errors";
 
 /** GET: List email labels/folders */
 export async function GET() {
@@ -27,7 +28,7 @@ export async function GET() {
       headers: { "Cache-Control": "private, max-age=120, stale-while-revalidate=300" },
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Failed to fetch labels";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const { message, status, reconnect } = sanitizeEmailError(err, "Failed to fetch labels");
+    return NextResponse.json({ error: message, reconnect }, { status });
   }
 }
