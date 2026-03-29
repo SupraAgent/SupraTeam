@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 export const metadata = {
-  title: "Terms of Service — SupraCRM",
+  title: "Terms of Service — SupraTeam",
 };
 
 export default function TermsPage() {
@@ -15,7 +15,7 @@ export default function TermsPage() {
           href="/"
           className="text-sm text-primary hover:underline mb-8 inline-block"
         >
-          &larr; Back to SupraCRM
+          &larr; Back to SupraTeam
         </Link>
 
         <h1 className="text-3xl font-bold mb-2">Terms of Service</h1>
@@ -26,7 +26,7 @@ export default function TermsPage() {
         <div className="space-y-8 text-sm leading-relaxed text-muted-foreground">
           <Section title="1. Acceptance">
             <p>
-              By accessing or using SupraCRM (&quot;the Service&quot;), you
+              By accessing or using SupraTeam (&quot;the Service&quot;), you
               agree to be bound by these Terms of Service. If you do not agree,
               do not use the Service.
             </p>
@@ -34,7 +34,7 @@ export default function TermsPage() {
 
           <Section title="2. Description of Service">
             <p>
-              SupraCRM is an internal customer relationship management tool
+              SupraTeam is an internal customer relationship management tool
               operated by Supra for its business development, marketing, and
               administration teams. The Service integrates with Telegram, Gmail,
               and AI services to provide deal pipeline management, communication

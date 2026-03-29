@@ -47,7 +47,7 @@ export function registerGroupHandlers(bot: Bot) {
         console.log(`[bot/groups] Migrated invite link: ${inviteLink}`);
       } catch {
         try {
-          const result = await ctx.api.createChatInviteLink(newChatId, { name: "SupraCRM" });
+          const result = await ctx.api.createChatInviteLink(newChatId, { name: "SupraTeam" });
           await supabase
             .from("tg_groups")
             .update({ invite_link: result.invite_link, updated_at: new Date().toISOString() })
@@ -139,7 +139,7 @@ export function registerGroupHandlers(bot: Bot) {
           } catch (linkErr) {
             // Try createChatInviteLink as fallback
             try {
-              const result = await ctx.api.createChatInviteLink(chatId, { name: "SupraCRM" });
+              const result = await ctx.api.createChatInviteLink(chatId, { name: "SupraTeam" });
               await supabase
                 .from("tg_groups")
                 .update({ invite_link: result.invite_link, updated_at: new Date().toISOString() })
@@ -160,7 +160,7 @@ export function registerGroupHandlers(bot: Bot) {
               .single();
 
             const welcomeMsg = tpl?.body_template ??
-              "SupraCRM Bot is now active in this group.";
+              "SupraTeam Bot is now active in this group.";
             await ctx.reply(welcomeMsg);
           } catch {
             // Non-critical — don't block group registration

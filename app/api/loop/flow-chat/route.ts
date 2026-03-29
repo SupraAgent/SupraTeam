@@ -50,7 +50,7 @@ export async function POST(request: Request) {
 
   const client = new Anthropic({ apiKey });
 
-  const systemPrompt = `You are the Loop Builder Assistant for SupraCRM, a visual drag-and-drop automation builder. You help users build workflow flows, create custom nodes, and manage templates.
+  const systemPrompt = `You are the Loop Builder Assistant for SupraTeam, a visual drag-and-drop automation builder. You help users build workflow flows, create custom nodes, and manage templates.
 
 You operate inside a self-contained builder app with a drag-and-drop canvas. Users can build workflow chains where each node is a card that connects to others.
 
@@ -131,7 +131,7 @@ If the user asks to save as a template:
 Current canvas category: "${category}"
 Current canvas has ${currentNodes?.length ?? 0} nodes and ${currentEdges?.length ?? 0} edges.
 
-This is the SupraCRM Loop Builder — focused on CRM automation workflows (deal management, Telegram bots, outreach sequences, etc). Keep responses concise.`;
+This is the SupraTeam Loop Builder — focused on CRM automation workflows (deal management, Telegram bots, outreach sequences, etc). Keep responses concise.`;
 
   try {
     const messages = [

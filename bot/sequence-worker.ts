@@ -3,7 +3,7 @@
  * Checks for pending sequence steps and scheduled emails, sends them.
  *
  * Run: npx tsx bot/sequence-worker.ts
- * Or via cron: every 5 min — cd /path/to/SupraCRM && npx tsx bot/sequence-worker.ts
+ * Or via cron: every 5 min — cd /path/to/SupraTeam && npx tsx bot/sequence-worker.ts
  */
 
 import { createClient } from "@supabase/supabase-js";

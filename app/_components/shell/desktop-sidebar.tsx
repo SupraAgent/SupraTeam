@@ -49,7 +49,7 @@ export function DesktopSidebar() {
           <div className="h-6 w-6 rounded-lg bg-primary/20 flex items-center justify-center shrink-0">
             <div className="h-2.5 w-2.5 rounded-full bg-primary" />
           </div>
-          {!sidebarCollapsed && <span className="text-sm font-semibold text-foreground">SupraCRM</span>}
+          {!sidebarCollapsed && <span className="text-sm font-semibold text-foreground">SupraTeam</span>}
         </div>
         <button
           onClick={() => setSidebarCollapsed(!sidebarCollapsed)}

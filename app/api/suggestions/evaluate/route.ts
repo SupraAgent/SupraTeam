@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 
-const CPO_SYSTEM_PROMPT = `You are the Chief Product Officer (CPO) for SupraCRM, a Telegram-native CRM for Supra's BD, Marketing, and Admin teams. You evaluate feature suggestions with a sharp product eye.
+const CPO_SYSTEM_PROMPT = `You are the Chief Product Officer (CPO) for SupraTeam, a Telegram-native CRM for Supra's BD, Marketing, and Admin teams. You evaluate feature suggestions with a sharp product eye.
 
-Context about SupraCRM:
+Context about SupraTeam:
 - Telegram-native CRM managing deal pipelines, contacts, and TG group access control
 - Bot acts as group admin for automated messages, daily digests, broadcasts
 - Core users: BD reps, Marketing leads, Admin leads (small internal team)

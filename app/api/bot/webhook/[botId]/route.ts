@@ -57,7 +57,7 @@ export async function POST(request: Request, ctx: RouteContext) {
             }),
           });
         } else {
-          await sendMessage(token, chatId, `Welcome to SupraCRM Bot (${bot.label})!\n\nCommands:\n/help - Show commands\n/status - Bot status\n/deals - Pipeline summary\n/deal - Show deal for this group (in groups)`);
+          await sendMessage(token, chatId, `Welcome to SupraTeam Bot (${bot.label})!\n\nCommands:\n/help - Show commands\n/status - Bot status\n/deals - Pipeline summary\n/deal - Show deal for this group (in groups)`);
         }
       } else if (command === "/deal" && (chatType === "group" || chatType === "supergroup")) {
         const { data: tgGroup } = await supabase.from("tg_groups").select("id").eq("telegram_group_id", chatId).single();
