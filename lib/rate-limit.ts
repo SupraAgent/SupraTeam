@@ -25,7 +25,8 @@ interface RateLimitOptions {
 const DEFAULTS: RateLimitOptions = { max: 60, windowSec: 60 };
 
 /**
- * In-memory sliding-window rate limiter.
+ * In-memory fixed-window rate limiter for Railway's single-instance process.
+ * NOTE: Not distributed — will not work across multiple instances.
  * Returns null if allowed, or a 429 NextResponse if rate-limited.
  */
 export function rateLimit(

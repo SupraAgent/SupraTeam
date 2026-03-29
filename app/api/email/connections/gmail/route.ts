@@ -13,10 +13,12 @@ const SCOPES = [
 ];
 
 export function getOAuth2Client() {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  if (!appUrl) throw new Error("NEXT_PUBLIC_APP_URL is required for Gmail OAuth");
   return new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
-    `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3002"}/api/email/callback/gmail`
+    `${appUrl}/api/email/callback/gmail`
   );
 }
 
@@ -66,11 +68,20 @@ export async function POST() {
   const nonce = crypto.randomUUID();
   const state = signState({ uid: auth.user.id, ts: Date.now(), nonce });
 
+  // Only force consent if no refresh token exists (reconnect doesn't need full consent screen)
+  const { data: existingConn } = await auth.admin
+    .from("crm_email_connections")
+    .select("refresh_token_encrypted")
+    .eq("user_id", auth.user.id)
+    .not("refresh_token_encrypted", "is", null)
+    .limit(1)
+    .maybeSingle();
+
   const oauth2Client = getOAuth2Client();
   const url = oauth2Client.generateAuthUrl({
     access_type: "offline",
     scope: SCOPES,
-    prompt: "consent",
+    prompt: existingConn ? "select_account" : "consent",
     state,
   });
 

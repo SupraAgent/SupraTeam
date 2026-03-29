@@ -74,8 +74,11 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Failed to disconnect" }, { status: 500 });
   }
 
-  // Invalidate cached drivers for this user
+  // Invalidate all cached data for this user (drivers, threads, labels)
   serverCache.invalidatePrefix(`driver:${auth.user.id}:`);
+  serverCache.invalidatePrefix(`threads:${auth.user.id}:`);
+  serverCache.invalidatePrefix(`thread:${auth.user.id}:`);
+  serverCache.invalidatePrefix(`labels:${auth.user.id}:`);
 
   return NextResponse.json({ ok: true, source: "supabase" });
 }

@@ -189,6 +189,17 @@ export function RichEditor({ content, onChange, onFilesAdded, placeholder, autoF
           onClick={() => {
             const url = window.prompt("URL:");
             if (url) {
+              // Validate URL scheme to prevent javascript:/data: injection
+              const SAFE_SCHEMES = /^(https?:|mailto:)/i;
+              try {
+                const parsed = new URL(url, "https://placeholder.invalid");
+                if (!SAFE_SCHEMES.test(parsed.protocol.replace(/:$/, "") + ":")) {
+                  return; // Silently reject dangerous schemes
+                }
+              } catch {
+                // If URL parsing fails, only allow if it looks like a relative path or email
+                if (/^(javascript|data|vbscript)\s*:/i.test(url)) return;
+              }
               editor.chain().focus().setLink({ href: url }).run();
             }
           }}

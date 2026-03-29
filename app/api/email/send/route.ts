@@ -5,6 +5,7 @@ import type { SendParams, ReplyParams, ForwardParams } from "@/lib/email/types";
 import { logEmailAction } from "@/lib/email/audit";
 import { rateLimit } from "@/lib/rate-limit";
 import { sanitizeEmailError } from "@/lib/email/errors";
+import { sanitizeTemplateHtml } from "@/lib/email/sanitize";
 
 /** POST: Send, reply, or forward an email */
 export async function POST(request: Request) {
@@ -36,6 +37,18 @@ export async function POST(request: Request) {
 
   if (!body.body?.trim()) {
     return NextResponse.json({ error: "Email body is required" }, { status: 400 });
+  }
+
+  // Sanitize outbound HTML body (defense in depth — client editor may not sanitize)
+  body.body = sanitizeTemplateHtml(body.body);
+
+  // Validate email addresses
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const allRecipients = [...(body.to ?? []), ...(body.cc ?? []), ...(body.bcc ?? [])];
+  for (const r of allRecipients) {
+    if (!EMAIL_RE.test(r.email)) {
+      return NextResponse.json({ error: `Invalid email address: ${r.email}` }, { status: 400 });
+    }
   }
 
   // Input length validation
@@ -134,6 +147,19 @@ export async function POST(request: Request) {
       recipient: body.to?.[0]?.email,
       metadata: { connection_email: connection.email, subject: body.subject?.slice(0, 50) },
     });
+
+    // Register tracking pixel if present in the email body (so the track endpoint can find it)
+    const trackingMatch = body.body.match(/\/api\/email\/track\/([0-9a-f-]{36})/);
+    if (trackingMatch) {
+      void auth.admin.from("crm_email_tracking").insert({
+        id: trackingMatch[1],
+        user_id: auth.user.id,
+        thread_id: body.threadId ?? result?.threadId,
+        message_id: result?.id,
+        recipient: body.to?.[0]?.email,
+        subject: body.subject?.slice(0, 100),
+      });
+    }
 
     return NextResponse.json({ data: result, source: "gmail" });
   } catch (err: unknown) {

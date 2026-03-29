@@ -217,7 +217,7 @@ export class GmailDriver implements MailDriver {
       userId: "me",
       id: threadId,
       format: "METADATA",
-      metadataHeaders: ["Subject", "From", "To", "Message-ID"],
+      metadataHeaders: ["Subject", "From", "To", "Cc", "Message-ID", "References"],
     });
     const messages = threadRes.data.messages ?? [];
     if (messages.length === 0) throw new Error("Thread has no messages");
@@ -230,14 +230,23 @@ export class GmailDriver implements MailDriver {
     const lastCcAll = this.parseRecipients(getHdr(lastRaw, "Cc"));
     const lastSubject = getHdr(lastRaw, "Subject");
     const lastMessageId = getHdr(lastRaw, "Message-ID") || lastRaw.id || "";
-    const firstTo = messages.length > 0 ? this.parseEmailAddress(getHdr(messages[0], "To")) : lastToAll[0] ?? lastFrom;
 
-    // Reply-all: include original sender + all To/Cc, minus ourselves (the original To)
+    // Build full References chain per RFC 2822 §3.6.4
+    const lastReferences = getHdr(lastRaw, "References");
+    const references = lastReferences
+      ? `${lastReferences} ${lastMessageId}`
+      : lastMessageId;
+
+    // Get our own email to exclude from reply-all (not firstTo which may be wrong)
+    const myProfile = await this.getProfile();
+    const myEmail = myProfile.email.toLowerCase();
+
+    // Reply-all: include original sender + all To/Cc, minus ourselves
     const to = params.replyAll
       ? [lastFrom, ...lastToAll, ...lastCcAll].filter(
           (a, i, arr) =>
-            a.email !== firstTo.email &&
-            arr.findIndex((b) => b.email === a.email) === i // dedupe
+            a.email.toLowerCase() !== myEmail &&
+            arr.findIndex((b) => b.email.toLowerCase() === a.email.toLowerCase()) === i // dedupe
         )
       : [lastFrom];
 
@@ -250,7 +259,7 @@ export class GmailDriver implements MailDriver {
       bodyText: params.bodyText,
       attachments: params.attachments,
       inReplyTo: lastMessageId,
-      references: lastMessageId,
+      references,
     };
 
     const raw = this.buildRawEmail(sendParams);
@@ -273,9 +282,14 @@ export class GmailDriver implements MailDriver {
       format: "FULL",
     });
     const parsed = this.parseMessage(original.data);
+
+    // Sanitize original email body before embedding in forward to prevent XSS
+    const { sanitizeTemplateHtml } = await import("./sanitize");
+    const sanitizedOriginal = sanitizeTemplateHtml(parsed.body);
+
     const forwardBody = params.body
-      ? `${params.body}<br><br>---------- Forwarded message ----------<br>${parsed.body}`
-      : `---------- Forwarded message ----------<br>From: ${parsed.from.email}<br>Date: ${parsed.date}<br>Subject: ${parsed.subject}<br><br>${parsed.body}`;
+      ? `${params.body}<br><br>---------- Forwarded message ----------<br>${sanitizedOriginal}`
+      : `---------- Forwarded message ----------<br>From: ${parsed.from.email}<br>Date: ${parsed.date}<br>Subject: ${parsed.subject}<br><br>${sanitizedOriginal}`;
 
     // Carry over original attachments (convert Buffer → base64 string for send)
     const originalAttachments: { filename: string; mimeType: string; data: string }[] = [];
@@ -433,12 +447,22 @@ export class GmailDriver implements MailDriver {
   async getProfile(): Promise<EmailProfile> {
     const res = await this.gmail.users.getProfile({ userId: "me" });
     const email = res.data.emailAddress ?? "";
-    // Extract display name from email (before @) as fallback since Gmail profile API doesn't return name
-    const namePart = email.split("@")[0]?.replace(/[._]/g, " ") ?? email;
-    return {
-      email,
-      name: namePart,
-    };
+
+    // Try to get actual display name from Google People API
+    let name = "";
+    try {
+      const people = google.people({ version: "v1", auth: this.auth });
+      const profile = await people.people.get({
+        resourceName: "people/me",
+        personFields: "names",
+      });
+      name = profile.data.names?.[0]?.displayName ?? "";
+    } catch {
+      // Fallback: derive from email prefix
+      name = email.split("@")[0]?.replace(/[._]/g, " ") ?? email;
+    }
+
+    return { email, name };
   }
 
   // ── Private helpers ─────────────────────────────────────
@@ -606,7 +630,13 @@ export class GmailDriver implements MailDriver {
       `To: ${to}`,
       `Subject: ${this.sanitizeHeaderValue(params.subject)}`,
       `MIME-Version: 1.0`,
+      `Date: ${new Date().toUTCString()}`,
     ];
+
+    // Add From header if we know our email (prevents wrong send-as alias)
+    if (params.from) {
+      headers.push(`From: ${formatAddr(params.from)}`);
+    }
 
     if (cc) headers.push(`Cc: ${cc}`);
     if (bcc) headers.push(`Bcc: ${bcc}`);

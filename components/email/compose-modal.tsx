@@ -133,9 +133,9 @@ export function ComposeModal({
       html += `<br><div style="color:#999;font-size:12px;border-top:1px solid #333;padding-top:8px;margin-top:16px">${signature}</div>`;
     }
 
-    // Inject tracking pixel for read receipts (use absolute URL so it works in email clients)
+    // Inject tracking pixel for read receipts (use configured app URL, not window.location)
     const trackingId = crypto.randomUUID();
-    const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? (typeof window !== "undefined" ? window.location.origin : "");
     const trackingPixel = `<img src="${baseUrl}/api/email/track/${trackingId}" width="1" height="1" style="display:none" alt="" />`;
     html += trackingPixel;
 
@@ -186,11 +186,11 @@ export function ComposeModal({
     setSending(true);
     setError("");
 
-    // Queue with 60s undo window instead of sending immediately
+    // Queue with undo window instead of sending immediately
+    setSending(false);
     queueSend(payload);
     onSent?.();
     onClose();
-    setSending(false);
   }
 
   async function handleSendLater(scheduledFor: string) {

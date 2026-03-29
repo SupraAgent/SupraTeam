@@ -2,7 +2,7 @@
 
 import * as React from "react";
 
-const UNDO_SEND_SECONDS = 60;
+const UNDO_SEND_SECONDS = 10;
 
 type PendingSend = {
   id: string;
@@ -84,8 +84,32 @@ export function UndoSendProvider({ children, onSent }: { children: React.ReactNo
     setSecondsLeft(0);
   }, [cleanup]);
 
-  // Cleanup on unmount
-  React.useEffect(() => cleanup, [cleanup]);
+  // Warn user before leaving with pending send
+  React.useEffect(() => {
+    function handleBeforeUnload(e: BeforeUnloadEvent) {
+      if (pendingSend) {
+        e.preventDefault();
+      }
+    }
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [pendingSend]);
+
+  // Cleanup on unmount — send immediately if pending to prevent email loss
+  const pendingSendRef = React.useRef(pendingSend);
+  pendingSendRef.current = pendingSend;
+  const executeSendRef = React.useRef(executeSend);
+  executeSendRef.current = executeSend;
+
+  React.useEffect(() => {
+    return () => {
+      cleanup();
+      // If there's a pending send when unmounting, send it immediately
+      if (pendingSendRef.current) {
+        executeSendRef.current(pendingSendRef.current.payload);
+      }
+    };
+  }, [cleanup]);
 
   return (
     <UndoSendContext.Provider value={{ pendingSend, queueSend, cancelSend, secondsLeft }}>

@@ -16,8 +16,13 @@ export async function GET(request: Request) {
   const pageToken = searchParams.get("pageToken") ?? undefined;
   const connectionId = searchParams.get("connectionId") ?? undefined;
 
-  // Server-side cache (Railway persistent process)
-  const cacheKey = `threads:${auth.user.id}:${connectionId ?? "default"}:${labelIds?.join(",") ?? ""}:${query ?? ""}:${maxResults}:${pageToken ?? ""}`;
+  // Server-side cache — use hash of params to prevent cache key injection via query strings
+  const { createHash } = await import("crypto");
+  const paramHash = createHash("sha256")
+    .update(JSON.stringify({ labelIds, query, maxResults, pageToken }))
+    .digest("hex")
+    .slice(0, 16);
+  const cacheKey = `threads:${auth.user.id}:${connectionId ?? "default"}:${paramHash}`;
   const cached = serverCache.get(cacheKey);
   if (cached) {
     return NextResponse.json({ data: cached, source: "gmail" }, {

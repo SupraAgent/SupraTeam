@@ -77,14 +77,31 @@ export async function GET(request: Request) {
           subject = subject.replace(new RegExp(`\\{${key}\\}`, "g"), value);
         }
 
-        // Find a connection to send from
+        // Find the connection for the user who enrolled this contact
+        // First try to get enrolled_by from the enrollment, fall back to deal's assigned_to
+        const { data: enrollmentMeta } = await admin
+          .from("crm_email_sequence_enrollments")
+          .select("enrolled_by:crm_email_sequences(created_by)")
+          .eq("id", enrollment.id)
+          .single();
+
+        const senderId = (enrollmentMeta?.enrolled_by as unknown as { created_by: string })?.created_by;
+        if (!senderId) {
+          errors.push(`Enrollment ${enrollment.id}: no sender user found`);
+          continue;
+        }
+
         const { data: connections } = await admin
           .from("crm_email_connections")
           .select("id, user_id, email")
+          .eq("user_id", senderId)
           .eq("is_default", true)
           .limit(1);
 
-        if (!connections?.length) continue;
+        if (!connections?.length) {
+          errors.push(`Enrollment ${enrollment.id}: no email connection for user ${senderId}`);
+          continue;
+        }
 
         const conn = connections[0];
 

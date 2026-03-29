@@ -41,7 +41,7 @@ export class EmailErrorBoundary extends React.Component<Props, State> {
           </div>
           <p className="text-sm font-medium text-foreground mb-1">Something went wrong</p>
           <p className="text-xs text-muted-foreground mb-3">
-            {this.state.error?.message ?? "An unexpected error occurred in the email client."}
+            An unexpected error occurred in the email client. Please try again.
           </p>
           <button
             onClick={() => this.setState({ hasError: false, error: null })}

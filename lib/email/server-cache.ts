@@ -40,9 +40,12 @@ class MemoryCache {
 
   /** Delete all keys matching a prefix */
   invalidatePrefix(prefix: string): void {
+    // Collect keys first to avoid mutating Map during iteration
+    const toDelete: string[] = [];
     for (const key of this.store.keys()) {
-      if (key.startsWith(prefix)) this.store.delete(key);
+      if (key.startsWith(prefix)) toDelete.push(key);
     }
+    for (const key of toDelete) this.store.delete(key);
   }
 }
 

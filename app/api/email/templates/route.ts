@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
+import { sanitizeTemplateHtml } from "@/lib/email/sanitize";
 
 /** GET: List email templates */
 export async function GET(request: Request) {
@@ -48,6 +49,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "name and body are required" }, { status: 400 });
   }
 
+  // Sanitize template body to prevent stored XSS
+  const sanitizedBody = sanitizeTemplateHtml(body.body);
+
   if (body.id) {
     // Update
     const { data, error } = await auth.admin
@@ -55,7 +59,7 @@ export async function POST(request: Request) {
       .update({
         name: body.name,
         subject: body.subject ?? null,
-        body: body.body,
+        body: sanitizedBody,
         variables: body.variables ?? [],
         board_type: body.board_type ?? null,
         updated_at: new Date().toISOString(),
@@ -77,7 +81,7 @@ export async function POST(request: Request) {
     .insert({
       name: body.name,
       subject: body.subject ?? null,
-      body: body.body,
+      body: sanitizedBody,
       variables: body.variables ?? [],
       board_type: body.board_type ?? null,
       created_by: auth.user.id,

@@ -1,7 +1,19 @@
 // IndexedDB cache for offline email access
 // Stores threads and messages for instant load + offline reading
 
-const DB_NAME = "supracrm_email";
+// Scope DB name by user ID to prevent cross-user data leaks on shared browsers
+function getDbName(): string {
+  // userId is injected by the caller via setIdbUserId()
+  return _idbUserId ? `supracrm_email_${_idbUserId}` : "supracrm_email";
+}
+
+let _idbUserId: string | null = null;
+
+/** Set the current user ID for IDB scoping — call on login */
+export function setIdbUserId(userId: string) {
+  _idbUserId = userId;
+}
+
 const DB_VERSION = 1;
 const STORE_THREADS = "threads";
 const STORE_MESSAGES = "messages";
@@ -13,7 +25,7 @@ function openDB(): Promise<IDBDatabase> {
       reject(new Error("IndexedDB not available"));
       return;
     }
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    const request = indexedDB.open(getDbName(), DB_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains(STORE_THREADS)) {
