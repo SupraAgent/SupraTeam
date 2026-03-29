@@ -13,6 +13,7 @@ export async function GET(request: Request) {
     const { data: sequences } = await auth.admin
       .from("crm_email_sequences")
       .select("id, name, steps, is_active, created_at")
+      .eq("created_by", auth.user.id)
       .order("created_at", { ascending: false });
 
     const { data: enrollments } = await auth.admin
@@ -64,6 +65,7 @@ export async function GET(request: Request) {
         .from("crm_email_sequences")
         .select("*")
         .eq("id", sequenceId)
+        .eq("created_by", auth.user.id)
         .single(),
       auth.admin
         .from("crm_email_sequence_enrollments")
@@ -73,7 +75,9 @@ export async function GET(request: Request) {
         .from("crm_email_audit_log")
         .select("*")
         .eq("action", "sequence_step_sent")
-        .order("created_at", { ascending: false }),
+        .eq("user_id", auth.user.id)
+        .order("created_at", { ascending: false })
+        .limit(1000),
     ]);
 
   if (!sequence) {

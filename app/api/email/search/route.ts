@@ -10,7 +10,7 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const q = searchParams.get("q");
-  const maxResults = parseInt(searchParams.get("maxResults") ?? "25", 10);
+  const maxResults = Math.min(Math.max(1, parseInt(searchParams.get("maxResults") ?? "25", 10)), 100);
 
   if (!q) {
     return NextResponse.json({ error: "q (query) is required" }, { status: 400 });

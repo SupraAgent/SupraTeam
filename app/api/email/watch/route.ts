@@ -23,13 +23,17 @@ export async function POST() {
     const result = await driver.watchInbox(PUBSUB_TOPIC);
 
     // Store watch state
+    const expirationMs = parseInt(result.expiration);
+    const expirationDate = isNaN(expirationMs) ? null : new Date(expirationMs).toISOString();
+
     await auth.admin
       .from("crm_email_connections")
       .update({
         watch_history_id: result.historyId,
-        watch_expiration: new Date(parseInt(result.expiration)).toISOString(),
+        watch_expiration: expirationDate,
       })
-      .eq("id", connection.id);
+      .eq("id", connection.id)
+      .eq("user_id", auth.user.id);
 
     return NextResponse.json({ data: result, source: "gmail" });
   } catch (err: unknown) {

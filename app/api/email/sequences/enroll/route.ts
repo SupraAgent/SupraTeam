@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
+import { logEmailAction } from "@/lib/email/audit";
 
 /** POST: Enroll a deal/contact into a sequence */
 export async function POST(request: Request) {
@@ -54,6 +55,7 @@ export async function POST(request: Request) {
       sequence_id: body.sequence_id,
       deal_id: body.deal_id,
       contact_id: body.contact_id,
+      enrolled_by: auth.user.id,
       current_step: 0,
       status: "active",
       next_send_at: nextSendAt.toISOString(),
@@ -65,9 +67,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Failed to enroll" }, { status: 500 });
   }
 
-  // Audit
-  await auth.admin.from("crm_email_audit_log").insert({
-    user_id: auth.user.id,
+  // Audit — fire-and-forget
+  logEmailAction(auth.admin, {
+    userId: auth.user.id,
     action: "sequence_enroll",
     metadata: {
       sequence_id: body.sequence_id,
@@ -94,8 +96,12 @@ export async function PATCH(request: Request) {
   const statusMap = {
     pause: "paused",
     resume: "active",
-    cancel: "completed",
+    cancel: "cancelled",
   } as const;
+
+  if (!body.enrollment_id) {
+    return NextResponse.json({ error: "enrollment_id is required" }, { status: 400 });
+  }
 
   const newStatus = statusMap[body.action];
   if (!newStatus) {

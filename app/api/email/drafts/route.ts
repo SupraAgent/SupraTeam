@@ -22,6 +22,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
 
+  if (body.body && body.body.length > 500_000) {
+    return NextResponse.json({ error: "Draft body exceeds 500KB limit" }, { status: 400 });
+  }
+
   try {
     const { driver } = await getDriverForUser(auth.user.id);
     const draft = await driver.createDraft({

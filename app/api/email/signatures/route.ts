@@ -8,11 +8,16 @@ function sanitizeSignatureHtml(html: string): string {
   let clean = html.replace(/<(script|style|iframe|object|embed|form|input|button|textarea|select)[^>]*>[\s\S]*?<\/\1>/gi, "");
   // Remove self-closing dangerous tags
   clean = clean.replace(/<(script|style|iframe|object|embed|form|input|button|textarea|select)[^>]*\/?>/gi, "");
-  // Remove on* event handlers and javascript: URLs from remaining tags
+  // Remove svg/math tags (XSS vectors)
+  clean = clean.replace(/<(svg|math)[^>]*>[\s\S]*?<\/\1>/gi, "");
+  clean = clean.replace(/<(svg|math)[^>]*\/?>/gi, "");
+  // Remove on* event handlers from remaining tags (all quote styles)
   clean = clean.replace(/\s+on\w+\s*=\s*["'][^"']*["']/gi, "");
+  clean = clean.replace(/\s+on\w+\s*=\s*`[^`]*`/gi, "");
   clean = clean.replace(/\s+on\w+\s*=\s*\S+/gi, "");
-  clean = clean.replace(/href\s*=\s*["']javascript:[^"']*["']/gi, 'href="#"');
-  clean = clean.replace(/src\s*=\s*["']javascript:[^"']*["']/gi, 'src=""');
+  // Remove dangerous URI schemes (case-insensitive)
+  clean = clean.replace(/href\s*=\s*["'](javascript|data):[^"']*["']/gi, 'href="#"');
+  clean = clean.replace(/src\s*=\s*["'](javascript|data):[^"']*["']/gi, 'src=""');
   return clean;
 }
 
