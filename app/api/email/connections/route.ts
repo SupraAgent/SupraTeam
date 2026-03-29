@@ -45,9 +45,10 @@ export async function DELETE(request: Request) {
   if (conn?.refresh_token_encrypted) {
     try {
       const token = decryptToken(conn.refresh_token_encrypted);
-      await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(token)}`, {
+      await fetch("https://oauth2.googleapis.com/revoke", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: `token=${encodeURIComponent(token)}`,
       });
     } catch {
       // Non-fatal — still delete the connection
@@ -55,9 +56,10 @@ export async function DELETE(request: Request) {
   } else if (conn?.access_token_encrypted) {
     try {
       const token = decryptToken(conn.access_token_encrypted);
-      await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(token)}`, {
+      await fetch("https://oauth2.googleapis.com/revoke", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: `token=${encodeURIComponent(token)}`,
       });
     } catch {
       // Non-fatal — still delete the connection
@@ -99,18 +101,8 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "id is required" }, { status: 400 });
   }
 
-  // Clear all OTHER defaults, then set the new one — only clears connections
-  // that are NOT the target, so concurrent requests can't leave zero defaults
-  const { error: clearErr } = await auth.admin
-    .from("crm_email_connections")
-    .update({ is_default: false })
-    .eq("user_id", auth.user.id)
-    .neq("id", body.id);
-
-  if (clearErr) {
-    return NextResponse.json({ error: "Failed to set default" }, { status: 500 });
-  }
-
+  // Set target as default FIRST — if this fails we abort without touching other rows.
+  // Previously clearing others first could leave zero defaults if the second query failed.
   const { error } = await auth.admin
     .from("crm_email_connections")
     .update({ is_default: true })
@@ -120,6 +112,13 @@ export async function PATCH(request: Request) {
   if (error) {
     return NextResponse.json({ error: "Failed to set default" }, { status: 500 });
   }
+
+  // Then clear other defaults — safe because the target is already set
+  await auth.admin
+    .from("crm_email_connections")
+    .update({ is_default: false })
+    .eq("user_id", auth.user.id)
+    .neq("id", body.id);
 
   return NextResponse.json({ ok: true, source: "supabase" });
 }

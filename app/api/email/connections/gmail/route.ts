@@ -5,9 +5,8 @@ import { requireAuth } from "@/lib/auth-guard";
 import { rateLimit } from "@/lib/rate-limit";
 
 const SCOPES = [
-  "https://www.googleapis.com/auth/gmail.readonly",
   "https://www.googleapis.com/auth/gmail.send",
-  "https://www.googleapis.com/auth/gmail.modify",
+  "https://www.googleapis.com/auth/gmail.modify", // includes gmail.readonly
   "https://www.googleapis.com/auth/gmail.labels",
   "https://www.googleapis.com/auth/userinfo.email",
 ];
@@ -69,16 +68,7 @@ export async function POST() {
   const state = signState({ uid: auth.user.id, ts: Date.now(), nonce });
 
   // Always use prompt: "consent" — Google only returns a refresh_token on consent grant.
-  // Using "select_account" on reconnect causes Google to withhold the refresh token,
-  // making the callback fail with "no_tokens" since we require a refresh token for new connections.
   // For reconnects, the callback will keep the existing refresh token if Google doesn't send a new one.
-  const { data: existingConn } = await auth.admin
-    .from("crm_email_connections")
-    .select("id")
-    .eq("user_id", auth.user.id)
-    .limit(1)
-    .maybeSingle();
-
   const oauth2Client = getOAuth2Client();
   const url = oauth2Client.generateAuthUrl({
     access_type: "offline",

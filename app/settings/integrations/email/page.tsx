@@ -96,6 +96,8 @@ export default function EmailSettingsPage() {
             not_authenticated: "You must be logged in to connect Gmail",
             server_error: "Server configuration error",
             no_tokens: "Google did not return access tokens",
+            no_refresh_token: "Google did not return a refresh token. Please try again and make sure to grant all permissions when prompted.",
+            state_reused: "This authorization link has already been used — please start a new connection",
             no_email: "Could not retrieve email address from Google",
             oauth_failed: "OAuth exchange failed — please try again",
           } as Record<string, string>)[error] ?? "An unexpected error occurred"}

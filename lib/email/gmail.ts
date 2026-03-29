@@ -18,6 +18,22 @@ import type {
   AttachmentMeta,
 } from "./types";
 
+/** Retry Gmail API calls on 429/5xx with exponential backoff (Google requirement) */
+async function withBackoff<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err: unknown) {
+      const code = (err as { code?: number })?.code;
+      const isRetryable = code === 429 || (code !== undefined && code >= 500);
+      if (!isRetryable || attempt === maxRetries) throw err;
+      const delayMs = Math.min(1000 * 2 ** attempt + Math.random() * 500, 16000);
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  throw new Error("withBackoff: unreachable");
+}
+
 type GmailConfig = {
   accessToken: string;
   refreshToken: string;
@@ -44,24 +60,37 @@ export class GmailDriver implements MailDriver {
     // On Railway's persistent process, the connection stays warm between requests
     this.gmail = google.gmail({ version: "v1", auth: this.auth, http2: true });
 
-    // Persist refreshed tokens back to database and invalidate cache
+    // Persist refreshed tokens back to database and invalidate cache.
+    // Google may rotate the refresh_token — we MUST persist it or the connection dies.
+    // Retry up to 3 times with backoff — a failed persist means the next request
+    // uses stale tokens from DB, triggering another refresh (infinite loop on DB outage).
     this.auth.on("tokens", async (tokens) => {
       if (tokens.access_token && this.connectionId) {
-        try {
-          const { updateConnectionTokens } = await import("./driver");
-          const { serverCache } = await import("./server-cache");
-          await updateConnectionTokens(
-            this.connectionId,
-            this.userId ?? "",
-            tokens.access_token,
-            tokens.expiry_date ? new Date(tokens.expiry_date) : undefined
-          );
-          // Invalidate only this user's cached driver (not all users)
-          const userPrefix = this.userId ? `driver:${this.userId}:` : "driver:";
-          serverCache.invalidatePrefix(userPrefix);
-        } catch {
-          // Non-fatal: token will be refreshed again next time
+        if (!this.userId) {
+          console.error("[gmail] Cannot persist refreshed token — userId not set on driver");
+          return;
         }
+        const connId = this.connectionId;
+        const uid = this.userId;
+        const expiryDate = tokens.expiry_date ? new Date(tokens.expiry_date) : undefined;
+        const refreshToken = tokens.refresh_token ?? undefined;
+
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            const { updateConnectionTokens } = await import("./driver");
+            const { serverCache } = await import("./server-cache");
+            await updateConnectionTokens(connId, uid, tokens.access_token, expiryDate, refreshToken);
+            serverCache.invalidatePrefix(`driver:${uid}:`);
+            return; // Success
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : "unknown";
+            console.error(`[gmail] Token persist attempt ${attempt + 1}/3 failed:`, msg);
+            if (attempt < 2) {
+              await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+            }
+          }
+        }
+        console.error("[gmail] All 3 token persist attempts failed for connection", connId);
       }
     });
   }
@@ -74,26 +103,26 @@ export class GmailDriver implements MailDriver {
   }
 
   async listThreads(params: ListThreadsParams): Promise<ThreadList> {
-    const res = await this.gmail.users.threads.list({
+    const res = await withBackoff(() => this.gmail.users.threads.list({
       userId: "me",
       labelIds: params.labelIds,
       q: params.query,
       maxResults: params.maxResults ?? 25,
       pageToken: params.pageToken,
-    });
+    }));
 
     // Fetch threads in batches of 10 to avoid hitting Gmail rate limits
     // HTTP/2 multiplexes these over a single TCP connection on Railway
     const rawThreads = (res.data.threads ?? []).filter((t) => t.id);
     const BATCH_SIZE = 10;
     const fetchThread = (id: string) =>
-      this.gmail.users.threads.get({
+      withBackoff(() => this.gmail.users.threads.get({
         userId: "me",
         id,
         format: "METADATA",
         metadataHeaders: ["Subject", "From", "To", "Date"],
         fields: "id,snippet,messages(id,labelIds,internalDate,payload/headers)",
-      });
+      }));
     const threadData: Awaited<ReturnType<typeof fetchThread>>[] = [];
     for (let i = 0; i < rawThreads.length; i += BATCH_SIZE) {
       const batch = await Promise.all(
@@ -113,11 +142,11 @@ export class GmailDriver implements MailDriver {
   }
 
   async getThread(threadId: string): Promise<Thread> {
-    const res = await this.gmail.users.threads.get({
+    const res = await withBackoff(() => this.gmail.users.threads.get({
       userId: "me",
       id: threadId,
       format: "FULL",
-    });
+    }));
     return this.parseThread(res.data);
   }
 
@@ -151,15 +180,15 @@ export class GmailDriver implements MailDriver {
 
   async toggleStar(threadId: string, currentlyStarred?: boolean): Promise<void> {
     if (currentlyStarred !== undefined) {
-      // Fast path: client tells us current state, skip the extra GET
-      // Use thread-level modify to star/unstar the first message
-      const thread = await this.gmail.users.threads.get({
+      // Fast path: client tells us current state
+      // Use messages.list (lightweight) instead of threads.get to get the first message ID
+      const msgList = await this.gmail.users.messages.list({
         userId: "me",
-        id: threadId,
-        format: "MINIMAL",
+        q: `in:thread:${threadId}`,
+        maxResults: 1,
         fields: "messages(id)",
       });
-      const firstMsgId = thread.data.messages?.[0]?.id;
+      const firstMsgId = msgList.data.messages?.[0]?.id;
       if (!firstMsgId) return;
 
       await this.gmail.users.messages.modify({
@@ -200,16 +229,16 @@ export class GmailDriver implements MailDriver {
 
   async send(params: SendParams): Promise<Message> {
     const raw = this.buildRawEmail(params);
-    const res = await this.gmail.users.messages.send({
+    const res = await withBackoff(() => this.gmail.users.messages.send({
       userId: "me",
       requestBody: { raw },
-    });
+    }));
     if (!res.data.id) throw new Error("Gmail did not return a message ID after send");
-    const msg = await this.gmail.users.messages.get({
+    const msg = await withBackoff(() => this.gmail.users.messages.get({
       userId: "me",
-      id: res.data.id,
+      id: res.data.id!,
       format: "FULL",
-    });
+    }));
     return this.parseMessage(msg.data);
   }
 
@@ -231,7 +260,9 @@ export class GmailDriver implements MailDriver {
     const lastToAll = this.parseRecipients(getHdr(lastRaw, "To"));
     const lastCcAll = this.parseRecipients(getHdr(lastRaw, "Cc"));
     const lastSubject = getHdr(lastRaw, "Subject");
-    const lastMessageId = getHdr(lastRaw, "Message-ID") || lastRaw.id || "";
+    const rawMessageId = getHdr(lastRaw, "Message-ID");
+    // Fall back to Gmail internal ID wrapped in angle brackets for valid RFC 2822 Message-ID
+    const lastMessageId = rawMessageId || (lastRaw.id ? `<${lastRaw.id}@mail.gmail.com>` : "");
 
     // Build full References chain per RFC 2822 §3.6.4
     const lastReferences = getHdr(lastRaw, "References");
@@ -265,15 +296,15 @@ export class GmailDriver implements MailDriver {
     };
 
     const raw = this.buildRawEmail(sendParams);
-    const res = await this.gmail.users.messages.send({
+    const res = await withBackoff(() => this.gmail.users.messages.send({
       userId: "me",
       requestBody: { raw, threadId },
-    });
-    const msg = await this.gmail.users.messages.get({
+    }));
+    const msg = await withBackoff(() => this.gmail.users.messages.get({
       userId: "me",
       id: res.data.id!,
       format: "FULL",
-    });
+    }));
     return this.parseMessage(msg.data);
   }
 
@@ -293,18 +324,19 @@ export class GmailDriver implements MailDriver {
       ? `${params.body}<br><br>---------- Forwarded message ----------<br>${sanitizedOriginal}`
       : `---------- Forwarded message ----------<br>From: ${parsed.from.email}<br>Date: ${parsed.date}<br>Subject: ${parsed.subject}<br><br>${sanitizedOriginal}`;
 
-    // Carry over original attachments (convert Buffer → base64 string for send)
+    // Carry over original attachments in parallel (convert Buffer → base64 string for send)
     const originalAttachments: { filename: string; mimeType: string; data: string }[] = [];
     if (parsed.attachments?.length) {
-      for (const att of parsed.attachments) {
-        if (att.id) {
-          try {
-            const fetched = await this.getAttachment(messageId, att.id, { filename: att.filename, mimeType: att.mimeType });
-            originalAttachments.push({ filename: fetched.filename, mimeType: fetched.mimeType, data: fetched.data.toString("base64") });
-          } catch {
-            // Skip failed attachment downloads
-          }
-        }
+      const results = await Promise.allSettled(
+        parsed.attachments
+          .filter((att) => att.id)
+          .map((att) =>
+            this.getAttachment(messageId, att.id!, { filename: att.filename, mimeType: att.mimeType })
+              .then((fetched) => ({ filename: fetched.filename, mimeType: fetched.mimeType, data: fetched.data.toString("base64") }))
+          )
+      );
+      for (const r of results) {
+        if (r.status === "fulfilled") originalAttachments.push(r.value);
       }
     }
 
@@ -340,7 +372,7 @@ export class GmailDriver implements MailDriver {
   }
 
   async listLabels(): Promise<Label[]> {
-    const res = await this.gmail.users.labels.list({ userId: "me" });
+    const res = await withBackoff(() => this.gmail.users.labels.list({ userId: "me" }));
     const labels = res.data.labels ?? [];
 
     // Fetch label details in batches of 10 to avoid hammering the API
@@ -350,7 +382,7 @@ export class GmailDriver implements MailDriver {
       const batch = labels.slice(i, i + BATCH_SIZE);
       const batchResults = await Promise.all(
         batch.map((l) =>
-          this.gmail.users.labels.get({ userId: "me", id: l.id! }).then((d) => ({ l, d: d.data }))
+          withBackoff(() => this.gmail.users.labels.get({ userId: "me", id: l.id! })).then((d) => ({ l, d: d.data }))
         )
       );
       details.push(...batchResults);
@@ -382,16 +414,14 @@ export class GmailDriver implements MailDriver {
   }
 
   async watchInbox(topicName: string): Promise<{ historyId: string; expiration: string }> {
-    // Watch all label changes (INBOX, SENT, TRASH, DRAFT) so push notifications
-    // cover sent messages, deletions, and label changes — not just new inbox mail.
-    // Omitting labelIds watches everything, which is what Superhuman/Inbox Zero do.
-    const res = await this.gmail.users.watch({
+    // Omit labelIds to watch ALL label changes including user-created labels.
+    // Specifying labelIds would miss custom label changes and cause stale UI.
+    const res = await withBackoff(() => this.gmail.users.watch({
       userId: "me",
       requestBody: {
         topicName,
-        labelIds: ["INBOX", "SENT", "TRASH", "DRAFT"],
       },
-    });
+    }));
     return {
       historyId: res.data.historyId ?? "",
       expiration: res.data.expiration ?? "",
@@ -403,34 +433,39 @@ export class GmailDriver implements MailDriver {
     changes: { threadId: string; type: "added" | "removed" | "labelChanged" }[];
   }> {
     try {
-      const res = await this.gmail.users.history.list({
+      const res = await withBackoff(() => this.gmail.users.history.list({
         userId: "me",
         startHistoryId,
         historyTypes: ["messageAdded", "messageDeleted", "labelAdded", "labelRemoved"],
-      });
+      }));
 
       const changes: { threadId: string; type: "added" | "removed" | "labelChanged" }[] = [];
-      const seenThreads = new Set<string>();
+      // Dedup per (threadId, type) so a thread with both messageAdded and labelChanged
+      // emits both events instead of silently dropping the second one
+      const seen = new Set<string>();
 
       for (const record of res.data.history ?? []) {
         for (const added of record.messagesAdded ?? []) {
           const tid = added.message?.threadId;
-          if (tid && !seenThreads.has(tid)) {
-            seenThreads.add(tid);
+          const key = `${tid}:added`;
+          if (tid && !seen.has(key)) {
+            seen.add(key);
             changes.push({ threadId: tid, type: "added" });
           }
         }
         for (const removed of record.messagesDeleted ?? []) {
           const tid = removed.message?.threadId;
-          if (tid && !seenThreads.has(tid)) {
-            seenThreads.add(tid);
+          const key = `${tid}:removed`;
+          if (tid && !seen.has(key)) {
+            seen.add(key);
             changes.push({ threadId: tid, type: "removed" });
           }
         }
         for (const label of [...(record.labelsAdded ?? []), ...(record.labelsRemoved ?? [])]) {
           const tid = label.message?.threadId;
-          if (tid && !seenThreads.has(tid)) {
-            seenThreads.add(tid);
+          const key = `${tid}:labelChanged`;
+          if (tid && !seen.has(key)) {
+            seen.add(key);
             changes.push({ threadId: tid, type: "labelChanged" });
           }
         }
@@ -460,9 +495,9 @@ export class GmailDriver implements MailDriver {
     const res = await this.gmail.users.getProfile({ userId: "me" });
     const email = res.data.emailAddress ?? "";
 
-    // Derive display name from email prefix — People API scope is not requested
-    // so that call always fails with a permission error, adding ~200ms latency.
-    // The OAuth callback already stores the user's name from userinfo.
+    // Derive display name from email prefix.
+    // People API was removed: it always failed with 403 (missing scope),
+    // wasting ~300ms on every reply operation.
     const name = email.split("@")[0]?.replace(/[._]/g, " ") ?? email;
 
     return { email, name };
@@ -563,26 +598,43 @@ export class GmailDriver implements MailDriver {
 
   private parseRecipients(raw: string): EmailAddress[] {
     if (!raw) return [];
-    return raw.split(",").map((r) => this.parseEmailAddress(r.trim()));
+    // Split on commas that are NOT inside quotes (handles "Jones, Jon" <jon@supra.com>)
+    const addresses: string[] = [];
+    let current = "";
+    let inQuotes = false;
+    let inAngle = false;
+    for (const ch of raw) {
+      if (ch === '"') inQuotes = !inQuotes;
+      else if (ch === "<" && !inQuotes) inAngle = true;
+      else if (ch === ">" && !inQuotes) inAngle = false;
+      else if (ch === "," && !inQuotes && !inAngle) {
+        if (current.trim()) addresses.push(current.trim());
+        current = "";
+        continue;
+      }
+      current += ch;
+    }
+    if (current.trim()) addresses.push(current.trim());
+    return addresses.map((r) => this.parseEmailAddress(r));
   }
 
   private getBody(payload: gmail_v1.Schema$MessagePart | undefined): { html: string; text: string } {
     if (!payload) return { html: "", text: "" };
 
-    let html = "";
-    let text = "";
+    const htmlParts: string[] = [];
+    const textParts: string[] = [];
 
     function walk(part: gmail_v1.Schema$MessagePart) {
       if (part.mimeType === "text/html" && part.body?.data) {
-        html = Buffer.from(part.body.data, "base64url").toString("utf-8");
+        htmlParts.push(Buffer.from(part.body.data, "base64url").toString("utf-8"));
       } else if (part.mimeType === "text/plain" && part.body?.data) {
-        text = Buffer.from(part.body.data, "base64url").toString("utf-8");
+        textParts.push(Buffer.from(part.body.data, "base64url").toString("utf-8"));
       }
       for (const p of part.parts ?? []) walk(p);
     }
 
     walk(payload);
-    return { html, text };
+    return { html: htmlParts.join(""), text: textParts.join("") };
   }
 
   private getAttachments(payload: gmail_v1.Schema$MessagePart | undefined): AttachmentMeta[] {
@@ -660,10 +712,12 @@ export class GmailDriver implements MailDriver {
         "",
         `--${boundary}`,
         "Content-Type: text/plain; charset=UTF-8",
+        "Content-Transfer-Encoding: quoted-printable",
         "",
         textPart,
         `--${boundary}`,
         "Content-Type: text/html; charset=UTF-8",
+        "Content-Transfer-Encoding: quoted-printable",
         "",
         params.body,
         `--${boundary}--`,
@@ -695,10 +749,12 @@ export class GmailDriver implements MailDriver {
         "",
         `--${boundary}`,
         "Content-Type: text/plain; charset=UTF-8",
+        "Content-Transfer-Encoding: quoted-printable",
         "",
         textPart,
         `--${boundary}`,
         "Content-Type: text/html; charset=UTF-8",
+        "Content-Transfer-Encoding: quoted-printable",
         "",
         params.body,
         `--${boundary}--`,

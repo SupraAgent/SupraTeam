@@ -20,8 +20,11 @@ export async function GET(request: Request, { params }: Params) {
   const cacheKey = `thread:${auth.user.id}:${connectionId ?? "default"}:${id}`;
   const cached = serverCache.get(cacheKey);
   if (cached) {
-    // Still mark as read in background
-    getDriverForUser(auth.user.id, connectionId).then(({ driver }) => driver.markAsRead(id)).catch(() => {});
+    // Only mark as read if the cached thread is still unread — avoids wasted API calls
+    const cachedThread = cached as { isUnread?: boolean };
+    if (cachedThread.isUnread) {
+      getDriverForUser(auth.user.id, connectionId).then(({ driver }) => driver.markAsRead(id)).catch(() => {});
+    }
     return NextResponse.json({ data: cached, source: "gmail" }, {
       headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" },
     });

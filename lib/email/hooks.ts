@@ -532,6 +532,22 @@ export function useEmailActions(
   const undoActionRef = React.useRef(undoAction);
   undoActionRef.current = undoAction;
 
+  // Flush pending undo action on unmount — ensures the API call fires
+  // even if the user navigates away within the 5-second undo window.
+  React.useEffect(() => {
+    return () => {
+      const pending = undoActionRef.current;
+      if (pending) {
+        clearTimeout(pending.timer);
+        fetch(`/api/email/threads/${pending.threadId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: pending.action }),
+        }).catch(() => {});
+      }
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const performAction = React.useCallback(
     async (threadId: string, action: string, extraIn?: Record<string, unknown>) => {
       let extra = extraIn;

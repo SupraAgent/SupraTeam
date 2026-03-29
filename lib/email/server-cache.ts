@@ -10,7 +10,7 @@ type CacheEntry<T> = {
 
 class MemoryCache {
   private store = new Map<string, CacheEntry<unknown>>();
-  private maxSize = 500;
+  private maxSize = 2000;
 
   get<T>(key: string): T | null {
     const entry = this.store.get(key);
@@ -57,5 +57,5 @@ export const TTL = {
   THREAD_LIST: 15_000,   // 15s — thread lists change frequently
   THREAD_FULL: 60_000,   // 60s — individual threads change less often
   LABELS: 300_000,       // 5min — labels barely change
-  DRIVER: 60_000,        // 60s — driver with decrypted tokens (short to limit exposure)
+  DRIVER: 10_000,        // 10s — connection record with encrypted tokens (short to avoid stale tokens after refresh)
 } as const;

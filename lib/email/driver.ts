@@ -58,22 +58,35 @@ export async function getDriverForUser(
   userId: string,
   connectionId?: string
 ): Promise<{ driver: MailDriver; connection: ConnectionRecord }> {
-  // Cache only the connection record (not the driver instance) to avoid stale token references.
-  // The driver is lightweight to construct — the OAuth2 client handles token refresh internally.
-  // Previously caching the driver caused race conditions where concurrent requests held
-  // references to old driver instances with stale access tokens.
+  // Cache only connection metadata (NOT encrypted tokens) to reduce heap exposure.
+  // Encrypted tokens sitting in a Map for 60s expands blast radius of memory dumps.
+  // We always fetch tokens from DB — decryption is cheap, security is not.
   const cacheKey = `driver:${userId}:${connectionId ?? "default"}`;
-  const cachedConn = serverCache.get<ConnectionRecord>(cacheKey);
-
-  if (cachedConn) {
-    return {
-      driver: createDriverFromConnection(cachedConn, userId),
-      connection: cachedConn,
-    };
-  }
+  const cachedMeta = serverCache.get<{ id: string; provider: EmailProvider; email: string; token_expires_at: string | null }>(cacheKey);
 
   const admin = createSupabaseAdmin();
   if (!admin) throw new Error("Supabase not configured");
+
+  // If we have cached metadata, fetch only the tokens (skip full query)
+  if (cachedMeta) {
+    const { data: tokenData } = await admin
+      .from("crm_email_connections")
+      .select("access_token_encrypted, refresh_token_encrypted, token_expires_at")
+      .eq("id", cachedMeta.id)
+      .eq("user_id", userId)
+      .limit(1)
+      .single();
+
+    if (tokenData) {
+      const conn: ConnectionRecord = { ...cachedMeta, ...tokenData };
+      return {
+        driver: createDriverFromConnection(conn, userId),
+        connection: conn,
+      };
+    }
+    // Cache entry stale — fall through to full query
+    serverCache.delete(cacheKey);
+  }
 
   let query = admin
     .from("crm_email_connections")
@@ -89,12 +102,12 @@ export async function getDriverForUser(
   const { data, error } = await query.limit(1).single();
 
   if (error || !data) {
-    // Fallback: get any connection (log so we can detect multi-account confusion)
     console.warn(`[email/driver] No default connection for user ${userId}, falling back to any connection`);
     const { data: fallback, error: fbErr } = await admin
       .from("crm_email_connections")
       .select("id, provider, email, access_token_encrypted, refresh_token_encrypted, token_expires_at")
       .eq("user_id", userId)
+      .order("connected_at", { ascending: true })
       .limit(1)
       .single();
 
@@ -103,7 +116,7 @@ export async function getDriverForUser(
     }
 
     const conn = fallback as ConnectionRecord;
-    serverCache.set(cacheKey, conn, TTL.DRIVER);
+    serverCache.set(cacheKey, { id: conn.id, provider: conn.provider, email: conn.email, token_expires_at: conn.token_expires_at }, TTL.DRIVER);
     return {
       driver: createDriverFromConnection(conn, userId),
       connection: conn,
@@ -111,7 +124,7 @@ export async function getDriverForUser(
   }
 
   const conn = data as ConnectionRecord;
-  serverCache.set(cacheKey, conn, TTL.DRIVER);
+  serverCache.set(cacheKey, { id: conn.id, provider: conn.provider, email: conn.email, token_expires_at: conn.token_expires_at }, TTL.DRIVER);
   return {
     driver: createDriverFromConnection(conn, userId),
     connection: conn,
@@ -120,25 +133,49 @@ export async function getDriverForUser(
 
 /**
  * After using the driver, persist any refreshed tokens back to the database.
+ * Persists both access token and (optionally) a rotated refresh token.
+ * Retries once on failure to avoid silent token loss.
  */
 export async function updateConnectionTokens(
   connectionId: string,
   userId: string,
   accessToken: string,
-  expiresAt?: Date
+  expiresAt?: Date,
+  refreshToken?: string
 ): Promise<void> {
   const admin = createSupabaseAdmin();
   if (!admin) return;
 
   const { encryptToken } = await import("@/lib/crypto");
 
-  await admin
+  const updateData: Record<string, unknown> = {
+    access_token_encrypted: encryptToken(accessToken),
+    token_expires_at: expiresAt?.toISOString() ?? null,
+    last_sync_at: new Date().toISOString(),
+  };
+
+  // Persist rotated refresh token if Google sent a new one
+  if (refreshToken) {
+    updateData.refresh_token_encrypted = encryptToken(refreshToken);
+  }
+
+  const { error } = await admin
     .from("crm_email_connections")
-    .update({
-      access_token_encrypted: encryptToken(accessToken),
-      token_expires_at: expiresAt?.toISOString() ?? null,
-      last_sync_at: new Date().toISOString(),
-    })
+    .update(updateData)
     .eq("id", connectionId)
     .eq("user_id", userId);
+
+  // Retry once on failure — losing a refreshed token permanently breaks the connection
+  if (error) {
+    console.error("[email/driver] Token persistence failed, retrying:", error.message);
+    await new Promise((r) => setTimeout(r, 500));
+    const { error: retryErr } = await admin
+      .from("crm_email_connections")
+      .update(updateData)
+      .eq("id", connectionId)
+      .eq("user_id", userId);
+    if (retryErr) {
+      console.error("[email/driver] Token persistence retry failed:", retryErr.message);
+    }
+  }
 }

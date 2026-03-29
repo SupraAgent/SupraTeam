@@ -2,11 +2,15 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { getDriverForUser } from "@/lib/email/driver";
 import { sanitizeEmailError } from "@/lib/email/errors";
+import { rateLimit } from "@/lib/rate-limit";
 
 /** GET: Search emails */
 export async function GET(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
+
+  const rl = rateLimit(`email-search:${auth.user.id}`, { max: 20, windowSec: 60 });
+  if (rl) return rl;
 
   const { searchParams } = new URL(request.url);
   const q = searchParams.get("q");

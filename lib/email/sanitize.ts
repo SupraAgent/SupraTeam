@@ -42,8 +42,8 @@ export function sanitizeTemplateHtml(html: string): string {
   clean = clean.replace(/<(script|style|iframe|object|embed|svg|math|link|meta|base)\b[^>]*\/?>/gi, "");
 
   // Pass 2: Strip malformed tags (missing closing >) — catches truncated injection attempts
-  // Match any < followed by tag-like content that doesn't have a proper >
-  clean = clean.replace(/<[a-zA-Z][^>]*$/gm, "");
+  // Match any < followed by tag-like content that doesn't have a proper > before the next <
+  clean = clean.replace(/<[a-zA-Z][^>]*(?=<|$)/gm, "");
 
   // Pass 3: Allowlist-based tag and attribute filtering
   clean = clean.replace(/<\/?([a-zA-Z][a-zA-Z0-9]*)\b[^>]*\/?>/gi, (match, tagName: string) => {
@@ -64,7 +64,13 @@ export function sanitizeTemplateHtml(html: string): string {
 
       if (attrName.startsWith("on")) continue;
       if (!ALLOWED_ATTRS.has(attrName)) continue;
-      if ((attrName === "href" || attrName === "src") && DANGEROUS_URI.test(decodeURIComponent(attrVal))) continue;
+      if (attrName === "href" || attrName === "src") {
+        try {
+          if (DANGEROUS_URI.test(decodeURIComponent(attrVal))) continue;
+        } catch {
+          continue; // Malformed percent-encoding (e.g., %ZZ) — strip to be safe
+        }
+      }
 
       safeAttrs.push(`${attrName}="${attrVal.replace(/"/g, "&quot;")}"`);
     }

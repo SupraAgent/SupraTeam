@@ -45,11 +45,14 @@ export async function GET(request: Request) {
   let renewed = 0;
   const errors: string[] = [];
 
-  for (const conn of connections ?? []) {
-    try {
+  // Process in parallel batches of 5 to avoid Railway's 30s cron timeout
+  const BATCH_SIZE = 5;
+  for (let i = 0; i < connections.length; i += BATCH_SIZE) {
+    const batch = connections.slice(i, i + BATCH_SIZE);
+    const results = await Promise.allSettled(batch.map(async (conn) => {
       const { driver } = await getDriverForUser(conn.user_id, conn.id);
 
-      if (!("watchInbox" in driver) || typeof driver.watchInbox !== "function") continue;
+      if (!("watchInbox" in driver) || typeof driver.watchInbox !== "function") return;
 
       const result = await driver.watchInbox(PUBSUB_TOPIC);
       const expirationMs = parseInt(result.expiration);
@@ -65,8 +68,13 @@ export async function GET(request: Request) {
         .eq("user_id", conn.user_id);
 
       renewed++;
-    } catch (err) {
-      errors.push(`${conn.email}: ${err instanceof Error ? err.message : "unknown"}`);
+    }));
+
+    for (let j = 0; j < results.length; j++) {
+      const r = results[j];
+      if (r.status === "rejected") {
+        errors.push(`${batch[j].email}: ${r.reason instanceof Error ? r.reason.message : "unknown"}`);
+      }
     }
   }
 
