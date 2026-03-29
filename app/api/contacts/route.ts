@@ -7,12 +7,13 @@ import { sanitizePostgrestValue } from "@/lib/utils";
 export async function GET(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { searchParams } = new URL(request.url);
   const search = searchParams.get("search");
   const stageFilter = searchParams.get("stage");
 
+  // Use scoped client — RLS filters to contacts the user created or is a lead
   let query = supabase
     .from("crm_contacts")
     .select("*, stage:pipeline_stages(*)")
@@ -42,7 +43,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { user, admin: supabase } = auth;
+  const { user, supabase } = auth;
 
   const body = await request.json();
   const { name, email, phone, telegram_username, telegram_user_id, company, title, notes, stage_id, lifecycle_stage, source, x_handle, wallet_address, wallet_chain } = body;
@@ -51,6 +52,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "name is required" }, { status: 400 });
   }
 
+  // Use scoped client — RLS INSERT policy allows any authenticated user
   const { data: contact, error } = await supabase
     .from("crm_contacts")
     .insert({

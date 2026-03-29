@@ -6,12 +6,13 @@ import { dispatchWebhook } from "@/lib/webhooks";
 export async function GET(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase, admin } = auth;
 
   const { searchParams } = new URL(request.url);
   const board = searchParams.get("board");
   const tgGroupId = searchParams.get("tg_group_id");
 
+  // Use scoped client — RLS filters to deals the user created, is assigned to, or is a lead
   let query = supabase
     .from("crm_deals")
     .select(`
@@ -36,12 +37,12 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Failed to fetch deals" }, { status: 500 });
   }
 
-  // Fetch assigned profiles separately (FK goes through auth.users, not profiles directly)
+  // Fetch assigned profiles via admin (profiles table is shared, not CRM-scoped)
   const assignedIds = [...new Set((deals ?? []).map((d) => d.assigned_to).filter(Boolean))];
   let profileMap: Record<string, { display_name: string; avatar_url: string }> = {};
 
   if (assignedIds.length > 0) {
-    const { data: profiles } = await supabase
+    const { data: profiles } = await admin
       .from("profiles")
       .select("id, display_name, avatar_url")
       .in("id", assignedIds);
@@ -64,7 +65,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { user, admin: supabase } = auth;
+  const { user, supabase } = auth;
 
   const body = await request.json();
   const { deal_name, board_type, stage_id, contact_id, assigned_to, value, probability, telegram_chat_id, telegram_chat_name, telegram_chat_link, custom_fields } = body;
@@ -77,6 +78,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "board_type must be BD, Marketing, Admin, or Applications" }, { status: 400 });
   }
 
+  // Use scoped client — RLS INSERT policy allows any authenticated user
   const { data: deal, error } = await supabase
     .from("crm_deals")
     .insert({
@@ -101,7 +103,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Failed to create deal" }, { status: 500 });
   }
 
-  // Save custom field values
+  // Save custom field values via scoped client
   if (custom_fields && typeof custom_fields === "object" && deal) {
     const fieldValues = Object.entries(custom_fields)
       .filter(([, v]) => v)
