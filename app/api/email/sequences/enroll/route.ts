@@ -39,7 +39,6 @@ export async function POST(request: Request) {
     .select("id, status")
     .eq("sequence_id", body.sequence_id)
     .eq("contact_id", body.contact_id)
-    .eq("enrolled_by", auth.user.id)
     .eq("status", "active")
     .limit(1);
 

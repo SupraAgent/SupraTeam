@@ -2,6 +2,22 @@ import { NextResponse } from "next/server";
 import { verifyCron } from "@/lib/cron-auth";
 import { createSupabaseAdmin } from "@/lib/supabase";
 import { getDriverForUser } from "@/lib/email/driver";
+import { sanitizeTemplateHtml } from "@/lib/email/sanitize";
+
+/** Basic email format check for scheduled send validation */
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+/** Escape HTML special characters to prevent XSS in template variables */
+function escapeHtml(str: string): string {
+  return str
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
 
 /**
  * Email sequence worker — cron endpoint for Railway.
@@ -47,12 +63,32 @@ export async function GET(request: Request) {
         if (!sequence?.steps || !contact?.email) continue;
 
         // Check if contact has replied — stop sequence to avoid spamming after a response.
-        // Look for inbound emails from this contact's address since enrollment started.
-        const { count: replyCount } = await admin
-          .from("crm_email_push_events")
-          .select("id", { count: "exact", head: true })
-          .eq("email", contact.email)
-          .gte("created_at", enrollment.next_send_at ? new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString() : now);
+        // Previous bug: crm_email_push_events.email stores the user's Gmail address, NOT
+        // the contact's email, so we can't match on it directly. Instead, find threads
+        // linked to this contact and check for push events on those threads since enrollment.
+        const { data: contactThreads } = await admin
+          .from("crm_email_thread_links")
+          .select("thread_id")
+          .eq("contact_id", enrollment.contact_id);
+
+        const linkedThreadIds = (contactThreads ?? []).map((t) => t.thread_id);
+        let replyCount = 0;
+
+        if (linkedThreadIds.length > 0) {
+          // Check for push events (new Gmail activity) on contact-linked threads
+          // since enrollment started. Push events with overlapping thread_ids indicate
+          // new messages on those threads — likely a reply from the contact.
+          const enrolledAt = (enrollment as unknown as { enrolled_at?: string }).enrolled_at
+            ?? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+          const { count } = await admin
+            .from("crm_email_push_events")
+            .select("id", { count: "exact", head: true })
+            .overlaps("thread_ids", linkedThreadIds)
+            .gte("created_at", enrolledAt);
+
+          replyCount = count ?? 0;
+        }
 
         if (replyCount && replyCount > 0) {
           await admin.from("crm_email_sequence_enrollments")
@@ -83,9 +119,9 @@ export async function GET(request: Request) {
         let body = template.body;
         let subject = currentStep.subject_override || template.subject || sequence.name;
         const vars: Record<string, string> = {
-          name: contact.name?.split(" ")[0] ?? "",
-          full_name: contact.name ?? "",
-          email: contact.email ?? "",
+          name: escapeHtml(contact.name?.split(" ")[0] ?? ""),
+          full_name: escapeHtml(contact.name ?? ""),
+          email: escapeHtml(contact.email ?? ""),
         };
         for (const [key, value] of Object.entries(vars)) {
           // Use replaceAll instead of regex to avoid ReDoS with user-controlled template variables
@@ -93,6 +129,9 @@ export async function GET(request: Request) {
           body = body.replaceAll(`{${key}}`, value);
           subject = subject.replaceAll(`{${key}}`, value);
         }
+
+        // Sanitize HTML after variable substitution to strip any injected script/style/etc.
+        body = sanitizeTemplateHtml(body);
 
         // Use the enrolling user as the sender (not the sequence creator)
         const senderId = (enrollment as unknown as { enrolled_by?: string }).enrolled_by
@@ -182,12 +221,25 @@ export async function GET(request: Request) {
           case "send_later": {
             if (scheduled.draft_data && scheduled.connection_id) {
               try {
-                const { driver } = await getDriverForUser(scheduled.user_id, scheduled.connection_id);
                 const draft = scheduled.draft_data as { to: { name: string; email: string }[]; subject: string; body: string };
+
+                // Validate recipients before sending
+                const validRecipients = (draft.to ?? []).filter(
+                  (r) => r.email && isValidEmail(r.email)
+                );
+                if (validRecipients.length === 0) {
+                  errors.push(`Scheduled send ${scheduled.id}: no valid recipients`);
+                  continue;
+                }
+
+                // Sanitize body HTML before sending
+                const sanitizedBody = sanitizeTemplateHtml(draft.body ?? "");
+
+                const { driver } = await getDriverForUser(scheduled.user_id, scheduled.connection_id);
                 await driver.send({
-                  to: draft.to,
+                  to: validRecipients,
                   subject: draft.subject,
-                  body: draft.body,
+                  body: sanitizedBody,
                 });
               } catch (sendErr) {
                 errors.push(`Scheduled send ${scheduled.id}: ${sendErr instanceof Error ? sendErr.message : "unknown"}`);

@@ -45,11 +45,27 @@ function maybeCleanup() {
   }
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const PIXEL_RESPONSE_HEADERS = {
+  "Content-Type": "image/gif",
+  "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+} as const;
+
 type Params = { params: Promise<{ id: string }> };
 
 /** GET: Tracking pixel — records email open event */
 export async function GET(request: Request, { params }: Params) {
   const { id: trackingId } = await params;
+
+  // Validate UUID format before touching the rate limiter map to prevent
+  // memory exhaustion via arbitrary key flooding (DoS vector).
+  if (!UUID_RE.test(trackingId)) {
+    return new NextResponse(PIXEL, {
+      status: 200,
+      headers: PIXEL_RESPONSE_HEADERS,
+    });
+  }
 
   // Record the open — look up tracking record to get user_id
   try {

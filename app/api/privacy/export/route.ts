@@ -4,7 +4,7 @@
  */
 
 import { NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth-guard";
+import { requireAuth, requireLeadRole } from "@/lib/auth-guard";
 
 export async function GET(request: Request) {
   const auth = await requireAuth();
@@ -13,6 +13,12 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const contactId = searchParams.get("contact_id");
+
+  // Exporting another contact's data requires lead role
+  if (contactId) {
+    const leadAuth = await requireLeadRole();
+    if ("error" in leadAuth) return leadAuth.error;
+  }
 
   const exportData: Record<string, unknown> = {
     exported_at: new Date().toISOString(),
