@@ -540,7 +540,7 @@ const CrmConditionEditor: CustomNodeEditor = ({ data, onChange }) => {
   const { options: boardOptions } = useCrmOptions("boards", undefined, field === "board_type");
 
   // Show async picker for certain field+operator combos
-  const showPicker = d.operator !== "is_empty" && ["stage", "board_type", "assigned_to"].includes(d.field || "");
+  const showPicker = d.operator !== "is_empty" && ["stage", "board_type", "assigned_to"].includes(field);
 
   return (
     <div className="space-y-3">

@@ -47,8 +47,7 @@ async function handleLLMExecute(
     if (!reader) return { content: "", error: "Streaming not supported" };
 
     const decoder = new TextDecoder();
-    let finalContent = "";
-    let usage: { input_tokens?: number; output_tokens?: number } | undefined;
+    const result: LLMExecuteResponse = { content: "", stream: undefined, usage: undefined };
 
     const textStream = new ReadableStream<string>({
       async start(controller) {
@@ -66,10 +65,10 @@ async function handleLLMExecute(
               try {
                 const event = JSON.parse(dataLine);
                 if (event.type === "text") {
-                  finalContent += event.text;
+                  result.content += event.text;
                   controller.enqueue(event.text);
                 } else if (event.type === "done") {
-                  usage = event.usage;
+                  result.usage = event.usage;
                 } else if (event.type === "error") {
                   controller.error(new Error(event.error));
                   return;
@@ -85,7 +84,8 @@ async function handleLLMExecute(
         }
       },
     });
-    return { content: finalContent, stream: textStream, usage };
+    result.stream = textStream;
+    return result;
   }
 
   const res = await fetch("/api/loop/flow-execute-llm", {

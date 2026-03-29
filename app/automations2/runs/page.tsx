@@ -80,6 +80,8 @@ const TRIGGER_LABELS: Record<string, string> = {
   deal_won: "Deal Won",
   deal_lost: "Deal Lost",
   scheduled: "Scheduled",
+  lead_qualified: "Lead Qualified",
+  bot_dm_received: "Bot DM",
 };
 
 const ERROR_TYPE_META: Record<string, { label: string; icon: React.ElementType; color: string }> = {
@@ -245,7 +247,7 @@ export default function AutomationRunsDashboard() {
 
       {/* Stat cards */}
       {stats && (
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard label="Total Runs" value={stats.total} comparison={comparison?.total} />
           <StatCard label="Success Rate" value={stats.successRate} comparison={comparison?.successRate} suffix="%" />
           <StatCard label="Avg Duration" value={stats.avgDurationMs != null ? formatMs(stats.avgDurationMs) : null} />
