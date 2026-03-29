@@ -109,7 +109,9 @@ interface ReplayRun {
   status: string;
   started_at: string;
   completed_at: string | null;
+  duration_ms: number | null;
   error: string | null;
+  failure_type: string | null;
   node_outputs: Record<string, unknown>;
   trigger_event: Record<string, unknown> | null;
 }
@@ -608,6 +610,18 @@ export default function Automations2Page() {
     }
   }, [activeWorkflowId]);
 
+  /** Validate & Run — triggered by WorkflowBuilder's onRun prop (toolbar button) */
+  const handleValidateAndRun = React.useCallback(async () => {
+    if (!activeWorkflowId) {
+      // Save first if there are nodes (opens name modal for new workflows)
+      if (nodesRef.current.length > 0) await handleSave(nodesRef.current, edgesRef.current);
+      return;
+    }
+    // Save latest, then execute
+    await saveToDb(nodesRef.current, edgesRef.current);
+    await handleRunWorkflow(false);
+  }, [activeWorkflowId, handleSave, saveToDb, handleRunWorkflow]);
+
   /** Show test-with-deal modal and fetch deals */
   const handleShowTestModal = React.useCallback(async () => {
     setShowTestModal(true);
@@ -820,14 +834,22 @@ export default function Automations2Page() {
                   className="w-full text-left px-4 py-3 hover:bg-white/5 transition"
                 >
                   <div className="flex items-center justify-between">
-                    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
-                      run.status === "completed" ? "bg-emerald-500/20 text-emerald-400"
-                      : run.status === "failed" ? "bg-red-500/20 text-red-400"
-                      : run.status === "paused" ? "bg-amber-500/20 text-amber-400"
-                      : "bg-blue-500/20 text-blue-400"
-                    }`}>
-                      {run.status}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+                        run.status === "completed" ? "bg-emerald-500/20 text-emerald-400"
+                        : run.status === "failed" ? "bg-red-500/20 text-red-400"
+                        : run.status === "paused" ? "bg-amber-500/20 text-amber-400"
+                        : "bg-blue-500/20 text-blue-400"
+                      }`}>
+                        {run.status}
+                      </span>
+                      {run.failure_type && (
+                        <span className="text-[10px] text-red-400/60 px-1 py-0.5 rounded bg-red-500/10">{run.failure_type}</span>
+                      )}
+                      {run.duration_ms != null && (
+                        <span className="text-[10px] text-muted-foreground">{run.duration_ms < 1000 ? `${run.duration_ms}ms` : `${(run.duration_ms / 1000).toFixed(1)}s`}</span>
+                      )}
+                    </div>
                     <span className="text-[10px] text-muted-foreground">
                       {new Date(run.started_at).toLocaleString()}
                     </span>
@@ -921,8 +943,10 @@ export default function Automations2Page() {
         onChat={handleChat}
         onLLMExecute={handleLLMExecute}
         onSave={handleSave}
+        onRun={handleValidateAndRun}
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
+        showExecutionPanel={!!activeWorkflowId}
         title="Automations"
         subtitle="Build CRM automation workflows with drag & drop"
         showAIChat
