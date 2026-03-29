@@ -1,6 +1,6 @@
 // ── Email Types ──────────────────────────────────────────────
 
-export type EmailProvider = "gmail" | "outlook";
+export type EmailProvider = "gmail" | "gmail_app_password" | "outlook";
 
 export type EmailAddress = {
   name: string;

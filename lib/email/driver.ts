@@ -1,5 +1,6 @@
 import type { MailDriver, EmailProvider } from "./types";
 import { GmailDriver } from "./gmail";
+import { ImapDriver } from "./imap-driver";
 import { decryptToken } from "@/lib/crypto";
 import { createSupabaseAdmin } from "@/lib/supabase";
 import { serverCache, TTL } from "./server-cache";
@@ -9,7 +10,7 @@ type ConnectionRecord = {
   provider: EmailProvider;
   email: string;
   access_token_encrypted: string;
-  refresh_token_encrypted: string;
+  refresh_token_encrypted: string | null;
   token_expires_at: string | null;
 };
 
@@ -19,7 +20,9 @@ type ConnectionRecord = {
  */
 export function createDriverFromConnection(conn: ConnectionRecord, userId?: string): MailDriver {
   const accessToken = decryptToken(conn.access_token_encrypted);
-  const refreshToken = decryptToken(conn.refresh_token_encrypted);
+  const refreshToken = conn.refresh_token_encrypted
+    ? decryptToken(conn.refresh_token_encrypted)
+    : "";
 
   switch (conn.provider) {
     case "gmail": {
@@ -39,6 +42,16 @@ export function createDriverFromConnection(conn: ConnectionRecord, userId?: stri
         clientId,
         clientSecret,
         expiryDate,
+      });
+      driver.connectionId = conn.id;
+      driver.userId = userId ?? null;
+      return driver;
+    }
+    case "gmail_app_password": {
+      // App password stored in access_token_encrypted; no refresh token needed
+      const driver = new ImapDriver({
+        email: conn.email,
+        appPassword: accessToken,
       });
       driver.connectionId = conn.id;
       driver.userId = userId ?? null;
