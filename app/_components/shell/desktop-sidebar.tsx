@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { useShell } from "./shell-context";
-import { TOP_ITEMS, NAV_SECTIONS, SETTINGS_ITEM, ADMIN_ITEM, type NavItem } from "./nav-config";
+import { TOP_ITEMS, NAV_SECTIONS, SETTINGS_ITEM, ADMIN_ITEM, filterByRole, type NavItem } from "./nav-config";
 import { useCollapsedSections } from "./use-collapsed-sections";
 import { ChevronsLeft, ChevronsRight, LogOut, ChevronDown, ChevronRight } from "lucide-react";
 
@@ -89,6 +89,8 @@ export function DesktopSidebar() {
 
         {/* Collapsible sections */}
         {NAV_SECTIONS.map((section) => {
+          const visibleItems = filterByRole(section.items, crmRole);
+          if (visibleItems.length === 0) return null;
           const isCollapsed = collapsedSections.has(section.key);
           return (
             <div key={section.key} className="pt-3">
@@ -103,7 +105,7 @@ export function DesktopSidebar() {
                 </button>
               )}
               {(!isCollapsed || sidebarCollapsed) &&
-                section.items.map((item) => (
+                visibleItems.map((item) => (
                   <NavLink key={item.href} item={item} active={isActive(item.href, pathname)} collapsed={sidebarCollapsed} />
                 ))}
             </div>
