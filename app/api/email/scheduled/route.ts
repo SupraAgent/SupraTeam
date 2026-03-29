@@ -55,6 +55,9 @@ export async function POST(request: Request) {
   if (isNaN(scheduledDate.getTime())) {
     return NextResponse.json({ error: "scheduled_for must be a valid date" }, { status: 400 });
   }
+  if (scheduledDate.getTime() <= Date.now()) {
+    return NextResponse.json({ error: "scheduled_for must be in the future" }, { status: 400 });
+  }
 
   // Verify connection ownership
   const { data: conn } = await auth.admin

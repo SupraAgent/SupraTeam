@@ -115,6 +115,7 @@ export type ForwardParams = {
   body?: string; // optional added text
   cc?: EmailAddress[];
   bcc?: EmailAddress[];
+  attachments?: { filename: string; mimeType: string; data: string }[]; // base64
 };
 
 export type DraftParams = SendParams;

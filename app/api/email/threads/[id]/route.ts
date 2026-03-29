@@ -12,20 +12,22 @@ export async function GET(request: Request, { params }: Params) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
   const { id } = await params;
+  const { searchParams } = new URL(request.url);
+  const connectionId = searchParams.get("connection_id") ?? undefined;
 
   // Server-side cache for full threads (Railway persistent process)
-  const cacheKey = `thread:${auth.user.id}:${id}`;
+  const cacheKey = `thread:${auth.user.id}:${connectionId ?? "default"}:${id}`;
   const cached = serverCache.get(cacheKey);
   if (cached) {
     // Still mark as read in background
-    getDriverForUser(auth.user.id).then(({ driver }) => driver.markAsRead(id)).catch(() => {});
+    getDriverForUser(auth.user.id, connectionId).then(({ driver }) => driver.markAsRead(id)).catch(() => {});
     return NextResponse.json({ data: cached, source: "gmail" }, {
       headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" },
     });
   }
 
   try {
-    const { driver } = await getDriverForUser(auth.user.id);
+    const { driver } = await getDriverForUser(auth.user.id, connectionId);
     const thread = await driver.getThread(id);
 
     // Mark as read on open — fire-and-forget, don't block response
@@ -86,7 +88,7 @@ export async function POST(request: Request, { params }: Params) {
     }
 
     // Invalidate server-side caches after mutation
-    serverCache.delete(`thread:${auth.user.id}:${id}`);
+    serverCache.invalidatePrefix(`thread:${auth.user.id}:`);
     serverCache.invalidatePrefix(`threads:${auth.user.id}:`);
 
     // Audit log — fire-and-forget, don't block response

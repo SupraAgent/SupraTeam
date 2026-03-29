@@ -30,6 +30,7 @@ export class GmailDriver implements MailDriver {
   private auth: InstanceType<typeof google.auth.OAuth2>;
 
   public connectionId: string | null = null;
+  public userId: string | null = null;
 
   constructor(config: GmailConfig) {
     this.auth = new google.auth.OAuth2(config.clientId, config.clientSecret);
@@ -49,6 +50,7 @@ export class GmailDriver implements MailDriver {
           const { serverCache } = await import("./server-cache");
           await updateConnectionTokens(
             this.connectionId,
+            this.userId ?? "",
             tokens.access_token,
             tokens.expiry_date ? new Date(tokens.expiry_date) : undefined
           );
@@ -166,11 +168,12 @@ export class GmailDriver implements MailDriver {
         format: "MINIMAL",
       });
       const firstMsg = thread.data.messages?.[0];
-      const isStarred = firstMsg?.labelIds?.includes("STARRED") ?? false;
+      if (!firstMsg?.id) return;
+      const isStarred = firstMsg.labelIds?.includes("STARRED") ?? false;
 
       await this.gmail.users.messages.modify({
         userId: "me",
-        id: firstMsg!.id!,
+        id: firstMsg.id,
         requestBody: isStarred
           ? { removeLabelIds: ["STARRED"] }
           : { addLabelIds: ["STARRED"] },
@@ -260,12 +263,28 @@ export class GmailDriver implements MailDriver {
       ? `${params.body}<br><br>---------- Forwarded message ----------<br>${parsed.body}`
       : `---------- Forwarded message ----------<br>From: ${parsed.from.email}<br>Date: ${parsed.date}<br>Subject: ${parsed.subject}<br><br>${parsed.body}`;
 
+    // Carry over original attachments (convert Buffer → base64 string for send)
+    const originalAttachments: { filename: string; mimeType: string; data: string }[] = [];
+    if (parsed.attachments?.length) {
+      for (const att of parsed.attachments) {
+        if (att.id) {
+          try {
+            const fetched = await this.getAttachment(messageId, att.id, { filename: att.filename, mimeType: att.mimeType });
+            originalAttachments.push({ filename: fetched.filename, mimeType: fetched.mimeType, data: fetched.data.toString("base64") });
+          } catch {
+            // Skip failed attachment downloads
+          }
+        }
+      }
+    }
+
     return this.send({
       to: params.to,
       cc: params.cc,
       bcc: params.bcc,
       subject: `Fwd: ${parsed.subject}`,
       body: forwardBody,
+      attachments: [...originalAttachments, ...(params.attachments ?? [])],
     });
   }
 
@@ -308,7 +327,7 @@ export class GmailDriver implements MailDriver {
     }));
   }
 
-  async getAttachment(messageId: string, attachmentId: string): Promise<Attachment> {
+  async getAttachment(messageId: string, attachmentId: string, meta?: { filename?: string; mimeType?: string }): Promise<Attachment> {
     const res = await this.gmail.users.messages.attachments.get({
       userId: "me",
       messageId,
@@ -317,8 +336,8 @@ export class GmailDriver implements MailDriver {
     const data = Buffer.from(res.data.data ?? "", "base64url");
     return {
       data,
-      filename: "attachment",
-      mimeType: "application/octet-stream",
+      filename: meta?.filename ?? "attachment",
+      mimeType: meta?.mimeType ?? "application/octet-stream",
       size: data.length,
     };
   }
