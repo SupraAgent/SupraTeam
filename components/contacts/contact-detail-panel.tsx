@@ -9,7 +9,7 @@ import { Select } from "@/components/ui/select";
 import type { Contact, PipelineStage, LifecycleStage, ContactSource } from "@/lib/types";
 import { timeAgo, cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { Save, Trash2, MessageCircle, FileText, GitMerge, AlertTriangle, Twitter } from "lucide-react";
+import { Save, Trash2, MessageCircle, FileText, GitMerge, AlertTriangle, Twitter, Loader2, ChevronDown, ChevronRight, RefreshCw, Wallet } from "lucide-react";
 import Link from "next/link";
 
 const LIFECYCLE_OPTIONS: { value: LifecycleStage; label: string }[] = [
@@ -72,6 +72,19 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
   const [customFields, setCustomFields] = React.useState<CField[]>([]);
   const [customValues, setCustomValues] = React.useState<Record<string, string>>({});
 
+  // Enrichment state
+  const [enrichingX, setEnrichingX] = React.useState(false);
+  const [xEnrichData, setXEnrichData] = React.useState<{ x_bio: string | null; x_followers: number | null; enriched_at: string | null } | null>(null);
+  const [calculatingScore, setCalculatingScore] = React.useState(false);
+  const [displayScore, setDisplayScore] = React.useState<number>(0);
+
+  // Enrichment history
+  type EnrichmentLogEntry = { id: string; field_name: string; old_value: string | null; new_value: string | null; source: string; created_at: string };
+  const [enrichHistory, setEnrichHistory] = React.useState<EnrichmentLogEntry[]>([]);
+  const [enrichHistoryOpen, setEnrichHistoryOpen] = React.useState(false);
+  const [enrichHistoryLoaded, setEnrichHistoryLoaded] = React.useState(false);
+  const [showAllHistory, setShowAllHistory] = React.useState(false);
+
   React.useEffect(() => {
     if (contact && open) {
       setName(contact.name);
@@ -87,6 +100,17 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
       setLifecycle(contact.lifecycle_stage ?? "prospect");
       setSource(contact.source ?? "manual");
       setNotes(contact.notes ?? "");
+
+      // Set enrichment display data from contact
+      setXEnrichData(
+        contact.enriched_at
+          ? { x_bio: contact.x_bio, x_followers: contact.x_followers, enriched_at: contact.enriched_at }
+          : null
+      );
+      setDisplayScore(contact.on_chain_score ?? 0);
+      setEnrichHistoryOpen(false);
+      setEnrichHistoryLoaded(false);
+      setShowAllHistory(false);
 
       fetch("/api/pipeline").then((r) => r.json()).then((d) => setStages(d.stages ?? [])).catch(() => {});
       fetch(`/api/docs?entity_type=contact&entity_id=${contact.id}`).then((r) => r.json()).then((d) => setLinkedDocs(d.docs ?? [])).catch(() => setLinkedDocs([]));
@@ -178,6 +202,75 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
     }
   }
 
+  function formatFollowers(n: number): string {
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+    if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+    return String(n);
+  }
+
+  async function handleEnrichX() {
+    if (!contact) return;
+    setEnrichingX(true);
+    try {
+      const res = await fetch("/api/contacts/enrich-x", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contact_id: contact.id }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setXEnrichData({
+          x_bio: data.enrichment.x_bio,
+          x_followers: data.enrichment.x_followers,
+          enriched_at: data.enrichment.enriched_at,
+        });
+        toast.success("X profile enriched");
+        onUpdated?.();
+      } else {
+        const data = await res.json();
+        toast.error(data.error || "Enrichment failed");
+      }
+    } finally {
+      setEnrichingX(false);
+    }
+  }
+
+  async function handleCalculateScore() {
+    if (!contact) return;
+    setCalculatingScore(true);
+    try {
+      const res = await fetch("/api/contacts/enrich-onchain", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contact_id: contact.id }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setDisplayScore(data.score);
+        toast.success(`On-chain score: ${data.score}/100`);
+        onUpdated?.();
+      } else {
+        const data = await res.json();
+        toast.error(data.error || "Score calculation failed");
+      }
+    } finally {
+      setCalculatingScore(false);
+    }
+  }
+
+  async function loadEnrichmentHistory() {
+    if (!contact || enrichHistoryLoaded) return;
+    try {
+      const res = await fetch(`/api/contacts/${contact.id}/enrichment-log`);
+      if (res.ok) {
+        const data = await res.json();
+        setEnrichHistory(data.logs ?? []);
+      }
+    } finally {
+      setEnrichHistoryLoaded(true);
+    }
+  }
+
   return (
     <SlideOver open={open} onClose={onClose} title={name || contact.name}>
       <div className="space-y-4">
@@ -205,6 +298,46 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
                 <Twitter className="h-4 w-4" />
                 X / Twitter
               </a>
+            )}
+          </div>
+        )}
+
+        {/* X Enrichment */}
+        {xHandle && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={handleEnrichX}
+                disabled={enrichingX}
+                className="h-7 text-[11px]"
+              >
+                {enrichingX ? (
+                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-1 h-3 w-3" />
+                )}
+                {xEnrichData ? "Re-enrich from X" : "Enrich from X"}
+              </Button>
+            </div>
+            {xEnrichData && (
+              <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 space-y-1.5">
+                {xEnrichData.x_bio && (
+                  <p className="text-xs text-muted-foreground line-clamp-2">{xEnrichData.x_bio}</p>
+                )}
+                {xEnrichData.x_followers != null && (
+                  <div className="flex items-center gap-2 text-[11px]">
+                    <span className="text-muted-foreground">Followers:</span>
+                    <span className="text-foreground font-medium">{formatFollowers(xEnrichData.x_followers)}</span>
+                  </div>
+                )}
+                {xEnrichData.enriched_at && (
+                  <p className="text-[10px] text-muted-foreground/50">
+                    Last enriched {timeAgo(xEnrichData.enriched_at)}
+                  </p>
+                )}
+              </div>
             )}
           </div>
         )}
@@ -317,17 +450,37 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
         </div>
 
         {/* On-chain score display */}
-        {contact.on_chain_score > 0 && (
+        {(displayScore > 0 || walletAddress) && (
           <div className="flex items-center justify-between rounded-lg bg-white/[0.03] px-3 py-2">
             <span className="text-[11px] text-muted-foreground">On-Chain Score</span>
-            <span className={cn(
-              "rounded-full px-2 py-0.5 text-[10px] font-medium",
-              contact.on_chain_score >= 70 ? "bg-emerald-500/20 text-emerald-400" :
-              contact.on_chain_score >= 40 ? "bg-amber-500/20 text-amber-400" :
-              "bg-slate-500/20 text-slate-400"
-            )}>
-              {contact.on_chain_score}/100
-            </span>
+            <div className="flex items-center gap-2">
+              {displayScore > 0 && (
+                <span className={cn(
+                  "rounded-full px-2 py-0.5 text-[10px] font-medium",
+                  displayScore >= 70 ? "bg-emerald-500/20 text-emerald-400" :
+                  displayScore >= 40 ? "bg-amber-500/20 text-amber-400" :
+                  "bg-slate-500/20 text-slate-400"
+                )}>
+                  {displayScore}/100
+                </span>
+              )}
+              {walletAddress && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={handleCalculateScore}
+                  disabled={calculatingScore}
+                  className="h-6 text-[10px] px-2"
+                >
+                  {calculatingScore ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Wallet className="h-3 w-3" />
+                  )}
+                  <span className="ml-1">{displayScore > 0 ? "Recalculate" : "Calculate"}</span>
+                </Button>
+              )}
+            </div>
           </div>
         )}
 
@@ -422,6 +575,63 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
             </div>
           </div>
         )}
+
+        {/* Enrichment History */}
+        <div className="pt-2">
+          <button
+            onClick={() => {
+              const next = !enrichHistoryOpen;
+              setEnrichHistoryOpen(next);
+              if (next) loadEnrichmentHistory();
+            }}
+            className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition"
+          >
+            {enrichHistoryOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            Enrichment History
+          </button>
+          {enrichHistoryOpen && (
+            <div className="mt-2 space-y-1.5">
+              {!enrichHistoryLoaded && (
+                <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" /> Loading...
+                </div>
+              )}
+              {enrichHistoryLoaded && enrichHistory.length === 0 && (
+                <p className="text-[10px] text-muted-foreground/50">No enrichment history yet.</p>
+              )}
+              {(showAllHistory ? enrichHistory : enrichHistory.slice(0, 5)).map((entry) => (
+                <div key={entry.id} className="rounded-lg bg-white/[0.02] px-2.5 py-1.5 space-y-0.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-foreground font-medium">{entry.field_name}</span>
+                    <span className={cn(
+                      "rounded-full px-1.5 py-0.5 text-[9px] font-medium",
+                      entry.source === "manual" ? "bg-blue-500/20 text-blue-400" :
+                      entry.source === "x_api" ? "bg-white/10 text-foreground" :
+                      entry.source === "onchain_rpc" ? "bg-emerald-500/20 text-emerald-400" :
+                      "bg-slate-500/20 text-slate-400"
+                    )}>
+                      {entry.source}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">
+                    {entry.old_value ?? <span className="italic">empty</span>}
+                    {" → "}
+                    {entry.new_value ?? <span className="italic">empty</span>}
+                  </p>
+                  <p className="text-[9px] text-muted-foreground/40">{timeAgo(entry.created_at)}</p>
+                </div>
+              ))}
+              {!showAllHistory && enrichHistory.length > 5 && (
+                <button
+                  onClick={() => setShowAllHistory(true)}
+                  className="text-[10px] text-primary hover:text-primary/80"
+                >
+                  Show {enrichHistory.length - 5} more...
+                </button>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Actions */}
         <div className="flex items-center justify-between pt-3 border-t border-white/10">

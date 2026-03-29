@@ -900,10 +900,11 @@ export function registerMessageHandlers(bot: Bot) {
       // Track reply hour for send-time optimization (non-blocking, atomic upsert)
       if (!isTeamMember && !ctx.from.is_bot) {
         const replyHour = new Date(ctx.message.date * 1000).getUTCHours();
-        supabase.rpc("increment_reply_hour_stat", {
+        // Atomic INSERT ... ON CONFLICT increment via RPC (no read-modify-write race)
+        void supabase.rpc("increment_reply_hour_stat", {
           p_tg_group_id: tgGroup.id,
           p_hour_utc: replyHour,
-        }).then(() => {}); // Best effort
+        }); // Best effort
       }
     } catch (err) {
       console.error("[bot/messages] error:", err);

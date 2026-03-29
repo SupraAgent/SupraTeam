@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { dispatchWebhook } from "@/lib/webhooks";
+import { computeQualityScore } from "@/lib/quality-score";
 import { sanitizePostgrestValue } from "@/lib/utils";
 
 export async function GET(request: Request) {
@@ -75,6 +76,16 @@ export async function POST(request: Request) {
   if (error) {
     console.error("[api/contacts] insert error:", error);
     return NextResponse.json({ error: "Failed to create contact" }, { status: 500 });
+  }
+
+  // Compute and update quality_score
+  if (contact) {
+    const qualityScore = computeQualityScore(contact);
+    await supabase
+      .from("crm_contacts")
+      .update({ quality_score: qualityScore })
+      .eq("id", contact.id);
+    contact.quality_score = qualityScore;
   }
 
   // Save custom field values
