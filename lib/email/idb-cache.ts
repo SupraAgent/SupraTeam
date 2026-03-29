@@ -3,8 +3,10 @@
 
 // Scope DB name by user ID to prevent cross-user data leaks on shared browsers
 function getDbName(): string {
-  // userId is injected by the caller via setIdbUserId()
-  return _idbUserId ? `supracrm_email_${_idbUserId}` : "supracrm_email";
+  if (!_idbUserId) {
+    throw new Error("IDB userId not set — call setIdbUserId() before accessing email cache");
+  }
+  return `supracrm_email_${_idbUserId}`;
 }
 
 let _idbUserId: string | null = null;

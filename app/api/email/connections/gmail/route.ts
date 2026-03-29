@@ -68,12 +68,14 @@ export async function POST() {
   const nonce = crypto.randomUUID();
   const state = signState({ uid: auth.user.id, ts: Date.now(), nonce });
 
-  // Only force consent if no refresh token exists (reconnect doesn't need full consent screen)
+  // Always use prompt: "consent" — Google only returns a refresh_token on consent grant.
+  // Using "select_account" on reconnect causes Google to withhold the refresh token,
+  // making the callback fail with "no_tokens" since we require a refresh token for new connections.
+  // For reconnects, the callback will keep the existing refresh token if Google doesn't send a new one.
   const { data: existingConn } = await auth.admin
     .from("crm_email_connections")
-    .select("refresh_token_encrypted")
+    .select("id")
     .eq("user_id", auth.user.id)
-    .not("refresh_token_encrypted", "is", null)
     .limit(1)
     .maybeSingle();
 
@@ -81,7 +83,7 @@ export async function POST() {
   const url = oauth2Client.generateAuthUrl({
     access_type: "offline",
     scope: SCOPES,
-    prompt: existingConn ? "select_account" : "consent",
+    prompt: "consent",
     state,
   });
 

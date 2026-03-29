@@ -23,6 +23,7 @@ type GmailConfig = {
   refreshToken: string;
   clientId: string;
   clientSecret: string;
+  expiryDate?: number;
 };
 
 export class GmailDriver implements MailDriver {
@@ -37,6 +38,7 @@ export class GmailDriver implements MailDriver {
     this.auth.setCredentials({
       access_token: config.accessToken,
       refresh_token: config.refreshToken,
+      expiry_date: config.expiryDate ?? undefined,
     });
     // HTTP/2: multiplex all concurrent Gmail API calls over a single TCP connection
     // On Railway's persistent process, the connection stays warm between requests
@@ -380,11 +382,14 @@ export class GmailDriver implements MailDriver {
   }
 
   async watchInbox(topicName: string): Promise<{ historyId: string; expiration: string }> {
+    // Watch all label changes (INBOX, SENT, TRASH, DRAFT) so push notifications
+    // cover sent messages, deletions, and label changes — not just new inbox mail.
+    // Omitting labelIds watches everything, which is what Superhuman/Inbox Zero do.
     const res = await this.gmail.users.watch({
       userId: "me",
       requestBody: {
         topicName,
-        labelIds: ["INBOX"],
+        labelIds: ["INBOX", "SENT", "TRASH", "DRAFT"],
       },
     });
     return {
@@ -436,9 +441,16 @@ export class GmailDriver implements MailDriver {
         changes,
       };
     } catch (err: unknown) {
-      // If historyId is too old, Gmail returns 404. Return empty with same ID
+      // If historyId is too old (>7 days), Gmail returns 404.
+      // Recover by fetching the current historyId so we don't loop forever.
       if (err && typeof err === "object" && "code" in err && (err as { code: number }).code === 404) {
-        return { historyId: startHistoryId, changes: [] };
+        try {
+          const profile = await this.gmail.users.getProfile({ userId: "me" });
+          const freshHistoryId = profile.data.historyId ?? startHistoryId;
+          return { historyId: freshHistoryId, changes: [] };
+        } catch {
+          return { historyId: startHistoryId, changes: [] };
+        }
       }
       throw err;
     }
@@ -448,19 +460,10 @@ export class GmailDriver implements MailDriver {
     const res = await this.gmail.users.getProfile({ userId: "me" });
     const email = res.data.emailAddress ?? "";
 
-    // Try to get actual display name from Google People API
-    let name = "";
-    try {
-      const people = google.people({ version: "v1", auth: this.auth });
-      const profile = await people.people.get({
-        resourceName: "people/me",
-        personFields: "names",
-      });
-      name = profile.data.names?.[0]?.displayName ?? "";
-    } catch {
-      // Fallback: derive from email prefix
-      name = email.split("@")[0]?.replace(/[._]/g, " ") ?? email;
-    }
+    // Derive display name from email prefix — People API scope is not requested
+    // so that call always fails with a permission error, adding ~200ms latency.
+    // The OAuth callback already stores the user's name from userinfo.
+    const name = email.split("@")[0]?.replace(/[._]/g, " ") ?? email;
 
     return { email, name };
   }

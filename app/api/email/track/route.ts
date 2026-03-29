@@ -19,7 +19,7 @@ export async function GET(request: Request) {
   if (trackingId) {
     query = query.eq("tracking_id", trackingId);
   } else if (threadId) {
-    query = query.eq("tracking_id", threadId);
+    query = query.eq("thread_id", threadId);
   } else {
     return NextResponse.json({ error: "tracking_id or thread_id required" }, { status: 400 });
   }

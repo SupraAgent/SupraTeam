@@ -13,11 +13,11 @@ const ALLOWED_TAGS = new Set([
   "div", "span", "p", "br", "a", "b", "strong", "i", "em", "u",
   "ul", "ol", "li", "h1", "h2", "h3", "h4", "h5", "h6",
   "table", "thead", "tbody", "tr", "td", "th",
-  "blockquote", "pre", "code", "hr",
+  "blockquote", "pre", "code", "hr", "img",
 ]);
 
 const ALLOWED_ATTRS = new Set([
-  "href", "alt", "title", "width", "height", "target", "rel", "class",
+  "href", "src", "alt", "title", "width", "height", "target", "rel", "class",
   "colspan", "rowspan", "align", "valign",
 ]);
 
@@ -64,7 +64,7 @@ export function sanitizeTemplateHtml(html: string): string {
 
       if (attrName.startsWith("on")) continue;
       if (!ALLOWED_ATTRS.has(attrName)) continue;
-      if (attrName === "href" && DANGEROUS_URI.test(decodeURIComponent(attrVal))) continue;
+      if ((attrName === "href" || attrName === "src") && DANGEROUS_URI.test(decodeURIComponent(attrVal))) continue;
 
       safeAttrs.push(`${attrName}="${attrVal.replace(/"/g, "&quot;")}"`);
     }

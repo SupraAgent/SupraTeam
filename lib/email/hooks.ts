@@ -474,8 +474,14 @@ export function useGmailPush(onNewMail: () => void) {
   onNewMailRef.current = onNewMail;
 
   React.useEffect(() => {
-    // Register watch once on mount (fire-and-forget)
-    fetch("/api/email/watch", { method: "POST" }).catch(() => {});
+    // Register watch once per session — not on every mount.
+    // Gmail watches last 7 days and the renew-watches cron handles renewal.
+    // Firing on every mount wastes API quota on page navigation.
+    if (!sessionStorage.getItem("gmail_watch_registered")) {
+      fetch("/api/email/watch", { method: "POST" })
+        .then((r) => { if (r.ok) sessionStorage.setItem("gmail_watch_registered", "1"); })
+        .catch(() => {});
+    }
 
     // Subscribe to Realtime push events via Supabase
     const supabase = createClient();
@@ -539,8 +545,16 @@ export function useEmailActions(
 
         // Undo support — 5 second window
         if (removedThread) {
+          // Execute the PREVIOUS pending undo action immediately before replacing it,
+          // so rapid archive on thread A then B doesn't silently drop A's API call.
           if (undoActionRef.current) {
             clearTimeout(undoActionRef.current.timer);
+            const prev = undoActionRef.current;
+            fetch(`/api/email/threads/${prev.threadId}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ action: prev.action }),
+            }).catch(() => {});
           }
 
           const timer = setTimeout(() => {
@@ -595,12 +609,44 @@ export function useEmailActions(
         );
       }
 
-      // Fire-and-forget for non-destructive actions — UI already updated optimistically
+      // Optimistic update with rollback on failure
       fetch(`/api/email/threads/${threadId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, ...extra }),
-      }).catch(() => {});
+      }).then((res) => {
+        if (!res.ok) {
+          // Rollback: revert the optimistic update
+          if (action === "star") {
+            setThreads((prev) =>
+              prev.map((t) => (t.id === threadId ? { ...t, isStarred: !t.isStarred } : t))
+            );
+          } else if (action === "read") {
+            setThreads((prev) =>
+              prev.map((t) => (t.id === threadId ? { ...t, isUnread: true } : t))
+            );
+          } else if (action === "unread") {
+            setThreads((prev) =>
+              prev.map((t) => (t.id === threadId ? { ...t, isUnread: false } : t))
+            );
+          }
+        }
+      }).catch(() => {
+        // Network failure — rollback optimistic update
+        if (action === "star") {
+          setThreads((prev) =>
+            prev.map((t) => (t.id === threadId ? { ...t, isStarred: !t.isStarred } : t))
+          );
+        } else if (action === "read") {
+          setThreads((prev) =>
+            prev.map((t) => (t.id === threadId ? { ...t, isUnread: true } : t))
+          );
+        } else if (action === "unread") {
+          setThreads((prev) =>
+            prev.map((t) => (t.id === threadId ? { ...t, isUnread: false } : t))
+          );
+        }
+      });
     },
     [setThreads]
   );
