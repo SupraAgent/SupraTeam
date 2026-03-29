@@ -5,8 +5,9 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const { id } = await params;
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase, admin } = auth;
 
+  // Use scoped client — RLS filters to deals the user can access
   const { data: deal, error } = await supabase
     .from("crm_deals")
     .select(`
@@ -22,9 +23,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "Deal not found" }, { status: 404 });
   }
 
+  // Fetch assigned profile via admin (profiles is a shared table)
   let assigned_profile = null;
   if (deal.assigned_to) {
-    const { data: profile } = await supabase
+    const { data: profile } = await admin
       .from("profiles")
       .select("display_name, avatar_url")
       .eq("id", deal.assigned_to)
@@ -32,7 +34,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     assigned_profile = profile;
   }
 
-  // Fetch custom field values
+  // Fetch custom field values via scoped client
   const { data: fieldValues } = await supabase
     .from("crm_deal_field_values")
     .select("field_id, value")
@@ -50,7 +52,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const { id } = await params;
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const DEAL_FIELDS = ["deal_name", "contact_id", "assigned_to", "board_type", "stage_id", "value", "probability", "telegram_chat_id", "telegram_chat_name", "telegram_chat_link", "tg_group_id", "expected_close_date", "outcome"];
   const raw = await request.json();
@@ -120,20 +122,21 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   const { id } = await params;
   const auth = await requireLeadRole();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase, admin } = auth;
 
-  // Cancel active outreach/drip enrollments before deleting the deal
-  await supabase
+  // Cancel active outreach/drip enrollments via admin (cross-user cleanup)
+  await admin
     .from("crm_outreach_enrollments")
     .update({ status: "cancelled" })
     .eq("deal_id", id)
     .eq("status", "active");
-  await supabase
+  await admin
     .from("crm_drip_enrollments")
     .update({ status: "cancelled" })
     .eq("deal_id", id)
     .eq("status", "active");
 
+  // Use scoped client for the actual delete — RLS enforces creator/lead check
   const { error } = await supabase.from("crm_deals").delete().eq("id", id);
 
   if (error) {
