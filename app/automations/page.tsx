@@ -286,7 +286,7 @@ function WorkflowManagerPanel({
         </button>
       )}
       <Link
-        href="/automations2/runs"
+        href="/automations/runs"
         className="rounded-lg border border-white/10 bg-background/95 backdrop-blur-sm px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-white/5 shadow-lg transition"
         title="View all workflow runs"
       >

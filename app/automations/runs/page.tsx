@@ -281,7 +281,7 @@ export default function AutomationRunsDashboard() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Button size="sm" variant="ghost" onClick={() => router.push("/automations2")} className="h-8 w-8 p-0">
+          <Button size="sm" variant="ghost" onClick={() => router.push("/automations")} className="h-8 w-8 p-0">
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
@@ -482,7 +482,7 @@ export default function AutomationRunsDashboard() {
                   >
                     <td className="px-4 py-2.5">
                       <button
-                        onClick={(e) => { e.stopPropagation(); router.push(`/automations2/${run.workflow_id}`); }}
+                        onClick={(e) => { e.stopPropagation(); router.push(`/automations/${run.workflow_id}`); }}
                         className="text-xs text-foreground hover:text-primary transition-colors flex items-center gap-1 group/link"
                       >
                         {run.workflow_name}
