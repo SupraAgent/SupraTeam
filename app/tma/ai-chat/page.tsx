@@ -118,7 +118,7 @@ export default function TMAAIChatPage() {
           </div>
           <div>
             <h1 className="text-sm font-semibold text-foreground">AI Assistant</h1>
-            <p className="text-[10px] text-muted-foreground">SupraCRM powered by Claude</p>
+            <p className="text-[10px] text-muted-foreground">SupraTeam powered by Claude</p>
           </div>
         </div>
       </div>

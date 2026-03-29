@@ -28,7 +28,7 @@ function registerAllHandlers(bot: Bot) {
   // --- Commands ---
   bot.command("start", async (ctx) => {
     await ctx.reply(
-      "Welcome to SupraCRM Bot!\n\n" +
+      "Welcome to SupraTeam Bot!\n\n" +
       "I help manage your CRM pipeline and Telegram groups.\n\n" +
       "Commands:\n" +
       "/help - Show available commands\n" +
@@ -39,7 +39,7 @@ function registerAllHandlers(bot: Bot) {
 
   bot.command("help", async (ctx) => {
     await ctx.reply(
-      "SupraCRM Bot Commands:\n\n" +
+      "SupraTeam Bot Commands:\n\n" +
       "/start - Welcome message\n" +
       "/help - This help text\n" +
       "/status - How many groups I admin, pipeline stats\n" +
@@ -53,7 +53,7 @@ function registerAllHandlers(bot: Bot) {
       supabase.from("crm_deals").select("id", { count: "exact", head: true }),
     ]);
     await ctx.reply(
-      `SupraCRM Bot Status\n\n` +
+      `SupraTeam Bot Status\n\n` +
       `Groups administered: ${groupsRes.count ?? 0}\n` +
       `Active deals: ${dealsRes.count ?? 0}`
     );

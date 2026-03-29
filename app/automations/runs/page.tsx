@@ -80,6 +80,8 @@ const TRIGGER_LABELS: Record<string, string> = {
   deal_won: "Deal Won",
   deal_lost: "Deal Lost",
   scheduled: "Scheduled",
+  lead_qualified: "Lead Qualified",
+  bot_dm_received: "Bot DM",
 };
 
 const ERROR_TYPE_META: Record<string, { label: string; icon: React.ElementType; color: string }> = {
@@ -109,6 +111,10 @@ export default function AutomationRunsDashboard() {
   const [retryMsg, setRetryMsg] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
   const [debouncedSearch, setDebouncedSearch] = React.useState("");
+  const [expandedRunId, setExpandedRunId] = React.useState<string | null>(null);
+  const [expandedDetail, setExpandedDetail] = React.useState<Record<string, unknown> | null>(null);
+  const [loadingDetail, setLoadingDetail] = React.useState(false);
+  const [rerunning, setRerunning] = React.useState<string | null>(null);
 
   const pollRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -181,6 +187,66 @@ export default function AutomationRunsDashboard() {
     }
   }
 
+  async function handleExpandRun(runId: string) {
+    if (expandedRunId === runId) {
+      setExpandedRunId(null);
+      setExpandedDetail(null);
+      return;
+    }
+    setExpandedRunId(runId);
+    setExpandedDetail(null);
+    setLoadingDetail(true);
+    try {
+      const res = await fetch(`/api/workflows/runs/nodes?run_id=${runId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setExpandedDetail(data);
+      }
+    } catch { /* ignore */ }
+    setLoadingDetail(false);
+  }
+
+  async function handleRerun(run: RunRow) {
+    setRerunning(run.id);
+    try {
+      const res = await fetch(`/api/loop/workflows/${run.workflow_id}/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(run.trigger_event ?? {}),
+          test_mode: false, // Must come last to override stored test_mode
+        }),
+      });
+      if (res.ok) {
+        setRetryMsg("Re-run started");
+        fetchData();
+      } else {
+        setRetryMsg("Re-run failed");
+      }
+    } catch {
+      setRetryMsg("Re-run failed");
+    } finally {
+      setRerunning(null);
+      setTimeout(() => setRetryMsg(""), 4000);
+    }
+  }
+
+  async function handleDeleteRuns(mode: "all" | "failed") {
+    if (!confirm(`Delete ${mode === "all" ? "all" : "failed"} runs in this time range?`)) return;
+    try {
+      const params = new URLSearchParams({ time_range: timeRange });
+      if (mode === "failed") params.set("status", "failed");
+      const res = await fetch(`/api/workflows/runs?${params}`, { method: "DELETE" });
+      if (res.ok) {
+        setRetryMsg(`Deleted ${mode} runs`);
+        fetchData();
+      }
+    } catch {
+      setRetryMsg("Delete failed");
+    }
+    setTimeout(() => setRetryMsg(""), 4000);
+  }
+
   function toggleSort(col: SortCol) {
     if (sort === col) {
       setSortDir(sortDir === "desc" ? "asc" : "desc");
@@ -215,7 +281,7 @@ export default function AutomationRunsDashboard() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Button size="sm" variant="ghost" onClick={() => router.push("/automations")} className="h-8 w-8 p-0">
+          <Button size="sm" variant="ghost" onClick={() => router.push("/automations2")} className="h-8 w-8 p-0">
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
@@ -245,7 +311,7 @@ export default function AutomationRunsDashboard() {
 
       {/* Stat cards */}
       {stats && (
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard label="Total Runs" value={stats.total} comparison={comparison?.total} />
           <StatCard label="Success Rate" value={stats.successRate} comparison={comparison?.successRate} suffix="%" />
           <StatCard label="Avg Duration" value={stats.avgDurationMs != null ? formatMs(stats.avgDurationMs) : null} />
@@ -342,6 +408,23 @@ export default function AutomationRunsDashboard() {
               Retry Failed ({failedCount})
             </Button>
           )}
+          {runs.length > 0 && (
+            <div className="relative group">
+              <Button size="sm" variant="ghost" className="h-8 text-xs text-muted-foreground">
+                Clear Runs
+              </Button>
+              <div className="absolute right-0 top-full mt-1 rounded-lg border border-white/10 bg-background shadow-xl p-1 hidden group-hover:block z-10 w-40">
+                {failedCount > 0 && (
+                  <button onClick={() => handleDeleteRuns("failed")} className="w-full text-left px-3 py-1.5 rounded-md text-xs text-red-400 hover:bg-red-500/10 transition">
+                    Delete failed ({failedCount})
+                  </button>
+                )}
+                <button onClick={() => handleDeleteRuns("all")} className="w-full text-left px-3 py-1.5 rounded-md text-xs text-muted-foreground hover:bg-white/5 transition">
+                  Delete all ({stats?.total ?? runs.length})
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -392,50 +475,118 @@ export default function AutomationRunsDashboard() {
               </tr>
             ) : (
               runs.map((run) => (
-                <tr
-                  key={run.id}
-                  className="hover:bg-white/[0.02] transition-colors group"
-                >
-                  <td className="px-4 py-2.5">
-                    <button
-                      onClick={() => router.push(`/automations/${run.workflow_id}`)}
-                      className="text-xs text-foreground hover:text-primary transition-colors flex items-center gap-1 group/link"
-                    >
-                      {run.workflow_name}
-                      <ExternalLink className="h-3 w-3 opacity-0 group-hover/link:opacity-50 transition-opacity" />
-                    </button>
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <StatusBadge status={run.status} />
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <span className="text-[10px] text-muted-foreground">
-                      {TRIGGER_LABELS[run.trigger_type ?? ""] ?? run.trigger_type ?? "—"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2.5 max-w-[200px]">
-                    {run.error ? (
-                      <div className="flex items-center gap-1.5">
-                        <ErrorTypeBadge type={run.error_type} />
-                        <span className="text-[10px] text-red-400/70 truncate" title={run.error}>
-                          {run.error.length > 40 ? run.error.slice(0, 40) + "..." : run.error}
-                        </span>
-                      </div>
-                    ) : (
-                      <span className="text-[10px] text-muted-foreground/30">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <span className="text-[10px] text-muted-foreground" title={run.started_at}>
-                      {timeAgo(run.started_at)}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <span className="text-[10px] text-muted-foreground font-mono">
-                      {run.duration_ms != null ? formatMs(run.duration_ms) : "—"}
-                    </span>
-                  </td>
-                </tr>
+                <React.Fragment key={run.id}>
+                  <tr
+                    onClick={() => handleExpandRun(run.id)}
+                    className="hover:bg-white/[0.02] transition-colors group cursor-pointer"
+                  >
+                    <td className="px-4 py-2.5">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); router.push(`/automations2/${run.workflow_id}`); }}
+                        className="text-xs text-foreground hover:text-primary transition-colors flex items-center gap-1 group/link"
+                      >
+                        {run.workflow_name}
+                        <ExternalLink className="h-3 w-3 opacity-0 group-hover/link:opacity-50 transition-opacity" />
+                      </button>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <StatusBadge status={run.status} />
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span className="text-[10px] text-muted-foreground">
+                        {TRIGGER_LABELS[run.trigger_type ?? ""] ?? run.trigger_type ?? "—"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 max-w-[200px]">
+                      {run.error ? (
+                        <div className="flex items-center gap-1.5">
+                          <ErrorTypeBadge type={run.error_type} />
+                          <span className="text-[10px] text-red-400/70 truncate" title={run.error}>
+                            {run.error.length > 40 ? run.error.slice(0, 40) + "..." : run.error}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground/30">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span className="text-[10px] text-muted-foreground" title={run.started_at}>
+                        {timeAgo(run.started_at)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span className="text-[10px] text-muted-foreground font-mono">
+                        {run.duration_ms != null ? formatMs(run.duration_ms) : "—"}
+                      </span>
+                    </td>
+                  </tr>
+                  {/* Expanded row detail */}
+                  {expandedRunId === run.id && (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-3 bg-white/[0.01] border-t border-white/5">
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-muted-foreground font-mono">ID: {run.id}</span>
+                            <button
+                              onClick={() => navigator.clipboard.writeText(run.id)}
+                              className="text-[10px] text-primary/60 hover:text-primary transition"
+                            >
+                              Copy
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleRerun(run); }}
+                              disabled={rerunning === run.id}
+                              className="ml-auto text-[10px] px-2 py-1 rounded bg-primary/10 text-primary hover:bg-primary/20 transition disabled:opacity-50"
+                            >
+                              {rerunning === run.id ? "Re-running..." : "Re-run"}
+                            </button>
+                          </div>
+                          {run.trigger_event && (
+                            <div>
+                              <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Trigger Event</p>
+                              <pre className="text-[10px] text-muted-foreground/80 bg-white/5 rounded-md p-2 max-h-32 overflow-auto whitespace-pre-wrap font-mono">
+                                {JSON.stringify(run.trigger_event, null, 2)}
+                              </pre>
+                            </div>
+                          )}
+                          {loadingDetail ? (
+                            <div className="flex items-center gap-2 py-2">
+                              <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/30" />
+                              <span className="text-[10px] text-muted-foreground">Loading node outputs...</span>
+                            </div>
+                          ) : expandedDetail && (expandedDetail as Record<string, unknown>).node_outputs ? (
+                            <div>
+                              <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Node Outputs</p>
+                              <div className="space-y-1">
+                                {Object.entries((expandedDetail as Record<string, unknown>).node_outputs as Record<string, unknown>)
+                                  .filter(([k]) => !k.startsWith("_"))
+                                  .map(([nodeId, output]) => {
+                                    const o = output as Record<string, unknown>;
+                                    const ok = o.success !== false && !o.error;
+                                    return (
+                                      <div key={nodeId} className={cn(
+                                        "rounded-md border px-3 py-2 text-[11px]",
+                                        ok ? "border-emerald-500/20 bg-emerald-500/5" : "border-red-500/20 bg-red-500/5"
+                                      )}>
+                                        <div className="flex items-center gap-1.5">
+                                          <span className={ok ? "text-emerald-400" : "text-red-400"}>{ok ? "\u2713" : "\u2717"}</span>
+                                          <span className="font-medium text-foreground font-mono">{nodeId.slice(0, 16)}</span>
+                                          {o.duration_ms != null && (
+                                            <span className="text-muted-foreground ml-auto">{formatMs(o.duration_ms as number)}</span>
+                                          )}
+                                        </div>
+                                        {o.error ? <div className="text-red-400/80 mt-1 text-[10px]">{String(o.error)}</div> : null}
+                                      </div>
+                                    );
+                                  })}
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
               ))
             )}
           </tbody>

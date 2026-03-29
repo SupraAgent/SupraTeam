@@ -4,7 +4,7 @@ import { supabase } from "../lib/supabase.js";
 export function registerCommands(bot: Bot) {
   bot.command("start", async (ctx) => {
     await ctx.reply(
-      "<b>Welcome to SupraCRM Bot!</b>\n\n" +
+      "<b>Welcome to SupraTeam Bot!</b>\n\n" +
       "I help manage your CRM pipeline and Telegram groups.\n\n" +
       "<b>Commands</b>\n" +
       "/help — Show available commands\n" +
@@ -17,7 +17,7 @@ export function registerCommands(bot: Bot) {
   bot.command("help", async (ctx) => {
     if (ctx.chat.type === "private") {
       await ctx.reply(
-        "<b>SupraCRM Bot Commands</b>\n\n" +
+        "<b>SupraTeam Bot Commands</b>\n\n" +
         "/start — Welcome message\n" +
         "/help — This help text\n" +
         "/status — Groups administered, pipeline stats\n" +
@@ -95,7 +95,7 @@ export function registerCommands(bot: Bot) {
     const contacts = contactsRes.count ?? 0;
 
     await ctx.reply(
-      "<b>SupraCRM Bot Status</b>\n\n" +
+      "<b>SupraTeam Bot Status</b>\n\n" +
       `Groups administered: <b>${groups}</b>\n` +
       `Active deals: <b>${deals}</b>\n` +
       `Contacts: <b>${contacts}</b>`,

@@ -304,7 +304,7 @@ export function AIChatWidget() {
                 <SparklesIcon className="h-3.5 w-3.5 text-primary" />
               </div>
               <div>
-                <div className="text-sm font-medium text-foreground">SupraCRM AI</div>
+                <div className="text-sm font-medium text-foreground">SupraTeam AI</div>
                 <div className="text-[10px] text-muted-foreground">
                   {pageConfig.label}
                 </div>

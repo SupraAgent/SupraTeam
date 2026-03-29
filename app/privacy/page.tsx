@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 export const metadata = {
-  title: "Privacy Policy — SupraCRM",
+  title: "Privacy Policy — SupraTeam",
 };
 
 export default function PrivacyPage() {
@@ -15,7 +15,7 @@ export default function PrivacyPage() {
           href="/"
           className="text-sm text-primary hover:underline mb-8 inline-block"
         >
-          &larr; Back to SupraCRM
+          &larr; Back to SupraTeam
         </Link>
 
         <h1 className="text-3xl font-bold mb-2">Privacy Policy</h1>
@@ -26,7 +26,7 @@ export default function PrivacyPage() {
         <div className="space-y-8 text-sm leading-relaxed text-muted-foreground">
           <Section title="1. Introduction">
             <p>
-              SupraCRM (&quot;we&quot;, &quot;us&quot;, &quot;our&quot;) is an
+              SupraTeam (&quot;we&quot;, &quot;us&quot;, &quot;our&quot;) is an
               internal CRM tool operated by Supra. This policy explains how we
               collect, use, store, and protect your data — including data
               accessed through Google APIs.
@@ -34,7 +34,7 @@ export default function PrivacyPage() {
           </Section>
 
           <Section title="2. Data We Collect">
-            <p>When you use SupraCRM, we may collect:</p>
+            <p>When you use SupraTeam, we may collect:</p>
             <ul className="list-disc pl-6 mt-2 space-y-1">
               <li>
                 <strong>Account data:</strong> GitHub profile information (name,
@@ -102,7 +102,7 @@ export default function PrivacyPage() {
           <Section title="5. Google API Services — Limited Use Disclosure">
             <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 mt-2">
               <p className="font-medium text-foreground mb-3">
-                SupraCRM&apos;s use of information received from Google APIs
+                SupraTeam&apos;s use of information received from Google APIs
                 adheres to the{" "}
                 <a
                   href="https://developers.google.com/terms/api-services-user-data-policy"
@@ -116,14 +116,14 @@ export default function PrivacyPage() {
               </p>
 
               <p className="mb-3">
-                When you connect your Gmail account, SupraCRM accesses the
+                When you connect your Gmail account, SupraTeam accesses the
                 following scopes:
               </p>
               <ul className="list-disc pl-6 space-y-1 mb-3">
                 <li>
                   <code className="text-xs bg-white/5 px-1 rounded">gmail.readonly</code> — Read
                   email threads and messages to display your inbox within
-                  SupraCRM.
+                  SupraTeam.
                 </li>
                 <li>
                   <code className="text-xs bg-white/5 px-1 rounded">gmail.send</code> — Send
@@ -150,17 +150,17 @@ export default function PrivacyPage() {
                 <li>
                   <strong>Purpose limitation:</strong> Gmail data is only used
                   to provide the email management features visible in the
-                  SupraCRM interface — reading your inbox, sending/replying to
+                  SupraTeam interface — reading your inbox, sending/replying to
                   emails, and organizing messages.
                 </li>
                 <li>
                   <strong>No transfer:</strong> We do not sell, lease, or
                   transfer your Gmail data to any third party, except as
-                  necessary to provide or improve SupraCRM, for security
+                  necessary to provide or improve SupraTeam, for security
                   purposes, or as required by law.
                 </li>
                 <li>
-                  <strong>No human reading:</strong> No SupraCRM employee or
+                  <strong>No human reading:</strong> No SupraTeam employee or
                   contractor reads your emails unless you have given explicit
                   consent to view a specific message, or it is necessary for
                   security investigation or legal compliance.
@@ -258,7 +258,7 @@ export default function PrivacyPage() {
 
           <Section title="10. Cookies">
             <p>
-              SupraCRM uses only essential session cookies for authentication.
+              SupraTeam uses only essential session cookies for authentication.
               We do not use tracking cookies, analytics cookies, or third-party
               advertising cookies.
             </p>

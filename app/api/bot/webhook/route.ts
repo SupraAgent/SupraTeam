@@ -39,7 +39,7 @@ export async function POST(request: Request) {
       const command = update.message.text.split(" ")[0].split("@")[0];
 
       if ((command === "/start" || command === "/help") && chatType === "private") {
-        await sendMessage(token, chatId, "Welcome to SupraCRM Bot!\n\nCommands:\n/help - Show commands\n/status - Bot status\n/deals - Pipeline summary\n/deal - Show deal for this group (in groups)");
+        await sendMessage(token, chatId, "Welcome to SupraTeam Bot!\n\nCommands:\n/help - Show commands\n/status - Bot status\n/deals - Pipeline summary\n/deal - Show deal for this group (in groups)");
       } else if (command === "/contact" && (chatType === "group" || chatType === "supergroup")) {
         // Show assigned Supra team member for this group
         const { data: tgGroup } = await supabase.from("tg_groups").select("id").eq("telegram_group_id", chatId).single();
@@ -90,7 +90,7 @@ export async function POST(request: Request) {
           supabase.from("tg_groups").select("id", { count: "exact", head: true }).eq("bot_is_admin", true),
           supabase.from("crm_deals").select("id", { count: "exact", head: true }),
         ]);
-        await sendMessage(token, chatId, `SupraCRM Bot Status\n\nGroups: ${g.count ?? 0}\nDeals: ${d.count ?? 0}`);
+        await sendMessage(token, chatId, `SupraTeam Bot Status\n\nGroups: ${g.count ?? 0}\nDeals: ${d.count ?? 0}`);
       } else if (command === "/deals" && chatType === "private") {
         const { data: stages } = await supabase.from("pipeline_stages").select("id, name, position").order("position");
         const { data: deals } = await supabase.from("crm_deals").select("stage_id");

@@ -863,7 +863,7 @@ export default function LoopBuilderPage() {
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
         title="Loop Builder"
-        subtitle="Drag-and-drop automation workflows for SupraCRM"
+        subtitle="Drag-and-drop automation workflows for SupraTeam"
         showAIChat
         className="h-full"
       />

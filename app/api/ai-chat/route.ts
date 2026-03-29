@@ -160,11 +160,11 @@ function buildSystemPrompt(context?: {
 }, templateContext?: string[]): string {
   const page = context?.page ?? "/";
 
-  let prompt = `You are SupraCRM AI, a helpful assistant for a Telegram-native CRM platform.
+  let prompt = `You are SupraTeam AI, a helpful assistant for a Telegram-native CRM platform.
 You help the team with deal management, contacts, Telegram groups, automations, and more.
 Be concise and direct. Use short paragraphs. The user is a busy BD/marketing professional.
 
-SupraCRM features:
+SupraTeam features:
 - Pipeline: 7-stage Kanban board (Potential Client → Outreach → Calendly Sent → Video Call → Follow Up → MOU Signed → First Check Received)
 - Board types: BD, Marketing, Admin
 - Contacts: Telegram-linked contacts with lifecycle stages (lead, active, inactive, churned)
@@ -304,7 +304,7 @@ You are helping the user manage slug-based access control. You can help with:
     prompt += `
 
 CURRENT PAGE: Settings
-You are helping the user configure SupraCRM. You can help with:
+You are helping the user configure SupraTeam. You can help with:
 - Pipeline stage customization
 - Team member roles (bd_lead, marketing_lead, admin_lead)
 - Telegram bot configuration and connection
