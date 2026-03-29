@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { ThreadList } from "@/components/email/thread-list";
 import { ThreadView } from "@/components/email/thread-view";
@@ -91,7 +92,13 @@ function EmailPageInner() {
   }
 
   // No connection flag (render handled after all hooks)
+  const router = useRouter();
   const noConnection = !connectionsLoading && connections.length === 0;
+
+  // Redirect to email settings if no connection
+  React.useEffect(() => {
+    if (noConnection) router.replace("/settings/integrations/email");
+  }, [noConnection, router]);
 
   // ── Action handlers ──────────────────────────────────────
 
@@ -381,13 +388,23 @@ function EmailPageInner() {
         )}
 
         {noConnection ? (
-          <a
-            href="/settings/integrations/email"
-            className="mx-3 mt-2 flex items-center gap-2 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 text-sm text-primary hover:bg-primary/20 transition"
-          >
+          <div className="mx-3 mt-2 flex items-center gap-2 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 text-sm text-primary">
             <MailPlusIcon className="h-4 w-4 shrink-0" />
-            <span>No email connection found. <span className="font-semibold underline underline-offset-2">Connect your Gmail in Settings</span>.</span>
-          </a>
+            <span className="flex-1">No email connection found.</span>
+            <button
+              onClick={async () => {
+                try {
+                  const res = await fetch("/api/email/connections/gmail", { method: "POST" });
+                  const json = await res.json();
+                  if (json.url) window.location.href = json.url;
+                  else toast.error(json.error ?? "Failed to start Gmail OAuth");
+                } catch { toast.error("Failed to connect Gmail"); }
+              }}
+              className="shrink-0 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary/90 transition"
+            >
+              Connect Gmail
+            </button>
+          </div>
         ) : error ? (
           <div className="px-3 py-2 text-xs text-red-400 border-b border-white/10">
             {error}
