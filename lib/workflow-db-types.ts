@@ -14,6 +14,8 @@ export interface Workflow {
   last_run_at: string | null;
   run_count: number;
   version: number;
+  builder_type: "classic" | "loop";
+  metadata: Record<string, unknown> | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;

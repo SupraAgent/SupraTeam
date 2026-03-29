@@ -9,7 +9,7 @@
 export async function register() {
   // Only run on the server (not during build)
   if (process.env.NEXT_RUNTIME === "nodejs") {
-    console.log("[startup] SupraCRM starting...");
+    console.log("[startup] SupraTeam starting...");
     console.log(`[startup] Environment: ${process.env.RAILWAY_ENVIRONMENT ?? "local"}`);
     console.log(`[startup] Node.js ${process.version}, uptime: ${process.uptime().toFixed(1)}s`);
 

@@ -43,7 +43,7 @@ type NodeInspectorProps = {
 
 // ── Shared field components ────────────────────────────────────
 
-function Field({
+export function Field({
   label,
   children,
 }: {
@@ -63,13 +63,13 @@ function Field({
   );
 }
 
-const inputClass =
+export const inputClass =
   "w-full rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30";
 
-const selectClass =
+export const selectClass =
   "w-full rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30";
 
-const textareaClass =
+export const textareaClass =
   "w-full rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 resize-none";
 
 // ── Combobox option constants ──────────────────────────────────
@@ -2422,7 +2422,7 @@ export function NodeInspector({
   // Desktop: side panel (collapsible)
   if (collapsed) {
     return (
-      <div ref={panelRef} className="flex h-full w-10 flex-col items-center border-l border-white/10 bg-background/95 backdrop-blur-sm py-3 gap-2">
+      <div ref={panelRef} className="flex h-full w-10 flex-col items-center border-l border-white/10 bg-background/95 backdrop-blur-sm py-3 gap-2" data-tour="inspector">
         <button
           onClick={() => setCollapsed(false)}
           className="flex h-7 w-7 items-center justify-center rounded-lg hover:bg-white/10 text-muted-foreground hover:text-foreground transition"
@@ -2452,7 +2452,7 @@ export function NodeInspector({
   }
 
   return (
-    <div ref={panelRef} className="flex h-full w-[300px] flex-col border-l border-white/10 bg-background/95 backdrop-blur-sm">
+    <div ref={panelRef} className="flex h-full w-[300px] flex-col border-l border-white/10 bg-background/95 backdrop-blur-sm" data-tour="inspector">
       {/* Collapse toggle in header */}
       <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
         <div className="flex items-center gap-2">

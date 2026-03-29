@@ -1039,6 +1039,7 @@ export function WorkflowBuilder({
             size="sm"
             onClick={handleValidateAndRun}
             disabled={canvasNodes.length === 0 || isRunning}
+            data-tour="run"
           >
             {isRunning ? "Running..." : "Validate & Run"}
           </Button>

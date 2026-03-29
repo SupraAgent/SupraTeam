@@ -2,6 +2,7 @@
 
 import type { Node, Edge } from "@xyflow/react";
 import { uid } from "./utils";
+import { getBuilderConfig } from "./builder-config";
 import { syncStorage } from "./storage-context";
 
 export type FlowTemplate = {
@@ -999,19 +1000,18 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
 
 // ── Template helpers ─────────────────────────────────────────────
 
-let STORAGE_KEY = "suprateam_loop:custom-templates";
-let STARRED_KEY_VAL = "suprateam_loop:starred-templates";
+const templateStorageKey = () => `${getBuilderConfig().storagePrefix}:custom-templates`;
+const starredStorageKey = () => `${getBuilderConfig().storagePrefix}:starred-templates`;
 
-/** Set storage key prefix for template persistence (called by WorkflowBuilder) */
-export function setTemplateStoragePrefix(prefix: string): void {
-  STORAGE_KEY = `${prefix}:custom-templates`;
-  STARRED_KEY_VAL = `${prefix}:starred-templates`;
+/** @deprecated Use `configureBuilder({ storagePrefix })` instead. */
+export function setTemplateStoragePrefix(_prefix: string): void {
+  // No-op — reads from getBuilderConfig().storagePrefix dynamically now.
 }
 
 export function getCustomTemplates(): FlowTemplate[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = syncStorage.getItem(STORAGE_KEY);
+    const raw = syncStorage.getItem(templateStorageKey());
     return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
@@ -1027,23 +1027,70 @@ export function saveCustomTemplate(template: FlowTemplate): void {
     existing.push(template);
   }
   try {
-    syncStorage.setItem(STORAGE_KEY, JSON.stringify(existing));
+    syncStorage.setItem(templateStorageKey(), JSON.stringify(existing));
   } catch (e) {
-    console.warn("[@supra/builder] Failed to save template — localStorage may be full:", e);
+    console.warn(`[${getBuilderConfig().logPrefix}] Failed to save template — localStorage may be full:`, e);
   }
 }
 
 export function deleteCustomTemplate(id: string): void {
   const existing = getCustomTemplates().filter((t) => t.id !== id);
   try {
-    syncStorage.setItem(STORAGE_KEY, JSON.stringify(existing));
+    syncStorage.setItem(templateStorageKey(), JSON.stringify(existing));
   } catch (e) {
-    console.warn("[@supra/builder] Failed to delete template:", e);
+    console.warn(`[${getBuilderConfig().logPrefix}] Failed to delete template:`, e);
   }
 }
 
+/**
+ * IDs of templates that use domain-specific node types (personaNode, appNode,
+ * competitorNode, consensusNode, affinityCategoryNode, cpoReviewNode, rescoreNode).
+ * These are separated so the builder core can exclude them by default — they only
+ * work when domain node types are registered via customNodeTypes.
+ */
+export const DOMAIN_TEMPLATE_IDS = new Set([
+  "team-balanced",
+  "team-design-led",
+  "team-eng-heavy",
+  "app-saas",
+  "app-mobile",
+  "benchmark-3way",
+  "workflow-persona-builder",
+  "workflow-launch-kit",
+  "consensus-bucket",
+  "affinity-graph",
+  "workflow-my-personas",
+  "workflow-bridge",
+  "workflow-improvement-loop",
+]);
+
+/** Templates that use only generic node types — safe without domain nodes. */
+export const GENERIC_BUILT_IN_TEMPLATES: FlowTemplate[] =
+  BUILT_IN_TEMPLATES.filter((t) => !DOMAIN_TEMPLATE_IDS.has(t.id));
+
+/** Templates that require domain-specific node types to be registered. */
+export const DOMAIN_BUILT_IN_TEMPLATES: FlowTemplate[] =
+  BUILT_IN_TEMPLATES.filter((t) => DOMAIN_TEMPLATE_IDS.has(t.id));
+
+/** Additional built-in templates registered at runtime via `setBuiltInTemplates()`. */
+let _extraBuiltIns: FlowTemplate[] = [];
+
+/**
+ * Register additional built-in templates (replaces any previously set extras).
+ * These are shown alongside the generic BUILT_IN_TEMPLATES.
+ * Use this to add domain-specific templates when domain nodes are registered.
+ */
+export function setBuiltInTemplates(templates: FlowTemplate[]): void {
+  _extraBuiltIns = templates;
+}
+
+/** Get all registered built-in templates (generic + extras). */
+export function getBuiltInTemplates(): FlowTemplate[] {
+  return [...GENERIC_BUILT_IN_TEMPLATES, ..._extraBuiltIns];
+}
+
 export function getAllTemplates(): FlowTemplate[] {
-  return [...BUILT_IN_TEMPLATES, ...getCustomTemplates()];
+  return [...getBuiltInTemplates(), ...getCustomTemplates()];
 }
 
 export function getTemplatesByCategory(
@@ -1075,7 +1122,7 @@ export function getNextCopyName(baseName: string): string {
 export function getStarredTemplateIds(): Set<string> {
   if (typeof window === "undefined") return new Set();
   try {
-    const raw = syncStorage.getItem(STARRED_KEY_VAL);
+    const raw = syncStorage.getItem(starredStorageKey());
     return raw ? new Set(JSON.parse(raw)) : new Set();
   } catch {
     return new Set();
@@ -1090,9 +1137,9 @@ export function toggleStarTemplate(id: string): boolean {
     starred.add(id);
   }
   try {
-    syncStorage.setItem(STARRED_KEY_VAL, JSON.stringify([...starred]));
+    syncStorage.setItem(starredStorageKey(), JSON.stringify([...starred]));
   } catch (e) {
-    console.warn("[@supra/builder] Failed to save starred templates:", e);
+    console.warn(`${getBuilderConfig().logPrefix} Failed to save starred templates:`, e);
   }
   return starred.has(id);
 }

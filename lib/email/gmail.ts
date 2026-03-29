@@ -582,10 +582,15 @@ export class GmailDriver implements MailDriver {
       ];
 
       for (const att of params.attachments!) {
+        // Sanitize filename: strip path traversal, control chars, and MIME injection
+        const safeName = att.filename
+          .replace(/[/\\]/g, "_")
+          .replace(/[\r\n\0"]/g, "")
+          .slice(0, 255) || "attachment";
         parts.push(
           `--${mixedBoundary}`,
-          `Content-Type: ${att.mimeType}; name="${att.filename}"`,
-          `Content-Disposition: attachment; filename="${att.filename}"`,
+          `Content-Type: ${att.mimeType}; name="${safeName}"`,
+          `Content-Disposition: attachment; filename="${safeName}"`,
           `Content-Transfer-Encoding: base64`,
           "",
           att.data

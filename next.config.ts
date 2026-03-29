@@ -11,6 +11,44 @@ const nextConfig: NextConfig = {
       { hostname: "t.me" },
     ],
   },
+  async redirects() {
+    return [
+      // Legacy route redirects — A2 builder is now the primary /automations
+      { source: "/automations2", destination: "/automations", permanent: true },
+      { source: "/automations2/:path*", destination: "/automations/:path*", permanent: true },
+      // Loop Builder → Automations redirect
+      { source: "/loop", destination: "/automations", permanent: true },
+    ];
+  },
+  async headers() {
+    return [
+      {
+        source: "/(.*)",
+        headers: [
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "X-DNS-Prefetch-Control", value: "on" },
+          { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
+          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+          {
+            key: "Content-Security-Policy",
+            value: [
+              "default-src 'self'",
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+              "style-src 'self' 'unsafe-inline'",
+              "img-src 'self' data: blob: https://avatars.githubusercontent.com https://github.com https://t.me",
+              "font-src 'self' data:",
+              "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.anthropic.com",
+              "frame-ancestors 'none'",
+              "base-uri 'self'",
+              "form-action 'self'",
+            ].join("; "),
+          },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

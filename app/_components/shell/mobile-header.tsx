@@ -19,6 +19,7 @@ const NAV_ITEMS = [
   { href: "/outreach", label: "Outreach" },
   { href: "/drip", label: "Drip Sequences" },
   { href: "/automations", label: "Automations" },
+  { href: "/automations/runs", label: "Runs" },
   { href: "/access", label: "Access Control" },
   { href: "/graph", label: "Graph" },
   { href: "/docs", label: "Docs" },
@@ -40,7 +41,7 @@ export function MobileHeader() {
           <div className="h-5 w-5 rounded-md bg-primary/20 flex items-center justify-center">
             <div className="h-2 w-2 rounded-full bg-primary" />
           </div>
-          <span className="text-sm font-semibold">SupraCRM</span>
+          <span className="text-sm font-semibold">SupraTeam</span>
         </div>
         <div className="flex items-center gap-1">
           {/* Search button */}

@@ -26,7 +26,7 @@ export function createDriverFromConnection(conn: ConnectionRecord): MailDriver {
       const clientId = process.env.GOOGLE_CLIENT_ID;
       const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
       if (!clientId || !clientSecret) {
-        throw new Error("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set for Gmail integration");
+        throw new Error("Gmail integration not configured. Contact your administrator.");
       }
       const driver = new GmailDriver({
         accessToken,

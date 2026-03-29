@@ -67,7 +67,7 @@ export default function TMAHomePage() {
       {/* Header */}
       <div className="px-4 pt-4 pb-3">
         <h1 className="text-lg font-semibold text-foreground">
-          {tgUser ? `Hi ${tgUser.first_name}` : "SupraCRM"}
+          {tgUser ? `Hi ${tgUser.first_name}` : "SupraTeam"}
         </h1>
         <p className="text-xs text-muted-foreground">{deals.length} active deals</p>
       </div>

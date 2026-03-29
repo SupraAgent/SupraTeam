@@ -3,7 +3,7 @@ import "@/app/globals.css";
 import { Suspense } from "react";
 
 export const metadata: Metadata = {
-  title: "SupraCRM",
+  title: "SupraTeam",
   description: "Telegram-native CRM",
 };
 

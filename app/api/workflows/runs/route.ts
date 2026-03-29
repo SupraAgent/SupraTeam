@@ -55,8 +55,11 @@ export async function GET(request: Request) {
       q = q.eq("crm_workflows.trigger_type", triggerType);
     }
     if (search) {
-      // Search across workflow name, error, and run ID using Supabase or filter
-      q = q.or(`error.ilike.%${search}%,id.ilike.%${search}%`);
+      // Sanitize search to prevent PostgREST filter injection
+      const safe = search.replace(/[,().\\]/g, "");
+      if (safe.length > 0) {
+        q = q.or(`error.ilike.%${safe}%,id.ilike.%${safe}%`);
+      }
     }
     return q;
   }
@@ -196,6 +199,37 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json({ error: "Unknown action" }, { status: 400 });
+}
+
+export async function DELETE(request: Request) {
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+  const { admin: supabase } = auth;
+
+  const url = new URL(request.url);
+  const status = url.searchParams.get("status");
+  const timeRange = url.searchParams.get("time_range") ?? "24h";
+
+  const hours: Record<string, number> = { "1h": 1, "24h": 24, "7d": 168, "30d": 720 };
+  const h = hours[timeRange] ?? 24;
+  const rangeFrom = new Date(Date.now() - h * 3600000);
+
+  let query = supabase
+    .from("crm_workflow_runs")
+    .delete({ count: "exact" })
+    .gte("started_at", rangeFrom.toISOString())
+    .neq("status", "running"); // Never delete running runs
+
+  if (status && status !== "all") {
+    query = query.eq("status", status);
+  }
+
+  const { error, count } = await query;
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true, deleted: count ?? 0 });
 }
 
 function computeStats(runs: Record<string, unknown>[]) {

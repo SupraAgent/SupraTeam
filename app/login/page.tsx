@@ -255,7 +255,7 @@ export default function LoginPage() {
             <div className="h-4 w-4 rounded-full bg-primary shadow-[0_0_20px_rgba(12,206,107,0.5)]" />
           </div>
           <h1 className="mt-4 text-xl font-semibold text-foreground">
-            Sign in to SupraCRM
+            Sign in to SupraTeam
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
             Telegram-native CRM for BD, Marketing, and Admin teams

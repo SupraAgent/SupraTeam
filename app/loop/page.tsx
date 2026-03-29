@@ -187,7 +187,7 @@ function WorkflowManagerPanel({
   }, [showList, fetchWorkflows]);
 
   return (
-    <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2">
+    <div className="absolute top-[52px] left-1/2 -translate-x-1/2 z-20 flex items-center gap-2">
       {/* Workflow name + status */}
       <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-background/95 backdrop-blur-sm px-3 py-1.5 shadow-lg">
         <button
@@ -666,7 +666,7 @@ export default function LoopBuilderPage() {
 
       {/* Failure alert banner */}
       {lastRunError && (
-        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-30 max-w-md w-full">
+        <div className="absolute top-[96px] left-1/2 -translate-x-1/2 z-30 max-w-md w-full">
           <div className="rounded-lg border border-red-500/30 bg-red-500/10 backdrop-blur-sm px-4 py-2 shadow-lg flex items-start gap-2">
             <span className="text-red-400 text-xs shrink-0 mt-0.5">&#x26A0;</span>
             <div className="flex-1 min-w-0">
@@ -863,7 +863,7 @@ export default function LoopBuilderPage() {
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
         title="Loop Builder"
-        subtitle="Drag-and-drop automation workflows for SupraCRM"
+        subtitle="Drag-and-drop automation workflows for SupraTeam"
         showAIChat
         className="h-full"
       />

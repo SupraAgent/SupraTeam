@@ -72,7 +72,7 @@ export default function EmailSettingsPage() {
       <div>
         <h1 className="text-xl font-semibold text-foreground">Email Settings</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Connect your email accounts to send and receive email from within SupraCRM.
+          Connect your email accounts to send and receive email from within SupraTeam.
         </p>
       </div>
 

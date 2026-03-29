@@ -9,7 +9,7 @@ import { Toaster } from "sonner";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "SupraCRM",
+  title: "SupraTeam",
   description: "Telegram-native CRM for BD, Marketing, and Admin teams.",
 };
 

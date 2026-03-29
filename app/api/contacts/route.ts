@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { dispatchWebhook } from "@/lib/webhooks";
 import { computeQualityScore } from "@/lib/quality-score";
+import { sanitizePostgrestValue } from "@/lib/utils";
 
 export async function GET(request: Request) {
   const auth = await requireAuth();
@@ -18,8 +19,7 @@ export async function GET(request: Request) {
     .order("name");
 
   if (search) {
-    // Sanitize search to prevent PostgREST filter injection — allowlist safe chars only
-    const sanitized = search.replace(/[^a-zA-Z0-9@_\-\s]/g, "").trim();
+    const sanitized = sanitizePostgrestValue(search);
     if (sanitized) {
       query = query.or(`name.ilike.%${sanitized}%,company.ilike.%${sanitized}%,telegram_username.ilike.%${sanitized}%,email.ilike.%${sanitized}%`);
     }

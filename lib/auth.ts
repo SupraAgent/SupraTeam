@@ -29,7 +29,7 @@ const DEV_USER = {
 } as User;
 
 function hasDevAuthCookie(): boolean {
-  return typeof document !== "undefined" && document.cookie.includes("dev-auth=true");
+  return process.env.NODE_ENV !== "production" && typeof document !== "undefined" && document.cookie.includes("dev-auth=true");
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {

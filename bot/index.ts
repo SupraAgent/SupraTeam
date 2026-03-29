@@ -50,7 +50,7 @@ bot.api.setMyCommands([
 ]).catch((err) => console.error("[bot] Failed to set commands:", err.message));
 
 // Start long-polling
-console.log("[bot] Starting SupraCRM bot...");
+console.log("[bot] Starting SupraTeam bot...");
 bot.start({
   onStart: (botInfo) => {
     console.log(`[bot] Connected as @${botInfo.username} (${botInfo.id})`);

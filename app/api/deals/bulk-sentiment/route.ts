@@ -5,6 +5,7 @@
 
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
+import { sanitizeForPrompt } from "@/lib/claude-api";
 
 export async function POST() {
   const auth = await requireAuth();
@@ -43,8 +44,8 @@ export async function POST() {
       ]);
 
       let conversationText = "";
-      if (notifsRes.data?.length) conversationText += "TG messages:\n" + notifsRes.data.map((n) => `- ${n.title}: ${n.body ?? ""}`).join("\n") + "\n";
-      if (notesRes.data?.length) conversationText += "Notes:\n" + notesRes.data.map((n) => `- ${n.text}`).join("\n") + "\n";
+      if (notifsRes.data?.length) conversationText += "TG messages:\n" + notifsRes.data.map((n) => `- ${sanitizeForPrompt(n.title)}: ${sanitizeForPrompt(n.body ?? "")}`).join("\n") + "\n";
+      if (notesRes.data?.length) conversationText += "Notes:\n" + notesRes.data.map((n) => `- ${sanitizeForPrompt(n.text)}`).join("\n") + "\n";
       if (historyRes.data?.length) {
         conversationText += "Stage history:\n" + historyRes.data.map((h) => {
           const from = (h.from_stage as unknown as { name: string } | null)?.name ?? "?";
@@ -78,7 +79,7 @@ export async function POST() {
             content: `Analyze the sentiment of this CRM deal. Return ONLY valid JSON:
 {"overall_sentiment":"positive"|"neutral"|"negative"|"mixed","confidence":0-100,"engagement_level":"high"|"medium"|"low","tone_keywords":["..."],"risk_signals":["..."],"momentum":"accelerating"|"steady"|"stalling"|"declining","summary":"One sentence summary"}
 
-Deal: ${deal.deal_name} (${(deal.stage as unknown as { name: string } | null)?.name ?? "?"})
+Deal: ${sanitizeForPrompt(deal.deal_name)} (${(deal.stage as unknown as { name: string } | null)?.name ?? "?"})
 ${conversationText}`,
           }],
         }),

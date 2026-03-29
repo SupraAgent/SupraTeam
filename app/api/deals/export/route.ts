@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
+import { escapeCSV } from "@/lib/utils";
 
 export async function GET() {
   const auth = await requireAuth();
@@ -31,7 +32,7 @@ export async function GET() {
     ];
   });
 
-  const csv = [headers.join(","), ...rows.map((r) => r.map((v) => `"${v}"`).join(","))].join("\n");
+  const csv = [headers.join(","), ...rows.map((r) => r.map((v) => escapeCSV(String(v ?? ""))).join(","))].join("\n");
 
   return new NextResponse(csv, {
     headers: {
