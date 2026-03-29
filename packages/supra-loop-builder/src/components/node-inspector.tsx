@@ -2422,7 +2422,7 @@ export function NodeInspector({
   // Desktop: side panel (collapsible)
   if (collapsed) {
     return (
-      <div ref={panelRef} className="flex h-full w-10 flex-col items-center border-l border-white/10 bg-background/95 backdrop-blur-sm py-3 gap-2">
+      <div ref={panelRef} className="flex h-full w-10 flex-col items-center border-l border-white/10 bg-background/95 backdrop-blur-sm py-3 gap-2" data-tour="inspector">
         <button
           onClick={() => setCollapsed(false)}
           className="flex h-7 w-7 items-center justify-center rounded-lg hover:bg-white/10 text-muted-foreground hover:text-foreground transition"
@@ -2452,7 +2452,7 @@ export function NodeInspector({
   }
 
   return (
-    <div ref={panelRef} className="flex h-full w-[300px] flex-col border-l border-white/10 bg-background/95 backdrop-blur-sm">
+    <div ref={panelRef} className="flex h-full w-[300px] flex-col border-l border-white/10 bg-background/95 backdrop-blur-sm" data-tour="inspector">
       {/* Collapse toggle in header */}
       <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
         <div className="flex items-center gap-2">
