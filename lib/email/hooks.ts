@@ -214,11 +214,23 @@ export function useThread(threadId: string | null) {
     }
     setError(undefined);
     fetch(`/api/email/threads/${threadId}`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`Failed to load thread (${r.status})`);
-        return r.json();
-      })
-      .then((json) => {
+      .then(async (r) => {
+        const json = await r.json();
+        if (!r.ok) {
+          setError(json.error ?? "Failed to load thread");
+          // Try IndexedDB fallback for offline
+          getCachedMessages(threadId).then((msgs) => {
+            if (msgs.length > 0) {
+              const cached = getCachedThread(threadId);
+              if (cached) {
+                setThread({ ...cached, messages: msgs as unknown as Thread["messages"] });
+              }
+            } else {
+              setThread(null);
+            }
+          }).catch(() => setThread(null));
+          return;
+        }
         const data = json.data ?? null;
         setThread(data);
         if (data) {
@@ -229,8 +241,8 @@ export function useThread(threadId: string | null) {
           }
         }
       })
-      .catch((err) => {
-        setError(err instanceof Error ? err.message : "Failed to load thread");
+      .catch(() => {
+        setError("Network error");
         // Try IndexedDB fallback for offline
         getCachedMessages(threadId).then((msgs) => {
           if (msgs.length > 0) {
@@ -308,13 +320,16 @@ export function useLabels() {
 
   React.useEffect(() => {
     fetch("/api/email/labels")
-      .then((r) => {
-        if (!r.ok) throw new Error(`Failed to load labels (${r.status})`);
-        return r.json();
+      .then(async (r) => {
+        const json = await r.json();
+        if (!r.ok) {
+          setError(json.error ?? "Failed to load labels");
+          return;
+        }
+        setLabels(json.data ?? []);
       })
-      .then((json) => setLabels(json.data ?? []))
-      .catch((err) => {
-        setError(err instanceof Error ? err.message : "Failed to load labels");
+      .catch(() => {
+        setError("Network error");
       })
       .finally(() => setLoading(false));
   }, []);
