@@ -60,7 +60,8 @@ export async function POST(request: Request) {
   }
 
   const { client, phoneCodeHash } = pending;
-  const hash = body.phoneCodeHash || phoneCodeHash;
+  // Always use server-stored phoneCodeHash — never allow client override
+  const hash = phoneCodeHash;
 
   try {
     let tgUser;

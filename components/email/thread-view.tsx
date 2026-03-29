@@ -214,7 +214,7 @@ const PURIFY_CONFIG = {
     "table", "thead", "tbody", "tr", "td", "th",
     "img", "blockquote", "pre", "code", "hr",
   ],
-  ALLOWED_ATTR: ["href", "src", "alt", "title", "width", "height", "target", "rel", "class", "style"],
+  ALLOWED_ATTR: ["href", "src", "alt", "title", "width", "height", "target", "rel", "class"],
 };
 
 const SanitizedBody = React.memo(function SanitizedBody({ body, bodyText }: { body: string; bodyText: string }) {

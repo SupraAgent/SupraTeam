@@ -82,7 +82,11 @@ export async function getOrCreateSupabaseSession(
 ) {
   const tgId = Number(tgUser.id);
   const email = `tg_${tgId}@supracrm.tg`;
-  const botToken = process.env.TELEGRAM_BOT_TOKEN || "mtproto_auth";
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  if (!botToken) {
+    console.error("[telegram-login-store] TELEGRAM_BOT_TOKEN is not set — cannot derive password");
+    return null;
+  }
   const password = `tg_${tgId}_${botToken.slice(0, 16)}`;
   const displayName =
     [tgUser.firstName, tgUser.lastName].filter(Boolean).join(" ") ||

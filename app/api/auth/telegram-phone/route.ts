@@ -9,8 +9,16 @@
 import { NextResponse } from "next/server";
 import { createTgClient, sendPhoneCode, phoneLast4 } from "@/lib/telegram-client";
 import { pendingPhoneLogins, phoneKey } from "@/lib/telegram-login-store";
+import { rateLimit } from "@/lib/rate-limit";
 
 export async function POST(request: Request) {
+  // Rate limit by IP to prevent SMS flood
+  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+    || request.headers.get("x-real-ip")
+    || "unknown";
+  const rl = rateLimit(`tg-phone:${ip}`, { max: 5, windowSec: 900 });
+  if (rl) return rl;
+
   // Fail fast if Telegram API credentials aren't configured
   if (!parseInt(process.env.TELEGRAM_API_ID || "0", 10) || !process.env.TELEGRAM_API_HASH) {
     return NextResponse.json(
@@ -84,6 +92,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Telegram API not configured. Set TELEGRAM_API_ID and TELEGRAM_API_HASH." }, { status: 503 });
     }
 
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: "Authentication failed" }, { status: 500 });
   }
 }

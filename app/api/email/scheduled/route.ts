@@ -75,6 +75,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Connection not found" }, { status: 404 });
   }
 
+  // Validate draft_data size to prevent storage abuse
+  const draftDataStr = body.draft_data ? JSON.stringify(body.draft_data) : null;
+  const MAX_DRAFT_SIZE = 1_000_000; // 1MB
+  if (draftDataStr && draftDataStr.length > MAX_DRAFT_SIZE) {
+    return NextResponse.json({ error: "draft_data exceeds 1MB limit" }, { status: 400 });
+  }
+
   const { data, error } = await auth.admin
     .from("crm_email_scheduled")
     .insert({
