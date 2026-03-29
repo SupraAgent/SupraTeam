@@ -13,11 +13,17 @@ export async function GET(request: Request) {
     const { data: sequences } = await auth.admin
       .from("crm_email_sequences")
       .select("id, name, steps, is_active, created_at")
+      .eq("created_by", auth.user.id)
       .order("created_at", { ascending: false });
 
-    const { data: enrollments } = await auth.admin
-      .from("crm_email_sequence_enrollments")
-      .select("sequence_id, status");
+    // Only fetch enrollments for this user's sequences
+    const seqIds = (sequences ?? []).map((s) => s.id);
+    const { data: enrollments } = seqIds.length > 0
+      ? await auth.admin
+          .from("crm_email_sequence_enrollments")
+          .select("sequence_id, status")
+          .in("sequence_id", seqIds)
+      : { data: [] };
 
     // Aggregate per sequence
     const stats = (sequences ?? []).map((seq) => {
@@ -64,16 +70,20 @@ export async function GET(request: Request) {
         .from("crm_email_sequences")
         .select("*")
         .eq("id", sequenceId)
+        .eq("created_by", auth.user.id)
         .single(),
       auth.admin
         .from("crm_email_sequence_enrollments")
         .select("*")
-        .eq("sequence_id", sequenceId),
+        .eq("sequence_id", sequenceId)
+        .eq("enrolled_by", auth.user.id),
       auth.admin
         .from("crm_email_audit_log")
         .select("*")
         .eq("action", "sequence_step_sent")
-        .order("created_at", { ascending: false }),
+        .eq("user_id", auth.user.id)
+        .order("created_at", { ascending: false })
+        .limit(1000),
     ]);
 
   if (!sequence) {

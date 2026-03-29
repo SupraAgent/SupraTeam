@@ -16,6 +16,10 @@ export async function GET(request: Request) {
     .order("created_at", { ascending: false });
 
   if (boardType) {
+    const allowedBoardTypes = ["BD", "Marketing", "Admin"];
+    if (!allowedBoardTypes.includes(boardType)) {
+      return NextResponse.json({ error: "Invalid board_type" }, { status: 400 });
+    }
     query = query.or(`board_type.eq.${boardType},board_type.is.null`);
   }
 

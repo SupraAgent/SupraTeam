@@ -46,6 +46,31 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "type, connection_id, and scheduled_for required" }, { status: 400 });
   }
 
+  const validTypes = ["send_later", "snooze", "follow_up_reminder"];
+  if (!validTypes.includes(body.type)) {
+    return NextResponse.json({ error: "type must be send_later, snooze, or follow_up_reminder" }, { status: 400 });
+  }
+
+  const scheduledDate = new Date(body.scheduled_for);
+  if (isNaN(scheduledDate.getTime())) {
+    return NextResponse.json({ error: "scheduled_for must be a valid date" }, { status: 400 });
+  }
+  if (scheduledDate.getTime() <= Date.now()) {
+    return NextResponse.json({ error: "scheduled_for must be in the future" }, { status: 400 });
+  }
+
+  // Verify connection ownership
+  const { data: conn } = await auth.admin
+    .from("crm_email_connections")
+    .select("id")
+    .eq("id", body.connection_id)
+    .eq("user_id", auth.user.id)
+    .single();
+
+  if (!conn) {
+    return NextResponse.json({ error: "Connection not found" }, { status: 404 });
+  }
+
   const { data, error } = await auth.admin
     .from("crm_email_scheduled")
     .insert({

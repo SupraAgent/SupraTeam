@@ -30,6 +30,7 @@ export class GmailDriver implements MailDriver {
   private auth: InstanceType<typeof google.auth.OAuth2>;
 
   public connectionId: string | null = null;
+  public userId: string | null = null;
 
   constructor(config: GmailConfig) {
     this.auth = new google.auth.OAuth2(config.clientId, config.clientSecret);
@@ -49,6 +50,7 @@ export class GmailDriver implements MailDriver {
           const { serverCache } = await import("./server-cache");
           await updateConnectionTokens(
             this.connectionId,
+            this.userId ?? "",
             tokens.access_token,
             tokens.expiry_date ? new Date(tokens.expiry_date) : undefined
           );
@@ -64,7 +66,8 @@ export class GmailDriver implements MailDriver {
   /** Get refreshed access token (auto-refreshes if expired) */
   async getAccessToken(): Promise<string> {
     const { token } = await this.auth.getAccessToken();
-    return token ?? "";
+    if (!token) throw new Error("Failed to refresh access token — reconnect Gmail in Settings");
+    return token;
   }
 
   async listThreads(params: ListThreadsParams): Promise<ThreadList> {
@@ -165,11 +168,12 @@ export class GmailDriver implements MailDriver {
         format: "MINIMAL",
       });
       const firstMsg = thread.data.messages?.[0];
-      const isStarred = firstMsg?.labelIds?.includes("STARRED") ?? false;
+      if (!firstMsg?.id) return;
+      const isStarred = firstMsg.labelIds?.includes("STARRED") ?? false;
 
       await this.gmail.users.messages.modify({
         userId: "me",
-        id: firstMsg!.id!,
+        id: firstMsg.id,
         requestBody: isStarred
           ? { removeLabelIds: ["STARRED"] }
           : { addLabelIds: ["STARRED"] },
@@ -259,12 +263,28 @@ export class GmailDriver implements MailDriver {
       ? `${params.body}<br><br>---------- Forwarded message ----------<br>${parsed.body}`
       : `---------- Forwarded message ----------<br>From: ${parsed.from.email}<br>Date: ${parsed.date}<br>Subject: ${parsed.subject}<br><br>${parsed.body}`;
 
+    // Carry over original attachments (convert Buffer → base64 string for send)
+    const originalAttachments: { filename: string; mimeType: string; data: string }[] = [];
+    if (parsed.attachments?.length) {
+      for (const att of parsed.attachments) {
+        if (att.id) {
+          try {
+            const fetched = await this.getAttachment(messageId, att.id, { filename: att.filename, mimeType: att.mimeType });
+            originalAttachments.push({ filename: fetched.filename, mimeType: fetched.mimeType, data: fetched.data.toString("base64") });
+          } catch {
+            // Skip failed attachment downloads
+          }
+        }
+      }
+    }
+
     return this.send({
       to: params.to,
       cc: params.cc,
       bcc: params.bcc,
       subject: `Fwd: ${parsed.subject}`,
       body: forwardBody,
+      attachments: [...originalAttachments, ...(params.attachments ?? [])],
     });
   }
 
@@ -307,7 +327,7 @@ export class GmailDriver implements MailDriver {
     }));
   }
 
-  async getAttachment(messageId: string, attachmentId: string): Promise<Attachment> {
+  async getAttachment(messageId: string, attachmentId: string, meta?: { filename?: string; mimeType?: string }): Promise<Attachment> {
     const res = await this.gmail.users.messages.attachments.get({
       userId: "me",
       messageId,
@@ -316,8 +336,8 @@ export class GmailDriver implements MailDriver {
     const data = Buffer.from(res.data.data ?? "", "base64url");
     return {
       data,
-      filename: "attachment",
-      mimeType: "application/octet-stream",
+      filename: meta?.filename ?? "attachment",
+      mimeType: meta?.mimeType ?? "application/octet-stream",
       size: data.length,
     };
   }
@@ -389,9 +409,12 @@ export class GmailDriver implements MailDriver {
 
   async getProfile(): Promise<EmailProfile> {
     const res = await this.gmail.users.getProfile({ userId: "me" });
+    const email = res.data.emailAddress ?? "";
+    // Extract display name from email (before @) as fallback since Gmail profile API doesn't return name
+    const namePart = email.split("@")[0]?.replace(/[._]/g, " ") ?? email;
     return {
-      email: res.data.emailAddress ?? "",
-      name: res.data.emailAddress ?? "",
+      email,
+      name: namePart,
     };
   }
 
@@ -537,12 +560,17 @@ export class GmailDriver implements MailDriver {
   }
 
   private buildRawEmail(params: SendParams): string {
-    const boundary = `boundary_${Date.now()}`;
+    const randomHex = () => {
+      const bytes = new Uint8Array(16);
+      crypto.getRandomValues(bytes);
+      return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    };
+    const boundary = `boundary_${randomHex()}`;
     const hasAttachments = params.attachments && params.attachments.length > 0;
-    const mixedBoundary = hasAttachments ? `mixed_${Date.now() + 1}` : null;
+    const mixedBoundary = hasAttachments ? `mixed_${randomHex()}` : null;
 
     const formatAddr = (a: EmailAddress) => {
-      const name = a.name ? this.sanitizeHeaderValue(a.name) : "";
+      const name = a.name ? this.sanitizeHeaderValue(a.name).replace(/"/g, "'") : "";
       const email = this.sanitizeHeaderValue(a.email);
       return name ? `"${name}" <${email}>` : email;
     };
@@ -558,8 +586,8 @@ export class GmailDriver implements MailDriver {
 
     if (cc) headers.push(`Cc: ${cc}`);
     if (bcc) headers.push(`Bcc: ${bcc}`);
-    if (params.inReplyTo) headers.push(`In-Reply-To: ${params.inReplyTo}`);
-    if (params.references) headers.push(`References: ${params.references}`);
+    if (params.inReplyTo) headers.push(`In-Reply-To: ${this.sanitizeHeaderValue(params.inReplyTo)}`);
+    if (params.references) headers.push(`References: ${this.sanitizeHeaderValue(params.references)}`);
 
     const textPart = params.bodyText || params.body.replace(/<[^>]+>/g, "");
 
@@ -592,7 +620,7 @@ export class GmailDriver implements MailDriver {
           .slice(0, 255) || "attachment";
         parts.push(
           `--${mixedBoundary}`,
-          `Content-Type: ${att.mimeType}; name="${safeName}"`,
+          `Content-Type: ${/^[\w\-]+\/[\w\-.+]+$/.test(att.mimeType) ? att.mimeType : "application/octet-stream"}; name="${safeName}"`,
           `Content-Disposition: attachment; filename="${safeName}"`,
           `Content-Transfer-Encoding: base64`,
           "",

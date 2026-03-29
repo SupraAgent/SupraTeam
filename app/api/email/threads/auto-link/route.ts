@@ -38,22 +38,24 @@ export async function POST(request: Request) {
   // Collect all email addresses from the thread
   const allEmails = [...new Set([...body.from_emails, ...body.to_emails].map((e) => e.toLowerCase()))];
 
-  // Match against CRM contacts
+  // Match against CRM contacts created by this user
   const { data: contacts } = await auth.admin
     .from("crm_contacts")
     .select("id, name, email")
-    .in("email", allEmails);
+    .in("email", allEmails)
+    .eq("created_by", auth.user.id);
 
   if (!contacts || contacts.length === 0) {
     return NextResponse.json({ data: { matched: false, links: [] }, source: "supabase" });
   }
 
-  // Find deals for matched contacts
+  // Find deals for matched contacts (scoped to user)
   const contactIds = contacts.map((c) => c.id);
   const { data: deals } = await auth.admin
     .from("crm_deals")
     .select("id, deal_name, contact_id")
-    .in("contact_id", contactIds);
+    .in("contact_id", contactIds)
+    .eq("created_by", auth.user.id);
 
   // Create links
   const links: {

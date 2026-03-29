@@ -17,7 +17,7 @@ type ConnectionRecord = {
  * Create a MailDriver for a specific email connection.
  * Decrypts stored tokens and instantiates the correct driver.
  */
-export function createDriverFromConnection(conn: ConnectionRecord): MailDriver {
+export function createDriverFromConnection(conn: ConnectionRecord, userId?: string): MailDriver {
   const accessToken = decryptToken(conn.access_token_encrypted);
   const refreshToken = decryptToken(conn.refresh_token_encrypted);
 
@@ -35,6 +35,7 @@ export function createDriverFromConnection(conn: ConnectionRecord): MailDriver {
         clientSecret,
       });
       driver.connectionId = conn.id;
+      driver.userId = userId ?? null;
       return driver;
     }
     case "outlook":
@@ -87,7 +88,7 @@ export async function getDriverForUser(
     }
 
     const result = {
-      driver: createDriverFromConnection(fallback as ConnectionRecord),
+      driver: createDriverFromConnection(fallback as ConnectionRecord, userId),
       connection: fallback as ConnectionRecord,
     };
     serverCache.set(cacheKey, result, TTL.DRIVER);
@@ -95,7 +96,7 @@ export async function getDriverForUser(
   }
 
   const result = {
-    driver: createDriverFromConnection(data as ConnectionRecord),
+    driver: createDriverFromConnection(data as ConnectionRecord, userId),
     connection: data as ConnectionRecord,
   };
   serverCache.set(cacheKey, result, TTL.DRIVER);
@@ -107,6 +108,7 @@ export async function getDriverForUser(
  */
 export async function updateConnectionTokens(
   connectionId: string,
+  userId: string,
   accessToken: string,
   expiresAt?: Date
 ): Promise<void> {
@@ -122,5 +124,6 @@ export async function updateConnectionTokens(
       token_expires_at: expiresAt?.toISOString() ?? null,
       last_sync_at: new Date().toISOString(),
     })
-    .eq("id", connectionId);
+    .eq("id", connectionId)
+    .eq("user_id", userId);
 }

@@ -17,7 +17,7 @@ export async function GET(request: Request) {
   const connectionId = searchParams.get("connectionId") ?? undefined;
 
   // Server-side cache (Railway persistent process)
-  const cacheKey = `threads:${auth.user.id}:${labelIds?.join(",") ?? ""}:${query ?? ""}:${maxResults}:${pageToken ?? ""}`;
+  const cacheKey = `threads:${auth.user.id}:${connectionId ?? "default"}:${labelIds?.join(",") ?? ""}:${query ?? ""}:${maxResults}:${pageToken ?? ""}`;
   const cached = serverCache.get(cacheKey);
   if (cached) {
     return NextResponse.json({ data: cached, source: "gmail" }, {
