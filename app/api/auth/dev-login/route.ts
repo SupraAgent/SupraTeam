@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createHmac } from "crypto";
 
 export async function POST(request: Request) {
   // Only allow dev login in development
@@ -16,8 +17,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid password" }, { status: 401 });
   }
 
+  // Set cookie to HMAC value — must match validation in auth-guard.ts and middleware.ts
+  const hmacValue = createHmac("sha256", devPassword).update("dev-auth").digest("hex");
   const response = NextResponse.json({ ok: true });
-  response.cookies.set("dev-auth", "true", {
+  response.cookies.set("dev-auth", hmacValue, {
     httpOnly: true,
     secure: false,
     sameSite: "lax",

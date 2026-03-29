@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireAuth } from "@/lib/auth-guard";
 
 /**
  * In-memory webhook event buffer.
@@ -32,6 +33,9 @@ function pruneExpired(id: string) {
  * Used by the workflow engine's trigger node.
  */
 export async function GET(request: Request) {
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+
   const url = new URL(request.url);
   const id = url.searchParams.get("id");
 
@@ -54,8 +58,17 @@ export async function GET(request: Request) {
 /**
  * POST: Receive a webhook event and buffer it by ID.
  * External services send payloads here; the workflow engine polls via GET.
+ * Requires a webhook secret in x-webhook-secret header if WEBHOOK_SECRET env var is set.
  */
 export async function POST(request: Request) {
+  const webhookSecret = process.env.WEBHOOK_SECRET;
+  if (webhookSecret) {
+    const provided = request.headers.get("x-webhook-secret");
+    if (provided !== webhookSecret) {
+      return NextResponse.json({ error: "Invalid or missing webhook secret" }, { status: 401 });
+    }
+  }
+
   const url = new URL(request.url);
   const id = url.searchParams.get("id");
 

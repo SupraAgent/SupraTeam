@@ -207,7 +207,15 @@ function MessageBubble({
   );
 }
 
-const PURIFY_CONFIG = { FORBID_TAGS: ["script", "style", "iframe", "object", "embed", "form"], FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover"] };
+const PURIFY_CONFIG = {
+  ALLOWED_TAGS: [
+    "div", "span", "p", "br", "a", "b", "strong", "i", "em", "u",
+    "ul", "ol", "li", "h1", "h2", "h3", "h4", "h5", "h6",
+    "table", "thead", "tbody", "tr", "td", "th",
+    "img", "blockquote", "pre", "code", "hr",
+  ],
+  ALLOWED_ATTR: ["href", "src", "alt", "title", "width", "height", "target", "rel", "class", "style"],
+};
 
 const SanitizedBody = React.memo(function SanitizedBody({ body, bodyText }: { body: string; bodyText: string }) {
   const html = React.useMemo(

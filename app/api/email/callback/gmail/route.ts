@@ -4,6 +4,7 @@ import { createSupabaseAdmin } from "@/lib/supabase";
 import { createClient } from "@/lib/supabase/server";
 import { getOAuth2Client, verifyState } from "../../connections/gmail/route";
 import { google } from "googleapis";
+import { serverCache } from "@/lib/email/server-cache";
 
 /** GET: Gmail OAuth callback — exchange code for tokens, store encrypted */
 export async function GET(request: Request) {
@@ -101,16 +102,24 @@ export async function GET(request: Request) {
       );
     }
 
-    // Check if this user already has connections
+    // Check if this exact email is already connected (reconnect vs first connect)
     const { data: existing } = await admin
       .from("crm_email_connections")
-      .select("id")
+      .select("id, is_default")
       .eq("user_id", userId)
-      .limit(1);
+      .eq("email", email)
+      .limit(1)
+      .maybeSingle();
 
-    const isFirstConnection = !existing || existing.length === 0;
+    // Check if user has ANY connections (for setting default on first-ever connect)
+    const { count: totalConnections } = await admin
+      .from("crm_email_connections")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId);
 
-    // Upsert the connection
+    const isFirstConnection = !totalConnections || totalConnections === 0;
+
+    // Upsert the connection — preserve is_default on reconnect
     await admin.from("crm_email_connections").upsert(
       {
         user_id: userId,
@@ -122,11 +131,15 @@ export async function GET(request: Request) {
           ? new Date(tokens.expiry_date).toISOString()
           : null,
         scopes: tokens.scope?.split(" ") ?? [],
-        is_default: isFirstConnection,
+        is_default: existing?.is_default ?? isFirstConnection,
         connected_at: new Date().toISOString(),
       },
       { onConflict: "user_id,email" }
     );
+
+    // Invalidate cached drivers so next request uses the new tokens
+    serverCache.invalidatePrefix(`driver:${userId}`);
+    serverCache.invalidatePrefix("threads:");
 
     // Audit log
     await admin.from("crm_email_audit_log").insert({

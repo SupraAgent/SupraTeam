@@ -30,8 +30,18 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "File not found or expired" }, { status: 404 });
     }
 
+    // Validate file_path to prevent path traversal
+    const filePath: string = fileData.result.file_path;
+    if (
+      filePath.includes("..") ||
+      filePath.startsWith("/") ||
+      !/^[a-zA-Z0-9/_\-\.]+$/.test(filePath)
+    ) {
+      return NextResponse.json({ error: "Invalid file path" }, { status: 400 });
+    }
+
     // Download the file
-    const downloadUrl = `https://api.telegram.org/file/bot${botToken}/${fileData.result.file_path}`;
+    const downloadUrl = `https://api.telegram.org/file/bot${botToken}/${filePath}`;
     const downloadRes = await fetch(downloadUrl);
 
     if (!downloadRes.ok) {

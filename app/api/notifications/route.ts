@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { createSupabaseAdmin } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth-guard";
 
 export async function GET(request: Request) {
@@ -47,8 +46,9 @@ export async function GET(request: Request) {
 
 // Create a notification (used by bot webhook)
 export async function POST(request: Request) {
-  const supabase = createSupabaseAdmin();
-  if (!supabase) return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+  const { admin: supabase } = auth;
 
   const body = await request.json();
   const { type, deal_id, contact_id, tg_group_id, title, body: notifBody, tg_deep_link, tg_sender_name, pipeline_link } = body;

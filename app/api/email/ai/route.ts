@@ -206,6 +206,13 @@ ${threadSummary}`
         if (!body.text || !body.tone) {
           return NextResponse.json({ error: "text and tone required" }, { status: 400 });
         }
+        const VALID_TONES = ["professional", "friendly", "formal", "casual", "concise", "warm", "direct", "empathetic"];
+        if (!VALID_TONES.includes(body.tone)) {
+          return NextResponse.json(
+            { error: `Invalid tone. Must be one of: ${VALID_TONES.join(", ")}` },
+            { status: 400 }
+          );
+        }
         const adjusted = await callClaude(apiKey, [
           {
             role: "user",

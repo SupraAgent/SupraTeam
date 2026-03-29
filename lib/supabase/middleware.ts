@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { createHmac, timingSafeEqual } from "crypto";
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -43,10 +44,17 @@ export async function updateSession(request: NextRequest) {
     pathname === "/terms";
 
   // Dev access bypass: cookie set by /api/auth/dev-login (dev only)
-  const hasDevAuth =
-    process.env.NODE_ENV !== "production" &&
-    process.env.DEV_ACCESS_PASSWORD &&
-    request.cookies.get("dev-auth")?.value === "true";
+  // Validates HMAC value to match auth-guard.ts
+  let hasDevAuth = false;
+  if (process.env.NODE_ENV !== "production" && process.env.DEV_ACCESS_PASSWORD) {
+    const devCookie = request.cookies.get("dev-auth")?.value;
+    if (devCookie) {
+      const expected = createHmac("sha256", process.env.DEV_ACCESS_PASSWORD).update("dev-auth").digest("hex");
+      const cookieBuf = Buffer.from(devCookie);
+      const expectedBuf = Buffer.from(expected);
+      hasDevAuth = cookieBuf.length === expectedBuf.length && timingSafeEqual(cookieBuf, expectedBuf);
+    }
+  }
 
   if ((user || hasDevAuth) && pathname === "/login") {
     return NextResponse.redirect(new URL("/", request.url));

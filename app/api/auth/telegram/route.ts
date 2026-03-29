@@ -73,6 +73,10 @@ export async function POST(request: Request) {
 
   // Synthetic email for Supabase (never used for actual email)
   const email = `tg_${data.id}@supracrm.tg`;
+  // Security note: password is HMAC(server-secret, telegram_id). The server-side
+  // TOKEN_ENCRYPTION_KEY makes this non-guessable even though telegram_id is public.
+  // This endpoint is additionally protected by Telegram hash verification + 5min expiry
+  // above, so the password alone is never exposed to callers.
   const password = createHmac("sha256", process.env.TOKEN_ENCRYPTION_KEY || "")
     .update(`tg_user_${data.id}`)
     .digest("hex");

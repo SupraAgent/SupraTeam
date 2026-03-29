@@ -4,14 +4,15 @@ import { requireAuth } from "@/lib/auth-guard";
 export async function GET() {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { user, admin: supabase } = auth;
 
-  // Expire highlights older than 24h
+  // Expire highlights older than 24h — scoped to the authenticated user
   const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   await supabase
     .from("crm_highlights")
     .update({ is_active: false, cleared_at: new Date().toISOString(), cleared_by: "expired" })
     .eq("is_active", true)
+    .eq("created_by", user.id)
     .lt("created_at", twentyFourHoursAgo);
 
   // Fetch active highlights

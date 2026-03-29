@@ -19,6 +19,9 @@ class MemoryCache {
       this.store.delete(key);
       return null;
     }
+    // Move to end so eviction removes the actual least-recently-used entry
+    this.store.delete(key);
+    this.store.set(key, entry);
     return entry.data as T;
   }
 

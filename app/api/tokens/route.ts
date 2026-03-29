@@ -17,7 +17,8 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const provider = searchParams.get("provider");
 
-  const admin = createSupabaseAdmin()!;
+  const admin = createSupabaseAdmin();
+  if (!admin) return NextResponse.json({ error: "Supabase admin not configured" }, { status: 500 });
 
   let query = admin
     .from("user_tokens")
@@ -93,7 +94,8 @@ export async function POST(request: Request) {
   }
 
   const encrypted = encryptToken(token.trim());
-  const admin = createSupabaseAdmin()!;
+  const admin = createSupabaseAdmin();
+  if (!admin) return NextResponse.json({ error: "Supabase admin not configured" }, { status: 500 });
 
   // Upsert: one token per user per provider
   const { error } = await admin

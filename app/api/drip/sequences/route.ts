@@ -123,7 +123,7 @@ export async function POST(request: Request) {
 export async function PUT(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { user, admin: supabase } = auth;
 
   let body;
   try {
@@ -143,7 +143,8 @@ export async function PUT(request: Request) {
   const { error } = await supabase
     .from("crm_drip_sequences")
     .update(updates)
-    .eq("id", id);
+    .eq("id", id)
+    .eq("created_by", user.id);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
@@ -152,7 +153,7 @@ export async function PUT(request: Request) {
 export async function DELETE(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { user, admin: supabase } = auth;
 
   let body;
   try {
@@ -166,7 +167,8 @@ export async function DELETE(request: Request) {
   const { error } = await supabase
     .from("crm_drip_sequences")
     .delete()
-    .eq("id", id);
+    .eq("id", id)
+    .eq("created_by", user.id);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });

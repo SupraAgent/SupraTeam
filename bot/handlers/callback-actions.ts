@@ -118,7 +118,7 @@ export function registerCallbackHandler(bot: Bot) {
           // Move deal to next stage in pipeline
           const { data: deal } = await supabase
             .from("crm_deals")
-            .select("id, deal_name, stage_id")
+            .select("id, deal_name, stage_id, board_type")
             .eq("id", dealId)
             .single();
 
@@ -127,10 +127,10 @@ export function registerCallbackHandler(bot: Bot) {
             return;
           }
 
-          // Get current stage position and find next
+          // Get current stage position and find next within the same board_type
           const { data: currentStage } = await supabase
             .from("pipeline_stages")
-            .select("position")
+            .select("position, board_type")
             .eq("id", deal.stage_id)
             .single();
 
@@ -139,13 +139,19 @@ export function registerCallbackHandler(bot: Bot) {
             return;
           }
 
-          const { data: nextStage } = await supabase
+          let nextStageQuery = supabase
             .from("pipeline_stages")
             .select("id, name")
             .gt("position", currentStage.position)
             .order("position")
-            .limit(1)
-            .single();
+            .limit(1);
+
+          // Filter by board_type if the current stage has one
+          if (currentStage.board_type) {
+            nextStageQuery = nextStageQuery.eq("board_type", currentStage.board_type);
+          }
+
+          const { data: nextStage } = await nextStageQuery.single();
 
           if (!nextStage) {
             await ctx.answerCallbackQuery({ text: "Already at final stage" });

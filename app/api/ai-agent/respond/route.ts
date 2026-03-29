@@ -5,6 +5,7 @@
 
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
+import { sanitizeForPrompt } from "@/lib/claude-api";
 
 export async function POST(request: Request) {
   const auth = await requireAuth();
@@ -78,7 +79,8 @@ export async function POST(request: Request) {
     systemPrompt += `\n\nIMPORTANT: The user's message contains an escalation keyword. Acknowledge their request and let them know a team member will follow up shortly. Do NOT try to handle the request yourself.`;
   }
   systemPrompt += dealContext;
-  systemPrompt += `\n\nThe user's name is: ${user_name ?? "Unknown"}. Keep responses concise (max 2-3 paragraphs). Use plain text, no markdown.`;
+  const safeName = sanitizeForPrompt(String(user_name ?? "Unknown"));
+  systemPrompt += `\n\nThe user's name is: ${safeName}. Keep responses concise (max 2-3 paragraphs). Use plain text, no markdown.`;
 
   // Build messages array
   const messages: { role: string; content: string }[] = [];
@@ -86,7 +88,7 @@ export async function POST(request: Request) {
     messages.push({ role: "user", content: h.user_message });
     messages.push({ role: "assistant", content: h.ai_response });
   }
-  messages.push({ role: "user", content: user_message });
+  messages.push({ role: "user", content: sanitizeForPrompt(user_message) });
 
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {

@@ -3,6 +3,7 @@ import { createSupabaseAdmin } from "@/lib/supabase";
 import { createClient } from "@/lib/supabase/server";
 import { encryptToken, decryptToken } from "@/lib/crypto";
 import { verifySlackToken } from "@/lib/slack";
+import { requireAuth } from "@/lib/auth-guard";
 
 /** GET — Check if Slack is connected and return workspace info */
 export async function GET() {
@@ -109,6 +110,9 @@ export async function POST(request: Request) {
 
 /** DELETE — Disconnect Slack */
 export async function DELETE() {
+  const auth = await requireAuth();
+  if ("error" in auth) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+
   const admin = createSupabaseAdmin();
   if (!admin) {
     return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });

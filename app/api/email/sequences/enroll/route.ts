@@ -18,6 +18,21 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "sequence_id, deal_id, and contact_id required" }, { status: 400 });
   }
 
+  // Verify the user owns or is assigned to the deal
+  const { data: deal, error: dealErr } = await auth.admin
+    .from("crm_deals")
+    .select("id, assigned_to, created_by")
+    .eq("id", body.deal_id)
+    .single();
+
+  if (dealErr || !deal) {
+    return NextResponse.json({ error: "Deal not found" }, { status: 404 });
+  }
+
+  if (deal.assigned_to !== auth.user.id && deal.created_by !== auth.user.id) {
+    return NextResponse.json({ error: "Not authorized for this deal" }, { status: 403 });
+  }
+
   // Check if already enrolled and active (by this user)
   const { data: existing } = await auth.admin
     .from("crm_email_sequence_enrollments")

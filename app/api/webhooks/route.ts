@@ -160,9 +160,8 @@ export async function PUT(request: Request) {
   };
   // Validate URL if being updated
   if (body.url !== undefined) {
-    const urlError = isValidWebhookUrl(body.url);
-    if (urlError) {
-      return NextResponse.json({ error: urlError }, { status: 400 });
+    if (!isValidWebhookUrl(body.url)) {
+      return NextResponse.json({ error: "Invalid webhook URL. Must be HTTPS and not target private networks." }, { status: 400 });
     }
   }
 

@@ -30,7 +30,7 @@ export async function GET(request: Request) {
 export async function PUT(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { user, admin: supabase } = auth;
 
   let body;
   try {
@@ -41,6 +41,18 @@ export async function PUT(request: Request) {
   const { sequence_id, steps } = body;
   if (!sequence_id) return NextResponse.json({ error: "sequence_id required" }, { status: 400 });
   if (!Array.isArray(steps)) return NextResponse.json({ error: "steps must be array" }, { status: 400 });
+
+  // Verify the authenticated user owns this sequence
+  const { data: seq, error: seqError } = await supabase
+    .from("crm_drip_sequences")
+    .select("id")
+    .eq("id", sequence_id)
+    .eq("created_by", user.id)
+    .single();
+
+  if (seqError || !seq) {
+    return NextResponse.json({ error: "Sequence not found or access denied" }, { status: 403 });
+  }
 
   // Delete existing steps and re-insert
   const { error: deleteError } = await supabase

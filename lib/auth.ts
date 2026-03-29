@@ -29,7 +29,8 @@ const DEV_USER = {
 } as User;
 
 function hasDevAuthCookie(): boolean {
-  return process.env.NODE_ENV !== "production" && typeof document !== "undefined" && document.cookie.includes("dev-auth=true");
+  // Check for cookie existence only — the value is an opaque HMAC validated server-side
+  return process.env.NODE_ENV !== "production" && typeof document !== "undefined" && document.cookie.split(";").some(c => c.trim().startsWith("dev-auth="));
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
