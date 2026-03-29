@@ -64,7 +64,13 @@ export function sanitizeTemplateHtml(html: string): string {
 
       if (attrName.startsWith("on")) continue;
       if (!ALLOWED_ATTRS.has(attrName)) continue;
-      if ((attrName === "href" || attrName === "src") && DANGEROUS_URI.test(decodeURIComponent(attrVal))) continue;
+      if (attrName === "href" || attrName === "src") {
+        try {
+          if (DANGEROUS_URI.test(decodeURIComponent(attrVal))) continue;
+        } catch {
+          continue; // Malformed percent-encoding (e.g., %ZZ) — strip to be safe
+        }
+      }
 
       safeAttrs.push(`${attrName}="${attrVal.replace(/"/g, "&quot;")}"`);
     }

@@ -3,6 +3,9 @@ import { requireAuth } from "@/lib/auth-guard";
 import { getDriverForUser } from "@/lib/email/driver";
 import { sanitizeEmailError } from "@/lib/email/errors";
 
+// Renew watch if it expires within this window (1 day buffer before 7-day expiry)
+const RENEWAL_BUFFER_MS = 24 * 60 * 60 * 1000;
+
 export async function POST() {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
@@ -14,6 +17,21 @@ export async function POST() {
 
   try {
     const { driver, connection } = await getDriverForUser(auth.user.id);
+
+    // Skip re-registration if watch is still active (saves Gmail API quota)
+    const { data: connData } = await auth.admin
+      .from("crm_email_connections")
+      .select("watch_expiration")
+      .eq("id", connection.id)
+      .eq("user_id", auth.user.id)
+      .single();
+
+    if (connData?.watch_expiration) {
+      const expiresAt = new Date(connData.watch_expiration).getTime();
+      if (expiresAt > Date.now() + RENEWAL_BUFFER_MS) {
+        return NextResponse.json({ data: { skipped: true, expiration: connData.watch_expiration }, source: "gmail" });
+      }
+    }
 
     if (!("watchInbox" in driver) || typeof driver.watchInbox !== "function") {
       return NextResponse.json({ error: "Watch not supported" }, { status: 400 });

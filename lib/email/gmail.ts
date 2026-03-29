@@ -62,29 +62,35 @@ export class GmailDriver implements MailDriver {
 
     // Persist refreshed tokens back to database and invalidate cache.
     // Google may rotate the refresh_token — we MUST persist it or the connection dies.
+    // Retry up to 3 times with backoff — a failed persist means the next request
+    // uses stale tokens from DB, triggering another refresh (infinite loop on DB outage).
     this.auth.on("tokens", async (tokens) => {
       if (tokens.access_token && this.connectionId) {
-        try {
-          if (!this.userId) {
-            console.error("[gmail] Cannot persist refreshed token — userId not set on driver");
-            return;
-          }
-          const { updateConnectionTokens } = await import("./driver");
-          const { serverCache } = await import("./server-cache");
-          await updateConnectionTokens(
-            this.connectionId,
-            this.userId,
-            tokens.access_token,
-            tokens.expiry_date ? new Date(tokens.expiry_date) : undefined,
-            tokens.refresh_token ?? undefined
-          );
-          // Invalidate only this user's cached driver (not all users)
-          const userPrefix = `driver:${this.userId}:`;
-          serverCache.invalidatePrefix(userPrefix);
-        } catch (err) {
-          // Log the failure — silent swallowing here previously caused permanent connection death
-          console.error("[gmail] Token persistence failed:", err instanceof Error ? err.message : "unknown");
+        if (!this.userId) {
+          console.error("[gmail] Cannot persist refreshed token — userId not set on driver");
+          return;
         }
+        const connId = this.connectionId;
+        const uid = this.userId;
+        const expiryDate = tokens.expiry_date ? new Date(tokens.expiry_date) : undefined;
+        const refreshToken = tokens.refresh_token ?? undefined;
+
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            const { updateConnectionTokens } = await import("./driver");
+            const { serverCache } = await import("./server-cache");
+            await updateConnectionTokens(connId, uid, tokens.access_token, expiryDate, refreshToken);
+            serverCache.invalidatePrefix(`driver:${uid}:`);
+            return; // Success
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : "unknown";
+            console.error(`[gmail] Token persist attempt ${attempt + 1}/3 failed:`, msg);
+            if (attempt < 2) {
+              await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+            }
+          }
+        }
+        console.error("[gmail] All 3 token persist attempts failed for connection", connId);
       }
     });
   }

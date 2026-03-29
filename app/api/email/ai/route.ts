@@ -187,8 +187,14 @@ ${threadText}
           return NextResponse.json({ error: "threads required for categorize" }, { status: 400 });
         }
 
+        // Truncate per-thread fields to prevent oversized prompts and prompt injection
         const threadSummary = body.threads
-          .map((t, i) => `${i + 1}. ID: ${t.id}\n   From: ${t.from}\n   Subject: ${t.subject}\n   Preview: ${t.snippet}`)
+          .map((t, i) => {
+            const from = (t.from ?? "").slice(0, 100);
+            const subject = (t.subject ?? "").slice(0, 200);
+            const snippet = (t.snippet ?? "").slice(0, 300);
+            return `${i + 1}. ID: ${t.id}\n   From: ${from}\n   Subject: ${subject}\n   Preview: ${snippet}`;
+          })
           .join("\n\n");
 
         const result = await callClaude(apiKey, [{
@@ -280,7 +286,7 @@ async function callClaude(
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-latest",
+      model: process.env.CLAUDE_EMAIL_MODEL ?? "claude-sonnet-4-latest",
       max_tokens: 2000,
       messages: messages.map((m) => ({
         role: m.role === "user" ? "user" : "assistant",
