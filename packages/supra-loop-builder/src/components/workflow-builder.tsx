@@ -974,7 +974,7 @@ export function WorkflowBuilder({
   return (
     <div className={`flex h-full flex-col ${className ?? ""}`}>
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-white/10 px-6 py-3" data-tour="toolbar">
+      <div className="flex items-center justify-between border-b border-white/10 px-6 py-3">
         <div className="flex items-center gap-4">
           <button
             onClick={handleBackToStartScreen}
