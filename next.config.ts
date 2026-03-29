@@ -11,6 +11,15 @@ const nextConfig: NextConfig = {
       { hostname: "t.me" },
     ],
   },
+  async redirects() {
+    return [
+      // Legacy route redirects — A2 builder is now the primary /automations
+      { source: "/automations2", destination: "/automations", permanent: true },
+      { source: "/automations2/:path*", destination: "/automations/:path*", permanent: true },
+      // Loop Builder → Automations redirect
+      { source: "/loop", destination: "/automations", permanent: true },
+    ];
+  },
   async headers() {
     return [
       {

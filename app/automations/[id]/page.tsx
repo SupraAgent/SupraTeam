@@ -6,7 +6,7 @@ import * as React from "react";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * /automations2/[id] — Redirects to the main builder page with the workflow pre-loaded.
+ * /automations/[id] — Redirects to the main builder page with the workflow pre-loaded.
  * Validates UUID format before redirecting to prevent query injection.
  */
 export default function WorkflowByIdPage() {
@@ -16,10 +16,10 @@ export default function WorkflowByIdPage() {
 
   React.useEffect(() => {
     if (!UUID_RE.test(id)) {
-      router.replace("/automations2");
+      router.replace("/automations");
       return;
     }
-    router.replace(`/automations2?workflow=${encodeURIComponent(id)}`);
+    router.replace(`/automations?workflow=${encodeURIComponent(id)}`);
   }, [id, router]);
 
   return (
