@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { getDriverForUser } from "@/lib/email/driver";
 import { serverCache, TTL } from "@/lib/email/server-cache";
+import { sanitizeEmailError } from "@/lib/email/errors";
 
 /** GET: List email threads (paginated, filterable) */
 export async function GET(request: Request) {
@@ -39,7 +40,7 @@ export async function GET(request: Request) {
       headers: { "Cache-Control": "private, max-age=10, stale-while-revalidate=20" },
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Failed to fetch threads";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const { message, status, reconnect } = sanitizeEmailError(err, "Failed to fetch threads");
+    return NextResponse.json({ error: message, reconnect }, { status });
   }
 }

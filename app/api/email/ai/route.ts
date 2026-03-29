@@ -3,6 +3,7 @@ import { requireAuth } from "@/lib/auth-guard";
 import { getDriverForUser } from "@/lib/email/driver";
 import { logEmailAction } from "@/lib/email/audit";
 import { rateLimit } from "@/lib/rate-limit";
+import { sanitizeEmailError } from "@/lib/email/errors";
 
 /**
  * POST: AI email features
@@ -226,8 +227,8 @@ ${threadSummary}`
         return NextResponse.json({ error: "Unknown action" }, { status: 400 });
     }
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "AI request failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const { message, status, reconnect } = sanitizeEmailError(err, "AI request failed");
+    return NextResponse.json({ error: message, reconnect }, { status });
   }
 }
 

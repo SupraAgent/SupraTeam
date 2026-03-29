@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { getDriverForUser } from "@/lib/email/driver";
+import { sanitizeEmailError } from "@/lib/email/errors";
 
 const PUBSUB_TOPIC = process.env.GOOGLE_PUBSUB_TOPIC ?? "";
 
@@ -32,7 +33,7 @@ export async function POST() {
 
     return NextResponse.json({ data: result, source: "gmail" });
   } catch (err: unknown) {
-    console.error("[email/watch] error:", err);
-    return NextResponse.json({ error: "Watch registration failed" }, { status: 500 });
+    const { message, status, reconnect } = sanitizeEmailError(err, "Watch registration failed");
+    return NextResponse.json({ error: message, reconnect }, { status });
   }
 }

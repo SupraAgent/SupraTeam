@@ -3,6 +3,7 @@ import { requireAuth } from "@/lib/auth-guard";
 import { getDriverForUser } from "@/lib/email/driver";
 import { serverCache, TTL } from "@/lib/email/server-cache";
 import { logEmailAction } from "@/lib/email/audit";
+import { sanitizeEmailError } from "@/lib/email/errors";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -36,8 +37,8 @@ export async function GET(request: Request, { params }: Params) {
       headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" },
     });
   } catch (err: unknown) {
-    console.error("[email/threads] fetch error:", err);
-    return NextResponse.json({ error: "Failed to fetch thread" }, { status: 500 });
+    const { message, status, reconnect } = sanitizeEmailError(err, "Failed to fetch thread");
+    return NextResponse.json({ error: message, reconnect }, { status });
   }
 }
 
@@ -99,7 +100,7 @@ export async function POST(request: Request, { params }: Params) {
 
     return NextResponse.json({ ok: true, source: "gmail" });
   } catch (err: unknown) {
-    console.error("[email/threads] action error:", err);
-    return NextResponse.json({ error: "Action failed" }, { status: 500 });
+    const { message, status, reconnect } = sanitizeEmailError(err, "Action failed");
+    return NextResponse.json({ error: message, reconnect }, { status });
   }
 }
