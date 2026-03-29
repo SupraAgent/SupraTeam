@@ -11,7 +11,7 @@ import { requireAuth } from "@/lib/auth-guard";
 export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { user, admin: supabase } = auth;
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -24,6 +24,15 @@ export async function POST(request: Request) {
   if (!sequence_id) {
     return NextResponse.json({ error: "sequence_id is required" }, { status: 400 });
   }
+
+  // Ownership check
+  const { data: seq } = await supabase
+    .from("crm_outreach_sequences")
+    .select("created_by")
+    .eq("id", sequence_id)
+    .single();
+  if (!seq) return NextResponse.json({ error: "Sequence not found" }, { status: 404 });
+  if (seq.created_by !== user.id) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   // Fetch sequence + steps + enrollments in parallel
   const [seqRes, stepsRes, enrollmentsRes] = await Promise.all([
@@ -92,7 +101,16 @@ export async function POST(request: Request) {
   }
 
   // Build prompt context
-  let context = `Outreach Sequence: "${sequence.name}"\n`;
+  let context = `Industry Benchmarks (Web3 Telegram Outreach):
+- Average reply rate: 15-25% for warm leads, 5-10% for cold
+- Best performing first messages: under 80 words, personalized, clear value prop
+- Optimal follow-up timing: 24-48h for first follow-up, 72h+ for subsequent
+- A/B test winners typically show 5-15% reply rate improvement
+- Top performers use 3-5 step sequences, not more
+- Messages with specific questions get 2x more replies than statements
+
+`;
+  context += `Outreach Sequence: "${sequence.name}"\n`;
   context += `Board: ${sequence.board_type ?? "Any"}\n`;
   context += `Status: ${sequence.status}\n`;
   if (sequence.description) context += `Description: ${sequence.description}\n`;
@@ -196,8 +214,11 @@ ${context}`,
         // Extract JSON from markdown code blocks or surrounding text
         const codeBlockMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/);
         const jsonStr = codeBlockMatch ? codeBlockMatch[1].trim() : rawText;
-        const jsonMatch = jsonStr.match(/\{[\s\S]*?\}(?=[^}]*$)/);
-        recommendations = jsonMatch ? JSON.parse(jsonMatch[0]) : { summary: rawText, recommendations: [] };
+        // Use greedy match to capture outermost braces (handles nested objects)
+        const firstBrace = jsonStr.indexOf("{");
+        const lastBrace = jsonStr.lastIndexOf("}");
+        const extracted = firstBrace >= 0 && lastBrace > firstBrace ? jsonStr.slice(firstBrace, lastBrace + 1) : null;
+        recommendations = extracted ? JSON.parse(extracted) : { summary: rawText, recommendations: [] };
       } catch {
         recommendations = { summary: rawText, recommendations: [] };
       }
