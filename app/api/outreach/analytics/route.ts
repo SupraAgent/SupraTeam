@@ -137,6 +137,12 @@ async function getSequenceDetail(supabase: any, sequenceId: string) {
     const sv = stepVariantLogs.get(step.id);
 
     // Per-step A/B(/C) data
+    // LIMITATION: Reply attribution uses enrollment-level reply_count, not step-level.
+    // An enrollment goes through multiple steps with potentially different variants,
+    // so a reply attributed to variant A on step 2 may actually be responding to
+    // variant B on step 1. To fix this properly, step_log would need a 'replied'
+    // status entry linking replies to the specific step that triggered them.
+    // Until then, these per-step reply rates may over-count for multi-step sequences.
     let ab: { a_sent: number; b_sent: number; a_reply_rate: number; b_reply_rate: number; c_sent?: number; c_reply_rate?: number } | null = null;
     if (sv && step.variant_b_template) {
       const aIds = [...sv.a_enrollments];
@@ -203,6 +209,10 @@ async function getSequenceDetail(supabase: any, sequenceId: string) {
       }
     }
 
+    // NOTE: Aggregate reply attribution uses enrollment.reply_count grouped by the
+    // enrollment's first A/B variant assignment. This is enrollment-level attribution
+    // and may over-count replies for enrollments that span multiple A/B steps.
+    // See per-step comment above for details.
     let aTotal = 0, bTotal = 0, cTotal = 0, aReplied = 0, bReplied = 0, cReplied = 0;
     for (const [eid, variant] of enrollmentVariant) {
       const enrollment = enrollmentMap.get(eid);

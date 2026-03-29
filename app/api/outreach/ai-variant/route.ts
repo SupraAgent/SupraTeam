@@ -23,23 +23,26 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const { message, context, tone } = body;
+  let { message, context, tone } = body;
 
   if (!message?.trim()) {
     return NextResponse.json({ error: "message is required" }, { status: 400 });
   }
 
-  let prompt = "You are a Web3 outreach expert. Generate an alternative version of this Telegram message for A/B testing. Make it meaningfully different in approach (different hook, tone, or structure) while keeping the same intent and any template variables like {{contact_name}}. Return ONLY the alternative message.";
+  // Input length limits to mitigate prompt injection
+  const MAX_MESSAGE_LEN = 2000;
+  const MAX_CONTEXT_LEN = 500;
+  message = String(message).slice(0, MAX_MESSAGE_LEN);
+  if (context?.sequence_name) context.sequence_name = String(context.sequence_name).slice(0, MAX_CONTEXT_LEN);
 
-  if (tone && TONE_DESCRIPTIONS[tone]) {
-    prompt += ` Write in a ${tone} tone. ${TONE_DESCRIPTIONS[tone]}.`;
-  }
+  const systemPrompt = "You are a Web3 outreach expert. Generate an alternative version of this Telegram message for A/B testing. Make it meaningfully different in approach (different hook, tone, or structure) while keeping the same intent and any template variables like {{contact_name}}. Return ONLY the alternative message."
+    + (tone && TONE_DESCRIPTIONS[tone] ? ` Write in a ${tone} tone. ${TONE_DESCRIPTIONS[tone]}.` : "");
 
+  let userContent = "";
   if (context) {
-    prompt += `\n\nContext: Sequence "${context.sequence_name ?? ""}", Step ${context.step_number ?? ""}, Board: ${context.board_type ?? "Any"}.`;
+    userContent += `Context: Sequence "${context.sequence_name ?? ""}", Step ${context.step_number ?? ""}, Board: ${context.board_type ?? "Any"}.\n\n`;
   }
-
-  prompt += `\n\nOriginal message:\n${message}`;
+  userContent += `<user_message>\n${message}\n</user_message>`;
 
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -52,7 +55,8 @@ export async function POST(request: Request) {
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
         max_tokens: 300,
-        messages: [{ role: "user", content: prompt }],
+        system: systemPrompt,
+        messages: [{ role: "user", content: userContent }],
       }),
     });
 
