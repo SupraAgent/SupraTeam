@@ -6,6 +6,7 @@
 
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
+import { decryptToken } from "@/lib/crypto";
 
 export async function GET() {
   const auth = await requireAuth();
@@ -99,6 +100,39 @@ export async function PATCH(request: Request) {
       await supabase.from("crm_consent_records").delete().eq("contact_id", contactId);
       await supabase.from("tg_group_members").delete().eq("crm_contact_id", contactId);
       await supabase.from("crm_contacts").delete().eq("id", contactId);
+    }
+
+    if (req.target_type === "user_data") {
+      const userId = req.requested_by;
+
+      // Revoke Google OAuth tokens before deleting connections
+      const { data: connections } = await supabase
+        .from("crm_email_connections")
+        .select("id, access_token_encrypted")
+        .eq("user_id", userId);
+
+      for (const conn of connections ?? []) {
+        if (conn.access_token_encrypted) {
+          try {
+            const token = decryptToken(conn.access_token_encrypted);
+            await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(token)}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            });
+          } catch {
+            // Non-fatal
+          }
+        }
+      }
+
+      // Delete all email-related records
+      await supabase.from("crm_email_tracking_events").delete().eq("user_id", userId);
+      await supabase.from("crm_email_push_events").delete().eq("user_id", userId);
+      await supabase.from("crm_email_scheduled").delete().eq("user_id", userId);
+      await supabase.from("crm_email_sequence_enrollments").delete().eq("enrolled_by", userId);
+      await supabase.from("crm_email_thread_links").delete().eq("linked_by", userId);
+      await supabase.from("crm_email_audit_log").delete().eq("user_id", userId);
+      await supabase.from("crm_email_connections").delete().eq("user_id", userId);
     }
 
     // Mark as completed

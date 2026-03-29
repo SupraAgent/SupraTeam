@@ -153,6 +153,30 @@ const CrmTriggerEditor: CustomNodeEditor = ({ data, onChange }) => {
           placeholder="Any stage"
         />
       )}
+      {d.crmTrigger === "deal_stale" && (
+        <div>
+          <label className={labelClass}>Days of Inactivity</label>
+          <input
+            className={inputClass}
+            type="number"
+            min="1"
+            value={config.stale_days || "7"}
+            onChange={(e) => onChange({ config: { ...config, stale_days: e.target.value } })}
+            placeholder="7"
+          />
+          <p className="text-[10px] text-muted-foreground mt-1">Trigger when a deal has no activity for this many days</p>
+        </div>
+      )}
+      {d.crmTrigger === "deal_created" && (
+        <AsyncSelect
+          label="Board Filter (optional)"
+          options={[{ value: "BD", label: "BD" }, { value: "Marketing", label: "Marketing" }, { value: "Admin", label: "Admin" }]}
+          loading={false}
+          value={config.board_type || ""}
+          onChange={(v) => onChange({ config: { ...config, board_type: v } })}
+          placeholder="Any board"
+        />
+      )}
       {d.crmTrigger === "scheduled" && (
         <div>
           <label className={labelClass}>Schedule (cron)</label>
@@ -465,6 +489,35 @@ const CrmActionEditor: CustomNodeEditor = ({ data, onChange }) => {
           <div>
             <label className={labelClass}>Body (JSON)</label>
             <textarea className={`${inputClass} min-h-[40px] resize-y font-mono`} value={config.body || ""} onChange={(e) => updateConfig("body", e.target.value)} placeholder='{"key": "value"}' />
+          </div>
+        </>
+      )}
+
+      {crmAction === "ai_summarize" && (
+        <>
+          <div>
+            <label className={labelClass}>Target Entity</label>
+            <select className={selectClass} value={config.target || "deal"} onChange={(e) => updateConfig("target", e.target.value)}>
+              <option value="deal">Current Deal</option>
+              <option value="contact">Contact</option>
+              <option value="conversation">Conversation History</option>
+            </select>
+          </div>
+          <div>
+            <label className={labelClass}>Summary Prompt (optional)</label>
+            <textarea className={`${inputClass} min-h-[60px] resize-y`} value={config.prompt || ""} onChange={(e) => updateConfig("prompt", e.target.value)} placeholder="Summarize this deal's status and next steps..." />
+          </div>
+          <div>
+            <label className={labelClass}>Output Format</label>
+            <select className={selectClass} value={config.format || "text"} onChange={(e) => updateConfig("format", e.target.value)}>
+              <option value="text">Plain Text</option>
+              <option value="bullets">Bullet Points</option>
+              <option value="json">JSON</option>
+            </select>
+          </div>
+          <div>
+            <label className={labelClass}>Max Length (tokens)</label>
+            <input className={inputClass} type="number" value={config.max_tokens || "256"} onChange={(e) => updateConfig("max_tokens", e.target.value)} placeholder="256" />
           </div>
         </>
       )}

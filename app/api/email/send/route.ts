@@ -3,11 +3,15 @@ import { requireAuth } from "@/lib/auth-guard";
 import { getDriverForUser } from "@/lib/email/driver";
 import type { SendParams, ReplyParams, ForwardParams } from "@/lib/email/types";
 import { logEmailAction } from "@/lib/email/audit";
+import { rateLimit } from "@/lib/rate-limit";
 
 /** POST: Send, reply, or forward an email */
 export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
+
+  const rl = rateLimit(`email-send:${auth.user.id}`, { max: 30, windowSec: 60 });
+  if (rl) return rl;
 
   let body: {
     type: "send" | "reply" | "forward";
@@ -31,6 +35,34 @@ export async function POST(request: Request) {
 
   if (!body.body?.trim()) {
     return NextResponse.json({ error: "Email body is required" }, { status: 400 });
+  }
+
+  // Input length validation
+  const MAX_BODY = 500_000; // ~500KB
+  const MAX_SUBJECT = 1_000;
+  const MAX_RECIPIENTS = 100;
+  const MAX_ATTACHMENTS = 25;
+  const MAX_ATTACHMENT_SIZE = 10_000_000; // ~10MB base64
+
+  if (body.body.length > MAX_BODY) {
+    return NextResponse.json({ error: `Email body exceeds ${MAX_BODY} character limit` }, { status: 400 });
+  }
+  if (body.subject && body.subject.length > MAX_SUBJECT) {
+    return NextResponse.json({ error: `Subject exceeds ${MAX_SUBJECT} character limit` }, { status: 400 });
+  }
+  const totalRecipients = (body.to?.length ?? 0) + (body.cc?.length ?? 0) + (body.bcc?.length ?? 0);
+  if (totalRecipients > MAX_RECIPIENTS) {
+    return NextResponse.json({ error: `Too many recipients (max ${MAX_RECIPIENTS})` }, { status: 400 });
+  }
+  if (body.attachments) {
+    if (body.attachments.length > MAX_ATTACHMENTS) {
+      return NextResponse.json({ error: `Too many attachments (max ${MAX_ATTACHMENTS})` }, { status: 400 });
+    }
+    for (const att of body.attachments) {
+      if (att.data.length > MAX_ATTACHMENT_SIZE) {
+        return NextResponse.json({ error: `Attachment "${att.filename}" exceeds 10MB limit` }, { status: 400 });
+      }
+    }
   }
 
   try {

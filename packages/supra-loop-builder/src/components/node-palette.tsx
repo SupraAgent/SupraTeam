@@ -654,7 +654,7 @@ export function NodePalette({ onAddNode, userNodeDefs: externalDefs, customPalet
   function renderItem(item: { type: string; label: string; emoji: string; description: string; help?: string; data: Record<string, unknown> }) {
     return (
       <div
-        key={item.type}
+        key={`${item.type}-${item.label}`}
         role="button"
         tabIndex={0}
         aria-label={`Add ${item.label} node: ${item.description}`}

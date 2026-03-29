@@ -1,16 +1,9 @@
 import { NextResponse } from "next/server";
-import { google } from "googleapis";
 import { encryptToken } from "@/lib/crypto";
 import { createSupabaseAdmin } from "@/lib/supabase";
 import { createClient } from "@/lib/supabase/server";
-
-function getOAuth2Client() {
-  return new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
-    `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3002"}/api/email/callback/gmail`
-  );
-}
+import { getOAuth2Client, verifyState } from "../../connections/gmail/route";
+import { google } from "googleapis";
 
 /** GET: Gmail OAuth callback — exchange code for tokens, store encrypted */
 export async function GET(request: Request) {
@@ -31,22 +24,26 @@ export async function GET(request: Request) {
     );
   }
 
-  // Validate state -- must be a signed JSON payload with uid and timestamp
-  let userId: string;
-  try {
-    const stateJson = JSON.parse(Buffer.from(stateParam, "base64url").toString());
-    userId = stateJson.uid;
-    const ts = stateJson.ts;
-    if (!userId || !ts) throw new Error("Invalid state");
-    // Reject if state is older than 10 minutes
-    if (Date.now() - ts > 10 * 60 * 1000) {
-      return NextResponse.redirect(
-        new URL("/settings/integrations/email?error=state_expired", request.url)
-      );
-    }
-  } catch {
+  // Validate HMAC-signed state
+  const stateData = verifyState(stateParam);
+  if (!stateData) {
     return NextResponse.redirect(
       new URL("/settings/integrations/email?error=invalid_state", request.url)
+    );
+  }
+
+  const userId = stateData.uid as string;
+  const ts = stateData.ts as number;
+  if (!userId || !ts) {
+    return NextResponse.redirect(
+      new URL("/settings/integrations/email?error=invalid_state", request.url)
+    );
+  }
+
+  // Reject if state is older than 10 minutes
+  if (Date.now() - ts > 10 * 60 * 1000) {
+    return NextResponse.redirect(
+      new URL("/settings/integrations/email?error=state_expired", request.url)
     );
   }
 

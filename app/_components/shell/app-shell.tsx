@@ -34,7 +34,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   // TMA and public routes render without the CRM shell (sidebar, topbar, etc.)
-  const isMinimalLayout = pathname.startsWith("/tma") || pathname.startsWith("/apply");
+  const isMinimalLayout = pathname.startsWith("/tma") || pathname.startsWith("/apply") || pathname === "/privacy" || pathname === "/terms";
   if (isMinimalLayout) return <>{children}</>;
 
   // Fetch user's crm_role from profile

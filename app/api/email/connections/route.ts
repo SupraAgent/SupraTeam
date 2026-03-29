@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
-import { createSupabaseAdmin } from "@/lib/supabase";
+import { decryptToken } from "@/lib/crypto";
 
 /** GET: List user's connected email accounts */
 export async function GET() {
@@ -20,7 +20,7 @@ export async function GET() {
   return NextResponse.json({ data, source: "supabase" });
 }
 
-/** DELETE: Disconnect an email account */
+/** DELETE: Disconnect an email account — revokes Google token then deletes */
 export async function DELETE(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
@@ -29,6 +29,27 @@ export async function DELETE(request: Request) {
   const id = searchParams.get("id");
   if (!id) {
     return NextResponse.json({ error: "id is required" }, { status: 400 });
+  }
+
+  // Fetch the connection to get the token for revocation
+  const { data: conn } = await auth.admin
+    .from("crm_email_connections")
+    .select("access_token_encrypted, refresh_token_encrypted")
+    .eq("id", id)
+    .eq("user_id", auth.user.id)
+    .single();
+
+  // Revoke the Google OAuth token before deleting
+  if (conn?.access_token_encrypted) {
+    try {
+      const token = decryptToken(conn.access_token_encrypted);
+      await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(token)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      });
+    } catch {
+      // Non-fatal — still delete the connection
+    }
   }
 
   const { error } = await auth.admin
