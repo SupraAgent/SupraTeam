@@ -207,12 +207,16 @@ export default function OutreachPage() {
   }
 
   async function dismissAlert(id: string) {
-    await fetch("/api/outreach/alerts", {
+    const res = await fetch("/api/outreach/alerts", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id }),
     });
-    setAlerts((prev) => prev.filter((a) => a.id !== id));
+    if (res.ok) {
+      setAlerts((prev) => prev.filter((a) => a.id !== id));
+    } else {
+      toast.error("Failed to dismiss alert");
+    }
   }
 
   async function handleAIRewrite(stepIndex: number) {
@@ -422,27 +426,40 @@ export default function OutreachPage() {
         { message_template: "", variant_b_template: "", variant_c_template: "", ab_split_pct: 50, variant_b_delay_hours: null, delay_hours: 48, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
       ]);
       fetchSequences();
+    } else {
+      const data = await res.json().catch(() => ({}));
+      toast.error(data.error ?? "Failed to create sequence");
     }
   }
 
   async function updateStatus(id: string, status: string) {
-    await fetch("/api/outreach/sequences", {
+    const res = await fetch("/api/outreach/sequences", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, status }),
     });
-    setSequences((prev) => prev.map((s) => (s.id === id ? { ...s, status } : s)));
-    toast.success(`Sequence ${status}`);
+    if (res.ok) {
+      setSequences((prev) => prev.map((s) => (s.id === id ? { ...s, status } : s)));
+      toast.success(`Sequence ${status}`);
+    } else {
+      const data = await res.json().catch(() => ({}));
+      toast.error(data.error ?? "Failed to update sequence");
+    }
   }
 
   async function deleteSequence(id: string) {
-    await fetch("/api/outreach/sequences", {
+    const res = await fetch("/api/outreach/sequences", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id }),
     });
-    setSequences((prev) => prev.filter((s) => s.id !== id));
-    toast.success("Sequence deleted");
+    if (res.ok) {
+      setSequences((prev) => prev.filter((s) => s.id !== id));
+      toast.success("Sequence deleted");
+    } else {
+      const data = await res.json().catch(() => ({}));
+      toast.error(data.error ?? "Failed to delete sequence");
+    }
   }
 
   async function cloneSequence(id: string) {

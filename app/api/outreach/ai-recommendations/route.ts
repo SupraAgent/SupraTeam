@@ -205,8 +205,11 @@ ${context}`,
         // Extract JSON from markdown code blocks or surrounding text
         const codeBlockMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/);
         const jsonStr = codeBlockMatch ? codeBlockMatch[1].trim() : rawText;
-        const jsonMatch = jsonStr.match(/\{[\s\S]*?\}(?=[^}]*$)/);
-        recommendations = jsonMatch ? JSON.parse(jsonMatch[0]) : { summary: rawText, recommendations: [] };
+        // Use greedy match to capture outermost braces (handles nested objects)
+        const firstBrace = jsonStr.indexOf("{");
+        const lastBrace = jsonStr.lastIndexOf("}");
+        const extracted = firstBrace >= 0 && lastBrace > firstBrace ? jsonStr.slice(firstBrace, lastBrace + 1) : null;
+        recommendations = extracted ? JSON.parse(extracted) : { summary: rawText, recommendations: [] };
       } catch {
         recommendations = { summary: rawText, recommendations: [] };
       }

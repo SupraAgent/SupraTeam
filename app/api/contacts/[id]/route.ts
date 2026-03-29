@@ -1,25 +1,12 @@
 import { NextResponse } from "next/server";
 import { requireAuth, requireLeadRole } from "@/lib/auth-guard";
 import { logEnrichment } from "@/lib/enrichment-log";
+import { computeQualityScore } from "@/lib/quality-score";
 
-const CONTACT_FIELDS = ["name", "email", "phone", "telegram_username", "telegram_user_id", "company", "title", "notes", "stage_id", "tg_group_link", "lifecycle_stage", "source", "quality_score", "x_handle", "wallet_address", "wallet_chain", "on_chain_score"];
+// on_chain_score excluded — only set via enrichment endpoints, not generic PATCH
+const CONTACT_FIELDS = ["name", "email", "phone", "telegram_username", "telegram_user_id", "company", "title", "notes", "stage_id", "tg_group_link", "lifecycle_stage", "source", "quality_score", "x_handle", "wallet_address", "wallet_chain"];
 
 const QUALITY_SCORE_FIELDS = ["name", "email", "telegram_username", "company", "phone", "title", "x_handle", "wallet_address", "on_chain_score"];
-
-/** Compute quality_score based on field completeness. Total = 100. */
-function computeQualityScore(contact: Record<string, unknown>): number {
-  let score = 0;
-  if (contact.name) score += 10;
-  if (contact.email) score += 15;
-  if (contact.telegram_username) score += 15;
-  if (contact.company) score += 10;
-  if (contact.phone) score += 5;
-  if (contact.title) score += 5;
-  if (contact.x_handle) score += 15;
-  if (contact.wallet_address) score += 15;
-  if (typeof contact.on_chain_score === "number" && contact.on_chain_score > 0) score += 10;
-  return score;
-}
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireAuth();

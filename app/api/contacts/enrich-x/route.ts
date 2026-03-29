@@ -37,8 +37,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "No X handle set on this contact" }, { status: 400 });
   }
 
-  // Fetch from Twitter API v2
+  // Validate X handle format
   const cleanHandle = handle.replace(/^@/, "");
+  if (!/^[a-zA-Z0-9_]{1,15}$/.test(cleanHandle)) {
+    return NextResponse.json({ error: "Invalid X handle format" }, { status: 400 });
+  }
   const apiUrl = `https://api.twitter.com/2/users/by/username/${encodeURIComponent(cleanHandle)}?user.fields=description,public_metrics,created_at`;
 
   let apiRes: Response;

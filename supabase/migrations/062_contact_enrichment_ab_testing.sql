@@ -25,8 +25,9 @@ ALTER TABLE crm_outreach_steps
   ADD COLUMN IF NOT EXISTS variant_b_template text;
 
 -- Add variant tracking to step log for per-variant analytics
+-- CHECK constraint added at bottom of migration to include all variants (A, B, C)
 ALTER TABLE crm_outreach_step_log
-  ADD COLUMN IF NOT EXISTS ab_variant text CHECK (ab_variant IN ('A', 'B'));
+  ADD COLUMN IF NOT EXISTS ab_variant text;
 
 -- Stage 1b: Configurable split ratio for message-level A/B
 ALTER TABLE crm_outreach_steps
