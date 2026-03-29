@@ -535,8 +535,8 @@ export function registerMessageHandlers(bot: Bot) {
         detectedMediaThumbId = msg.animation.thumbnail?.file_id ?? null;
       }
 
-      // Store full message in tg_group_messages for conversation timeline
-      await supabase.from("tg_group_messages").upsert({
+      // Store full message in tg_group_messages for conversation timeline (non-blocking)
+      supabase.from("tg_group_messages").upsert({
         tg_group_id: tgGroup.id,
         telegram_message_id: messageId,
         telegram_chat_id: chatId,
@@ -553,7 +553,8 @@ export function registerMessageHandlers(bot: Bot) {
         reply_to_message_id: ctx.message.reply_to_message?.message_id ?? null,
         sent_at: new Date(ctx.message.date * 1000).toISOString(),
         is_from_bot: false,
-      }, { onConflict: "telegram_chat_id,telegram_message_id" });
+      }, { onConflict: "telegram_chat_id,telegram_message_id" })
+        .then(({ error }) => { if (error) console.error("[bot/messages] timeline store error:", error); });
 
       // Fire group.message webhook (non-blocking)
       fireWebhookEvent("group.message", {
