@@ -4,11 +4,6 @@ import * as React from "react";
 import {
   WorkflowBuilder,
   configureBuilder,
-  setBuiltInTemplates,
-  DOMAIN_BUILT_IN_TEMPLATES,
-  domainNodeTypes,
-  DOMAIN_PALETTE_ITEMS,
-  domainInspectorEditors,
 } from "@supra/loop-builder";
 import type {
   FlowChatRequest,
@@ -16,6 +11,9 @@ import type {
   LLMExecuteRequest,
   LLMExecuteResponse,
 } from "@supra/loop-builder";
+import { CRM_NODE_TYPES } from "./_lib/crm-node-types";
+import { CRM_PALETTE_ITEMS } from "./_lib/crm-palette-items";
+import { CRM_NODE_EDITORS } from "./_lib/crm-node-editors";
 
 // ── AI Handlers (reuse existing /api/loop endpoints) ────────────
 
@@ -49,8 +47,7 @@ async function handleLLMExecute(
     if (!reader) return { content: "", error: "Streaming not supported" };
 
     const decoder = new TextDecoder();
-    let finalContent = "";
-    let usage: { input_tokens?: number; output_tokens?: number } | undefined;
+    const result: LLMExecuteResponse = { content: "", stream: undefined, usage: undefined };
 
     const textStream = new ReadableStream<string>({
       async start(controller) {
@@ -68,10 +65,10 @@ async function handleLLMExecute(
               try {
                 const event = JSON.parse(dataLine);
                 if (event.type === "text") {
-                  finalContent += event.text;
+                  result.content += event.text;
                   controller.enqueue(event.text);
                 } else if (event.type === "done") {
-                  usage = event.usage;
+                  result.usage = event.usage;
                 } else if (event.type === "error") {
                   controller.error(new Error(event.error));
                   return;
@@ -87,7 +84,8 @@ async function handleLLMExecute(
         }
       },
     });
-    return { content: finalContent, stream: textStream, usage };
+    result.stream = textStream;
+    return result;
   }
 
   const res = await fetch("/api/loop/flow-execute-llm", {
@@ -107,25 +105,24 @@ async function handleLLMExecute(
 export default function Automations2Page() {
   React.useEffect(() => {
     configureBuilder({
-      storagePrefix: "supraloop",
-      idbName: "supraloop-storage",
-      logPrefix: "@supra/builder",
-      commitMessagePrefix: "SupraLoop",
+      storagePrefix: "suprateam",
+      idbName: "suprateam-automations",
+      logPrefix: "@suprateam/automations",
+      commitMessagePrefix: "Workflow",
     });
-    setBuiltInTemplates(DOMAIN_BUILT_IN_TEMPLATES);
   }, []);
 
   return (
     <WorkflowBuilder
       category="workflow"
-      storageKeyPrefix="supraloop"
-      customNodeTypes={domainNodeTypes}
-      customPaletteItems={DOMAIN_PALETTE_ITEMS}
-      customNodeEditors={domainInspectorEditors}
+      storageKeyPrefix="suprateam"
+      customNodeTypes={CRM_NODE_TYPES as Record<string, React.ComponentType<unknown>>}
+      customPaletteItems={CRM_PALETTE_ITEMS}
+      customNodeEditors={CRM_NODE_EDITORS}
       onChat={handleChat}
       onLLMExecute={handleLLMExecute}
-      title="SupraLoop Builder"
-      subtitle="Build, connect, and orchestrate automation workflows"
+      title="Automations"
+      subtitle="Build CRM automation workflows with drag & drop"
       showAIChat
       className="h-full"
     />
