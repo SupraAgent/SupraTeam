@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useShell } from "./shell-context";
 import { NotificationCenter } from "@/components/notifications/notification-center";
-import { ALL_NAV_ITEMS, ADMIN_ITEM } from "./nav-config";
+import { ALL_NAV_ITEMS, ADMIN_ITEM, filterByRole } from "./nav-config";
 import { Search, Menu, X } from "lucide-react";
 
 export function MobileHeader() {
@@ -45,7 +45,7 @@ export function MobileHeader() {
       {/* Mobile nav */}
       {mobileNavOpen && (
         <nav className="border-b border-white/10 bg-background px-4 py-2 space-y-0.5 animate-fade-in">
-          {ALL_NAV_ITEMS.map((item) => {
+          {filterByRole(ALL_NAV_ITEMS, crmRole).map((item) => {
             const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
             return (
               <Link

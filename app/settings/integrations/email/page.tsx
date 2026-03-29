@@ -94,8 +94,8 @@ export default function EmailSettingsPage() {
       <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-medium text-foreground">Connected Accounts</h2>
-          <Button size="sm" onClick={handleConnectGmail} disabled={connecting}>
-            <GmailIcon className="h-4 w-4 mr-1.5" />
+          <Button size="default" onClick={handleConnectGmail} disabled={connecting} className="px-5 py-2.5 text-sm">
+            <GmailIcon className="h-5 w-5 mr-2" />
             {connecting ? "Connecting..." : "Connect Gmail"}
           </Button>
         </div>
