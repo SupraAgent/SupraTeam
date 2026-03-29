@@ -46,7 +46,11 @@ export function validateTelegramInitData(
       .update(dataCheckString)
       .digest("hex");
 
-    if (checkHash !== hash) return null;
+    try {
+      if (!crypto.timingSafeEqual(Buffer.from(checkHash, "hex"), Buffer.from(hash, "hex"))) return null;
+    } catch {
+      return null;
+    }
 
     // Parse user
     const userStr = params.get("user");

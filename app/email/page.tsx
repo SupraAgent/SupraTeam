@@ -76,6 +76,8 @@ function EmailPageInner() {
   const { thread: activeThread, loading: threadLoading } = useThread(selectedThreadId);
   const { labels, loading: labelsLoading } = useLabels();
   const { performAction, undoAction } = useEmailActions(setThreads);
+  const undoActionRef = React.useRef(undoAction);
+  undoActionRef.current = undoAction;
   const aiCategories = useAICategories(threads);
   const { split, counts } = useSplitInbox(threads, aiCategories);
   const prefetchThread = usePrefetchThread();
@@ -110,10 +112,9 @@ function EmailPageInner() {
     const id = selectedThreadId ?? visibleThreads[selectedIndex]?.id;
     if (!id) return;
     performAction(id, "archive");
+    // Read undoAction from ref in onClick to get the latest value set by performAction
     toast("Archived", {
-      action: undoAction
-        ? { label: "Undo", onClick: () => undoAction.undo() }
-        : undefined,
+      action: { label: "Undo", onClick: () => undoActionRef.current?.undo() },
     });
     if (selectedThreadId) {
       const idx = visibleThreads.findIndex((t) => t.id === selectedThreadId);

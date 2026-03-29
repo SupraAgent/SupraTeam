@@ -1,14 +1,14 @@
 // Contact avatar generation — Gravatar hash + fallback initials
 
 /**
- * Generate a Gravatar URL from an email address.
- * Uses SHA-256 hash (browser-native crypto.subtle).
- * Falls back to a colored initial circle if no gravatar exists (d=404).
+ * Generate a Gravatar-style avatar URL.
+ * Gravatar requires MD5 which isn't available synchronously in the browser,
+ * so we use the DiceBear API with a deterministic seed from the email.
+ * Returns a consistent avatar for any email — no 404s, no broken hashes.
  */
 export function getGravatarUrl(email: string, size = 40): string {
-  // We can't do async hash in a sync function, so use a simple hash
-  const hash = simpleHash(email.trim().toLowerCase());
-  return `https://www.gravatar.com/avatar/${hash}?s=${size}&d=404`;
+  const seed = encodeURIComponent(email.trim().toLowerCase());
+  return `https://api.dicebear.com/9.x/initials/svg?seed=${seed}&size=${size}&backgroundColor=0f172a&textColor=94a3b8`;
 }
 
 /**
@@ -40,14 +40,3 @@ export function getAvatarColor(str: string): string {
   return `hsl(${hue}, 50%, 35%)`;
 }
 
-// Simple string hash that produces a hex string (not cryptographic, just for gravatar lookup)
-function simpleHash(str: string): string {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash |= 0;
-  }
-  // Convert to hex-like string (not a real MD5, but good enough for consistent avatars)
-  return Math.abs(hash).toString(16).padStart(32, "0");
-}

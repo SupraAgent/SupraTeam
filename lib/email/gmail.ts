@@ -82,7 +82,7 @@ export class GmailDriver implements MailDriver {
 
     // Fetch threads in batches of 10 to avoid hitting Gmail rate limits
     // HTTP/2 multiplexes these over a single TCP connection on Railway
-    const rawThreads = res.data.threads ?? [];
+    const rawThreads = (res.data.threads ?? []).filter((t) => t.id);
     const BATCH_SIZE = 10;
     const fetchThread = (id: string) =>
       this.gmail.users.threads.get({
@@ -202,9 +202,10 @@ export class GmailDriver implements MailDriver {
       userId: "me",
       requestBody: { raw },
     });
+    if (!res.data.id) throw new Error("Gmail did not return a message ID after send");
     const msg = await this.gmail.users.messages.get({
       userId: "me",
-      id: res.data.id!,
+      id: res.data.id,
       format: "FULL",
     });
     return this.parseMessage(msg.data);

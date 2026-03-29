@@ -6,7 +6,12 @@ export async function POST(request: Request) {
   if ("error" in auth) return auth.error;
   const { user, admin: supabase } = auth;
 
-  const body = await request.json();
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+  }
   const { contact_a_id, contact_b_id, relationship_type, label, notes } = body;
 
   if (!contact_a_id || !contact_b_id || !relationship_type) {
@@ -43,9 +48,14 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { user, admin: supabase } = auth;
 
-  const body = await request.json();
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+  }
   const { id, relationship_type, label, notes } = body;
 
   if (!id) {
@@ -61,6 +71,7 @@ export async function PATCH(request: Request) {
     .from("crm_contact_relationships")
     .update(updates)
     .eq("id", id)
+    .eq("created_by", user.id)
     .select()
     .single();
 
@@ -74,7 +85,7 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { user, admin: supabase } = auth;
 
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
@@ -86,7 +97,8 @@ export async function DELETE(request: Request) {
   const { error } = await supabase
     .from("crm_contact_relationships")
     .delete()
-    .eq("id", id);
+    .eq("id", id)
+    .eq("created_by", user.id);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });

@@ -342,9 +342,9 @@ export default function PipelinePage() {
     return stages.filter((s) => !s.board_type);
   }, [stages, board]);
 
-  // Pipeline summary
-  const totalValue = deals.reduce((sum, d) => sum + Number(d.value ?? 0), 0);
-  const weightedValue = deals.reduce((sum, d) => sum + Number(d.value ?? 0) * (Number(d.probability ?? 50) / 100), 0);
+  // Pipeline summary (uses filtered deals so stats reflect current view)
+  const totalValue = searchFiltered.reduce((sum, d) => sum + Number(d.value ?? 0), 0);
+  const weightedValue = searchFiltered.reduce((sum, d) => sum + Number(d.value ?? 0) * (Number(d.probability ?? 50) / 100), 0);
 
   // Bulk actions
   function toggleSelectDeal(dealId: string) {

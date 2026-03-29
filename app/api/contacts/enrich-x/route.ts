@@ -21,11 +21,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "contact_id is required" }, { status: 400 });
   }
 
-  // Fetch contact
+  // Fetch contact (scoped to current user)
   const { data: contact, error: fetchErr } = await supabase
     .from("crm_contacts")
     .select("id, x_handle, x_bio, x_followers, enriched_at")
     .eq("id", contactId)
+    .eq("created_by", user.id)
     .single();
 
   if (fetchErr || !contact) {
@@ -95,7 +96,8 @@ export async function POST(request: Request) {
   const { error: updateErr } = await supabase
     .from("crm_contacts")
     .update(updates)
-    .eq("id", contactId);
+    .eq("id", contactId)
+    .eq("created_by", user.id);
 
   if (updateErr) {
     console.error("[enrich-x] Update error:", updateErr);

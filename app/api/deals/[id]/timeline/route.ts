@@ -70,7 +70,7 @@ export async function GET(
     });
   }
 
-  // Paginated mode: fetch with limit/offset, newest first
+  // Paginated mode: fetch limit+1 to detect hasMore, newest first
   const { data: messages, error } = await admin
     .from("tg_group_messages")
     .select(
@@ -78,18 +78,17 @@ export async function GET(
     )
     .eq("telegram_chat_id", deal.telegram_chat_id)
     .order("sent_at", { ascending: false })
-    .range(offset, offset + limit);
+    .range(offset, offset + limit); // Supabase .range() is inclusive, so this fetches limit+1 rows
 
   if (error) {
     console.error("[timeline] query error:", error);
     return NextResponse.json({ error: "Failed to fetch messages" }, { status: 500 });
   }
 
-  const contactMap = await buildContactMap(admin, messages ?? []);
-  const reversed = (messages ?? []).reverse(); // oldest first for chat display
-
-  // Check if there are more messages
   const hasMore = (messages?.length ?? 0) > limit;
+  const trimmed = hasMore ? (messages ?? []).slice(0, limit) : (messages ?? []);
+  const contactMap = await buildContactMap(admin, trimmed);
+  const reversed = trimmed.reverse(); // oldest first for chat display
 
   return NextResponse.json({
     messages: reversed.map((m) => formatMessage(m, contactMap)),

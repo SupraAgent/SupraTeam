@@ -139,7 +139,7 @@ export async function GET(request: Request) {
 
     // Invalidate cached drivers so next request uses the new tokens
     serverCache.invalidatePrefix(`driver:${userId}`);
-    serverCache.invalidatePrefix("threads:");
+    serverCache.invalidatePrefix(`threads:${userId}`);
 
     // Audit log
     await admin.from("crm_email_audit_log").insert({
@@ -152,7 +152,9 @@ export async function GET(request: Request) {
       new URL("/settings/integrations/email?success=connected", baseUrl)
     );
   } catch (err) {
-    console.error("[email/callback/gmail] error:", err);
+    // Log sanitized error only — raw Google errors may contain tokens
+    const errMsg = err instanceof Error ? err.message : "unknown";
+    console.error("[email/callback/gmail] OAuth token exchange failed:", errMsg.slice(0, 200));
     return NextResponse.redirect(
       new URL("/settings/integrations/email?error=oauth_failed", baseUrl)
     );

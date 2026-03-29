@@ -90,8 +90,9 @@ export function useThreads(options?: {
         const labelId = options?.labelIds?.[0];
         if (labelId && !options?.query) {
           getCachedThreads(labelId).then((idbThreads) => {
-            if (idbThreads.length > 0 && threads.length === 0) {
-              setThreads(idbThreads as unknown as ThreadListItem[]);
+            if (idbThreads.length > 0) {
+              // Use functional update to avoid stale closure over threads
+              setThreads((prev) => prev.length === 0 ? idbThreads as unknown as ThreadListItem[] : prev);
             }
           }).catch(() => {});
         }
@@ -423,6 +424,11 @@ export function useAICategories(threads: ThreadListItem[]) {
     })
       .then(r => r.json())
       .then(json => {
+        // If AI returned a parse error, un-mark threads so they can be retried
+        if (json.parseError) {
+          for (const t of batch) fetchedRef.current.delete(t.id);
+          return;
+        }
         const cats = json.data?.categories ?? {};
         setCategories(prev => {
           const updated = new Map(prev);
@@ -433,7 +439,10 @@ export function useAICategories(threads: ThreadListItem[]) {
           return updated;
         });
       })
-      .catch(() => {});
+      .catch(() => {
+        // Un-mark on network error so threads can be retried
+        for (const t of batch) fetchedRef.current.delete(t.id);
+      });
   }, [threads]);
 
   return categories;

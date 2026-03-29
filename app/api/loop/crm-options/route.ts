@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth-guard";
+import { requireLeadRole } from "@/lib/auth-guard";
 
 /** Strip characters that could break PostgREST filter syntax */
 function sanitizeSearch(raw: string): string {
@@ -15,8 +15,9 @@ function sanitizeSearch(raw: string): string {
  *   search = text search (for contacts/deals)
  */
 export async function GET(request: Request) {
-  const auth = await requireAuth();
+  const auth = await requireLeadRole();
   if ("error" in auth) return auth.error;
+  const { admin } = auth;
 
   const url = new URL(request.url);
   const type = url.searchParams.get("type");
@@ -24,8 +25,6 @@ export async function GET(request: Request) {
   if (!type) {
     return NextResponse.json({ error: "type parameter required" }, { status: 400 });
   }
-
-  const { admin } = auth;
 
   switch (type) {
     case "stages": {

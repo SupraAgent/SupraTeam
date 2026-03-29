@@ -106,12 +106,14 @@ export async function POST(request: Request) {
   let contactId: string;
 
   if (tgUser) {
-    // TMA: upsert by telegram_user_id
+    // TMA: upsert by telegram_user_id, scoped to source="telegram_bot" to avoid
+    // hijacking contacts created by other users/flows
     const contactName = [tgUser.first_name, tgUser.last_name].filter(Boolean).join(" ");
     const { data: existingContact } = await admin
       .from("crm_contacts")
       .select("id")
       .eq("telegram_user_id", tgUser.id)
+      .eq("source", "telegram_bot")
       .single();
 
     if (existingContact) {

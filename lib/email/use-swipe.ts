@@ -28,6 +28,13 @@ export function useSwipe<T extends HTMLElement>(options: UseSwipeOptions) {
   const isTrackingRef = React.useRef(false);
   const threshold = options.threshold ?? 80;
 
+  // Use refs for state and callbacks to avoid re-registering listeners
+  const stateRef = React.useRef(state);
+  stateRef.current = state;
+
+  const callbacksRef = React.useRef(options);
+  callbacksRef.current = options;
+
   React.useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -64,19 +71,16 @@ export function useSwipe<T extends HTMLElement>(options: UseSwipeOptions) {
 
       const { offset, direction } = stateRef.current;
       if (Math.abs(offset) >= threshold) {
-        if (direction === "left" && options.onSwipeLeft) {
-          options.onSwipeLeft();
-        } else if (direction === "right" && options.onSwipeRight) {
-          options.onSwipeRight();
+        if (direction === "left" && callbacksRef.current.onSwipeLeft) {
+          callbacksRef.current.onSwipeLeft();
+        } else if (direction === "right" && callbacksRef.current.onSwipeRight) {
+          callbacksRef.current.onSwipeRight();
         }
       }
 
       setState({ offset: 0, direction: null, swiping: false });
       isTrackingRef.current = false;
     }
-
-    // Need a ref to current state for the touchend handler
-    const stateRef = { current: state };
 
     el.addEventListener("touchstart", onTouchStart, { passive: true });
     el.addEventListener("touchmove", onTouchMove, { passive: false });
@@ -87,7 +91,7 @@ export function useSwipe<T extends HTMLElement>(options: UseSwipeOptions) {
       el.removeEventListener("touchmove", onTouchMove);
       el.removeEventListener("touchend", onTouchEnd);
     };
-  }, [options.onSwipeLeft, options.onSwipeRight, threshold, state]);
+  }, [threshold]);
 
   return { ref, ...state };
 }

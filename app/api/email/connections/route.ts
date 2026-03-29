@@ -96,13 +96,13 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "id is required" }, { status: 400 });
   }
 
-  // Atomic: clear all defaults then set the new one in sequence
-  // (Supabase doesn't support multi-statement transactions from JS client,
-  // but clearing first then setting avoids the dual-default race)
+  // Clear all OTHER defaults, then set the new one — only clears connections
+  // that are NOT the target, so concurrent requests can't leave zero defaults
   const { error: clearErr } = await auth.admin
     .from("crm_email_connections")
     .update({ is_default: false })
-    .eq("user_id", auth.user.id);
+    .eq("user_id", auth.user.id)
+    .neq("id", body.id);
 
   if (clearErr) {
     return NextResponse.json({ error: "Failed to set default" }, { status: 500 });

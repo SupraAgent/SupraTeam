@@ -77,7 +77,11 @@ export async function POST(request: Request) {
   // TOKEN_ENCRYPTION_KEY makes this non-guessable even though telegram_id is public.
   // This endpoint is additionally protected by Telegram hash verification + 5min expiry
   // above, so the password alone is never exposed to callers.
-  const password = createHmac("sha256", process.env.TOKEN_ENCRYPTION_KEY || "")
+  const encryptionKey = process.env.TOKEN_ENCRYPTION_KEY;
+  if (!encryptionKey) {
+    return NextResponse.json({ error: "Server configuration error" }, { status: 500 });
+  }
+  const password = createHmac("sha256", encryptionKey)
     .update(`tg_user_${data.id}`)
     .digest("hex");
   const displayName = [data.first_name, data.last_name].filter(Boolean).join(" ");

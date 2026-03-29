@@ -141,7 +141,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     } catch (err) {
       console.error("[move] Goal completion error:", err);
     }
-  })();
+  })().catch(console.error);
 
   // Evaluate automation rules (non-blocking)
   evaluateAutomationRules({
