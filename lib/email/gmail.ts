@@ -79,19 +79,25 @@ export class GmailDriver implements MailDriver {
       pageToken: params.pageToken,
     });
 
-    // Fetch all threads in parallel with minimal fields
+    // Fetch threads in batches of 10 to avoid hitting Gmail rate limits
     // HTTP/2 multiplexes these over a single TCP connection on Railway
-    const threadData = await Promise.all(
-      (res.data.threads ?? []).map((t) =>
-        this.gmail.users.threads.get({
-          userId: "me",
-          id: t.id!,
-          format: "METADATA",
-          metadataHeaders: ["Subject", "From", "To", "Date"],
-          fields: "id,snippet,messages(id,labelIds,internalDate,payload/headers)",
-        })
-      )
-    );
+    const rawThreads = res.data.threads ?? [];
+    const BATCH_SIZE = 10;
+    const fetchThread = (id: string) =>
+      this.gmail.users.threads.get({
+        userId: "me",
+        id,
+        format: "METADATA",
+        metadataHeaders: ["Subject", "From", "To", "Date"],
+        fields: "id,snippet,messages(id,labelIds,internalDate,payload/headers)",
+      });
+    const threadData: Awaited<ReturnType<typeof fetchThread>>[] = [];
+    for (let i = 0; i < rawThreads.length; i += BATCH_SIZE) {
+      const batch = await Promise.all(
+        rawThreads.slice(i, i + BATCH_SIZE).map((t) => fetchThread(t.id!))
+      );
+      threadData.push(...batch);
+    }
     const threads: ThreadListItem[] = threadData.map((full) =>
       this.parseThreadListItem(full.data)
     );

@@ -110,6 +110,20 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "id required" }, { status: 400 });
   }
 
+  // Check for active enrollments before deleting
+  const { count } = await auth.admin
+    .from("crm_email_sequence_enrollments")
+    .select("id", { count: "exact", head: true })
+    .eq("sequence_id", id)
+    .eq("status", "active");
+
+  if (count && count > 0) {
+    return NextResponse.json(
+      { error: `Cannot delete: ${count} active enrollment(s). Pause or cancel them first.` },
+      { status: 409 }
+    );
+  }
+
   const { error } = await auth.admin
     .from("crm_email_sequences")
     .delete()

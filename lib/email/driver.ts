@@ -75,7 +75,8 @@ export async function getDriverForUser(
   const { data, error } = await query.limit(1).single();
 
   if (error || !data) {
-    // Fallback: get any connection
+    // Fallback: get any connection (log so we can detect multi-account confusion)
+    console.warn(`[email/driver] No default connection for user ${userId}, falling back to any connection`);
     const { data: fallback, error: fbErr } = await admin
       .from("crm_email_connections")
       .select("id, provider, email, access_token_encrypted, refresh_token_encrypted, token_expires_at")

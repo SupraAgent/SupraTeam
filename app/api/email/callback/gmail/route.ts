@@ -12,7 +12,11 @@ export async function GET(request: Request) {
   const stateParam = searchParams.get("state");
   const error = searchParams.get("error");
 
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? request.url;
+  // Always use configured app URL — never fall back to request.url (attacker-controlled Host header)
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL;
+  if (!baseUrl) {
+    return NextResponse.json({ error: "NEXT_PUBLIC_APP_URL not configured" }, { status: 503 });
+  }
 
   if (error) {
     return NextResponse.redirect(

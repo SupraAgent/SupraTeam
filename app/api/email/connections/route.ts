@@ -96,7 +96,18 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "id is required" }, { status: 400 });
   }
 
-  // Set new default first (safer — avoids zero-default state if second query fails)
+  // Atomic: clear all defaults then set the new one in sequence
+  // (Supabase doesn't support multi-statement transactions from JS client,
+  // but clearing first then setting avoids the dual-default race)
+  const { error: clearErr } = await auth.admin
+    .from("crm_email_connections")
+    .update({ is_default: false })
+    .eq("user_id", auth.user.id);
+
+  if (clearErr) {
+    return NextResponse.json({ error: "Failed to set default" }, { status: 500 });
+  }
+
   const { error } = await auth.admin
     .from("crm_email_connections")
     .update({ is_default: true })
@@ -106,13 +117,6 @@ export async function PATCH(request: Request) {
   if (error) {
     return NextResponse.json({ error: "Failed to set default" }, { status: 500 });
   }
-
-  // Clear default from all others
-  await auth.admin
-    .from("crm_email_connections")
-    .update({ is_default: false })
-    .eq("user_id", auth.user.id)
-    .neq("id", body.id);
 
   return NextResponse.json({ ok: true, source: "supabase" });
 }

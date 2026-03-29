@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { createHmac } from "crypto";
+import { createHmac, timingSafeEqual } from "crypto";
 import { createClient } from "@/lib/supabase/server";
 import { createSupabaseAdmin } from "@/lib/supabase";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
@@ -45,7 +45,9 @@ export async function requireAuth(): Promise<AuthResult> {
     const devCookie = cookieStore.get("dev-auth")?.value;
     if (devCookie) {
       const expected = createHmac("sha256", process.env.DEV_ACCESS_PASSWORD).update("dev-auth").digest("hex");
-      if (devCookie === expected) {
+      const cookieBuf = Buffer.from(devCookie);
+      const expectedBuf = Buffer.from(expected);
+      if (cookieBuf.length === expectedBuf.length && timingSafeEqual(cookieBuf, expectedBuf)) {
         return { user: DEV_USER, supabase: admin, admin };
       }
     }

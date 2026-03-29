@@ -93,11 +93,12 @@ export async function POST(request: Request) {
     // Non-fatal — still update history ID
   }
 
-  // Update connection's history ID
+  // Update connection's history ID (scoped by user_id for safety)
   await admin
     .from("crm_email_connections")
     .update({ watch_history_id: payload.historyId })
-    .eq("id", conn.id);
+    .eq("id", conn.id)
+    .eq("user_id", conn.user_id);
 
   // Insert push event for Realtime subscription
   await admin.from("crm_email_push_events").insert({
