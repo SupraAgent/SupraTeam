@@ -69,7 +69,7 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { user, admin: supabase } = auth;
 
   const { id } = await request.json();
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
@@ -77,7 +77,8 @@ export async function DELETE(request: Request) {
   const { error } = await supabase
     .from("crm_api_keys")
     .delete()
-    .eq("id", id);
+    .eq("id", id)
+    .eq("created_by", user.id);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });

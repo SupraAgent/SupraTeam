@@ -15,6 +15,16 @@ export async function POST(request: Request, ctx: RouteContext) {
   const bot = await getBotById(botId);
   if (!bot) return NextResponse.json({ error: "Unknown bot" }, { status: 404 });
 
+  // Validate webhook secret (per-bot or global fallback)
+  const secret = bot.webhook_secret || process.env.TELEGRAM_WEBHOOK_SECRET;
+  if (!secret) {
+    return NextResponse.json({ error: "Webhook secret not configured" }, { status: 503 });
+  }
+  const secretHeader = request.headers.get("x-telegram-bot-api-secret-token");
+  if (secretHeader !== secret) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+  }
+
   const token = bot.token;
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;

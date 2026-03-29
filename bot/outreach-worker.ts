@@ -6,6 +6,8 @@
 
 import type { Bot } from "grammy";
 import { supabase } from "./lib/supabase.js";
+
+import { logDelivery } from "./lib/log-delivery.js";
 import { renderTemplate, buildOutreachVars } from "../lib/outreach-templates.js";
 import { getOptimalSendTime } from "./lib/send-time-optimizer.js";
 
@@ -144,6 +146,7 @@ async function processEnrollment(bot: Bot, enrollment: Enrollment, prefetchedSte
 
       try {
         await bot.api.sendMessage(chatId, text);
+        logDelivery(chatId, text, "outreach_sequence", true).catch(() => {});
       } catch (sendErr) {
         console.error(`[outreach-worker] send failed for enrollment ${enrollment.id}:`, sendErr);
         await supabase.from("crm_outreach_step_log").insert({
@@ -273,10 +276,18 @@ async function evaluateCondition(step: Step, enrollment: Enrollment): Promise<bo
     }
 
     case "ab_split": {
+      // Check if variant was already assigned (idempotent on restart)
+      const { data: current } = await supabase
+        .from("crm_outreach_enrollments")
+        .select("ab_variant")
+        .eq("id", enrollment.id)
+        .single();
+      if (current?.ab_variant) {
+        return current.ab_variant === "A";
+      }
       // Randomly assign A or B based on split_percentage (% that goes to true branch)
       const splitPct = step.split_percentage ?? 50;
       const isA = Math.random() * 100 < splitPct;
-      // Persist the variant assignment
       await supabase.from("crm_outreach_enrollments").update({
         ab_variant: isA ? "A" : "B",
       }).eq("id", enrollment.id);

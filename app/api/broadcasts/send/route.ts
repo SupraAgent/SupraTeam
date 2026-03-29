@@ -158,8 +158,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Failed to create broadcast" }, { status: 500 });
   }
 
-  // Create recipient records with A/B variant assignment (shuffle for randomness)
-  const shuffled = [...groups].sort(() => Math.random() - 0.5);
+  // Create recipient records with A/B variant assignment (Fisher-Yates shuffle)
+  const shuffled = [...groups];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
   const halfPoint = Math.ceil(shuffled.length / 2);
   const recipientRows = shuffled.map((g, i) => ({
     broadcast_id: broadcast.id,

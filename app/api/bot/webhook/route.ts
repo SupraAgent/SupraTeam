@@ -9,13 +9,14 @@ export async function POST(request: Request) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) return NextResponse.json({ error: "No bot token" }, { status: 503 });
 
-  // Validate webhook secret header
+  // Validate webhook secret header (required)
   const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
-  if (webhookSecret) {
-    const secretHeader = request.headers.get("x-telegram-bot-api-secret-token");
-    if (secretHeader !== webhookSecret) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
-    }
+  if (!webhookSecret) {
+    return NextResponse.json({ error: "Webhook secret not configured" }, { status: 503 });
+  }
+  const secretHeader = request.headers.get("x-telegram-bot-api-secret-token");
+  if (secretHeader !== webhookSecret) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;

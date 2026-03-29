@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createHmac, createHash } from "crypto";
+import { createHmac, createHash, timingSafeEqual } from "crypto";
 import { createSupabaseAdmin } from "@/lib/supabase";
 
 const MAX_AUTH_AGE_SECONDS = 300; // 5 minutes
@@ -30,7 +30,11 @@ function verifyTelegramHash(data: TelegramLoginData, botToken: string): boolean 
   // HMAC-SHA256(secret_key, data_check_string)
   const hmac = createHmac("sha256", secretKey).update(checkString).digest("hex");
 
-  return hmac === hash;
+  try {
+    return timingSafeEqual(Buffer.from(hmac, "hex"), Buffer.from(hash, "hex"));
+  } catch {
+    return false;
+  }
 }
 
 export async function POST(request: Request) {
