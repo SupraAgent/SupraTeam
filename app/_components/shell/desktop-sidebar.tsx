@@ -20,6 +20,7 @@ const NAV_ITEMS = [
   { href: "/drip", label: "Drip Sequences", icon: DripIcon },
   { href: "/automations", label: "Automations", icon: WorkflowIcon },
   { href: "/automations2", label: "Automations 2", icon: LoopBuilderIcon },
+  { href: "/automations2/runs", label: "A2 Runs", icon: RunsIcon },
   { href: "/loop", label: "Loop Builder", icon: LoopBuilderIcon },
   { href: "/calendar", label: "Calendar", icon: CalendarIcon },
   { href: "/reports", label: "Reports", icon: ChartIcon },
@@ -357,6 +358,15 @@ function FileTextIcon({ className }: { className?: string }) {
       <line x1="16" y1="13" x2="8" y2="13" />
       <line x1="16" y1="17" x2="8" y2="17" />
       <polyline points="10 9 9 9 8 9" />
+    </svg>
+  );
+}
+
+function RunsIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <polyline points="12 6 12 12 16 14" />
     </svg>
   );
 }

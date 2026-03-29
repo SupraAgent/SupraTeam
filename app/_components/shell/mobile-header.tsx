@@ -20,6 +20,7 @@ const NAV_ITEMS = [
   { href: "/drip", label: "Drip Sequences" },
   { href: "/automations", label: "Automations" },
   { href: "/automations2", label: "Automations 2" },
+  { href: "/automations2/runs", label: "A2 Runs" },
   { href: "/access", label: "Access Control" },
   { href: "/graph", label: "Graph" },
   { href: "/docs", label: "Docs" },
