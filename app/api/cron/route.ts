@@ -23,10 +23,10 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const job = searchParams.get("job");
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL;
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXT_PUBLIC_SITE_URL;
 
   if (!baseUrl) {
-    return NextResponse.json({ error: "NEXT_PUBLIC_SITE_URL not set" }, { status: 503 });
+    return NextResponse.json({ error: "NEXT_PUBLIC_APP_URL not set" }, { status: 503 });
   }
 
   const results: Record<string, unknown> = {};

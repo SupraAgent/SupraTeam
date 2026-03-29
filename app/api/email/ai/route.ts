@@ -214,7 +214,7 @@ ${threadSummary}`
           const parsed = JSON.parse(cleaned);
 
           // Validate shape: must be a plain object with string values from known categories
-          const VALID_CATEGORIES = new Set(["vip", "action_required", "fyi", "newsletter", "other"]);
+          const VALID_CATEGORIES = new Set<string>(["vip", "action_required", "fyi", "newsletter", "other"]);
           if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
             return NextResponse.json({ data: { categories: {} }, source: "ai", parseError: true });
           }

@@ -19,7 +19,7 @@ async function verifyPubSubToken(request: Request): Promise<boolean> {
   const token = authHeader.slice(7);
   try {
     const { payload } = await jwtVerify(token, GOOGLE_JWKS, {
-      issuer: "accounts.google.com",
+      issuer: ["accounts.google.com", "https://accounts.google.com"],
       audience,
     });
     // Verify the email claim matches Google's push service with verified email
@@ -78,38 +78,45 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true }); // No matching connection
   }
 
-  // Process each connection (handles shared inboxes where multiple users connect same email)
-  for (const conn of connections) {
+  // Process all connections in parallel to stay within Pub/Sub's 10s ack deadline.
+  // Sequential processing with shared inboxes (N users × driver init × API call) would exceed it.
+  await Promise.allSettled(connections.map(async (conn) => {
     const previousHistoryId = conn.watch_history_id;
 
     // Validate historyId is monotonically increasing to prevent replay attacks
     try {
-      if (previousHistoryId && BigInt(payload.historyId) <= BigInt(previousHistoryId)) {
-        continue; // Stale or replayed notification for this connection — skip
+      if (previousHistoryId && payload.historyId && BigInt(payload.historyId) <= BigInt(previousHistoryId)) {
+        return; // Stale or replayed notification for this connection — skip
       }
     } catch {
       console.error("[gmail-webhook] Invalid historyId — cannot convert to BigInt:", payload.historyId);
-      continue;
+      return;
     }
 
     // Get changes since last known history ID
     let threadIds: string[] = [];
+    let newHistoryId = payload.historyId;
     try {
       if (previousHistoryId) {
         const { driver } = await getDriverForUser(conn.user_id, conn.id);
         if ("listHistory" in driver && typeof driver.listHistory === "function") {
           const result = await driver.listHistory(previousHistoryId);
           threadIds = result.changes.map((c: { threadId: string }) => c.threadId);
+          // Use the historyId from listHistory — handles 404 recovery with fresh ID from getProfile()
+          newHistoryId = result.historyId ?? payload.historyId;
         }
       }
     } catch {
-      // Non-fatal — still update history ID
+      // Don't advance historyId on failure — leave it unchanged so the next
+      // push notification can retry from the same position. Advancing on
+      // failure (e.g., expired token) permanently loses those notifications.
+      return;
     }
 
     // Update connection's history ID (scoped by user_id for safety)
     await admin
       .from("crm_email_connections")
-      .update({ watch_history_id: payload.historyId })
+      .update({ watch_history_id: newHistoryId })
       .eq("id", conn.id)
       .eq("user_id", conn.user_id);
 
@@ -117,10 +124,10 @@ export async function POST(request: Request) {
     await admin.from("crm_email_push_events").insert({
       user_id: conn.user_id,
       email: payload.emailAddress,
-      history_id: payload.historyId,
+      history_id: newHistoryId,
       thread_ids: threadIds,
     });
-  }
+  }));
 
   return NextResponse.json({ ok: true });
 }

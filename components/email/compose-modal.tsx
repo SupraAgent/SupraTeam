@@ -133,11 +133,14 @@ export function ComposeModal({
       html += `<br><div style="color:#999;font-size:12px;border-top:1px solid #333;padding-top:8px;margin-top:16px">${signature}</div>`;
     }
 
-    // Inject tracking pixel for read receipts (use configured app URL, not window.location)
+    // Inject tracking pixel for read receipts (use configured app URL only — never window.location
+    // which is user-controlled and could leak the tracking UUID to an attacker's server)
     const trackingId = crypto.randomUUID();
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? (typeof window !== "undefined" ? window.location.origin : "");
-    const trackingPixel = `<img src="${baseUrl}/api/email/track/${trackingId}" width="1" height="1" style="display:none" alt="" />`;
-    html += trackingPixel;
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL;
+    if (baseUrl) {
+      const trackingPixel = `<img src="${baseUrl}/api/email/track/${trackingId}" width="1" height="1" style="display:none" alt="" />`;
+      html += trackingPixel;
+    }
 
     const payload: Record<string, unknown> = {
       type: mode === "replyAll" ? "reply" : mode,

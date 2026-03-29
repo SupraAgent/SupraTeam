@@ -28,8 +28,8 @@ export async function GET(request: Request) {
     const { data: dueEnrollments } = await admin
       .from("crm_email_sequence_enrollments")
       .select(`
-        id, sequence_id, deal_id, contact_id, current_step, next_send_at,
-        crm_email_sequences(steps, name),
+        id, sequence_id, deal_id, contact_id, current_step, next_send_at, enrolled_by,
+        crm_email_sequences(steps, name, created_by),
         crm_contacts(name, email)
       `)
       .eq("status", "active")
@@ -45,6 +45,21 @@ export async function GET(request: Request) {
         const contact = enrollment.crm_contacts as unknown as { name: string; email: string };
 
         if (!sequence?.steps || !contact?.email) continue;
+
+        // Check if contact has replied — stop sequence to avoid spamming after a response.
+        // Look for inbound emails from this contact's address since enrollment started.
+        const { count: replyCount } = await admin
+          .from("crm_email_push_events")
+          .select("id", { count: "exact", head: true })
+          .eq("email", contact.email)
+          .gte("created_at", enrollment.next_send_at ? new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString() : now);
+
+        if (replyCount && replyCount > 0) {
+          await admin.from("crm_email_sequence_enrollments")
+            .update({ status: "replied", completed_at: now })
+            .eq("id", enrollment.id);
+          continue;
+        }
 
         const currentStep = sequence.steps[enrollment.current_step];
         if (!currentStep) {
@@ -73,19 +88,15 @@ export async function GET(request: Request) {
           email: contact.email ?? "",
         };
         for (const [key, value] of Object.entries(vars)) {
-          body = body.replace(new RegExp(`\\{${key}\\}`, "g"), value);
-          subject = subject.replace(new RegExp(`\\{${key}\\}`, "g"), value);
+          // Use replaceAll instead of regex to avoid ReDoS with user-controlled template variables
+          // and to handle regex special chars in replacement values (e.g., $& in contact names)
+          body = body.replaceAll(`{${key}}`, value);
+          subject = subject.replaceAll(`{${key}}`, value);
         }
 
-        // Find the connection for the user who enrolled this contact
-        // First try to get enrolled_by from the enrollment, fall back to deal's assigned_to
-        const { data: enrollmentMeta } = await admin
-          .from("crm_email_sequence_enrollments")
-          .select("enrolled_by:crm_email_sequences(created_by)")
-          .eq("id", enrollment.id)
-          .single();
-
-        const senderId = (enrollmentMeta?.enrolled_by as unknown as { created_by: string })?.created_by;
+        // Use the enrolling user as the sender (not the sequence creator)
+        const senderId = (enrollment as unknown as { enrolled_by?: string }).enrolled_by
+          ?? (enrollment.crm_email_sequences as unknown as { created_by?: string })?.created_by;
         if (!senderId) {
           errors.push(`Enrollment ${enrollment.id}: no sender user found`);
           continue;
