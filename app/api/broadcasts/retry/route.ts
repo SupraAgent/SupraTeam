@@ -79,19 +79,10 @@ export async function GET(request: Request) {
     if (result.success) {
       succeeded++;
 
-      // Update broadcast totals
-      const { data: bcast } = await supabase
-        .from("crm_broadcasts")
-        .select("sent_count, failed_count")
-        .eq("id", recipient.broadcast_id)
-        .single();
-
-      if (bcast) {
-        await supabase.from("crm_broadcasts").update({
-          sent_count: (bcast.sent_count ?? 0) + 1,
-          failed_count: Math.max((bcast.failed_count ?? 0) - 1, 0),
-        }).eq("id", recipient.broadcast_id);
-      }
+      // Atomic broadcast counter adjustment via RPC (no read-modify-write race)
+      await supabase.rpc("adjust_broadcast_retry_counts", {
+        p_broadcast_id: recipient.broadcast_id,
+      });
     }
   }
 
