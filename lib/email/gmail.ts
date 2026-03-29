@@ -41,16 +41,19 @@ export class GmailDriver implements MailDriver {
     // On Railway's persistent process, the connection stays warm between requests
     this.gmail = google.gmail({ version: "v1", auth: this.auth, http2: true });
 
-    // Persist refreshed tokens back to database
+    // Persist refreshed tokens back to database and invalidate cache
     this.auth.on("tokens", async (tokens) => {
       if (tokens.access_token && this.connectionId) {
         try {
           const { updateConnectionTokens } = await import("./driver");
+          const { serverCache } = await import("./server-cache");
           await updateConnectionTokens(
             this.connectionId,
             tokens.access_token,
             tokens.expiry_date ? new Date(tokens.expiry_date) : undefined
           );
+          // Invalidate cached drivers so next request gets fresh tokens
+          serverCache.invalidatePrefix("driver:");
         } catch {
           // Non-fatal: token will be refreshed again next time
         }

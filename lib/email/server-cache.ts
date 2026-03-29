@@ -51,5 +51,5 @@ export const TTL = {
   THREAD_LIST: 15_000,   // 15s — thread lists change frequently
   THREAD_FULL: 60_000,   // 60s — individual threads change less often
   LABELS: 300_000,       // 5min — labels barely change
-  DRIVER: 600_000,       // 10min — driver with decrypted tokens
+  DRIVER: 60_000,        // 60s — driver with decrypted tokens (short to limit exposure)
 } as const;

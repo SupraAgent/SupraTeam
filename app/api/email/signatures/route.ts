@@ -1,6 +1,21 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 
+/** Strip dangerous HTML tags and attributes — allows basic formatting only */
+function sanitizeSignatureHtml(html: string): string {
+  const ALLOWED_TAGS = new Set(["b", "i", "u", "strong", "em", "br", "p", "a", "span", "div", "img", "table", "tr", "td", "th", "tbody", "thead"]);
+  // Remove script/style/iframe/object/embed tags and their content
+  let clean = html.replace(/<(script|style|iframe|object|embed|form|input|button|textarea|select)[^>]*>[\s\S]*?<\/\1>/gi, "");
+  // Remove self-closing dangerous tags
+  clean = clean.replace(/<(script|style|iframe|object|embed|form|input|button|textarea|select)[^>]*\/?>/gi, "");
+  // Remove on* event handlers and javascript: URLs from remaining tags
+  clean = clean.replace(/\s+on\w+\s*=\s*["'][^"']*["']/gi, "");
+  clean = clean.replace(/\s+on\w+\s*=\s*\S+/gi, "");
+  clean = clean.replace(/href\s*=\s*["']javascript:[^"']*["']/gi, 'href="#"');
+  clean = clean.replace(/src\s*=\s*["']javascript:[^"']*["']/gi, 'src=""');
+  return clean;
+}
+
 /** GET: Get signature for a connection */
 export async function GET(request: Request) {
   const auth = await requireAuth();
@@ -66,8 +81,8 @@ export async function POST(request: Request) {
     .update({
       writing_style_json: {
         ...existing,
-        signature_html: body.signature_html,
-        signature_text: body.signature_text,
+        signature_html: sanitizeSignatureHtml(body.signature_html),
+        signature_text: body.signature_text.replace(/<[^>]+>/g, ""),
       },
     })
     .eq("id", body.connection_id)

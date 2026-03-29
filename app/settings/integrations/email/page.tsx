@@ -86,7 +86,19 @@ export default function EmailSettingsPage() {
       )}
       {error && (
         <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-          Connection failed: {error.replace(/_/g, " ")}
+          Connection failed: {({
+            access_denied: "Access was denied by Google",
+            missing_params: "Missing OAuth parameters",
+            invalid_state: "Invalid or expired session — please try again",
+            state_expired: "Session expired — please try again",
+            user_mismatch: "Logged-in user doesn't match the OAuth session",
+            session_required: "You must be logged in to connect Gmail",
+            not_authenticated: "You must be logged in to connect Gmail",
+            server_error: "Server configuration error",
+            no_tokens: "Google did not return access tokens",
+            no_email: "Could not retrieve email address from Google",
+            oauth_failed: "OAuth exchange failed — please try again",
+          } as Record<string, string>)[error] ?? "An unexpected error occurred"}
         </div>
       )}
 

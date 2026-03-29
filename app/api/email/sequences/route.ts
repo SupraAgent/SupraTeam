@@ -14,6 +14,7 @@ export async function GET(request: Request) {
       .from("crm_email_sequences")
       .select("*")
       .eq("id", id)
+      .eq("created_by", auth.user.id)
       .single();
 
     if (error) {
@@ -25,6 +26,7 @@ export async function GET(request: Request) {
   const { data, error } = await auth.admin
     .from("crm_email_sequences")
     .select("*")
+    .eq("created_by", auth.user.id)
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -68,6 +70,7 @@ export async function POST(request: Request) {
         is_active: body.is_active ?? true,
       })
       .eq("id", body.id)
+      .eq("created_by", auth.user.id)
       .select()
       .single();
 

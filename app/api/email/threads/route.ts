@@ -11,7 +11,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const labelIds = searchParams.get("labelIds")?.split(",").filter(Boolean);
   const query = searchParams.get("q") ?? undefined;
-  const maxResults = parseInt(searchParams.get("maxResults") ?? "25", 10);
+  const maxResults = Math.min(Math.max(1, parseInt(searchParams.get("maxResults") ?? "25", 10)), 100);
   const pageToken = searchParams.get("pageToken") ?? undefined;
   const connectionId = searchParams.get("connectionId") ?? undefined;
 
