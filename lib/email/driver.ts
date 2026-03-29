@@ -28,11 +28,17 @@ export function createDriverFromConnection(conn: ConnectionRecord, userId?: stri
       if (!clientId || !clientSecret) {
         throw new Error("Gmail integration not configured. Contact your administrator.");
       }
+      // Pass expiry_date so the OAuth2 client proactively refreshes before token expires,
+      // avoiding 401 errors and token refresh race conditions
+      const expiryDate = conn.token_expires_at
+        ? new Date(conn.token_expires_at).getTime()
+        : undefined;
       const driver = new GmailDriver({
         accessToken,
         refreshToken,
         clientId,
         clientSecret,
+        expiryDate,
       });
       driver.connectionId = conn.id;
       driver.userId = userId ?? null;
@@ -52,11 +58,19 @@ export async function getDriverForUser(
   userId: string,
   connectionId?: string
 ): Promise<{ driver: MailDriver; connection: ConnectionRecord }> {
-  // On Railway, cache the driver in-process memory to avoid
-  // repeated DB queries + token decryption on every API call
+  // Cache only the connection record (not the driver instance) to avoid stale token references.
+  // The driver is lightweight to construct — the OAuth2 client handles token refresh internally.
+  // Previously caching the driver caused race conditions where concurrent requests held
+  // references to old driver instances with stale access tokens.
   const cacheKey = `driver:${userId}:${connectionId ?? "default"}`;
-  const cached = serverCache.get<{ driver: MailDriver; connection: ConnectionRecord }>(cacheKey);
-  if (cached) return cached;
+  const cachedConn = serverCache.get<ConnectionRecord>(cacheKey);
+
+  if (cachedConn) {
+    return {
+      driver: createDriverFromConnection(cachedConn, userId),
+      connection: cachedConn,
+    };
+  }
 
   const admin = createSupabaseAdmin();
   if (!admin) throw new Error("Supabase not configured");
@@ -88,20 +102,20 @@ export async function getDriverForUser(
       throw new Error("No email connection found. Connect your Gmail in Settings.");
     }
 
-    const result = {
-      driver: createDriverFromConnection(fallback as ConnectionRecord, userId),
-      connection: fallback as ConnectionRecord,
+    const conn = fallback as ConnectionRecord;
+    serverCache.set(cacheKey, conn, TTL.DRIVER);
+    return {
+      driver: createDriverFromConnection(conn, userId),
+      connection: conn,
     };
-    serverCache.set(cacheKey, result, TTL.DRIVER);
-    return result;
   }
 
-  const result = {
-    driver: createDriverFromConnection(data as ConnectionRecord, userId),
-    connection: data as ConnectionRecord,
+  const conn = data as ConnectionRecord;
+  serverCache.set(cacheKey, conn, TTL.DRIVER);
+  return {
+    driver: createDriverFromConnection(conn, userId),
+    connection: conn,
   };
-  serverCache.set(cacheKey, result, TTL.DRIVER);
-  return result;
 }
 
 /**

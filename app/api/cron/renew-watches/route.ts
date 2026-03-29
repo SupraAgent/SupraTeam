@@ -24,14 +24,23 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
   }
 
-  // Find connections with watches expiring within 24 hours (or already expired)
+  // Find connections with watches expiring within 24 hours, already expired,
+  // OR never set up (NULL watch_expiration). This catches connections where
+  // the initial watch registration failed or the expiration was lost.
   const cutoff = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
-  const { data: connections } = await admin
+  const { data: expiringConns } = await admin
     .from("crm_email_connections")
     .select("id, user_id, email, watch_expiration")
     .not("watch_expiration", "is", null)
     .lte("watch_expiration", cutoff);
+
+  const { data: unwatchedConns } = await admin
+    .from("crm_email_connections")
+    .select("id, user_id, email, watch_expiration")
+    .is("watch_expiration", null);
+
+  const connections = [...(expiringConns ?? []), ...(unwatchedConns ?? [])];
 
   let renewed = 0;
   const errors: string[] = [];

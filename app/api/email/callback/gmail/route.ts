@@ -113,7 +113,7 @@ export async function GET(request: Request) {
     const oauth2Client = getOAuth2Client();
     const { tokens } = await oauth2Client.getToken(code);
 
-    if (!tokens.access_token || !tokens.refresh_token) {
+    if (!tokens.access_token) {
       return NextResponse.redirect(
         new URL("/settings/integrations/email?error=no_tokens", baseUrl)
       );
@@ -149,26 +149,39 @@ export async function GET(request: Request) {
     const isFirstConnection = !totalConnections || totalConnections === 0;
 
     // Upsert the connection — preserve is_default on reconnect
+    // On reconnect, Google may not return a new refresh_token (only on first consent).
+    // Keep the existing refresh_token if Google didn't send a new one.
+    const upsertData: Record<string, unknown> = {
+      user_id: userId,
+      provider: "gmail",
+      email,
+      access_token_encrypted: encryptToken(tokens.access_token),
+      token_expires_at: tokens.expiry_date
+        ? new Date(tokens.expiry_date).toISOString()
+        : null,
+      scopes: tokens.scope?.split(" ") ?? [],
+      is_default: existing?.is_default ?? isFirstConnection,
+      connected_at: new Date().toISOString(),
+    };
+
+    // Only overwrite refresh_token if Google actually sent a new one
+    if (tokens.refresh_token) {
+      upsertData.refresh_token_encrypted = encryptToken(tokens.refresh_token);
+    } else if (!existing) {
+      // First-time connection MUST have a refresh token
+      return NextResponse.redirect(
+        new URL("/settings/integrations/email?error=no_refresh_token", baseUrl)
+      );
+    }
+
     await admin.from("crm_email_connections").upsert(
-      {
-        user_id: userId,
-        provider: "gmail",
-        email,
-        access_token_encrypted: encryptToken(tokens.access_token),
-        refresh_token_encrypted: encryptToken(tokens.refresh_token),
-        token_expires_at: tokens.expiry_date
-          ? new Date(tokens.expiry_date).toISOString()
-          : null,
-        scopes: tokens.scope?.split(" ") ?? [],
-        is_default: existing?.is_default ?? isFirstConnection,
-        connected_at: new Date().toISOString(),
-      },
+      upsertData,
       { onConflict: "user_id,email" }
     );
 
     // Invalidate cached drivers so next request uses the new tokens
-    serverCache.invalidatePrefix(`driver:${userId}`);
-    serverCache.invalidatePrefix(`threads:${userId}`);
+    serverCache.invalidatePrefix(`driver:${userId}:`);
+    serverCache.invalidatePrefix(`threads:${userId}:`);
 
     // Record nonce consumption (for multi-instance replay protection)
     await admin.from("crm_email_audit_log").insert({
