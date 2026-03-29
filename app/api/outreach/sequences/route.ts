@@ -57,7 +57,7 @@ export async function POST(request: Request) {
   if ("error" in auth) return auth.error;
   const { user, admin: supabase } = auth;
 
-  const { name, description, board_type, goal_stage_id, steps } = await request.json();
+  const { name, description, board_type, goal_stage_id, steps, tone } = await request.json();
 
   if (!name?.trim()) {
     return NextResponse.json({ error: "name required" }, { status: 400 });
@@ -70,6 +70,7 @@ export async function POST(request: Request) {
       description: description || null,
       board_type: board_type || null,
       goal_stage_id: goal_stage_id || null,
+      tone: tone || "professional",
       created_by: user.id,
     })
     .select()
@@ -84,6 +85,9 @@ export async function POST(request: Request) {
     const stepRows = steps.map((s: {
       message_template: string;
       variant_b_template?: string;
+      variant_c_template?: string;
+      ab_split_pct?: number;
+      variant_b_delay_hours?: number;
       delay_hours?: number;
       step_type?: string;
       condition_type?: string;
@@ -96,6 +100,9 @@ export async function POST(request: Request) {
       delay_hours: s.delay_hours ?? 24,
       message_template: s.message_template,
       variant_b_template: s.variant_b_template || null,
+      variant_c_template: s.variant_c_template || null,
+      ab_split_pct: s.ab_split_pct ?? 50,
+      variant_b_delay_hours: s.variant_b_delay_hours ?? null,
       step_type: s.step_type ?? "message",
       condition_type: s.condition_type || null,
       condition_config: s.condition_config ?? {},
@@ -119,13 +126,14 @@ export async function PUT(request: Request) {
   if ("error" in auth) return auth.error;
   const { admin: supabase } = auth;
 
-  const { id, status, name, description } = await request.json();
+  const { id, status, name, description, tone } = await request.json();
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (status) updates.status = status;
   if (name) updates.name = name;
   if (description !== undefined) updates.description = description;
+  if (tone) updates.tone = tone;
 
   const { error } = await supabase
     .from("crm_outreach_sequences")

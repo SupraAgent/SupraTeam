@@ -92,7 +92,16 @@ export async function POST(request: Request) {
   }
 
   // Build prompt context
-  let context = `Outreach Sequence: "${sequence.name}"\n`;
+  let context = `Industry Benchmarks (Web3 Telegram Outreach):
+- Average reply rate: 15-25% for warm leads, 5-10% for cold
+- Best performing first messages: under 80 words, personalized, clear value prop
+- Optimal follow-up timing: 24-48h for first follow-up, 72h+ for subsequent
+- A/B test winners typically show 5-15% reply rate improvement
+- Top performers use 3-5 step sequences, not more
+- Messages with specific questions get 2x more replies than statements
+
+`;
+  context += `Outreach Sequence: "${sequence.name}"\n`;
   context += `Board: ${sequence.board_type ?? "Any"}\n`;
   context += `Status: ${sequence.status}\n`;
   if (sequence.description) context += `Description: ${sequence.description}\n`;

@@ -22,6 +22,9 @@ import {
   TrendingUp,
   FlaskConical,
   Sparkles,
+  AlertTriangle,
+  X,
+  Wand2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { timeAgo } from "@/lib/utils";
@@ -35,10 +38,20 @@ type Sequence = {
   description: string | null;
   status: string;
   board_type: string | null;
+  tone: string | null;
   step_count: number;
   enrollment_stats: EnrollmentStats;
   created_at: string;
   updated_at: string;
+};
+
+type OutreachAlert = {
+  id: string;
+  sequence_id: string;
+  alert_type: string;
+  message: string;
+  created_at: string;
+  sequence_name: string;
 };
 
 type Step = {
@@ -47,6 +60,9 @@ type Step = {
   delay_hours: number;
   message_template: string;
   variant_b_template: string | null;
+  variant_c_template: string | null;
+  ab_split_pct: number | null;
+  variant_b_delay_hours: number | null;
   step_type: string;
   step_label: string | null;
   condition_type: string | null;
@@ -73,7 +89,19 @@ type SequenceAnalytics = {
 type ABStats = {
   variant_a: { total: number; replied: number; reply_rate: number };
   variant_b: { total: number; replied: number; reply_rate: number };
-  step_variants: Record<string, { a_sent: number; b_sent: number }>;
+  variant_c?: { total: number; replied: number; reply_rate: number };
+  step_variants: Record<string, { a_sent: number; b_sent: number; c_sent?: number }>;
+  significance: { z_score: number; significant: boolean; min_sample: boolean } | null;
+};
+
+type StepStat = {
+  step_number: number;
+  step_label: string;
+  step_type: string;
+  delay_hours: number;
+  sent: number;
+  preview: string;
+  ab: { a_sent: number; b_sent: number; a_reply_rate: number; b_reply_rate: number; c_sent?: number; c_reply_rate?: number } | null;
 };
 
 type SequenceDetail = {
@@ -83,7 +111,7 @@ type SequenceDetail = {
   reply_rate: number;
   completion_rate: number;
   status_counts: Record<string, number>;
-  step_stats: Array<{ step_number: number; step_label: string; step_type: string; delay_hours: number; sent: number; preview: string }>;
+  step_stats: StepStat[];
   ab_stats: ABStats | null;
   daily_enrollments: Array<{ date: string; count: number }>;
 };
@@ -108,14 +136,33 @@ export default function OutreachPage() {
   const [aiRecs, setAiRecs] = React.useState<AIRecommendations | null>(null);
   const [aiRecsLoading, setAiRecsLoading] = React.useState(false);
 
+  // AI rewrite/variant states
+  const [rewritingStep, setRewritingStep] = React.useState<number | null>(null);
+  const [generatingVariant, setGeneratingVariant] = React.useState<number | null>(null);
+
+  // AI Generate sequence
+  const [showAIGenerate, setShowAIGenerate] = React.useState(false);
+  const [aiGoal, setAiGoal] = React.useState("");
+  const [aiGenBoard, setAiGenBoard] = React.useState("");
+  const [aiGenTone, setAiGenTone] = React.useState("professional");
+  const [aiGenSteps, setAiGenSteps] = React.useState(4);
+  const [aiGenerating, setAiGenerating] = React.useState(false);
+
+  // Alerts
+  const [alerts, setAlerts] = React.useState<OutreachAlert[]>([]);
+
   // Create form
   const [newName, setNewName] = React.useState("");
   const [newDesc, setNewDesc] = React.useState("");
   const [newBoard, setNewBoard] = React.useState("");
+  const [newTone, setNewTone] = React.useState("professional");
   const [newGoalStage, setNewGoalStage] = React.useState("");
   const [newSteps, setNewSteps] = React.useState<Array<{
     message_template: string;
     variant_b_template: string;
+    variant_c_template: string;
+    ab_split_pct: number;
+    variant_b_delay_hours: number | null;
     delay_hours: number;
     step_type: string;
     step_label: string;
@@ -125,14 +172,15 @@ export default function OutreachPage() {
     on_false_step: number | null;
     split_percentage: number | null;
   }>>([
-    { message_template: "", variant_b_template: "", delay_hours: 0, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
-    { message_template: "", variant_b_template: "", delay_hours: 24, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
-    { message_template: "", variant_b_template: "", delay_hours: 48, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
+    { message_template: "", variant_b_template: "", variant_c_template: "", ab_split_pct: 50, variant_b_delay_hours: null, delay_hours: 0, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
+    { message_template: "", variant_b_template: "", variant_c_template: "", ab_split_pct: 50, variant_b_delay_hours: null, delay_hours: 24, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
+    { message_template: "", variant_b_template: "", variant_c_template: "", ab_split_pct: 50, variant_b_delay_hours: null, delay_hours: 48, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
   ]);
   const [pipelineStages, setPipelineStages] = React.useState<Array<{ id: string; name: string }>>([]);
 
   React.useEffect(() => {
     fetchSequences();
+    fetchAlerts();
     fetch("/api/pipeline").then((r) => r.json()).then((d) => setPipelineStages(d.stages ?? [])).catch(() => {});
   }, []);
 
@@ -145,6 +193,133 @@ export default function OutreachPage() {
       }
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function fetchAlerts() {
+    try {
+      const res = await fetch("/api/outreach/alerts");
+      if (res.ok) {
+        const data = await res.json();
+        setAlerts(data.alerts ?? []);
+      }
+    } catch { /* ignore */ }
+  }
+
+  async function dismissAlert(id: string) {
+    await fetch("/api/outreach/alerts", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    setAlerts((prev) => prev.filter((a) => a.id !== id));
+  }
+
+  async function handleAIRewrite(stepIndex: number) {
+    const step = newSteps[stepIndex];
+    if (!step.message_template.trim()) {
+      toast.error("Write a message first before rewriting");
+      return;
+    }
+    setRewritingStep(stepIndex);
+    try {
+      const res = await fetch("/api/outreach/ai-rewrite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: step.message_template,
+          context: { sequence_name: newName, step_number: stepIndex + 1, board_type: newBoard || undefined },
+          tone: newTone || undefined,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        updateStep(stepIndex, "message_template", data.rewritten);
+        toast.success("Message rewritten");
+      } else {
+        toast.error("Failed to rewrite message");
+      }
+    } finally {
+      setRewritingStep(null);
+    }
+  }
+
+  async function handleAIVariant(stepIndex: number) {
+    const step = newSteps[stepIndex];
+    if (!step.message_template.trim()) {
+      toast.error("Write a message first before generating a variant");
+      return;
+    }
+    setGeneratingVariant(stepIndex);
+    try {
+      const res = await fetch("/api/outreach/ai-variant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: step.message_template,
+          context: { sequence_name: newName, step_number: stepIndex + 1, board_type: newBoard || undefined },
+          tone: newTone || undefined,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        updateStep(stepIndex, "variant_b_template", data.variant);
+        toast.success("Variant B generated");
+      } else {
+        toast.error("Failed to generate variant");
+      }
+    } finally {
+      setGeneratingVariant(null);
+    }
+  }
+
+  async function handleAIGenerateSequence() {
+    if (!aiGoal.trim()) {
+      toast.error("Describe the goal for the sequence");
+      return;
+    }
+    setAiGenerating(true);
+    try {
+      const res = await fetch("/api/outreach/ai-generate-sequence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          goal: aiGoal,
+          board_type: aiGenBoard || undefined,
+          tone: aiGenTone,
+          num_steps: aiGenSteps,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const generated = (data.steps ?? []).map((s: { message_template?: string; variant_b_template?: string; delay_hours?: number; step_type?: string; step_label?: string; condition_type?: string; condition_config?: Record<string, unknown>; on_true_step?: number | null; on_false_step?: number | null; split_percentage?: number | null }) => ({
+          message_template: s.message_template ?? "",
+          variant_b_template: s.variant_b_template ?? "",
+          variant_c_template: "",
+          ab_split_pct: 50,
+          variant_b_delay_hours: null,
+          delay_hours: s.delay_hours ?? 24,
+          step_type: s.step_type ?? "message",
+          step_label: s.step_label ?? "",
+          condition_type: s.condition_type ?? "",
+          condition_config: s.condition_config ?? {},
+          on_true_step: s.on_true_step ?? null,
+          on_false_step: s.on_false_step ?? null,
+          split_percentage: s.split_percentage ?? null,
+        }));
+        setNewName(aiGoal.slice(0, 60));
+        setNewBoard(aiGenBoard);
+        setNewTone(aiGenTone);
+        setNewSteps(generated);
+        setShowAIGenerate(false);
+        setShowCreate(true);
+        setAiGoal("");
+        toast.success("Sequence generated -- review and create");
+      } else {
+        toast.error("Failed to generate sequence");
+      }
+    } finally {
+      setAiGenerating(false);
     }
   }
 
@@ -229,6 +404,7 @@ export default function OutreachPage() {
         description: newDesc || undefined,
         board_type: newBoard || undefined,
         goal_stage_id: newGoalStage || undefined,
+        tone: newTone || "professional",
         steps: validSteps,
       }),
     });
@@ -239,10 +415,11 @@ export default function OutreachPage() {
       setNewName("");
       setNewDesc("");
       setNewBoard("");
+      setNewTone("professional");
       setNewSteps([
-        { message_template: "", variant_b_template: "", delay_hours: 0, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
-        { message_template: "", variant_b_template: "", delay_hours: 24, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
-        { message_template: "", variant_b_template: "", delay_hours: 48, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
+        { message_template: "", variant_b_template: "", variant_c_template: "", ab_split_pct: 50, variant_b_delay_hours: null, delay_hours: 0, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
+        { message_template: "", variant_b_template: "", variant_c_template: "", ab_split_pct: 50, variant_b_delay_hours: null, delay_hours: 24, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
+        { message_template: "", variant_b_template: "", variant_c_template: "", ab_split_pct: 50, variant_b_delay_hours: null, delay_hours: 48, step_type: "message", step_label: "", condition_type: "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: null },
       ]);
       fetchSequences();
     }
@@ -284,7 +461,7 @@ export default function OutreachPage() {
   }
 
   function addStep(type: string = "message") {
-    setNewSteps([...newSteps, { message_template: "", variant_b_template: "", delay_hours: 24, step_type: type, step_label: "", condition_type: type === "condition" ? "reply_received" : "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: type === "condition" ? 50 : null }]);
+    setNewSteps([...newSteps, { message_template: "", variant_b_template: "", variant_c_template: "", ab_split_pct: 50, variant_b_delay_hours: null, delay_hours: 24, step_type: type, step_label: "", condition_type: type === "condition" ? "reply_received" : "", condition_config: {}, on_true_step: null, on_false_step: null, split_percentage: type === "condition" ? 50 : null }]);
   }
 
   function removeStep(index: number) {
@@ -339,13 +516,119 @@ export default function OutreachPage() {
             {showAnalytics ? "Sequences" : "Analytics"}
           </Button>
           {!showAnalytics && (
-            <Button size="sm" onClick={() => setShowCreate(!showCreate)}>
-              <Plus className="mr-1 h-3.5 w-3.5" />
-              New Sequence
-            </Button>
+            <>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-purple-400 hover:text-purple-300"
+                onClick={() => setShowAIGenerate(!showAIGenerate)}
+              >
+                <Wand2 className="mr-1 h-3.5 w-3.5" />
+                AI Generate
+              </Button>
+              <Button size="sm" onClick={() => setShowCreate(!showCreate)}>
+                <Plus className="mr-1 h-3.5 w-3.5" />
+                New Sequence
+              </Button>
+            </>
           )}
         </div>
       </div>
+
+      {/* Alerts banner */}
+      {alerts.length > 0 && (
+        <div className="space-y-2">
+          {alerts.map((alert) => {
+            const alertColors: Record<string, { border: string; bg: string; icon: string }> = {
+              low_reply_rate: { border: "border-red-500/30", bg: "bg-red-500/5", icon: "text-red-400" },
+              high_drop_off: { border: "border-amber-500/30", bg: "bg-amber-500/5", icon: "text-amber-400" },
+              stale_sequence: { border: "border-slate-500/30", bg: "bg-slate-500/5", icon: "text-slate-400" },
+            };
+            const c = alertColors[alert.alert_type] ?? alertColors.stale_sequence;
+            return (
+              <div key={alert.id} className={cn("flex items-start gap-3 rounded-xl border p-3", c.border, c.bg)}>
+                <AlertTriangle className={cn("h-4 w-4 shrink-0 mt-0.5", c.icon)} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-foreground">{alert.message}</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">Sequence: {alert.sequence_name}</p>
+                </div>
+                <button
+                  onClick={() => dismissAlert(alert.id)}
+                  className="text-muted-foreground hover:text-foreground shrink-0"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* AI Generate form */}
+      {showAIGenerate && (
+        <div className="rounded-xl border border-purple-500/20 bg-purple-500/5 p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Wand2 className="h-4 w-4 text-purple-400" />
+              <h3 className="text-sm font-medium text-purple-400">AI Generate Sequence</h3>
+            </div>
+            <button onClick={() => setShowAIGenerate(false)} className="text-muted-foreground hover:text-foreground">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <textarea
+            value={aiGoal}
+            onChange={(e) => setAiGoal(e.target.value)}
+            placeholder="Describe the goal (e.g. 'Cold outreach to DeFi projects for potential integration partnerships')"
+            rows={2}
+            className="w-full rounded-lg border border-white/10 bg-transparent px-3 py-2 text-sm resize-none"
+          />
+          <div className="grid grid-cols-3 gap-3">
+            <select
+              value={aiGenBoard}
+              onChange={(e) => setAiGenBoard(e.target.value)}
+              className="rounded-lg border border-white/10 bg-transparent px-3 py-2 text-xs"
+            >
+              <option value="">Any board</option>
+              <option value="BD">BD</option>
+              <option value="Marketing">Marketing</option>
+              <option value="Admin">Admin</option>
+            </select>
+            <select
+              value={aiGenTone}
+              onChange={(e) => setAiGenTone(e.target.value)}
+              className="rounded-lg border border-white/10 bg-transparent px-3 py-2 text-xs"
+            >
+              <option value="professional">Professional</option>
+              <option value="casual">Casual</option>
+              <option value="web3_native">Web3 Native</option>
+              <option value="formal">Formal</option>
+            </select>
+            <div className="flex items-center gap-2">
+              <label className="text-[10px] text-muted-foreground shrink-0">Steps:</label>
+              <input
+                type="number"
+                min={2}
+                max={8}
+                value={aiGenSteps}
+                onChange={(e) => setAiGenSteps(Number(e.target.value))}
+                className="w-14 rounded border border-white/10 bg-transparent px-2 py-1.5 text-xs text-center"
+              />
+            </div>
+          </div>
+          <div className="flex justify-end">
+            <Button
+              size="sm"
+              onClick={handleAIGenerateSequence}
+              disabled={aiGenerating || !aiGoal.trim()}
+              className="bg-purple-600 hover:bg-purple-700"
+            >
+              <Sparkles className="mr-1 h-3.5 w-3.5" />
+              {aiGenerating ? "Generating..." : "Generate Sequence"}
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Analytics view */}
       {showAnalytics ? (
@@ -415,13 +698,20 @@ export default function OutreachPage() {
                     <div className="rounded-xl border border-purple-500/20 bg-purple-500/5 p-4 space-y-3">
                       <div className="flex items-center gap-2">
                         <FlaskConical className="h-3.5 w-3.5 text-purple-400" />
-                        <h4 className="text-xs font-medium text-purple-400">A/B Test Results</h4>
+                        <h4 className="text-xs font-medium text-purple-400">A/B{detailData.ab_stats.variant_c ? "/C" : ""} Test Results</h4>
                       </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        {(["variant_a", "variant_b"] as const).map((variant) => {
-                          const data = detailData.ab_stats![variant];
-                          const isWinner = detailData.ab_stats!.variant_a.reply_rate !== detailData.ab_stats!.variant_b.reply_rate &&
-                            data.reply_rate >= Math.max(detailData.ab_stats!.variant_a.reply_rate, detailData.ab_stats!.variant_b.reply_rate);
+                      <div className={cn("grid gap-3", detailData.ab_stats.variant_c ? "grid-cols-3" : "grid-cols-2")}>
+                        {(["variant_a", "variant_b", ...(detailData.ab_stats.variant_c ? ["variant_c" as const] : [])] as const).map((variant) => {
+                          const data = (detailData.ab_stats as unknown as Record<string, { total: number; replied: number; reply_rate: number }>)[variant];
+                          if (!data) return null;
+                          const allRates = [
+                            detailData.ab_stats!.variant_a.reply_rate,
+                            detailData.ab_stats!.variant_b.reply_rate,
+                            ...(detailData.ab_stats!.variant_c ? [detailData.ab_stats!.variant_c.reply_rate] : []),
+                          ];
+                          const maxRate = Math.max(...allRates);
+                          const hasVariation = new Set(allRates).size > 1;
+                          const isWinner = hasVariation && data.reply_rate >= maxRate;
                           return (
                             <div key={variant} className={cn(
                               "rounded-lg border p-3 space-y-1",
@@ -429,7 +719,7 @@ export default function OutreachPage() {
                             )}>
                               <div className="flex items-center justify-between">
                                 <span className="text-xs font-medium text-foreground">
-                                  Variant {variant === "variant_a" ? "A" : "B"}
+                                  Variant {variant === "variant_a" ? "A" : variant === "variant_b" ? "B" : "C"}
                                 </span>
                                 {isWinner && data.total > 0 && (
                                   <span className="rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-[9px] text-emerald-400 font-medium">Winner</span>
@@ -443,6 +733,20 @@ export default function OutreachPage() {
                           );
                         })}
                       </div>
+                      {/* Statistical significance indicator */}
+                      {detailData.ab_stats.significance ? (
+                        <div className="text-[10px] px-1">
+                          {detailData.ab_stats.significance.min_sample ? (
+                            <p className="text-muted-foreground/60">Need 30+ per variant for reliable results</p>
+                          ) : detailData.ab_stats.significance.significant ? (
+                            <p className="text-emerald-400">Statistically significant (95% confidence, z={detailData.ab_stats.significance.z_score})</p>
+                          ) : (
+                            <p className="text-amber-400">Not yet significant — keep testing (z={detailData.ab_stats.significance.z_score})</p>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-[10px] text-muted-foreground/40 px-1">Need 5+ per variant for significance testing</p>
+                      )}
                     </div>
                   )}
 
@@ -473,6 +777,34 @@ export default function OutreachPage() {
                                 <div className="h-full rounded-full bg-primary/50 transition-all" style={{ width: `${Math.max(pct, 2)}%` }} />
                               </div>
                               <p className="text-[10px] text-muted-foreground/60 truncate">{step.preview}</p>
+                              {step.ab && (
+                                <div className="flex items-center gap-3 text-[10px] mt-0.5">
+                                  <span className={cn(
+                                    "font-medium",
+                                    step.ab.a_reply_rate >= step.ab.b_reply_rate ? "text-emerald-400" : "text-muted-foreground"
+                                  )}>
+                                    A: {step.ab.a_sent} sent ({step.ab.a_reply_rate}%)
+                                  </span>
+                                  <span className="text-muted-foreground/30">|</span>
+                                  <span className={cn(
+                                    "font-medium",
+                                    step.ab.b_reply_rate > step.ab.a_reply_rate ? "text-emerald-400" : "text-muted-foreground"
+                                  )}>
+                                    B: {step.ab.b_sent} sent ({step.ab.b_reply_rate}%)
+                                  </span>
+                                  {step.ab.c_sent != null && (
+                                    <>
+                                      <span className="text-muted-foreground/30">|</span>
+                                      <span className={cn(
+                                        "font-medium",
+                                        (step.ab.c_reply_rate ?? 0) > Math.max(step.ab.a_reply_rate, step.ab.b_reply_rate) ? "text-emerald-400" : "text-muted-foreground"
+                                      )}>
+                                        C: {step.ab.c_sent} sent ({step.ab.c_reply_rate ?? 0}%)
+                                      </span>
+                                    </>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           );
                         })}
@@ -689,7 +1021,7 @@ export default function OutreachPage() {
         <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-3">
           <h3 className="text-sm font-medium text-foreground">New Outreach Sequence</h3>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <Input
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
@@ -705,6 +1037,16 @@ export default function OutreachPage() {
               <option value="BD">BD</option>
               <option value="Marketing">Marketing</option>
               <option value="Admin">Admin</option>
+            </select>
+            <select
+              value={newTone}
+              onChange={(e) => setNewTone(e.target.value)}
+              className="rounded-lg border border-white/10 bg-transparent px-3 py-2 text-sm"
+            >
+              <option value="professional">Professional</option>
+              <option value="casual">Casual</option>
+              <option value="web3_native">Web3 Native</option>
+              <option value="formal">Formal</option>
             </select>
           </div>
 
@@ -784,6 +1126,15 @@ export default function OutreachPage() {
                   <div className="space-y-1.5">
                     <div className="flex items-center gap-1.5">
                       <span className="text-[9px] text-muted-foreground/50 uppercase tracking-wider">Variant A</span>
+                      <button
+                        type="button"
+                        onClick={() => handleAIRewrite(i)}
+                        disabled={rewritingStep === i}
+                        className="flex items-center gap-0.5 text-[9px] text-purple-400 hover:underline disabled:opacity-50 disabled:no-underline"
+                      >
+                        <Sparkles className="h-2.5 w-2.5" />
+                        {rewritingStep === i ? "Rewriting..." : "AI Rewrite"}
+                      </button>
                       {!step.variant_b_template && (
                         <button
                           type="button"
@@ -791,6 +1142,18 @@ export default function OutreachPage() {
                           className="flex items-center gap-0.5 text-[9px] text-purple-400 hover:underline ml-auto"
                         >
                           <FlaskConical className="h-2.5 w-2.5" /> Add A/B variant
+                        </button>
+                      )}
+                      {!step.variant_b_template && (
+                        <button
+                          type="button"
+                          onClick={() => handleAIVariant(i)}
+                          disabled={generatingVariant === i}
+                          className="flex items-center gap-0.5 text-[9px] text-purple-400 hover:underline disabled:opacity-50 disabled:no-underline"
+                        >
+                          <Sparkles className="h-2.5 w-2.5" />
+                          <FlaskConical className="h-2.5 w-2.5" />
+                          {generatingVariant === i ? "Generating..." : "AI Generate B"}
                         </button>
                       )}
                     </div>
@@ -805,10 +1168,34 @@ export default function OutreachPage() {
                       <>
                         <div className="flex items-center gap-1.5">
                           <span className="text-[9px] text-purple-400 uppercase tracking-wider">Variant B</span>
-                          <span className="text-[9px] text-muted-foreground/40">random split per enrollment</span>
+                          <span className="text-[9px] text-muted-foreground/40">
+                            A: {step.ab_split_pct}% / B: {step.variant_c_template ? Math.round((100 - step.ab_split_pct) / 2) : 100 - step.ab_split_pct}%
+                            {step.variant_c_template ? ` / C: ${100 - step.ab_split_pct - Math.round((100 - step.ab_split_pct) / 2)}%` : ""}
+                          </span>
+                          <div className="flex items-center gap-1 ml-1">
+                            <input
+                              type="range"
+                              min={1}
+                              max={99}
+                              value={step.ab_split_pct}
+                              onChange={(e) => updateStep(i, "ab_split_pct", Number(e.target.value))}
+                              className="w-16 h-1 accent-purple-400"
+                              title={`A gets ${step.ab_split_pct}%`}
+                            />
+                            <span className="text-[9px] text-muted-foreground/40">{step.ab_split_pct}%A</span>
+                          </div>
+                          {!step.variant_c_template && (
+                            <button
+                              type="button"
+                              onClick={() => updateStep(i, "variant_c_template", step.message_template || " ")}
+                              className="flex items-center gap-0.5 text-[9px] text-cyan-400 hover:underline"
+                            >
+                              <FlaskConical className="h-2.5 w-2.5" /> Add C
+                            </button>
+                          )}
                           <button
                             type="button"
-                            onClick={() => updateStep(i, "variant_b_template", "")}
+                            onClick={() => { updateStep(i, "variant_b_template", ""); updateStep(i, "variant_c_template", ""); }}
                             className="text-[9px] text-red-400 hover:underline ml-auto"
                           >
                             Remove B
@@ -821,6 +1208,40 @@ export default function OutreachPage() {
                           rows={2}
                           className="w-full rounded-lg border border-purple-500/20 bg-purple-500/5 px-2 py-1.5 text-xs font-mono resize-none"
                         />
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[9px] text-muted-foreground/40">B delay:</span>
+                          <input
+                            type="number"
+                            min={0}
+                            value={step.variant_b_delay_hours ?? ""}
+                            onChange={(e) => updateStep(i, "variant_b_delay_hours", e.target.value ? Number(e.target.value) : null)}
+                            placeholder="same"
+                            className="w-16 h-5 rounded border border-white/10 bg-transparent px-1.5 text-[10px] text-center"
+                            title="Override delay for variant B (leave empty to use same delay)"
+                          />
+                          <span className="text-[9px] text-muted-foreground/30">hrs (leave empty to use same delay)</span>
+                        </div>
+                        {step.variant_c_template && (
+                          <>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[9px] text-cyan-400 uppercase tracking-wider">Variant C</span>
+                              <button
+                                type="button"
+                                onClick={() => updateStep(i, "variant_c_template", "")}
+                                className="text-[9px] text-red-400 hover:underline ml-auto"
+                              >
+                                Remove C
+                              </button>
+                            </div>
+                            <textarea
+                              value={step.variant_c_template}
+                              onChange={(e) => updateStep(i, "variant_c_template", e.target.value)}
+                              placeholder="Variant C message..."
+                              rows={2}
+                              className="w-full rounded-lg border border-cyan-500/20 bg-cyan-500/5 px-2 py-1.5 text-xs font-mono resize-none"
+                            />
+                          </>
+                        )}
                       </>
                     )}
                   </div>
@@ -1017,6 +1438,17 @@ export default function OutreachPage() {
                     {seq.board_type && (
                       <span className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-muted-foreground">
                         {seq.board_type}
+                      </span>
+                    )}
+                    {seq.tone && seq.tone !== "professional" && (
+                      <span className={cn(
+                        "rounded px-1.5 py-0.5 text-[10px]",
+                        seq.tone === "casual" ? "bg-blue-500/10 text-blue-400" :
+                        seq.tone === "web3_native" ? "bg-purple-500/10 text-purple-400" :
+                        seq.tone === "formal" ? "bg-slate-500/10 text-slate-400" :
+                        "bg-white/5 text-muted-foreground"
+                      )}>
+                        {seq.tone === "web3_native" ? "Web3" : seq.tone}
                       </span>
                     )}
                   </div>

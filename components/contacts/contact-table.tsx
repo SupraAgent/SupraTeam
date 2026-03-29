@@ -39,6 +39,33 @@ function OnChainBadge({ score }: { score: number }) {
   );
 }
 
+function EnrichmentBadge({ contact }: { contact: Contact }) {
+  const fields = [
+    { key: "name", filled: !!contact.name },
+    { key: "email", filled: !!contact.email },
+    { key: "telegram", filled: !!contact.telegram_username },
+    { key: "x_handle", filled: !!contact.x_handle },
+    { key: "wallet", filled: !!contact.wallet_address },
+  ];
+  const filled = fields.filter((f) => f.filled).length;
+  const total = fields.length;
+  const color = filled >= 5
+    ? "text-emerald-400"
+    : filled >= 3
+    ? "text-amber-400"
+    : "text-red-400";
+  const bgColor = filled >= 5
+    ? "bg-emerald-500/20"
+    : filled >= 3
+    ? "bg-amber-500/20"
+    : "bg-red-500/20";
+  return (
+    <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-medium", bgColor, color)} title={fields.map((f) => `${f.key}: ${f.filled ? "yes" : "no"}`).join(", ")}>
+      {filled}/{total}
+    </span>
+  );
+}
+
 function EngagementBadge({ score }: { score: number }) {
   const label = score >= 70 ? "Hot" : score >= 40 ? "Warm" : score > 0 ? "Cool" : "-";
   const color = score >= 70
@@ -102,6 +129,7 @@ export function ContactTable({ contacts, onRowClick, dealCountMap, selected, onT
               <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Email</th>
               <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">X</th>
               <th className="text-center px-4 py-2.5 text-xs font-medium text-muted-foreground">On-Chain</th>
+              <th className="text-center px-4 py-2.5 text-xs font-medium text-muted-foreground">Enriched</th>
               <th className="text-center px-4 py-2.5 text-xs font-medium text-muted-foreground">Quality</th>
               <th className="text-center px-4 py-2.5 text-xs font-medium text-muted-foreground">Engagement</th>
               {dealCountMap && <th className="text-center px-4 py-2.5 text-xs font-medium text-muted-foreground">Deals</th>}
@@ -160,6 +188,11 @@ export function ContactTable({ contacts, onRowClick, dealCountMap, selected, onT
                 <td className="px-4 py-3" onClick={() => onRowClick(contact)}>
                   <div className="flex justify-center">
                     <OnChainBadge score={contact.on_chain_score} />
+                  </div>
+                </td>
+                <td className="px-4 py-3" onClick={() => onRowClick(contact)}>
+                  <div className="flex justify-center">
+                    <EnrichmentBadge contact={contact} />
                   </div>
                 </td>
                 <td className="px-4 py-3" onClick={() => onRowClick(contact)}>
