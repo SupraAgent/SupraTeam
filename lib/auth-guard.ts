@@ -2,11 +2,17 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { createSupabaseAdmin } from "@/lib/supabase";
-import type { User } from "@supabase/supabase-js";
+import type { SupabaseClient, User } from "@supabase/supabase-js";
 
-type AuthResult =
-  | { user: User; admin: NonNullable<ReturnType<typeof createSupabaseAdmin>> }
-  | { error: NextResponse };
+interface AuthSuccess {
+  user: User;
+  /** Scoped client — respects RLS using the user's JWT. Use by default. */
+  supabase: SupabaseClient;
+  /** Admin client — bypasses RLS. Use only for cross-user ops (broadcasts, cron, bot). */
+  admin: NonNullable<ReturnType<typeof createSupabaseAdmin>>;
+}
+
+type AuthResult = AuthSuccess | { error: NextResponse };
 
 /** Synthetic user for dev-access sessions (no real Supabase auth). */
 const DEV_USER: User = {
@@ -19,7 +25,11 @@ const DEV_USER: User = {
 } as User;
 
 /**
- * Authenticate the current request and return the user + admin client.
+ * Authenticate the current request and return the user + both clients.
+ *
+ * - `supabase` — scoped client that respects RLS (use by default)
+ * - `admin` — service-role client that bypasses RLS (use for cross-user ops)
+ *
  * Returns a NextResponse error if unauthenticated or Supabase not configured.
  */
 export async function requireAuth(): Promise<AuthResult> {
@@ -32,7 +42,8 @@ export async function requireAuth(): Promise<AuthResult> {
   if (process.env.DEV_ACCESS_PASSWORD && process.env.NODE_ENV !== "production") {
     const cookieStore = await cookies();
     if (cookieStore.get("dev-auth")?.value === "true") {
-      return { user: DEV_USER, admin };
+      // In dev mode the scoped client is also admin (no real JWT)
+      return { user: DEV_USER, supabase: admin, admin };
     }
   }
 
@@ -46,7 +57,7 @@ export async function requireAuth(): Promise<AuthResult> {
     return { error: NextResponse.json({ error: "Not authenticated" }, { status: 401 }) };
   }
 
-  return { user, admin };
+  return { user, supabase, admin };
 }
 
 const LEAD_ROLES = ["bd_lead", "marketing_lead", "admin_lead"];
@@ -59,7 +70,7 @@ export async function requireLeadRole(): Promise<AuthResult> {
   const auth = await requireAuth();
   if ("error" in auth) return auth;
 
-  const { user, admin } = auth;
+  const { user, supabase, admin } = auth;
   const { data: profile } = await admin
     .from("profiles")
     .select("crm_role")
@@ -70,5 +81,5 @@ export async function requireLeadRole(): Promise<AuthResult> {
     return { error: NextResponse.json({ error: "Insufficient permissions — lead role required" }, { status: 403 }) };
   }
 
-  return { user, admin };
+  return { user, supabase, admin };
 }
