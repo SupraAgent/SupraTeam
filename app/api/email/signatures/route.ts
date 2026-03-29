@@ -4,8 +4,9 @@ import { requireAuth } from "@/lib/auth-guard";
 /** Strip dangerous HTML — allowlist-based: only permitted tags and safe attributes survive */
 function sanitizeSignatureHtml(html: string): string {
   const ALLOWED_TAGS = new Set(["b", "i", "u", "strong", "em", "br", "p", "a", "span", "div", "img", "table", "tr", "td", "th", "tbody", "thead", "hr"]);
-  const ALLOWED_ATTRS = new Set(["href", "src", "alt", "title", "width", "height", "style", "class", "colspan", "rowspan", "align", "valign", "border", "cellpadding", "cellspacing"]);
+  const ALLOWED_ATTRS = new Set(["href", "src", "alt", "title", "width", "height", "class", "colspan", "rowspan", "align", "valign", "border", "cellpadding", "cellspacing"]);
   const DANGEROUS_URI = /^\s*(javascript|data|vbscript)\s*:/i;
+  const DANGEROUS_CSS = /expression\s*\(|url\s*\(\s*(javascript|data|vbscript)\s*:/i;
 
   // Strip all tags not in the allowlist, keep their text content
   let clean = html.replace(/<\/?([a-zA-Z][a-zA-Z0-9]*)\b[^>]*\/?>/gi, (match, tagName: string) => {
@@ -33,6 +34,8 @@ function sanitizeSignatureHtml(html: string): string {
       if (!ALLOWED_ATTRS.has(attrName)) continue;
       // Block dangerous URI schemes in href/src (handles encoded forms too)
       if ((attrName === "href" || attrName === "src") && DANGEROUS_URI.test(decodeURIComponent(attrVal))) continue;
+      // Block CSS expressions and JS-in-CSS in style attributes
+      if (attrName === "style" && DANGEROUS_CSS.test(decodeURIComponent(attrVal))) continue;
 
       safeAttrs.push(`${attrName}="${attrVal.replace(/"/g, "&quot;")}"`);
     }

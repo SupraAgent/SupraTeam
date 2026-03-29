@@ -133,9 +133,10 @@ export function ComposeModal({
       html += `<br><div style="color:#999;font-size:12px;border-top:1px solid #333;padding-top:8px;margin-top:16px">${signature}</div>`;
     }
 
-    // Inject tracking pixel for read receipts
+    // Inject tracking pixel for read receipts (use absolute URL so it works in email clients)
     const trackingId = crypto.randomUUID();
-    const trackingPixel = `<img src="/api/email/track/${trackingId}" width="1" height="1" style="display:none" alt="" />`;
+    const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
+    const trackingPixel = `<img src="${baseUrl}/api/email/track/${trackingId}" width="1" height="1" style="display:none" alt="" />`;
     html += trackingPixel;
 
     const payload: Record<string, unknown> = {
@@ -244,8 +245,7 @@ export function ComposeModal({
       // Cmd+Shift+Enter to send + archive
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === "Enter") {
         e.preventDefault();
-        handleSend();
-        onSentAndArchive?.();
+        handleSend().then(() => onSentAndArchive?.());
         return;
       }
       // Cmd+Enter to send
@@ -379,7 +379,7 @@ export function ComposeModal({
 
               {onSentAndArchive && (mode === "reply" || mode === "replyAll") && (
                 <Button
-                  onClick={() => { handleSend(); onSentAndArchive(); }}
+                  onClick={() => { handleSend().then(() => onSentAndArchive?.()); }}
                   disabled={sending}
                   size="sm"
                   variant="ghost"

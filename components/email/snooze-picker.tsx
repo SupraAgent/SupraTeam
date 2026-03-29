@@ -52,10 +52,17 @@ export function SnoozePicker({ open, onClose, threadId, onSnoozed }: SnoozePicke
   const [customTime, setCustomTime] = React.useState("09:00");
   const [selectedIndex, setSelectedIndex] = React.useState(0);
 
+  const threadIdRef = React.useRef(threadId);
+  threadIdRef.current = threadId;
+  const onCloseRef = React.useRef(onClose);
+  onCloseRef.current = onClose;
+  const onSnoozedRef = React.useRef(onSnoozed);
+  onSnoozedRef.current = onSnoozed;
+
   React.useEffect(() => {
     if (!open) return;
     function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onCloseRef.current();
       if (e.key === "ArrowDown") {
         e.preventDefault();
         setSelectedIndex((i) => Math.min(i + 1, QUICK_OPTIONS.length));

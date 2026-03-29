@@ -25,6 +25,10 @@ export function ThreadCrmLinks({ threadId, fromEmails, toEmails }: ThreadCrmLink
   const [loading, setLoading] = React.useState(true);
   const [autoLinkDone, setAutoLinkDone] = React.useState(false);
 
+  // Stabilize array props — only change when the actual emails change
+  const fromKey = fromEmails.join(",");
+  const toKey = toEmails.join(",");
+
   // Fetch existing links
   React.useEffect(() => {
     setLoading(true);
@@ -59,7 +63,8 @@ export function ThreadCrmLinks({ threadId, fromEmails, toEmails }: ThreadCrmLink
         }
       })
       .catch(() => {});
-  }, [loading, autoLinkDone, links.length, threadId, fromEmails, toEmails]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, autoLinkDone, links.length, threadId, fromKey, toKey]);
 
   if (loading) return null;
   if (links.length === 0) return null;

@@ -470,8 +470,11 @@ export function useSplitInbox(threads: ThreadListItem[], aiCategories?: Map<stri
 // ── Gmail Pub/Sub push notifications ────────────────────────
 
 export function useGmailPush(onNewMail: () => void) {
+  const onNewMailRef = React.useRef(onNewMail);
+  onNewMailRef.current = onNewMail;
+
   React.useEffect(() => {
-    // Register watch on mount (fire-and-forget)
+    // Register watch once on mount (fire-and-forget)
     fetch("/api/email/watch", { method: "POST" }).catch(() => {});
 
     // Subscribe to Realtime push events via Supabase
@@ -484,7 +487,7 @@ export function useGmailPush(onNewMail: () => void) {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "crm_email_push_events" },
         () => {
-          onNewMail();
+          onNewMailRef.current();
         }
       )
       .subscribe();
@@ -492,7 +495,7 @@ export function useGmailPush(onNewMail: () => void) {
     return () => {
       channel.unsubscribe();
     };
-  }, [onNewMail]);
+  }, []); // stable — runs once, callback accessed via ref
 }
 
 // ── Thread actions (optimistic) ─────────────────────────────
@@ -626,6 +629,10 @@ type KeyboardActions = {
 };
 
 export function useEmailKeyboard(actions: KeyboardActions, enabled = true) {
+  // Use ref to avoid re-registering listeners when actions object changes
+  const actionsRef = React.useRef(actions);
+  actionsRef.current = actions;
+
   // Track g-chord state (vim-style two-key combos)
   const gPendingRef = React.useRef(false);
   const gTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -634,6 +641,7 @@ export function useEmailKeyboard(actions: KeyboardActions, enabled = true) {
     if (!enabled) return;
 
     function handleKey(e: KeyboardEvent) {
+      const a = actionsRef.current;
       // Don't handle if typing in an input
       const target = e.target as HTMLElement;
       if (
@@ -648,12 +656,12 @@ export function useEmailKeyboard(actions: KeyboardActions, enabled = true) {
       if (e.metaKey || e.ctrlKey) {
         if (e.key === "k") {
           e.preventDefault();
-          actions.onCommandPalette?.();
+          a.onCommandPalette?.();
           return;
         }
-        if (e.key === "Enter" && actions.onSendAndArchive) {
+        if (e.key === "Enter" && a.onSendAndArchive) {
           e.preventDefault();
-          actions.onSendAndArchive();
+          a.onSendAndArchive();
           return;
         }
         return;
@@ -665,11 +673,11 @@ export function useEmailKeyboard(actions: KeyboardActions, enabled = true) {
         if (gTimerRef.current) clearTimeout(gTimerRef.current);
         e.preventDefault();
         switch (e.key) {
-          case "i": actions.onGoInbox?.(); return;
-          case "s": actions.onGoStarred?.(); return;
-          case "t": actions.onGoSent?.(); return;
-          case "d": actions.onGoDrafts?.(); return;
-          case "a": actions.onGoAll?.(); return;
+          case "i": a.onGoInbox?.(); return;
+          case "s": a.onGoStarred?.(); return;
+          case "t": a.onGoSent?.(); return;
+          case "d": a.onGoDrafts?.(); return;
+          case "a": a.onGoAll?.(); return;
         }
         return;
       }
@@ -684,86 +692,86 @@ export function useEmailKeyboard(actions: KeyboardActions, enabled = true) {
       switch (e.key) {
         case "j":
           e.preventDefault();
-          actions.onNext();
+          a.onNext();
           break;
         case "k":
           e.preventDefault();
-          actions.onPrev();
+          a.onPrev();
           break;
         case "Enter":
           e.preventDefault();
-          actions.onOpen();
+          a.onOpen();
           break;
         case "Escape":
           e.preventDefault();
-          actions.onBack();
+          a.onBack();
           break;
         case "e":
           e.preventDefault();
-          actions.onArchive();
+          a.onArchive();
           break;
         case "#":
           e.preventDefault();
-          actions.onTrash();
+          a.onTrash();
           break;
         case "r":
           e.preventDefault();
-          actions.onReply();
+          a.onReply();
           break;
         case "a":
           e.preventDefault();
-          actions.onReplyAll();
+          a.onReplyAll();
           break;
         case "f":
           e.preventDefault();
-          actions.onForward();
+          a.onForward();
           break;
         case "s":
           e.preventDefault();
-          actions.onStar();
+          a.onStar();
           break;
         case "u":
           e.preventDefault();
-          actions.onMarkUnread();
+          a.onMarkUnread();
           break;
         case "c":
           e.preventDefault();
-          actions.onCompose();
+          a.onCompose();
           break;
         case "/":
           e.preventDefault();
-          actions.onSearch();
+          a.onSearch();
           break;
         case "[":
           e.preventDefault();
-          actions.onArchivePrev();
+          a.onArchivePrev();
           break;
         case "]":
           e.preventDefault();
-          actions.onArchiveNext();
+          a.onArchiveNext();
           break;
         case "h":
           e.preventDefault();
-          actions.onSnooze();
+          a.onSnooze();
           break;
         case "d":
           e.preventDefault();
-          actions.onTrash();
+          a.onTrash();
           break;
         case "x":
           e.preventDefault();
-          actions.onToggleSelect?.();
+          a.onToggleSelect?.();
           break;
         case "?":
           e.preventDefault();
-          actions.onShowHelp?.();
+          a.onShowHelp?.();
           break;
       }
 
       // Shift combos
       if (e.shiftKey && e.key === "A") {
         e.preventDefault();
-        actions.onSelectAll?.();
+        a.onSelectAll?.();
       }
     }
 
@@ -772,5 +780,5 @@ export function useEmailKeyboard(actions: KeyboardActions, enabled = true) {
       document.removeEventListener("keydown", handleKey);
       if (gTimerRef.current) clearTimeout(gTimerRef.current);
     };
-  }, [actions, enabled]);
+  }, [enabled]);
 }
