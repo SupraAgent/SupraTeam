@@ -32,17 +32,23 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const { goal, board_type, tone, num_steps } = body;
+  let { goal, board_type, tone, num_steps } = body;
 
   if (!goal?.trim()) {
     return NextResponse.json({ error: "goal is required" }, { status: 400 });
   }
 
+  // Input length limits to mitigate prompt injection
+  const MAX_GOAL_LEN = 500;
+  const MAX_CONTEXT_LEN = 500;
+  goal = String(goal).slice(0, MAX_GOAL_LEN);
+  if (board_type) board_type = String(board_type).slice(0, MAX_CONTEXT_LEN);
+
   const toneKey = tone || "professional";
   const toneDesc = TONE_DESCRIPTIONS[toneKey] ?? TONE_DESCRIPTIONS.professional;
   const stepCount = num_steps || 4;
 
-  const prompt = `You are a Web3 outreach expert for Supra (L1 blockchain). Generate a complete Telegram outreach sequence. Context: ${goal}. Board: ${board_type || "Any"}. Tone: ${toneDesc}.
+  const systemPrompt = `You are a Web3 outreach expert for Supra (L1 blockchain). Generate a complete Telegram outreach sequence.
 
 Return a JSON array of steps, each with:
 - step_type: 'message' | 'wait' | 'condition'
@@ -52,7 +58,9 @@ Return a JSON array of steps, each with:
 - condition_type: for condition steps only
 - condition_config: for condition steps only
 
-Generate ${stepCount} steps. Include at least one condition (reply_received check). Make messages concise, personalized, and focused on ${goal}. Return ONLY the JSON array.`;
+Generate ${stepCount} steps. Include at least one condition (reply_received check). Make messages concise and personalized. Tone: ${toneDesc}. Return ONLY the JSON array.`;
+
+  const userContent = `<user_goal>\n${goal}\n</user_goal>\n\nBoard: ${board_type || "Any"}.`;
 
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -65,7 +73,8 @@ Generate ${stepCount} steps. Include at least one condition (reply_received chec
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
         max_tokens: 800,
-        messages: [{ role: "user", content: prompt }],
+        system: systemPrompt,
+        messages: [{ role: "user", content: userContent }],
       }),
     });
 

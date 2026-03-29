@@ -68,29 +68,38 @@ async function doProcessEnrollments(bot: Bot) {
 
     if (error || !enrollments || enrollments.length === 0) return;
 
+    // Pre-fetch all steps for unique sequence_ids to avoid N+1 queries
+    const uniqueSequenceIds = [...new Set((enrollments as Enrollment[]).map((e) => e.sequence_id))];
+    const { data: allSteps } = await supabase
+      .from("crm_outreach_steps")
+      .select("*")
+      .in("sequence_id", uniqueSequenceIds)
+      .order("step_number");
+
+    const stepsBySequence = new Map<string, Step[]>();
+    for (const step of (allSteps ?? []) as Step[]) {
+      if (!stepsBySequence.has(step.sequence_id)) stepsBySequence.set(step.sequence_id, []);
+      stepsBySequence.get(step.sequence_id)!.push(step);
+    }
+
     for (const enrollment of enrollments as Enrollment[]) {
-      await processEnrollment(bot, enrollment);
+      await processEnrollment(bot, enrollment, stepsBySequence.get(enrollment.sequence_id) ?? []);
     }
   } catch (err) {
     console.error("[outreach-worker] poll error:", err);
   }
 }
 
-async function processEnrollment(bot: Bot, enrollment: Enrollment) {
+async function processEnrollment(bot: Bot, enrollment: Enrollment, prefetchedSteps: Step[]) {
   try {
-    // Fetch all steps for this sequence
-    const { data: steps } = await supabase
-      .from("crm_outreach_steps")
-      .select("*")
-      .eq("sequence_id", enrollment.sequence_id)
-      .order("step_number");
+    const steps = prefetchedSteps;
 
-    if (!steps || steps.length === 0) {
+    if (steps.length === 0) {
       await markCompleted(enrollment.id);
       return;
     }
 
-    const currentStep = (steps as Step[]).find((s) => s.step_number === enrollment.current_step);
+    const currentStep = steps.find((s) => s.step_number === enrollment.current_step);
     if (!currentStep) {
       await markCompleted(enrollment.id);
       return;
@@ -161,7 +170,7 @@ async function processEnrollment(bot: Bot, enrollment: Enrollment) {
       }
 
       // Advance to next step
-      await advanceToNextStep(enrollment, steps as Step[], currentStep.step_number);
+      await advanceToNextStep(enrollment, steps, currentStep.step_number);
 
     } else if (currentStep.step_type === "condition") {
       // Evaluate condition
@@ -176,7 +185,7 @@ async function processEnrollment(bot: Bot, enrollment: Enrollment) {
       }
 
       // Jump to target step
-      const target = (steps as Step[]).find((s) => s.step_number === targetStep);
+      const target = steps.find((s) => s.step_number === targetStep);
       if (!target) {
         await markCompleted(enrollment.id);
         return;
@@ -197,7 +206,7 @@ async function processEnrollment(bot: Bot, enrollment: Enrollment) {
 
     } else if (currentStep.step_type === "wait") {
       // Just advance past the wait step
-      await advanceToNextStep(enrollment, steps as Step[], currentStep.step_number);
+      await advanceToNextStep(enrollment, steps, currentStep.step_number);
     }
   } catch (err) {
     console.error(`[outreach-worker] error processing enrollment ${enrollment.id}:`, err);
@@ -385,6 +394,16 @@ async function fetchTemplateVars(enrollment: Enrollment): Promise<Record<string,
 
 async function checkAutoWinner(step: Step) {
   try {
+    // Idempotency: skip if auto_winner already declared for this step
+    const { data: existingWinner } = await supabase
+      .from("crm_outreach_step_log")
+      .select("id")
+      .eq("step_id", step.id)
+      .eq("status", "auto_winner")
+      .limit(1)
+      .maybeSingle();
+    if (existingWinner) return;
+
     // Get all step_log entries for this step
     const { data: logs } = await supabase
       .from("crm_outreach_step_log")
@@ -436,21 +455,7 @@ async function checkAutoWinner(step: Step) {
       .update(updates)
       .eq("id", step.id);
 
-    // Log auto-winner event
-    await supabase.from("crm_outreach_step_log").insert({
-      enrollment_id: "00000000-0000-0000-0000-000000000000", // sentinel for system events
-      step_id: step.id,
-      status: "auto_winner",
-      ab_variant: winner,
-      metadata: {
-        a_sent: aSent,
-        b_sent: bSent,
-        a_reply_rate: Math.round(aReplyRate),
-        b_reply_rate: Math.round(bReplyRate),
-        winner,
-      },
-    });
-
+    // Log auto-winner event (no step_log insert — enrollment_id FK cannot be null or sentinel)
     console.warn(`[outreach-worker] Auto-winner selected for step ${step.id}: Variant ${winner} (A: ${Math.round(aReplyRate)}%, B: ${Math.round(bReplyRate)}%)`);
   } catch (err) {
     console.error("[outreach-worker] auto-winner check error:", err);
