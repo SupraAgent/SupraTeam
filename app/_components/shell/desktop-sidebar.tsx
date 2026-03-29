@@ -19,6 +19,7 @@ const NAV_ITEMS = [
   { href: "/outreach", label: "Outreach", icon: OutreachIcon },
   { href: "/drip", label: "Drip Sequences", icon: DripIcon },
   { href: "/automations", label: "Automations", icon: WorkflowIcon },
+  { href: "/automations2", label: "Automations 2", icon: LoopBuilderIcon },
   { href: "/loop", label: "Loop Builder", icon: LoopBuilderIcon },
   { href: "/calendar", label: "Calendar", icon: CalendarIcon },
   { href: "/reports", label: "Reports", icon: ChartIcon },
