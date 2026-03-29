@@ -38,32 +38,70 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: "sequence_id and steps array required" }, { status: 400 });
   }
 
-  // Delete existing steps and re-insert (simpler than diffing)
-  await supabase
+  // Fetch existing steps to diff against
+  const { data: existingSteps } = await supabase
     .from("crm_outreach_steps")
-    .delete()
-    .eq("sequence_id", sequence_id);
+    .select("id, step_number")
+    .eq("sequence_id", sequence_id)
+    .order("step_number");
 
-  if (steps.length > 0) {
-    const stepRows = steps.map((s: { message_template: string; variant_b_template?: string; delay_hours?: number; step_type?: string; step_label?: string; condition_type?: string; condition_config?: Record<string, unknown>; on_true_step?: number; on_false_step?: number; split_percentage?: number }, i: number) => ({
-      sequence_id,
-      step_number: i + 1,
-      delay_hours: s.delay_hours ?? 24,
-      message_template: s.message_template,
-      variant_b_template: s.variant_b_template || null,
-      step_type: s.step_type ?? "message",
-      step_label: s.step_label || null,
-      condition_type: s.condition_type ?? null,
-      condition_config: s.condition_config ?? null,
-      on_true_step: s.on_true_step ?? null,
-      on_false_step: s.on_false_step ?? null,
-      split_percentage: s.split_percentage ?? null,
-    }));
+  const existingByStepNumber = new Map(
+    (existingSteps ?? []).map((s: { id: string; step_number: number }) => [s.step_number, s.id])
+  );
 
+  type StepInput = { message_template: string; variant_b_template?: string; variant_c_template?: string; ab_split_pct?: number; variant_b_delay_hours?: number; delay_hours?: number; step_type?: string; step_label?: string; condition_type?: string; condition_config?: Record<string, unknown>; on_true_step?: number; on_false_step?: number; split_percentage?: number };
+
+  const buildStepFields = (s: StepInput) => ({
+    delay_hours: s.delay_hours ?? 24,
+    message_template: s.message_template,
+    variant_b_template: s.variant_b_template || null,
+    variant_c_template: s.variant_c_template || null,
+    ab_split_pct: s.ab_split_pct ?? 50,
+    variant_b_delay_hours: s.variant_b_delay_hours ?? null,
+    step_type: s.step_type ?? "message",
+    step_label: s.step_label || null,
+    condition_type: s.condition_type ?? null,
+    condition_config: s.condition_config ?? null,
+    on_true_step: s.on_true_step ?? null,
+    on_false_step: s.on_false_step ?? null,
+    split_percentage: s.split_percentage ?? null,
+  });
+
+  // Update existing steps, insert new ones
+  for (let i = 0; i < steps.length; i++) {
+    const stepNumber = i + 1;
+    const s = steps[i] as StepInput;
+    const existingId = existingByStepNumber.get(stepNumber);
+
+    if (existingId) {
+      const { error } = await supabase
+        .from("crm_outreach_steps")
+        .update(buildStepFields(s))
+        .eq("id", existingId);
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+    } else {
+      const { error } = await supabase
+        .from("crm_outreach_steps")
+        .insert({ sequence_id, step_number: stepNumber, ...buildStepFields(s) });
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+    }
+  }
+
+  // Delete steps whose step_number exceeds the new count
+  const newStepCount = steps.length;
+  const stepsToDelete = (existingSteps ?? [])
+    .filter((s: { id: string; step_number: number }) => s.step_number > newStepCount)
+    .map((s: { id: string; step_number: number }) => s.id);
+
+  if (stepsToDelete.length > 0) {
     const { error } = await supabase
       .from("crm_outreach_steps")
-      .insert(stepRows);
-
+      .delete()
+      .in("id", stepsToDelete);
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }

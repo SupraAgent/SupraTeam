@@ -32,6 +32,9 @@ type Step = {
   delay_hours: number;
   message_template: string;
   variant_b_template: string | null;
+  variant_c_template: string | null;
+  ab_split_pct: number | null;
+  variant_b_delay_hours: number | null;
   step_label: string | null;
   condition_type: string | null;
   condition_config: Record<string, unknown> | null;
@@ -65,29 +68,38 @@ async function doProcessEnrollments(bot: Bot) {
 
     if (error || !enrollments || enrollments.length === 0) return;
 
+    // Pre-fetch all steps for unique sequence_ids to avoid N+1 queries
+    const uniqueSequenceIds = [...new Set((enrollments as Enrollment[]).map((e) => e.sequence_id))];
+    const { data: allSteps } = await supabase
+      .from("crm_outreach_steps")
+      .select("*")
+      .in("sequence_id", uniqueSequenceIds)
+      .order("step_number");
+
+    const stepsBySequence = new Map<string, Step[]>();
+    for (const step of (allSteps ?? []) as Step[]) {
+      if (!stepsBySequence.has(step.sequence_id)) stepsBySequence.set(step.sequence_id, []);
+      stepsBySequence.get(step.sequence_id)!.push(step);
+    }
+
     for (const enrollment of enrollments as Enrollment[]) {
-      await processEnrollment(bot, enrollment);
+      await processEnrollment(bot, enrollment, stepsBySequence.get(enrollment.sequence_id) ?? []);
     }
   } catch (err) {
     console.error("[outreach-worker] poll error:", err);
   }
 }
 
-async function processEnrollment(bot: Bot, enrollment: Enrollment) {
+async function processEnrollment(bot: Bot, enrollment: Enrollment, prefetchedSteps: Step[]) {
   try {
-    // Fetch all steps for this sequence
-    const { data: steps } = await supabase
-      .from("crm_outreach_steps")
-      .select("*")
-      .eq("sequence_id", enrollment.sequence_id)
-      .order("step_number");
+    const steps = prefetchedSteps;
 
-    if (!steps || steps.length === 0) {
+    if (steps.length === 0) {
       await markCompleted(enrollment.id);
       return;
     }
 
-    const currentStep = (steps as Step[]).find((s) => s.step_number === enrollment.current_step);
+    const currentStep = steps.find((s) => s.step_number === enrollment.current_step);
     if (!currentStep) {
       await markCompleted(enrollment.id);
       return;
@@ -97,14 +109,34 @@ async function processEnrollment(bot: Bot, enrollment: Enrollment) {
     const vars = await fetchTemplateVars(enrollment);
 
     if (currentStep.step_type === "message") {
-      // A/B variant selection: per-step random assignment, tracked in step_log only.
+      // A/B(/C) variant selection: per-step random assignment, tracked in step_log only.
       // This is independent of enrollment.ab_variant which is used by condition-level ab_split.
       let abVariant: string | null = null;
       let template = currentStep.message_template;
 
       if (currentStep.variant_b_template) {
-        abVariant = Math.random() < 0.5 ? "A" : "B";
-        template = abVariant === "B" ? currentStep.variant_b_template : currentStep.message_template;
+        const splitPct = currentStep.ab_split_pct ?? 50;
+        const rand = Math.random() * 100;
+
+        if (currentStep.variant_c_template) {
+          // 3-way split: A gets splitPct%, remaining split evenly between B and C
+          const remaining = 100 - splitPct;
+          const bThreshold = splitPct + remaining / 2;
+          if (rand < splitPct) {
+            abVariant = "A";
+            template = currentStep.message_template;
+          } else if (rand < bThreshold) {
+            abVariant = "B";
+            template = currentStep.variant_b_template;
+          } else {
+            abVariant = "C";
+            template = currentStep.variant_c_template;
+          }
+        } else {
+          // 2-way split: A gets splitPct%
+          abVariant = rand < splitPct ? "A" : "B";
+          template = abVariant === "B" ? currentStep.variant_b_template : currentStep.message_template;
+        }
       }
 
       const text = renderTemplate(template, vars);
@@ -132,8 +164,13 @@ async function processEnrollment(bot: Bot, enrollment: Enrollment) {
         ab_variant: abVariant,
       });
 
+      // Auto-winner check: if both variants have 20+ sends and reply rate diff > 10pp
+      if (abVariant && currentStep.variant_b_template) {
+        await checkAutoWinner(currentStep);
+      }
+
       // Advance to next step
-      await advanceToNextStep(enrollment, steps as Step[], currentStep.step_number);
+      await advanceToNextStep(enrollment, steps, currentStep.step_number);
 
     } else if (currentStep.step_type === "condition") {
       // Evaluate condition
@@ -148,7 +185,7 @@ async function processEnrollment(bot: Bot, enrollment: Enrollment) {
       }
 
       // Jump to target step
-      const target = (steps as Step[]).find((s) => s.step_number === targetStep);
+      const target = steps.find((s) => s.step_number === targetStep);
       if (!target) {
         await markCompleted(enrollment.id);
         return;
@@ -169,7 +206,7 @@ async function processEnrollment(bot: Bot, enrollment: Enrollment) {
 
     } else if (currentStep.step_type === "wait") {
       // Just advance past the wait step
-      await advanceToNextStep(enrollment, steps as Step[], currentStep.step_number);
+      await advanceToNextStep(enrollment, steps, currentStep.step_number);
     }
   } catch (err) {
     console.error(`[outreach-worker] error processing enrollment ${enrollment.id}:`, err);
@@ -259,18 +296,34 @@ async function advanceToNextStep(enrollment: Enrollment, steps: Step[], currentS
     return;
   }
 
+  // Check if enrollment was assigned variant B (from most recent step_log) for timing override
+  let effectiveDelayHours = nextStep.delay_hours;
+  if (nextStep.variant_b_delay_hours != null) {
+    const { data: recentLog } = await supabase
+      .from("crm_outreach_step_log")
+      .select("ab_variant")
+      .eq("enrollment_id", enrollment.id)
+      .eq("status", "sent")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (recentLog?.ab_variant === "B") {
+      effectiveDelayHours = nextStep.variant_b_delay_hours;
+    }
+  }
+
   // Use send-time optimization for message steps with delay > 1 hour
   let nextSendAt: string;
-  if (nextStep.step_type === "message" && nextStep.delay_hours >= 1) {
+  if (nextStep.step_type === "message" && effectiveDelayHours >= 1) {
     // Resolve tg_group_id from telegram_chat_id for optimization lookup
     const { data: group } = await supabase
       .from("tg_groups")
       .select("id")
       .eq("telegram_group_id", Number(enrollment.tg_chat_id))
       .maybeSingle();
-    nextSendAt = await getOptimalSendTime(group?.id ?? null, nextStep.delay_hours);
+    nextSendAt = await getOptimalSendTime(group?.id ?? null, effectiveDelayHours);
   } else {
-    nextSendAt = new Date(Date.now() + (nextStep.delay_hours || 0) * 3600000).toISOString();
+    nextSendAt = new Date(Date.now() + (effectiveDelayHours || 0) * 3600000).toISOString();
   }
 
   await supabase.from("crm_outreach_enrollments").update({
@@ -337,6 +390,76 @@ async function fetchTemplateVars(enrollment: Enrollment): Promise<Record<string,
     company,
     value,
   });
+}
+
+async function checkAutoWinner(step: Step) {
+  try {
+    // Idempotency: skip if auto_winner already declared for this step
+    const { data: existingWinner } = await supabase
+      .from("crm_outreach_step_log")
+      .select("id")
+      .eq("step_id", step.id)
+      .eq("status", "auto_winner")
+      .limit(1)
+      .maybeSingle();
+    if (existingWinner) return;
+
+    // Get all step_log entries for this step
+    const { data: logs } = await supabase
+      .from("crm_outreach_step_log")
+      .select("enrollment_id, ab_variant, status")
+      .eq("step_id", step.id)
+      .eq("status", "sent");
+
+    if (!logs || logs.length === 0) return;
+
+    const aSent = logs.filter((l) => l.ab_variant === "A").length;
+    const bSent = logs.filter((l) => l.ab_variant === "B").length;
+
+    // Need 20+ per variant
+    if (aSent < 20 || bSent < 20) return;
+
+    // Get enrollment reply counts for each variant
+    const aEnrollmentIds = [...new Set(logs.filter((l) => l.ab_variant === "A").map((l) => l.enrollment_id))];
+    const bEnrollmentIds = [...new Set(logs.filter((l) => l.ab_variant === "B").map((l) => l.enrollment_id))];
+
+    const { data: aEnrollments } = await supabase
+      .from("crm_outreach_enrollments")
+      .select("reply_count")
+      .in("id", aEnrollmentIds);
+    const { data: bEnrollments } = await supabase
+      .from("crm_outreach_enrollments")
+      .select("reply_count")
+      .in("id", bEnrollmentIds);
+
+    const aReplied = (aEnrollments ?? []).filter((e) => e.reply_count > 0).length;
+    const bReplied = (bEnrollments ?? []).filter((e) => e.reply_count > 0).length;
+
+    const aReplyRate = aReplied / aEnrollmentIds.length * 100;
+    const bReplyRate = bReplied / bEnrollmentIds.length * 100;
+
+    const diff = Math.abs(aReplyRate - bReplyRate);
+    if (diff <= 10) return; // Not enough difference
+
+    const winner = aReplyRate > bReplyRate ? "A" : "B";
+
+    // Apply auto-winner
+    const updates: Record<string, unknown> = { variant_b_template: null };
+    if (winner === "B") {
+      updates.message_template = step.variant_b_template;
+    }
+    updates.step_label = `${step.step_label ?? `Step ${step.step_number}`} (auto-optimized: ${winner} won)`;
+
+    await supabase
+      .from("crm_outreach_steps")
+      .update(updates)
+      .eq("id", step.id);
+
+    // Log auto-winner event (no step_log insert — enrollment_id FK cannot be null or sentinel)
+    console.warn(`[outreach-worker] Auto-winner selected for step ${step.id}: Variant ${winner} (A: ${Math.round(aReplyRate)}%, B: ${Math.round(bReplyRate)}%)`);
+  } catch (err) {
+    console.error("[outreach-worker] auto-winner check error:", err);
+  }
 }
 
 export function startOutreachWorker(bot: Bot) {
