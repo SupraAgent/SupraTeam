@@ -25,6 +25,8 @@ export interface NavItem {
   href: string;
   label: string;
   icon: LucideIcon;
+  /** If set, only users with one of these crm_role values see this item */
+  requiredRole?: string[];
 }
 
 export interface NavSection {
@@ -54,9 +56,9 @@ export const NAV_SECTIONS: NavSection[] = [
     key: "messaging",
     label: "Messaging",
     items: [
-      { href: "/broadcasts", label: "Broadcasts", icon: Bell },
-      { href: "/outreach", label: "Outreach", icon: Send },
-      { href: "/drip", label: "Drip Sequences", icon: Droplet },
+      { href: "/broadcasts", label: "Broadcasts", icon: Bell, requiredRole: ["admin_lead"] },
+      { href: "/outreach", label: "Outreach", icon: Send, requiredRole: ["admin_lead"] },
+      { href: "/drip", label: "Drip Sequences", icon: Droplet, requiredRole: ["admin_lead"] },
     ],
   },
   {
@@ -90,3 +92,7 @@ export const ALL_NAV_ITEMS: NavItem[] = [
   ...NAV_SECTIONS.flatMap((s) => s.items),
   SETTINGS_ITEM,
 ];
+
+export function filterByRole(items: NavItem[], role: string | null): NavItem[] {
+  return items.filter((item) => !item.requiredRole || (role && item.requiredRole.includes(role)));
+}
