@@ -893,10 +893,10 @@ export function registerMessageHandlers(bot: Bot) {
       if (!isTeamMember && !ctx.from.is_bot) {
         const replyHour = new Date(ctx.message.date * 1000).getUTCHours();
         // Atomic INSERT ... ON CONFLICT increment via RPC (no read-modify-write race)
-        supabase.rpc("increment_reply_hour_stat", {
+        void supabase.rpc("increment_reply_hour_stat", {
           p_tg_group_id: tgGroup.id,
           p_hour_utc: replyHour,
-        }).catch(() => {}); // Best effort
+        }); // Best effort
       }
     } catch (err) {
       console.error("[bot/messages] error:", err);
