@@ -1082,6 +1082,7 @@ function FlowCanvasInner({
         className="relative flex-1"
         role="application"
         aria-label="Workflow canvas"
+        data-tour="canvas"
         onDragLeave={onDragLeave}
         {...(isTouchDevice ? longPressHandlers : {})}
       >
@@ -1097,11 +1098,11 @@ function FlowCanvasInner({
           </div>
         )}
 
-        <div className="absolute left-3 top-3 z-10">
+        <div className="absolute left-3 top-3 z-10" data-tour="palette">
           <NodePalette userNodeDefs={userNodeDefs} onAddNode={addNodeAtCenter} customPaletteItems={customPaletteItems} />
         </div>
 
-        <div className="absolute right-3 top-3 z-10 flex flex-wrap items-center gap-1.5 max-w-[calc(100%-200px)] sm:max-w-none">
+        <div className="absolute right-3 top-3 z-10 flex flex-wrap items-center gap-1.5 max-w-[calc(100%-200px)] sm:max-w-none" data-tour="toolbar">
           <button
             onClick={undo}
             disabled={!canUndo}

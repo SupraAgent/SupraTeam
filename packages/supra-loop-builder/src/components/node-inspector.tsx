@@ -2452,7 +2452,7 @@ export function NodeInspector({
   }
 
   return (
-    <div ref={panelRef} className="flex h-full w-[300px] flex-col border-l border-white/10 bg-background/95 backdrop-blur-sm">
+    <div ref={panelRef} className="flex h-full w-[300px] flex-col border-l border-white/10 bg-background/95 backdrop-blur-sm" data-tour="inspector">
       {/* Collapse toggle in header */}
       <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
         <div className="flex items-center gap-2">
