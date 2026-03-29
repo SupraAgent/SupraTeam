@@ -28,7 +28,9 @@ export async function logEnrichment(
       created_by: params.created_by ?? null,
     })
     .then(
-      () => {},
+      ({ error }) => {
+        if (error) console.error("[enrichment-log] Insert failed:", error.message);
+      },
       (err: unknown) => {
         console.error("[enrichment-log] Failed to log enrichment:", err);
       }

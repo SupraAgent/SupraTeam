@@ -124,10 +124,20 @@ export async function POST(request: Request) {
 export async function PUT(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { user, admin: supabase } = auth;
 
   const { id, status, name, description, tone } = await request.json();
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+
+  // Ownership check
+  const { data: seq } = await supabase
+    .from("crm_outreach_sequences")
+    .select("created_by")
+    .eq("id", id)
+    .single();
+
+  if (!seq) return NextResponse.json({ error: "Sequence not found" }, { status: 404 });
+  if (seq.created_by !== user.id) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (status) updates.status = status;
@@ -147,10 +157,34 @@ export async function PUT(request: Request) {
 export async function DELETE(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { user, admin: supabase } = auth;
 
   const { id } = await request.json();
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+
+  // Ownership check
+  const { data: seq } = await supabase
+    .from("crm_outreach_sequences")
+    .select("created_by")
+    .eq("id", id)
+    .single();
+
+  if (!seq) return NextResponse.json({ error: "Sequence not found" }, { status: 404 });
+  if (seq.created_by !== user.id) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  // Check for active enrollments before deleting
+  const { count } = await supabase
+    .from("crm_outreach_enrollments")
+    .select("id", { count: "exact", head: true })
+    .eq("sequence_id", id)
+    .eq("status", "active");
+
+  if (count && count > 0) {
+    return NextResponse.json(
+      { error: `Cannot delete: ${count} active enrollment${count > 1 ? "s" : ""} still running` },
+      { status: 409 }
+    );
+  }
 
   const { error } = await supabase
     .from("crm_outreach_sequences")

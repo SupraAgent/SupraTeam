@@ -4,9 +4,13 @@
  */
 
 import { NextResponse } from "next/server";
+import { verifyCron } from "@/lib/cron-auth";
 import { createSupabaseAdmin } from "@/lib/supabase";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const cronErr = verifyCron(request);
+  if (cronErr) return cronErr;
+
   const supabase = createSupabaseAdmin();
   if (!supabase) {
     return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
@@ -53,11 +57,15 @@ export async function GET() {
   }
   let stepLogs: StepLogEntry[] = [];
   if (enrollmentIds.length > 0) {
-    const { data } = await supabase
-      .from("crm_outreach_step_log")
-      .select("enrollment_id, step_id, status")
-      .in("enrollment_id", enrollmentIds);
-    stepLogs = (data ?? []) as StepLogEntry[];
+    // Batch in chunks of 200 to avoid URL length limits on .in()
+    for (let i = 0; i < enrollmentIds.length; i += 200) {
+      const chunk = enrollmentIds.slice(i, i + 200);
+      const { data } = await supabase
+        .from("crm_outreach_step_log")
+        .select("enrollment_id, step_id, status")
+        .in("enrollment_id", chunk);
+      stepLogs.push(...((data ?? []) as StepLogEntry[]));
+    }
   }
 
   // Fetch steps for each sequence (for drop-off analysis)

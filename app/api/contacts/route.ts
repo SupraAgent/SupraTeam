@@ -1,21 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { dispatchWebhook } from "@/lib/webhooks";
-
-/** Compute quality_score based on field completeness. Total = 100. */
-function computeQualityScore(contact: Record<string, unknown>): number {
-  let score = 0;
-  if (contact.name) score += 10;
-  if (contact.email) score += 15;
-  if (contact.telegram_username) score += 15;
-  if (contact.company) score += 10;
-  if (contact.phone) score += 5;
-  if (contact.title) score += 5;
-  if (contact.x_handle) score += 15;
-  if (contact.wallet_address) score += 15;
-  if (typeof contact.on_chain_score === "number" && contact.on_chain_score > 0) score += 10;
-  return score;
-}
+import { computeQualityScore } from "@/lib/quality-score";
 
 export async function GET(request: Request) {
   const auth = await requireAuth();
@@ -32,8 +18,8 @@ export async function GET(request: Request) {
     .order("name");
 
   if (search) {
-    // Sanitize search to prevent PostgREST filter injection — strip chars that break .or() syntax
-    const sanitized = search.replace(/[(),."\\]/g, "");
+    // Sanitize search to prevent PostgREST filter injection — allowlist safe chars only
+    const sanitized = search.replace(/[^a-zA-Z0-9@_\-\s]/g, "").trim();
     if (sanitized) {
       query = query.or(`name.ilike.%${sanitized}%,company.ilike.%${sanitized}%,telegram_username.ilike.%${sanitized}%,email.ilike.%${sanitized}%`);
     }

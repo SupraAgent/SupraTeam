@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
+import { verifyCron } from "@/lib/cron-auth";
 import { createSupabaseAdmin } from "@/lib/supabase";
 import { computeOnChainScore } from "@/lib/onchain-scoring";
 import { logEnrichment } from "@/lib/enrichment-log";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const cronErr = verifyCron(request);
+  if (cronErr) return cronErr;
+
   const supabase = createSupabaseAdmin();
   if (!supabase) {
     return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });

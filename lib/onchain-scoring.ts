@@ -41,7 +41,7 @@ export async function computeOnChainScore(
     ]);
 
     if (!balanceRes.ok || !txCountRes.ok) {
-      return { score: 0, balance: "0", txCount: 0 };
+      throw new Error(`RPC returned ${balanceRes.status}/${txCountRes.status}`);
     }
 
     const balanceData = await balanceRes.json();
@@ -52,7 +52,8 @@ export async function computeOnChainScore(
 
     const balanceWei = BigInt(balanceHex);
     // Convert from wei (18 decimals) to SUPRA tokens
-    const balanceSupra = Number(balanceWei) / 1e18;
+    // Two-step division to avoid BigInt-to-Number precision loss for large balances
+    const balanceSupra = Number(balanceWei / BigInt(1e9)) / 1e9;
     const txCount = parseInt(txCountHex, 16) || 0;
 
     let score = 0;

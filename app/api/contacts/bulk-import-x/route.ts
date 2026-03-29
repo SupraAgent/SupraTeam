@@ -31,11 +31,11 @@ export async function POST(request: Request) {
     }
   }
 
-  // Check which handles already exist (case-insensitive)
+  // Check which handles already exist (case-insensitive) — only query the incoming handles
   const { data: existing } = await supabase
     .from("crm_contacts")
     .select("x_handle")
-    .not("x_handle", "is", null);
+    .in("x_handle", [...unique.map((h) => handleMap.get(h) ?? h)]);
 
   const existingSet = new Set(
     (existing ?? []).map((c: { x_handle: string }) => c.x_handle.toLowerCase())
