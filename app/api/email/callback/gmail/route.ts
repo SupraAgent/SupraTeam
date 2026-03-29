@@ -55,18 +55,32 @@ export async function GET(request: Request) {
     );
   }
 
-  // Consume nonce to prevent state replay attacks (stored in DB for multi-instance safety)
-  const { data: existingNonce } = await (() => {
-    const adminClient = createSupabaseAdmin();
-    if (!adminClient) return Promise.resolve({ data: null });
-    return adminClient
-      .from("crm_email_audit_log")
-      .select("id")
-      .eq("action", "oauth_nonce_consumed")
-      .eq("metadata->>nonce", nonce)
-      .limit(1)
-      .maybeSingle();
-  })();
+  // Consume nonce to prevent state replay attacks.
+  // In-memory check first (same-instance fast path)
+  const nonceKey = `oauth-nonce:${nonce}`;
+  if (serverCache.get(nonceKey)) {
+    return NextResponse.redirect(
+      new URL("/settings/integrations/email?error=state_reused", baseUrl)
+    );
+  }
+
+  // Admin client is REQUIRED for nonce verification — never silently skip replay protection
+  const nonceAdmin = createSupabaseAdmin();
+  if (!nonceAdmin) {
+    console.error("[email/callback/gmail] Cannot verify nonce — admin client unavailable");
+    return NextResponse.redirect(
+      new URL("/settings/integrations/email?error=server_error", baseUrl)
+    );
+  }
+
+  // Check DB for existing nonce (multi-instance replay protection)
+  const { data: existingNonce } = await nonceAdmin
+    .from("crm_email_audit_log")
+    .select("id")
+    .eq("action", "oauth_nonce_consumed")
+    .eq("metadata->>nonce", nonce)
+    .limit(1)
+    .maybeSingle();
 
   if (existingNonce) {
     return NextResponse.redirect(
@@ -74,14 +88,14 @@ export async function GET(request: Request) {
     );
   }
 
-  // Also check in-memory for same-instance fast path
-  const nonceKey = `oauth-nonce:${nonce}`;
-  if (serverCache.get(nonceKey)) {
-    return NextResponse.redirect(
-      new URL("/settings/integrations/email?error=state_reused", baseUrl)
-    );
-  }
+  // Consume nonce IMMEDIATELY (before token exchange) to close the TOCTOU race window.
+  // Any concurrent request hitting the DB check above will now find the nonce consumed.
   serverCache.set(nonceKey, true, 10 * 60 * 1000);
+  await nonceAdmin.from("crm_email_audit_log").insert({
+    user_id: userId,
+    action: "oauth_nonce_consumed",
+    metadata: { nonce },
+  });
 
   // Verify the authenticated user matches the state — session is REQUIRED
   const supabase = await createClient();
@@ -183,14 +197,7 @@ export async function GET(request: Request) {
     serverCache.invalidatePrefix(`driver:${userId}:`);
     serverCache.invalidatePrefix(`threads:${userId}:`);
 
-    // Record nonce consumption (for multi-instance replay protection)
-    await admin.from("crm_email_audit_log").insert({
-      user_id: userId,
-      action: "oauth_nonce_consumed",
-      metadata: { nonce },
-    });
-
-    // Audit log
+    // Audit log (nonce already consumed above before token exchange)
     await admin.from("crm_email_audit_log").insert({
       user_id: userId,
       action: "gmail_connected",

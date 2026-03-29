@@ -72,7 +72,8 @@ export async function POST(request: Request) {
   const { data: connections } = await admin
     .from("crm_email_connections")
     .select("id, user_id, watch_history_id")
-    .eq("email", payload.emailAddress);
+    .eq("email", payload.emailAddress)
+    .eq("provider", "gmail");
 
   if (!connections?.length) {
     return NextResponse.json({ ok: true }); // No matching connection

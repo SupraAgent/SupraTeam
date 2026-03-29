@@ -45,9 +45,10 @@ export async function DELETE(request: Request) {
   if (conn?.refresh_token_encrypted) {
     try {
       const token = decryptToken(conn.refresh_token_encrypted);
-      await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(token)}`, {
+      await fetch("https://oauth2.googleapis.com/revoke", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: `token=${encodeURIComponent(token)}`,
       });
     } catch {
       // Non-fatal — still delete the connection
@@ -55,9 +56,10 @@ export async function DELETE(request: Request) {
   } else if (conn?.access_token_encrypted) {
     try {
       const token = decryptToken(conn.access_token_encrypted);
-      await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(token)}`, {
+      await fetch("https://oauth2.googleapis.com/revoke", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: `token=${encodeURIComponent(token)}`,
       });
     } catch {
       // Non-fatal — still delete the connection

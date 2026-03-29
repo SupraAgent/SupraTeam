@@ -95,6 +95,7 @@ export async function getDriverForUser(
       .from("crm_email_connections")
       .select("id, provider, email, access_token_encrypted, refresh_token_encrypted, token_expires_at")
       .eq("user_id", userId)
+      .order("connected_at", { ascending: true })
       .limit(1)
       .single();
 

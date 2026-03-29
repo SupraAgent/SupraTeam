@@ -18,6 +18,22 @@ import type {
   AttachmentMeta,
 } from "./types";
 
+/** Retry Gmail API calls on 429/5xx with exponential backoff (Google requirement) */
+async function withBackoff<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err: unknown) {
+      const code = (err as { code?: number })?.code;
+      const isRetryable = code === 429 || (code !== undefined && code >= 500);
+      if (!isRetryable || attempt === maxRetries) throw err;
+      const delayMs = Math.min(1000 * 2 ** attempt + Math.random() * 500, 16000);
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  throw new Error("withBackoff: unreachable");
+}
+
 type GmailConfig = {
   accessToken: string;
   refreshToken: string;
@@ -48,19 +64,25 @@ export class GmailDriver implements MailDriver {
     this.auth.on("tokens", async (tokens) => {
       if (tokens.access_token && this.connectionId) {
         try {
+          if (!this.userId) {
+            console.error("[gmail] Cannot persist refreshed token — userId not set on driver");
+            return;
+          }
           const { updateConnectionTokens } = await import("./driver");
           const { serverCache } = await import("./server-cache");
           await updateConnectionTokens(
             this.connectionId,
-            this.userId ?? "",
+            this.userId,
             tokens.access_token,
             tokens.expiry_date ? new Date(tokens.expiry_date) : undefined
           );
           // Invalidate only this user's cached driver (not all users)
-          const userPrefix = this.userId ? `driver:${this.userId}:` : "driver:";
+          const userPrefix = `driver:${this.userId}:`;
           serverCache.invalidatePrefix(userPrefix);
-        } catch {
-          // Non-fatal: token will be refreshed again next time
+        } catch (err) {
+          // Non-fatal but log it — silent failures here cause stale tokens
+          // that manifest as 401s on the next request
+          console.error("[gmail] Failed to persist refreshed token:", err instanceof Error ? err.message : "unknown");
         }
       }
     });
@@ -151,15 +173,15 @@ export class GmailDriver implements MailDriver {
 
   async toggleStar(threadId: string, currentlyStarred?: boolean): Promise<void> {
     if (currentlyStarred !== undefined) {
-      // Fast path: client tells us current state, skip the extra GET
-      // Use thread-level modify to star/unstar the first message
-      const thread = await this.gmail.users.threads.get({
+      // Fast path: client tells us current state
+      // Use messages.list (lightweight) instead of threads.get to get the first message ID
+      const msgList = await this.gmail.users.messages.list({
         userId: "me",
-        id: threadId,
-        format: "MINIMAL",
+        q: `in:thread:${threadId}`,
+        maxResults: 1,
         fields: "messages(id)",
       });
-      const firstMsgId = thread.data.messages?.[0]?.id;
+      const firstMsgId = msgList.data.messages?.[0]?.id;
       if (!firstMsgId) return;
 
       await this.gmail.users.messages.modify({
@@ -231,7 +253,9 @@ export class GmailDriver implements MailDriver {
     const lastToAll = this.parseRecipients(getHdr(lastRaw, "To"));
     const lastCcAll = this.parseRecipients(getHdr(lastRaw, "Cc"));
     const lastSubject = getHdr(lastRaw, "Subject");
-    const lastMessageId = getHdr(lastRaw, "Message-ID") || lastRaw.id || "";
+    const rawMessageId = getHdr(lastRaw, "Message-ID");
+    // Fall back to Gmail internal ID wrapped in angle brackets for valid RFC 2822 Message-ID
+    const lastMessageId = rawMessageId || (lastRaw.id ? `<${lastRaw.id}@mail.gmail.com>` : "");
 
     // Build full References chain per RFC 2822 §3.6.4
     const lastReferences = getHdr(lastRaw, "References");
@@ -293,18 +317,19 @@ export class GmailDriver implements MailDriver {
       ? `${params.body}<br><br>---------- Forwarded message ----------<br>${sanitizedOriginal}`
       : `---------- Forwarded message ----------<br>From: ${parsed.from.email}<br>Date: ${parsed.date}<br>Subject: ${parsed.subject}<br><br>${sanitizedOriginal}`;
 
-    // Carry over original attachments (convert Buffer → base64 string for send)
+    // Carry over original attachments in parallel (convert Buffer → base64 string for send)
     const originalAttachments: { filename: string; mimeType: string; data: string }[] = [];
     if (parsed.attachments?.length) {
-      for (const att of parsed.attachments) {
-        if (att.id) {
-          try {
-            const fetched = await this.getAttachment(messageId, att.id, { filename: att.filename, mimeType: att.mimeType });
-            originalAttachments.push({ filename: fetched.filename, mimeType: fetched.mimeType, data: fetched.data.toString("base64") });
-          } catch {
-            // Skip failed attachment downloads
-          }
-        }
+      const results = await Promise.allSettled(
+        parsed.attachments
+          .filter((att) => att.id)
+          .map((att) =>
+            this.getAttachment(messageId, att.id!, { filename: att.filename, mimeType: att.mimeType })
+              .then((fetched) => ({ filename: fetched.filename, mimeType: fetched.mimeType, data: fetched.data.toString("base64") }))
+          )
+      );
+      for (const r of results) {
+        if (r.status === "fulfilled") originalAttachments.push(r.value);
       }
     }
 
@@ -410,27 +435,32 @@ export class GmailDriver implements MailDriver {
       });
 
       const changes: { threadId: string; type: "added" | "removed" | "labelChanged" }[] = [];
-      const seenThreads = new Set<string>();
+      // Dedup per (threadId, type) so a thread with both messageAdded and labelChanged
+      // emits both events instead of silently dropping the second one
+      const seen = new Set<string>();
 
       for (const record of res.data.history ?? []) {
         for (const added of record.messagesAdded ?? []) {
           const tid = added.message?.threadId;
-          if (tid && !seenThreads.has(tid)) {
-            seenThreads.add(tid);
+          const key = `${tid}:added`;
+          if (tid && !seen.has(key)) {
+            seen.add(key);
             changes.push({ threadId: tid, type: "added" });
           }
         }
         for (const removed of record.messagesDeleted ?? []) {
           const tid = removed.message?.threadId;
-          if (tid && !seenThreads.has(tid)) {
-            seenThreads.add(tid);
+          const key = `${tid}:removed`;
+          if (tid && !seen.has(key)) {
+            seen.add(key);
             changes.push({ threadId: tid, type: "removed" });
           }
         }
         for (const label of [...(record.labelsAdded ?? []), ...(record.labelsRemoved ?? [])]) {
           const tid = label.message?.threadId;
-          if (tid && !seenThreads.has(tid)) {
-            seenThreads.add(tid);
+          const key = `${tid}:labelChanged`;
+          if (tid && !seen.has(key)) {
+            seen.add(key);
             changes.push({ threadId: tid, type: "labelChanged" });
           }
         }
@@ -460,10 +490,21 @@ export class GmailDriver implements MailDriver {
     const res = await this.gmail.users.getProfile({ userId: "me" });
     const email = res.data.emailAddress ?? "";
 
-    // Derive display name from email prefix — People API scope is not requested
-    // so that call always fails with a permission error, adding ~200ms latency.
-    // The OAuth callback already stores the user's name from userinfo.
-    const name = email.split("@")[0]?.replace(/[._]/g, " ") ?? email;
+    // Try People API for display name (requires userinfo.profile scope)
+    let name = "";
+    try {
+      const people = google.people({ version: "v1", auth: this.auth });
+      const profile = await people.people.get({
+        resourceName: "people/me",
+        personFields: "names",
+      });
+      name = profile.data.names?.[0]?.displayName ?? "";
+    } catch {
+      // Fall back to email prefix if People API fails
+    }
+    if (!name) {
+      name = email.split("@")[0]?.replace(/[._]/g, " ") ?? email;
+    }
 
     return { email, name };
   }
@@ -563,26 +604,43 @@ export class GmailDriver implements MailDriver {
 
   private parseRecipients(raw: string): EmailAddress[] {
     if (!raw) return [];
-    return raw.split(",").map((r) => this.parseEmailAddress(r.trim()));
+    // Split on commas that are NOT inside quotes (handles "Jones, Jon" <jon@supra.com>)
+    const addresses: string[] = [];
+    let current = "";
+    let inQuotes = false;
+    let inAngle = false;
+    for (const ch of raw) {
+      if (ch === '"') inQuotes = !inQuotes;
+      else if (ch === "<" && !inQuotes) inAngle = true;
+      else if (ch === ">" && !inQuotes) inAngle = false;
+      else if (ch === "," && !inQuotes && !inAngle) {
+        if (current.trim()) addresses.push(current.trim());
+        current = "";
+        continue;
+      }
+      current += ch;
+    }
+    if (current.trim()) addresses.push(current.trim());
+    return addresses.map((r) => this.parseEmailAddress(r));
   }
 
   private getBody(payload: gmail_v1.Schema$MessagePart | undefined): { html: string; text: string } {
     if (!payload) return { html: "", text: "" };
 
-    let html = "";
-    let text = "";
+    const htmlParts: string[] = [];
+    const textParts: string[] = [];
 
     function walk(part: gmail_v1.Schema$MessagePart) {
       if (part.mimeType === "text/html" && part.body?.data) {
-        html = Buffer.from(part.body.data, "base64url").toString("utf-8");
+        htmlParts.push(Buffer.from(part.body.data, "base64url").toString("utf-8"));
       } else if (part.mimeType === "text/plain" && part.body?.data) {
-        text = Buffer.from(part.body.data, "base64url").toString("utf-8");
+        textParts.push(Buffer.from(part.body.data, "base64url").toString("utf-8"));
       }
       for (const p of part.parts ?? []) walk(p);
     }
 
     walk(payload);
-    return { html, text };
+    return { html: htmlParts.join(""), text: textParts.join("") };
   }
 
   private getAttachments(payload: gmail_v1.Schema$MessagePart | undefined): AttachmentMeta[] {
@@ -660,10 +718,12 @@ export class GmailDriver implements MailDriver {
         "",
         `--${boundary}`,
         "Content-Type: text/plain; charset=UTF-8",
+        "Content-Transfer-Encoding: quoted-printable",
         "",
         textPart,
         `--${boundary}`,
         "Content-Type: text/html; charset=UTF-8",
+        "Content-Transfer-Encoding: quoted-printable",
         "",
         params.body,
         `--${boundary}--`,
@@ -695,10 +755,12 @@ export class GmailDriver implements MailDriver {
         "",
         `--${boundary}`,
         "Content-Type: text/plain; charset=UTF-8",
+        "Content-Transfer-Encoding: quoted-printable",
         "",
         textPart,
         `--${boundary}`,
         "Content-Type: text/html; charset=UTF-8",
+        "Content-Transfer-Encoding: quoted-printable",
         "",
         params.body,
         `--${boundary}--`,

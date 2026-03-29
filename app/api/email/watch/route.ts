@@ -3,12 +3,11 @@ import { requireAuth } from "@/lib/auth-guard";
 import { getDriverForUser } from "@/lib/email/driver";
 import { sanitizeEmailError } from "@/lib/email/errors";
 
-const PUBSUB_TOPIC = process.env.GOOGLE_PUBSUB_TOPIC ?? "";
-
 export async function POST() {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
 
+  const PUBSUB_TOPIC = process.env.GOOGLE_PUBSUB_TOPIC ?? "";
   if (!PUBSUB_TOPIC) {
     return NextResponse.json({ error: "GOOGLE_PUBSUB_TOPIC not configured" }, { status: 503 });
   }
