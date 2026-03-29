@@ -100,7 +100,7 @@ export function UndoSendBar() {
   if (!pendingSend) return null;
 
   return (
-    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[60] w-80 overflow-hidden rounded-xl border border-white/10 shadow-2xl"
+    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[60] w-[calc(100%-2rem)] max-w-80 overflow-hidden rounded-xl border border-white/10 shadow-2xl"
       style={{ backgroundColor: "hsl(var(--surface-5))" }}
     >
       {/* Progress bar */}

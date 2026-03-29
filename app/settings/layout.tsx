@@ -66,7 +66,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
   const pathname = usePathname();
 
   return (
-    <div className="flex gap-6 min-h-0">
+    <div className="flex flex-col md:flex-row md:gap-6 min-h-0">
       {/* In-page side nav */}
       <nav className="hidden md:block w-48 shrink-0">
         <div className="sticky top-6 space-y-4">

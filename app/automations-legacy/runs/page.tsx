@@ -245,7 +245,7 @@ export default function AutomationRunsDashboard() {
 
       {/* Stat cards */}
       {stats && (
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <StatCard label="Total Runs" value={stats.total} comparison={comparison?.total} />
           <StatCard label="Success Rate" value={stats.successRate} comparison={comparison?.successRate} suffix="%" />
           <StatCard label="Avg Duration" value={stats.avgDurationMs != null ? formatMs(stats.avgDurationMs) : null} />

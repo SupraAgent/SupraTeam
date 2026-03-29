@@ -304,7 +304,7 @@ function EmailPageInner() {
 
       {/* Thread list */}
       <div className={cn(
-        "w-80 border-r border-white/10 flex flex-col shrink-0",
+        "w-full md:w-80 border-r border-white/10 flex flex-col md:shrink-0",
         selectedThreadId ? "hidden md:flex" : "flex",
         "min-w-0"
       )}>

@@ -103,10 +103,10 @@ export default function EmailSettingsPage() {
       )}
 
       {/* Connected accounts */}
-      <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5 space-y-4">
-        <div className="flex items-center justify-between">
+      <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4 sm:p-5 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <h2 className="text-sm font-medium text-foreground">Connected Accounts</h2>
-          <Button size="default" onClick={handleConnectGmail} disabled={connecting} className="px-5 py-2.5 text-sm">
+          <Button size="default" onClick={handleConnectGmail} disabled={connecting} className="px-5 py-2.5 text-sm w-full sm:w-auto">
             <GmailIcon className="h-5 w-5 mr-2" />
             {connecting ? "Connecting..." : "Connect Gmail"}
           </Button>
@@ -127,14 +127,14 @@ export default function EmailSettingsPage() {
             {connections.map((conn) => (
               <div
                 key={conn.id}
-                className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3"
+                className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3"
               >
-                <div className="flex items-center gap-3">
-                  <div className="h-8 w-8 rounded-lg bg-red-500/10 flex items-center justify-center">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="h-8 w-8 rounded-lg bg-red-500/10 flex items-center justify-center shrink-0">
                     <GmailIcon className="h-4 w-4" />
                   </div>
-                  <div>
-                    <p className="text-sm text-foreground">{conn.email}</p>
+                  <div className="min-w-0">
+                    <p className="text-sm text-foreground truncate">{conn.email}</p>
                     <p className="text-[10px] text-muted-foreground">
                       Connected {new Date(conn.connected_at).toLocaleDateString()}
                       {conn.is_default && (
@@ -145,18 +145,18 @@ export default function EmailSettingsPage() {
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-3 sm:gap-2 shrink-0 pl-11 sm:pl-0">
                   {!conn.is_default && (
                     <button
                       onClick={() => handleSetDefault(conn.id)}
-                      className="text-[10px] text-primary hover:underline"
+                      className="text-xs sm:text-[10px] text-primary hover:underline"
                     >
                       Set default
                     </button>
                   )}
                   <button
                     onClick={() => handleDisconnect(conn.id)}
-                    className="text-[10px] text-red-400 hover:underline"
+                    className="text-xs sm:text-[10px] text-red-400 hover:underline"
                   >
                     Disconnect
                   </button>
@@ -169,7 +169,7 @@ export default function EmailSettingsPage() {
 
       {/* Signatures */}
       {connections.length > 0 && (
-        <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5 space-y-4">
+        <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4 sm:p-5 space-y-4">
           <h2 className="text-sm font-medium text-foreground">Email Signatures</h2>
           <p className="text-xs text-muted-foreground">
             Set a signature for each connected account. It will be appended to all outgoing emails.
@@ -181,7 +181,7 @@ export default function EmailSettingsPage() {
       )}
 
       {/* Setup guide */}
-      <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5 space-y-3">
+      <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4 sm:p-5 space-y-3">
         <h2 className="text-sm font-medium text-foreground">Setup Requirements</h2>
         <ol className="space-y-2 text-xs text-muted-foreground list-decimal list-inside">
           <li>A Google Cloud project with the <span className="text-foreground">Gmail API</span> enabled</li>
@@ -192,9 +192,9 @@ export default function EmailSettingsPage() {
       </div>
 
       {/* Keyboard shortcuts reference */}
-      <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5 space-y-3">
+      <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4 sm:p-5 space-y-3">
         <h2 className="text-sm font-medium text-foreground">Keyboard Shortcuts</h2>
-        <div className="grid grid-cols-2 gap-x-8 gap-y-1 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-1 text-xs">
           {[
             ["j / k", "Next / previous thread"],
             ["Enter", "Open thread"],

@@ -85,7 +85,7 @@ export function KeyboardHelp({ open, onClose }: KeyboardHelpProps) {
           </button>
         </div>
 
-        <div className="grid grid-cols-2 gap-6 p-5 max-h-[70vh] overflow-y-auto thin-scroll">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 p-5 max-h-[70vh] overflow-y-auto thin-scroll">
           {SHORTCUT_GROUPS.map((group) => (
             <div key={group.label}>
               <h3 className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50 mb-2">
