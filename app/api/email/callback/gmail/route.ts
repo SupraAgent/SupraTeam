@@ -12,15 +12,17 @@ export async function GET(request: Request) {
   const stateParam = searchParams.get("state");
   const error = searchParams.get("error");
 
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? request.url;
+
   if (error) {
     return NextResponse.redirect(
-      new URL(`/settings/integrations/email?error=${encodeURIComponent(error)}`, request.url)
+      new URL(`/settings/integrations/email?error=${encodeURIComponent(error)}`, baseUrl)
     );
   }
 
   if (!code || !stateParam) {
     return NextResponse.redirect(
-      new URL("/settings/integrations/email?error=missing_params", request.url)
+      new URL("/settings/integrations/email?error=missing_params", baseUrl)
     );
   }
 
@@ -28,7 +30,7 @@ export async function GET(request: Request) {
   const stateData = verifyState(stateParam);
   if (!stateData) {
     return NextResponse.redirect(
-      new URL("/settings/integrations/email?error=invalid_state", request.url)
+      new URL("/settings/integrations/email?error=invalid_state", baseUrl)
     );
   }
 
@@ -36,14 +38,14 @@ export async function GET(request: Request) {
   const ts = stateData.ts as number;
   if (!userId || !ts) {
     return NextResponse.redirect(
-      new URL("/settings/integrations/email?error=invalid_state", request.url)
+      new URL("/settings/integrations/email?error=invalid_state", baseUrl)
     );
   }
 
   // Reject if state is older than 10 minutes
   if (Date.now() - ts > 10 * 60 * 1000) {
     return NextResponse.redirect(
-      new URL("/settings/integrations/email?error=state_expired", request.url)
+      new URL("/settings/integrations/email?error=state_expired", baseUrl)
     );
   }
 
@@ -53,7 +55,7 @@ export async function GET(request: Request) {
     const { data: { user } } = await supabase.auth.getUser();
     if (user && user.id !== userId) {
       return NextResponse.redirect(
-        new URL("/settings/integrations/email?error=user_mismatch", request.url)
+        new URL("/settings/integrations/email?error=user_mismatch", baseUrl)
       );
     }
   }
@@ -61,7 +63,7 @@ export async function GET(request: Request) {
   const admin = createSupabaseAdmin();
   if (!admin) {
     return NextResponse.redirect(
-      new URL("/settings/integrations/email?error=server_error", request.url)
+      new URL("/settings/integrations/email?error=server_error", baseUrl)
     );
   }
 
@@ -71,7 +73,7 @@ export async function GET(request: Request) {
 
     if (!tokens.access_token || !tokens.refresh_token) {
       return NextResponse.redirect(
-        new URL("/settings/integrations/email?error=no_tokens", request.url)
+        new URL("/settings/integrations/email?error=no_tokens", baseUrl)
       );
     }
 
@@ -83,7 +85,7 @@ export async function GET(request: Request) {
 
     if (!email) {
       return NextResponse.redirect(
-        new URL("/settings/integrations/email?error=no_email", request.url)
+        new URL("/settings/integrations/email?error=no_email", baseUrl)
       );
     }
 
@@ -122,12 +124,12 @@ export async function GET(request: Request) {
     });
 
     return NextResponse.redirect(
-      new URL("/settings/integrations/email?success=connected", request.url)
+      new URL("/settings/integrations/email?success=connected", baseUrl)
     );
   } catch (err) {
     console.error("[email/callback/gmail] error:", err);
     return NextResponse.redirect(
-      new URL("/settings/integrations/email?error=oauth_failed", request.url)
+      new URL("/settings/integrations/email?error=oauth_failed", baseUrl)
     );
   }
 }
