@@ -17,19 +17,19 @@ interface GmailErrorPattern {
 const GMAIL_ERROR_PATTERNS: GmailErrorPattern[] = [
   {
     pattern: /Gmail API has not been used in project .* before or it is disabled/i,
-    message: "Gmail API is not enabled for this project. Please contact your administrator to enable it in Google Cloud Console.",
+    message: "Gmail API is not enabled for this project. Try using \"Personal Gmail\" in Settings to connect with an App Password instead — no admin required.",
     status: 403,
     reconnect: false,
   },
   {
     pattern: /accessNotConfigured/i,
-    message: "Gmail API is not enabled for this project. Please contact your administrator to enable it in Google Cloud Console.",
+    message: "Gmail API is not configured. Try using \"Personal Gmail\" in Settings to connect with an App Password instead — no admin required.",
     status: 403,
     reconnect: false,
   },
   {
     pattern: /SERVICE_DISABLED/i,
-    message: "Gmail API is disabled for this project. Please contact your administrator.",
+    message: "Gmail API is disabled. Try using \"Personal Gmail\" in Settings to connect with an App Password instead.",
     status: 403,
     reconnect: false,
   },

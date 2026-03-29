@@ -18,6 +18,11 @@ export default function EmailSettingsPage() {
   const [connections, setConnections] = React.useState<Connection[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [connecting, setConnecting] = React.useState(false);
+  const [showPersonalForm, setShowPersonalForm] = React.useState(false);
+  const [personalEmail, setPersonalEmail] = React.useState("");
+  const [personalAppPassword, setPersonalAppPassword] = React.useState("");
+  const [personalConnecting, setPersonalConnecting] = React.useState(false);
+  const [personalError, setPersonalError] = React.useState("");
   const searchParams = useSearchParams();
   const success = searchParams.get("success");
   const error = searchParams.get("error");
@@ -49,6 +54,36 @@ export default function EmailSettingsPage() {
       }
     } finally {
       setConnecting(false);
+    }
+  }
+
+  async function handleConnectPersonalGmail() {
+    setPersonalError("");
+    if (!personalEmail || !personalAppPassword) {
+      setPersonalError("Email and app password are required");
+      return;
+    }
+    setPersonalConnecting(true);
+    try {
+      const res = await fetch("/api/email/connections/gmail-personal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: personalEmail, appPassword: personalAppPassword }),
+      });
+      const json = await res.json();
+      if (res.ok) {
+        toast.success("Personal Gmail connected!");
+        setShowPersonalForm(false);
+        setPersonalEmail("");
+        setPersonalAppPassword("");
+        fetchConnections();
+      } else {
+        setPersonalError(json.error ?? "Failed to connect");
+      }
+    } catch {
+      setPersonalError("Connection failed. Please try again.");
+    } finally {
+      setPersonalConnecting(false);
     }
   }
 
@@ -108,11 +143,83 @@ export default function EmailSettingsPage() {
       <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4 sm:p-5 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <h2 className="text-sm font-medium text-foreground">Connected Accounts</h2>
-          <Button size="default" onClick={handleConnectGmail} disabled={connecting} className="px-5 py-2.5 text-sm w-full sm:w-auto">
-            <GmailIcon className="h-5 w-5 mr-2" />
-            {connecting ? "Connecting..." : "Connect Gmail"}
-          </Button>
+          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+            <Button size="default" onClick={handleConnectGmail} disabled={connecting} className="px-5 py-2.5 text-sm w-full sm:w-auto">
+              <GmailIcon className="h-5 w-5 mr-2" />
+              {connecting ? "Connecting..." : "Connect Gmail"}
+            </Button>
+            <Button
+              size="default"
+              variant="outline"
+              onClick={() => setShowPersonalForm(!showPersonalForm)}
+              className="px-5 py-2.5 text-sm w-full sm:w-auto"
+            >
+              <PersonalMailIcon className="h-5 w-5 mr-2" />
+              Personal Gmail
+            </Button>
+          </div>
         </div>
+
+        {/* Personal Gmail connection form */}
+        {showPersonalForm && (
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-3">
+            <div>
+              <p className="text-sm font-medium text-foreground">Connect Personal Gmail</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Use a Google App Password to connect your personal Gmail account via IMAP/SMTP.
+                No Google Cloud project required.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <input
+                type="email"
+                placeholder="your.email@gmail.com"
+                value={personalEmail}
+                onChange={(e) => setPersonalEmail(e.target.value)}
+                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-foreground
+                  placeholder:text-muted-foreground/40 outline-none focus:ring-1 focus:ring-primary/50"
+              />
+              <input
+                type="password"
+                placeholder="Google App Password (16 characters)"
+                value={personalAppPassword}
+                onChange={(e) => setPersonalAppPassword(e.target.value)}
+                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-foreground
+                  placeholder:text-muted-foreground/40 outline-none focus:ring-1 focus:ring-primary/50"
+              />
+            </div>
+            {personalError && (
+              <p className="text-xs text-red-400">{personalError}</p>
+            )}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+              <Button
+                size="default"
+                onClick={handleConnectPersonalGmail}
+                disabled={personalConnecting}
+                className="px-5 py-2.5 text-sm"
+              >
+                {personalConnecting ? "Verifying..." : "Connect"}
+              </Button>
+              <a
+                href="https://myaccount.google.com/apppasswords"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-primary hover:underline"
+              >
+                Generate an App Password &rarr;
+              </a>
+            </div>
+            <div className="rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2 text-[11px] text-muted-foreground space-y-1">
+              <p className="font-medium text-foreground/80">How to get an App Password:</p>
+              <ol className="list-decimal list-inside space-y-0.5">
+                <li>Go to <span className="text-foreground">myaccount.google.com/apppasswords</span></li>
+                <li>You may need to enable 2-Step Verification first</li>
+                <li>Create a new app password (name it &quot;SupraTeam&quot;)</li>
+                <li>Copy the 16-character password and paste it above</li>
+              </ol>
+            </div>
+          </div>
+        )}
 
         {loading ? (
           <p className="text-xs text-muted-foreground">Loading...</p>
@@ -132,8 +239,13 @@ export default function EmailSettingsPage() {
                 className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3"
               >
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="h-8 w-8 rounded-lg bg-red-500/10 flex items-center justify-center shrink-0">
-                    <GmailIcon className="h-4 w-4" />
+                  <div className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 ${
+                    conn.provider === "gmail_app_password" ? "bg-blue-500/10" : "bg-red-500/10"
+                  }`}>
+                    {conn.provider === "gmail_app_password"
+                      ? <PersonalMailIcon className="h-4 w-4" />
+                      : <GmailIcon className="h-4 w-4" />
+                    }
                   </div>
                   <div className="min-w-0">
                     <p className="text-sm text-foreground truncate">{conn.email}</p>
@@ -183,14 +295,26 @@ export default function EmailSettingsPage() {
       )}
 
       {/* Setup guide */}
-      <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4 sm:p-5 space-y-3">
+      <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4 sm:p-5 space-y-4">
         <h2 className="text-sm font-medium text-foreground">Setup Requirements</h2>
-        <ol className="space-y-2 text-xs text-muted-foreground list-decimal list-inside">
-          <li>A Google Cloud project with the <span className="text-foreground">Gmail API</span> enabled</li>
-          <li>OAuth 2.0 credentials (Web application type) with the redirect URI pointing to your CRM domain</li>
-          <li>Set <span className="font-mono text-foreground">GOOGLE_CLIENT_ID</span> and <span className="font-mono text-foreground">GOOGLE_CLIENT_SECRET</span> in your environment</li>
-          <li>Each team member connects their own Gmail — no Workspace admin required</li>
-        </ol>
+        <div className="space-y-3">
+          <div>
+            <p className="text-xs font-medium text-foreground/80 mb-1">Connect Gmail (OAuth — for Workspace accounts)</p>
+            <ol className="space-y-1 text-xs text-muted-foreground list-decimal list-inside">
+              <li>A Google Cloud project with the <span className="text-foreground">Gmail API</span> enabled</li>
+              <li>OAuth 2.0 credentials (Web application type) with the redirect URI pointing to your CRM domain</li>
+              <li>Set <span className="font-mono text-foreground">GOOGLE_CLIENT_ID</span> and <span className="font-mono text-foreground">GOOGLE_CLIENT_SECRET</span> in your environment</li>
+            </ol>
+          </div>
+          <div>
+            <p className="text-xs font-medium text-foreground/80 mb-1">Personal Gmail (App Password — for any Gmail account)</p>
+            <ol className="space-y-1 text-xs text-muted-foreground list-decimal list-inside">
+              <li>Enable 2-Step Verification on your Google account</li>
+              <li>Generate an App Password at <span className="text-foreground">myaccount.google.com/apppasswords</span></li>
+              <li>No Google Cloud project or admin access required</li>
+            </ol>
+          </div>
+        </div>
       </div>
 
       {/* Keyboard shortcuts reference */}
@@ -291,6 +415,17 @@ function GmailIcon({ className }: { className?: string }) {
     <svg className={className} viewBox="0 0 24 24" fill="none">
       <path d="M2 6l10 7 10-7v12H2V6z" stroke="currentColor" strokeWidth={1.5} fill="none" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M22 6L12 13 2 6" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function PersonalMailIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 12V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h6" />
+      <polyline points="20 6 12 13 4 6" />
+      <circle cx="18" cy="18" r="3" />
+      <path d="M18 15v2l1.5 1" />
     </svg>
   );
 }
