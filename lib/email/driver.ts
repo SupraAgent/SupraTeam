@@ -121,25 +121,49 @@ export async function getDriverForUser(
 
 /**
  * After using the driver, persist any refreshed tokens back to the database.
+ * Persists both access token and (optionally) a rotated refresh token.
+ * Retries once on failure to avoid silent token loss.
  */
 export async function updateConnectionTokens(
   connectionId: string,
   userId: string,
   accessToken: string,
-  expiresAt?: Date
+  expiresAt?: Date,
+  refreshToken?: string
 ): Promise<void> {
   const admin = createSupabaseAdmin();
   if (!admin) return;
 
   const { encryptToken } = await import("@/lib/crypto");
 
-  await admin
+  const updateData: Record<string, unknown> = {
+    access_token_encrypted: encryptToken(accessToken),
+    token_expires_at: expiresAt?.toISOString() ?? null,
+    last_sync_at: new Date().toISOString(),
+  };
+
+  // Persist rotated refresh token if Google sent a new one
+  if (refreshToken) {
+    updateData.refresh_token_encrypted = encryptToken(refreshToken);
+  }
+
+  const { error } = await admin
     .from("crm_email_connections")
-    .update({
-      access_token_encrypted: encryptToken(accessToken),
-      token_expires_at: expiresAt?.toISOString() ?? null,
-      last_sync_at: new Date().toISOString(),
-    })
+    .update(updateData)
     .eq("id", connectionId)
     .eq("user_id", userId);
+
+  // Retry once on failure — losing a refreshed token permanently breaks the connection
+  if (error) {
+    console.error("[email/driver] Token persistence failed, retrying:", error.message);
+    await new Promise((r) => setTimeout(r, 500));
+    const { error: retryErr } = await admin
+      .from("crm_email_connections")
+      .update(updateData)
+      .eq("id", connectionId)
+      .eq("user_id", userId);
+    if (retryErr) {
+      console.error("[email/driver] Token persistence retry failed:", retryErr.message);
+    }
+  }
 }

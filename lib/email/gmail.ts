@@ -60,7 +60,8 @@ export class GmailDriver implements MailDriver {
     // On Railway's persistent process, the connection stays warm between requests
     this.gmail = google.gmail({ version: "v1", auth: this.auth, http2: true });
 
-    // Persist refreshed tokens back to database and invalidate cache
+    // Persist refreshed tokens back to database and invalidate cache.
+    // Google may rotate the refresh_token — we MUST persist it or the connection dies.
     this.auth.on("tokens", async (tokens) => {
       if (tokens.access_token && this.connectionId) {
         try {
@@ -74,15 +75,15 @@ export class GmailDriver implements MailDriver {
             this.connectionId,
             this.userId,
             tokens.access_token,
-            tokens.expiry_date ? new Date(tokens.expiry_date) : undefined
+            tokens.expiry_date ? new Date(tokens.expiry_date) : undefined,
+            tokens.refresh_token ?? undefined
           );
           // Invalidate only this user's cached driver (not all users)
           const userPrefix = `driver:${this.userId}:`;
           serverCache.invalidatePrefix(userPrefix);
         } catch (err) {
-          // Non-fatal but log it — silent failures here cause stale tokens
-          // that manifest as 401s on the next request
-          console.error("[gmail] Failed to persist refreshed token:", err instanceof Error ? err.message : "unknown");
+          // Log the failure — silent swallowing here previously caused permanent connection death
+          console.error("[gmail] Token persistence failed:", err instanceof Error ? err.message : "unknown");
         }
       }
     });
@@ -289,15 +290,15 @@ export class GmailDriver implements MailDriver {
     };
 
     const raw = this.buildRawEmail(sendParams);
-    const res = await this.gmail.users.messages.send({
+    const res = await withBackoff(() => this.gmail.users.messages.send({
       userId: "me",
       requestBody: { raw, threadId },
-    });
-    const msg = await this.gmail.users.messages.get({
+    }));
+    const msg = await withBackoff(() => this.gmail.users.messages.get({
       userId: "me",
       id: res.data.id!,
       format: "FULL",
-    });
+    }));
     return this.parseMessage(msg.data);
   }
 
@@ -365,7 +366,7 @@ export class GmailDriver implements MailDriver {
   }
 
   async listLabels(): Promise<Label[]> {
-    const res = await this.gmail.users.labels.list({ userId: "me" });
+    const res = await withBackoff(() => this.gmail.users.labels.list({ userId: "me" }));
     const labels = res.data.labels ?? [];
 
     // Fetch label details in batches of 10 to avoid hammering the API
@@ -375,7 +376,7 @@ export class GmailDriver implements MailDriver {
       const batch = labels.slice(i, i + BATCH_SIZE);
       const batchResults = await Promise.all(
         batch.map((l) =>
-          this.gmail.users.labels.get({ userId: "me", id: l.id! }).then((d) => ({ l, d: d.data }))
+          withBackoff(() => this.gmail.users.labels.get({ userId: "me", id: l.id! })).then((d) => ({ l, d: d.data }))
         )
       );
       details.push(...batchResults);
@@ -407,16 +408,14 @@ export class GmailDriver implements MailDriver {
   }
 
   async watchInbox(topicName: string): Promise<{ historyId: string; expiration: string }> {
-    // Watch all label changes (INBOX, SENT, TRASH, DRAFT) so push notifications
-    // cover sent messages, deletions, and label changes — not just new inbox mail.
-    // Omitting labelIds watches everything, which is what Superhuman/Inbox Zero do.
-    const res = await this.gmail.users.watch({
+    // Omit labelIds to watch ALL label changes including user-created labels.
+    // Specifying labelIds would miss custom label changes and cause stale UI.
+    const res = await withBackoff(() => this.gmail.users.watch({
       userId: "me",
       requestBody: {
         topicName,
-        labelIds: ["INBOX", "SENT", "TRASH", "DRAFT"],
       },
-    });
+    }));
     return {
       historyId: res.data.historyId ?? "",
       expiration: res.data.expiration ?? "",
@@ -428,11 +427,11 @@ export class GmailDriver implements MailDriver {
     changes: { threadId: string; type: "added" | "removed" | "labelChanged" }[];
   }> {
     try {
-      const res = await this.gmail.users.history.list({
+      const res = await withBackoff(() => this.gmail.users.history.list({
         userId: "me",
         startHistoryId,
         historyTypes: ["messageAdded", "messageDeleted", "labelAdded", "labelRemoved"],
-      });
+      }));
 
       const changes: { threadId: string; type: "added" | "removed" | "labelChanged" }[] = [];
       // Dedup per (threadId, type) so a thread with both messageAdded and labelChanged
@@ -490,21 +489,10 @@ export class GmailDriver implements MailDriver {
     const res = await this.gmail.users.getProfile({ userId: "me" });
     const email = res.data.emailAddress ?? "";
 
-    // Try People API for display name (requires userinfo.profile scope)
-    let name = "";
-    try {
-      const people = google.people({ version: "v1", auth: this.auth });
-      const profile = await people.people.get({
-        resourceName: "people/me",
-        personFields: "names",
-      });
-      name = profile.data.names?.[0]?.displayName ?? "";
-    } catch {
-      // Fall back to email prefix if People API fails
-    }
-    if (!name) {
-      name = email.split("@")[0]?.replace(/[._]/g, " ") ?? email;
-    }
+    // Derive display name from email prefix.
+    // People API was removed: it always failed with 403 (missing scope),
+    // wasting ~300ms on every reply operation.
+    const name = email.split("@")[0]?.replace(/[._]/g, " ") ?? email;
 
     return { email, name };
   }

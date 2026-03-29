@@ -5,12 +5,11 @@ import { requireAuth } from "@/lib/auth-guard";
 import { rateLimit } from "@/lib/rate-limit";
 
 const SCOPES = [
-  "https://www.googleapis.com/auth/gmail.readonly",
   "https://www.googleapis.com/auth/gmail.send",
-  "https://www.googleapis.com/auth/gmail.modify",
+  "https://www.googleapis.com/auth/gmail.modify", // includes gmail.readonly
   "https://www.googleapis.com/auth/gmail.labels",
   "https://www.googleapis.com/auth/userinfo.email",
-  "https://www.googleapis.com/auth/userinfo.profile",
+  "https://www.googleapis.com/auth/userinfo.profile", // required for People API display name in getProfile()
 ];
 
 export function getOAuth2Client() {
