@@ -87,10 +87,12 @@ export async function GET() {
   if ("error" in auth) return auth.error;
   const { admin: supabase } = auth;
 
+  // Limit to 1000 contacts to prevent O(n^2) blowup on large datasets
   const { data: contacts } = await supabase
     .from("crm_contacts")
     .select("id, name, email, phone, telegram_username, telegram_user_id, company, title")
-    .order("name");
+    .order("name")
+    .limit(1000);
 
   if (!contacts || contacts.length === 0) {
     return NextResponse.json({ groups: [] });

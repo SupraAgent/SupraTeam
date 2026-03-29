@@ -219,11 +219,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
   }
 
-  // Fallback: use bot token
+  // Fallback: use bot token (scoped to current user)
   const { data: botToken } = await admin
     .from("user_tokens")
     .select("token_encrypted")
     .eq("provider", "telegram_bot")
+    .eq("user_id", user.id)
     .single();
 
   if (!botToken) {

@@ -59,10 +59,17 @@ export async function POST(request: Request) {
     if (body.attachments.length > MAX_ATTACHMENTS) {
       return NextResponse.json({ error: `Too many attachments (max ${MAX_ATTACHMENTS})` }, { status: 400 });
     }
+    let totalSize = 0;
     for (const att of body.attachments) {
       if (att.data.length > MAX_ATTACHMENT_SIZE) {
         return NextResponse.json({ error: `Attachment "${att.filename}" exceeds 10MB limit` }, { status: 400 });
       }
+      totalSize += att.data.length;
+    }
+    // Aggregate limit: 25MB total (base64, ~18.75MB decoded)
+    const MAX_TOTAL_SIZE = 25_000_000;
+    if (totalSize > MAX_TOTAL_SIZE) {
+      return NextResponse.json({ error: "Total attachment size exceeds 25MB limit" }, { status: 400 });
     }
   }
 

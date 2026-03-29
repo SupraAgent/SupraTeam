@@ -37,12 +37,22 @@ function applyFilters(value: string, filters: string[]): string {
           else if (fmt === "iso") result = d.toISOString().slice(0, 10);
           else if (fmt === "relative") {
             const diff = Date.now() - d.getTime();
-            const days = Math.floor(diff / 86400000);
-            if (days === 0) result = "today";
-            else if (days === 1) result = "yesterday";
-            else if (days < 7) result = `${days} days ago`;
-            else if (days < 30) result = `${Math.floor(days / 7)} weeks ago`;
-            else result = `${Math.floor(days / 30)} months ago`;
+            const days = Math.floor(Math.abs(diff) / 86400000);
+            if (diff < 0) {
+              // Future dates
+              if (days === 0) result = "today";
+              else if (days === 1) result = "tomorrow";
+              else if (days < 7) result = `in ${days} days`;
+              else if (days < 30) result = `in ${Math.floor(days / 7)} weeks`;
+              else result = `in ${Math.floor(days / 30)} months`;
+            } else {
+              // Past dates
+              if (days === 0) result = "today";
+              else if (days === 1) result = "yesterday";
+              else if (days < 7) result = `${days} days ago`;
+              else if (days < 30) result = `${Math.floor(days / 7)} weeks ago`;
+              else result = `${Math.floor(days / 30)} months ago`;
+            }
           }
         }
       } catch {}

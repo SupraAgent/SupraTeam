@@ -6,7 +6,7 @@ import type { GraphNode, GraphEdge } from "@/lib/types";
 export async function GET(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { user, admin: supabase } = auth;
 
   const { searchParams } = new URL(request.url);
   const dealId = searchParams.get("deal_id");
@@ -20,12 +20,26 @@ export async function GET(request: Request) {
   // 1. Fetch deal with stage
   const { data: deal } = await supabase
     .from("crm_deals")
-    .select("id, deal_name, board_type, value, tg_group_id, contact_id, stage:pipeline_stages(name, color)")
+    .select("id, deal_name, board_type, value, tg_group_id, contact_id, assigned_to, created_by, stage:pipeline_stages(name, color)")
     .eq("id", dealId)
     .single();
 
   if (!deal) {
     return NextResponse.json({ error: "Deal not found" }, { status: 404 });
+  }
+
+  // Ownership check: user must be assigned_to, created_by, or a lead
+  const isOwner = deal.assigned_to === user.id || deal.created_by === user.id;
+  if (!isOwner) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("crm_role")
+      .eq("id", user.id)
+      .single();
+    const LEAD_ROLES = ["bd_lead", "marketing_lead", "admin_lead"];
+    if (!profile?.crm_role || !LEAD_ROLES.includes(profile.crm_role)) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 });
+    }
   }
 
   // 2. Fetch participants with contacts

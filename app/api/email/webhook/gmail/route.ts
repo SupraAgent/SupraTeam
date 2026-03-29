@@ -79,6 +79,16 @@ export async function POST(request: Request) {
   const conn = connections[0];
   const previousHistoryId = conn.watch_history_id;
 
+  // Validate historyId is monotonically increasing to prevent replay attacks
+  try {
+    if (previousHistoryId && BigInt(payload.historyId) <= BigInt(previousHistoryId)) {
+      return NextResponse.json({ ok: true }); // Stale or replayed notification — skip
+    }
+  } catch {
+    console.error("[gmail-webhook] Invalid historyId — cannot convert to BigInt:", payload.historyId);
+    return NextResponse.json({ ok: true }); // Ack to prevent Google retry loop
+  }
+
   // Get changes since last known history ID
   let threadIds: string[] = [];
   try {

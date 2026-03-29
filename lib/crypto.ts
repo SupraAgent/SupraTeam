@@ -7,7 +7,11 @@ const TAG_LENGTH = 16;
 function getKey(): Buffer {
   const key = process.env.TOKEN_ENCRYPTION_KEY;
   if (!key) throw new Error("TOKEN_ENCRYPTION_KEY is not set");
-  return Buffer.from(key, "hex");
+  const buf = Buffer.from(key, "hex");
+  if (buf.length !== 32) {
+    throw new Error("TOKEN_ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes for AES-256)");
+  }
+  return buf;
 }
 
 /** Encrypt a plaintext token. Returns hex string: iv + ciphertext + authTag */

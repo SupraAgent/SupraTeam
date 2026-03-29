@@ -71,6 +71,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     oldValue = rpcOldValue ?? null;
   }
 
+  // Remove value from body since the RPC already handled it atomically
+  if ("value" in body) {
+    delete body.value;
+  }
+
   body.updated_at = new Date().toISOString();
 
   // Update remaining fields (value already set atomically by RPC if present)

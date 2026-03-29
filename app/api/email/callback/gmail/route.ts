@@ -41,7 +41,8 @@ export async function GET(request: Request) {
 
   const userId = stateData.uid as string;
   const ts = stateData.ts as number;
-  if (!userId || !ts) {
+  const nonce = stateData.nonce as string;
+  if (!userId || !ts || !nonce) {
     return NextResponse.redirect(
       new URL("/settings/integrations/email?error=invalid_state", baseUrl)
     );
@@ -53,6 +54,15 @@ export async function GET(request: Request) {
       new URL("/settings/integrations/email?error=state_expired", baseUrl)
     );
   }
+
+  // Consume nonce to prevent state replay attacks
+  const nonceKey = `oauth-nonce:${nonce}`;
+  if (serverCache.get(nonceKey)) {
+    return NextResponse.redirect(
+      new URL("/settings/integrations/email?error=state_reused", baseUrl)
+    );
+  }
+  serverCache.set(nonceKey, true, 10 * 60 * 1000); // TTL matches state expiry
 
   // Verify the authenticated user matches the state — session is REQUIRED
   const supabase = await createClient();
@@ -139,7 +149,7 @@ export async function GET(request: Request) {
 
     // Invalidate cached drivers so next request uses the new tokens
     serverCache.invalidatePrefix(`driver:${userId}`);
-    serverCache.invalidatePrefix("threads:");
+    serverCache.invalidatePrefix(`threads:${userId}`);
 
     // Audit log
     await admin.from("crm_email_audit_log").insert({
@@ -152,7 +162,9 @@ export async function GET(request: Request) {
       new URL("/settings/integrations/email?success=connected", baseUrl)
     );
   } catch (err) {
-    console.error("[email/callback/gmail] error:", err);
+    // Log sanitized error only — raw Google errors may contain tokens
+    const errMsg = err instanceof Error ? err.message : "unknown";
+    console.error("[email/callback/gmail] OAuth token exchange failed:", errMsg.slice(0, 200));
     return NextResponse.redirect(
       new URL("/settings/integrations/email?error=oauth_failed", baseUrl)
     );

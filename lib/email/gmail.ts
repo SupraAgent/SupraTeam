@@ -82,7 +82,7 @@ export class GmailDriver implements MailDriver {
 
     // Fetch threads in batches of 10 to avoid hitting Gmail rate limits
     // HTTP/2 multiplexes these over a single TCP connection on Railway
-    const rawThreads = res.data.threads ?? [];
+    const rawThreads = (res.data.threads ?? []).filter((t) => t.id);
     const BATCH_SIZE = 10;
     const fetchThread = (id: string) =>
       this.gmail.users.threads.get({
@@ -202,9 +202,10 @@ export class GmailDriver implements MailDriver {
       userId: "me",
       requestBody: { raw },
     });
+    if (!res.data.id) throw new Error("Gmail did not return a message ID after send");
     const msg = await this.gmail.users.messages.get({
       userId: "me",
-      id: res.data.id!,
+      id: res.data.id,
       format: "FULL",
     });
     return this.parseMessage(msg.data);
@@ -225,13 +226,19 @@ export class GmailDriver implements MailDriver {
       m.payload?.headers?.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value ?? "";
 
     const lastFrom = this.parseEmailAddress(getHdr(lastRaw, "From"));
-    const lastTo = this.parseEmailAddress(getHdr(lastRaw, "To"));
+    const lastToAll = this.parseRecipients(getHdr(lastRaw, "To"));
+    const lastCcAll = this.parseRecipients(getHdr(lastRaw, "Cc"));
     const lastSubject = getHdr(lastRaw, "Subject");
     const lastMessageId = getHdr(lastRaw, "Message-ID") || lastRaw.id || "";
-    const firstTo = messages.length > 0 ? this.parseEmailAddress(getHdr(messages[0], "To")) : lastTo;
+    const firstTo = messages.length > 0 ? this.parseEmailAddress(getHdr(messages[0], "To")) : lastToAll[0] ?? lastFrom;
 
+    // Reply-all: include original sender + all To/Cc, minus ourselves (the original To)
     const to = params.replyAll
-      ? [lastFrom, lastTo].filter((a) => a.email !== firstTo.email)
+      ? [lastFrom, ...lastToAll, ...lastCcAll].filter(
+          (a, i, arr) =>
+            a.email !== firstTo.email &&
+            arr.findIndex((b) => b.email === a.email) === i // dedupe
+        )
       : [lastFrom];
 
     const sendParams: SendParams = {
@@ -318,12 +325,21 @@ export class GmailDriver implements MailDriver {
 
   async listLabels(): Promise<Label[]> {
     const res = await this.gmail.users.labels.list({ userId: "me" });
-    // Fetch all label details in parallel (fixes N+1)
-    const details = await Promise.all(
-      (res.data.labels ?? []).map((l) =>
-        this.gmail.users.labels.get({ userId: "me", id: l.id! }).then((d) => ({ l, d: d.data }))
-      )
-    );
+    const labels = res.data.labels ?? [];
+
+    // Fetch label details in batches of 10 to avoid hammering the API
+    const BATCH_SIZE = 10;
+    const details: { l: typeof labels[number]; d: gmail_v1.Schema$Label }[] = [];
+    for (let i = 0; i < labels.length; i += BATCH_SIZE) {
+      const batch = labels.slice(i, i + BATCH_SIZE);
+      const batchResults = await Promise.all(
+        batch.map((l) =>
+          this.gmail.users.labels.get({ userId: "me", id: l.id! }).then((d) => ({ l, d: d.data }))
+        )
+      );
+      details.push(...batchResults);
+    }
+
     return details.map(({ l, d }) => ({
       id: l.id!,
       name: l.name!,
@@ -514,7 +530,8 @@ export class GmailDriver implements MailDriver {
     if (!raw) return { name: "", email: "" };
     const match = raw.match(/^(.+?)\s*<(.+?)>$/);
     if (match) return { name: match[1].replace(/"/g, "").trim(), email: match[2] };
-    return { name: raw, email: raw };
+    // Bare email — don't duplicate it as both name and email
+    return { name: "", email: raw.trim() };
   }
 
   private parseRecipients(raw: string): EmailAddress[] {

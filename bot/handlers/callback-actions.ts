@@ -90,10 +90,17 @@ export function registerCallbackHandler(bot: Bot) {
 
           await supabase
             .from("crm_deals")
-            .update({ stage_id: followUpStage.id })
+            .update({
+              stage_id: followUpStage.id,
+              stage_changed_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
             .eq("id", dealId);
 
           // Log stage change
+          // TODO: Add evaluateAutomationRules, dispatchWebhook, and logAudit calls
+          // when the bot has access to those functions (requires architectural refactor
+          // to share server-side libs with the bot process).
           await supabase.from("crm_deal_stage_history").insert({
             deal_id: dealId,
             from_stage_id: deal.stage_id,
@@ -160,9 +167,15 @@ export function registerCallbackHandler(bot: Bot) {
 
           await supabase
             .from("crm_deals")
-            .update({ stage_id: nextStage.id })
+            .update({
+              stage_id: nextStage.id,
+              stage_changed_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
             .eq("id", dealId);
 
+          // TODO: Add evaluateAutomationRules, dispatchWebhook, and logAudit calls
+          // when the bot has access to those functions (see followup action above).
           await supabase.from("crm_deal_stage_history").insert({
             deal_id: dealId,
             from_stage_id: deal.stage_id,

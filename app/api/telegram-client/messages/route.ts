@@ -38,9 +38,13 @@ function parsePeerParams(params: URLSearchParams | Record<string, string>) {
       : (params as Record<string, string>).accessHash;
 
   if (!type || !idStr) return null;
-  const id = BigInt(idStr);
-  const accessHash = accessHashStr ? BigInt(accessHashStr) : BigInt(0);
-  return { type, id, accessHash };
+  try {
+    const id = BigInt(idStr);
+    const accessHash = accessHashStr ? BigInt(accessHashStr) : BigInt(0);
+    return { type, id, accessHash };
+  } catch {
+    return null;
+  }
 }
 
 export async function GET(request: Request) {
@@ -171,11 +175,20 @@ export async function POST(request: Request) {
   }
 
   try {
+    let peerId: bigint;
+    let peerAccessHash: bigint;
+    try {
+      peerId = BigInt(body.id);
+      peerAccessHash = body.accessHash ? BigInt(body.accessHash) : BigInt(0);
+    } catch {
+      return NextResponse.json({ error: "Invalid id or accessHash" }, { status: 400 });
+    }
+
     const client = await getConnectedClient(user.id, session.session_encrypted);
     const peer = buildPeer(
       body.type as "user" | "chat" | "channel",
-      BigInt(body.id),
-      body.accessHash ? BigInt(body.accessHash) : BigInt(0)
+      peerId,
+      peerAccessHash
     );
 
     await sendMessage(client, peer, body.message.trim());

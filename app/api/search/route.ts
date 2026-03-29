@@ -10,7 +10,7 @@ export async function GET(request: Request) {
   const q = searchParams.get("q");
   if (!q || q.length < 2) return NextResponse.json({ deals: [], contacts: [], groups: [] });
 
-  const sanitized = q.replace(/[%_(),.\\]/g, "");
+  const sanitized = q.replace(/[%_(),\\]/g, "");
   if (!sanitized) return NextResponse.json({ deals: [], contacts: [], groups: [] });
   const pattern = `%${sanitized}%`;
 
