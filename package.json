@@ -14,7 +14,9 @@
     "bot": "DOTENV_CONFIG_PATH=.env.local tsx --require dotenv/config bot/index.ts",
     "bot:dev": "DOTENV_CONFIG_PATH=.env.local tsx watch --require dotenv/config bot/index.ts",
     "cron:poll": "tsx cron/poll-notifications.ts",
-    "cron:digest": "tsx cron/daily-digest.ts"
+    "cron:digest": "tsx cron/daily-digest.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
@@ -50,16 +52,20 @@
     "telegram": "^2.26.22"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "autoprefixer": "^10.4.27",
     "eslint": "^9",
     "eslint-config-next": "16.1.7",
+    "jsdom": "^29.0.1",
     "postcss": "^8.5.8",
     "tailwindcss": "^3.4.19",
     "tsx": "^4.21.0",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vitest": "^4.1.2"
   },
   "automationBuilder": {
     "source": "github:SupraAgent/Supra-Automation-Builder"
