@@ -26,12 +26,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Draft body exceeds 500KB limit" }, { status: 400 });
   }
 
+  // Sanitize HTML before creating draft to prevent stored XSS
+  const { sanitizeTemplateHtml } = await import("@/lib/email/sanitize");
+  const sanitizedBody = sanitizeTemplateHtml(body.body);
+
   try {
     const { driver } = await getDriverForUser(auth.user.id);
     const draft = await driver.createDraft({
       to: body.to ?? [],
       subject: body.subject ?? "",
-      body: body.body,
+      body: sanitizedBody,
       bodyText: body.bodyText,
       cc: body.cc,
       bcc: body.bcc,

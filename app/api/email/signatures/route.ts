@@ -3,7 +3,7 @@ import { requireAuth } from "@/lib/auth-guard";
 
 /** Strip dangerous HTML — allowlist-based: only permitted tags and safe attributes survive */
 function sanitizeSignatureHtml(html: string): string {
-  const ALLOWED_TAGS = new Set(["b", "i", "u", "strong", "em", "br", "p", "a", "span", "div", "img", "table", "tr", "td", "th", "tbody", "thead", "hr"]);
+  const ALLOWED_TAGS = new Set(["b", "i", "u", "strong", "em", "br", "p", "a", "span", "div", "table", "tr", "td", "th", "tbody", "thead", "hr"]);
   const ALLOWED_ATTRS = new Set(["href", "src", "alt", "title", "width", "height", "class", "colspan", "rowspan", "align", "valign", "border", "cellpadding", "cellspacing"]);
   const DANGEROUS_URI = /^\s*(javascript|data|vbscript)\s*:/i;
   const DANGEROUS_CSS = /expression\s*\(|url\s*\(\s*(javascript|data|vbscript)\s*:/i;

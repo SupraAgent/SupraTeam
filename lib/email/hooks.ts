@@ -481,19 +481,32 @@ export function useGmailPush(onNewMail: () => void) {
     const supabase = createClient();
     if (!supabase) return;
 
-    const channel = supabase
-      .channel("gmail-push")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "crm_email_push_events" },
-        () => {
-          onNewMailRef.current();
-        }
-      )
-      .subscribe();
+    // Delay subscription until userId is available to prevent receiving all users' events
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+
+    supabase.auth.getUser().then(({ data }) => {
+      const userId = data.user?.id;
+      if (!userId) return;
+
+      channel = supabase
+        .channel("gmail-push")
+        .on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "crm_email_push_events",
+            filter: `user_id=eq.${userId}`,
+          },
+          () => {
+            onNewMailRef.current();
+          }
+        )
+        .subscribe();
+    });
 
     return () => {
-      channel.unsubscribe();
+      channel?.unsubscribe();
     };
   }, []); // stable — runs once, callback accessed via ref
 }
@@ -753,10 +766,6 @@ export function useEmailKeyboard(actions: KeyboardActions, enabled = true) {
         case "h":
           e.preventDefault();
           a.onSnooze();
-          break;
-        case "d":
-          e.preventDefault();
-          a.onTrash();
           break;
         case "x":
           e.preventDefault();

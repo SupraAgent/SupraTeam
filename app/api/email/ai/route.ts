@@ -208,10 +208,22 @@ Threads to categorize:
 ${threadSummary}`
         }]);
 
-        // Parse the JSON response
+        // Parse and validate the JSON response
         try {
           const cleaned = result.replace(/```json\n?|\n?```/g, "").trim();
-          const categories = JSON.parse(cleaned);
+          const parsed = JSON.parse(cleaned);
+
+          // Validate shape: must be a plain object with string values from known categories
+          const VALID_CATEGORIES = new Set(["vip", "action_required", "fyi", "newsletter", "other"]);
+          if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+            return NextResponse.json({ data: { categories: {} }, source: "ai", parseError: true });
+          }
+          const categories: Record<string, string> = {};
+          for (const [key, val] of Object.entries(parsed)) {
+            if (typeof val === "string" && VALID_CATEGORIES.has(val)) {
+              categories[key] = val;
+            }
+          }
           return NextResponse.json({ data: { categories }, source: "ai" });
         } catch {
           // Signal parse failure so client can retry instead of caching empty results

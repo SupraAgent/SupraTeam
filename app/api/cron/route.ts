@@ -12,6 +12,7 @@ import { verifyCron } from "@/lib/cron-auth";
  *   - sequence-worker     (every 5 min)  — process email sequences + scheduled sends
  *   - deal-intelligence   (daily)        — health scores, sentiment, AI summaries
  *   - engagement-scoring  (hourly)       — recalculate contact engagement scores
+ *   - renew-watches       (daily)        — renew Gmail Pub/Sub watches before 7-day expiry
  *
  * Without ?job param, runs only frequent jobs (poll-notifications + sequence-worker).
  * deal-intelligence (daily) and engagement-scoring (hourly) must use explicit ?job= params.
@@ -62,6 +63,9 @@ export async function GET(request: Request) {
         break;
       case "engagement-scoring":
         await runJob("engagement-scoring", "/api/contacts/engagement", "POST");
+        break;
+      case "renew-watches":
+        await runJob("renew-watches", "/api/cron/renew-watches");
         break;
       default:
         return NextResponse.json({ error: `Unknown job: ${job}` }, { status: 400 });

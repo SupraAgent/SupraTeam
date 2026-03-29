@@ -28,7 +28,12 @@ function getSnoozeTime(option: typeof QUICK_OPTIONS[number]): Date {
 
   if (option.daysUntilSat) {
     const day = now.getDay();
-    const daysUntil = day <= 6 ? (6 - day) || 7 : 1;
+    // Saturday=6: today at 9am (or next Sat if past 9am), Sunday=0: next Saturday
+    const daysUntil = day === 6
+      ? (now.getHours() >= 9 ? 7 : 0) // Saturday: today if before 9am, next week if after
+      : day === 0
+        ? 6 // Sunday: next Saturday
+        : 6 - day; // Weekdays: days until Saturday
     const sat = new Date(now);
     sat.setDate(sat.getDate() + daysUntil);
     sat.setHours(9, 0, 0, 0);
@@ -168,13 +173,6 @@ export function SnoozePicker({ open, onClose, threadId, onSnoozed }: SnoozePicke
 }
 
 async function scheduleSnooze(threadId: string, scheduledFor: string) {
-  // Archive the thread first (remove from inbox)
-  await fetch(`/api/email/threads/${threadId}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "archive" }),
-  });
-
   // Get default connection for scheduling
   const connRes = await fetch("/api/email/connections");
   const connJson = await connRes.json();
@@ -182,8 +180,8 @@ async function scheduleSnooze(threadId: string, scheduledFor: string) {
 
   if (!defaultConn) return;
 
-  // Schedule the snooze
-  await fetch("/api/email/scheduled", {
+  // Schedule the snooze FIRST — if this fails, the thread stays in inbox (safe)
+  const schedRes = await fetch("/api/email/scheduled", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -192,6 +190,15 @@ async function scheduleSnooze(threadId: string, scheduledFor: string) {
       thread_id: threadId,
       scheduled_for: scheduledFor,
     }),
+  });
+
+  if (!schedRes.ok) return; // Don't archive if scheduling failed
+
+  // Archive the thread only after schedule succeeded (remove from inbox)
+  await fetch(`/api/email/threads/${threadId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "archive" }),
   });
 }
 

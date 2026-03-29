@@ -4,6 +4,7 @@ import { getDriverForUser } from "@/lib/email/driver";
 import { serverCache, TTL } from "@/lib/email/server-cache";
 import { logEmailAction } from "@/lib/email/audit";
 import { sanitizeEmailError } from "@/lib/email/errors";
+import { rateLimit } from "@/lib/rate-limit";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -50,7 +51,10 @@ export async function POST(request: Request, { params }: Params) {
   if ("error" in auth) return auth.error;
   const { id } = await params;
 
-  let body: { action: string; currentlyStarred?: boolean; labelIds?: { add?: string[]; remove?: string[] }; bulkId?: string };
+  const rl = rateLimit(`thread-action:${auth.user.id}`, { max: 60, windowSec: 60 });
+  if (rl) return rl;
+
+  let body: { action: string; currentlyStarred?: boolean; labelIds?: { add?: string[]; remove?: string[] }; bulkId?: string; connection_id?: string };
   try {
     body = await request.json();
   } catch {
@@ -58,7 +62,7 @@ export async function POST(request: Request, { params }: Params) {
   }
 
   try {
-    const { driver, connection } = await getDriverForUser(auth.user.id);
+    const { driver, connection } = await getDriverForUser(auth.user.id, body.connection_id);
 
     switch (body.action) {
       case "archive":

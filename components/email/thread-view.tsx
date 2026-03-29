@@ -212,9 +212,11 @@ const PURIFY_CONFIG = {
     "div", "span", "p", "br", "a", "b", "strong", "i", "em", "u",
     "ul", "ol", "li", "h1", "h2", "h3", "h4", "h5", "h6",
     "table", "thead", "tbody", "tr", "td", "th",
-    "img", "blockquote", "pre", "code", "hr",
+    "blockquote", "pre", "code", "hr",
+    // img intentionally excluded — remote images leak IP/activity to senders
   ],
-  ALLOWED_ATTR: ["href", "src", "alt", "title", "width", "height", "target", "rel", "class"],
+  ALLOWED_ATTR: ["href", "alt", "title", "width", "height", "target", "rel", "class"],
+  // src intentionally excluded to prevent remote resource loading
 };
 
 const SanitizedBody = React.memo(function SanitizedBody({ body, bodyText }: { body: string; bodyText: string }) {

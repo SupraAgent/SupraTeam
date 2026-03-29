@@ -59,6 +59,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "name and steps are required" }, { status: 400 });
   }
 
+  // Validate individual steps
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  for (const step of body.steps) {
+    if (typeof step.delay_days !== "number" || step.delay_days < 0) {
+      return NextResponse.json({ error: "delay_days must be a non-negative number" }, { status: 400 });
+    }
+    if (!UUID_RE.test(step.template_id)) {
+      return NextResponse.json({ error: "template_id must be a valid UUID" }, { status: 400 });
+    }
+    if (step.subject_override && step.subject_override.length > 500) {
+      return NextResponse.json({ error: "subject_override too long" }, { status: 400 });
+    }
+  }
+
   if (body.id) {
     const { data, error } = await auth.admin
       .from("crm_email_sequences")

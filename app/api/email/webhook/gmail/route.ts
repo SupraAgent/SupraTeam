@@ -13,14 +13,17 @@ async function verifyPubSubToken(request: Request): Promise<boolean> {
   const authHeader = request.headers.get("authorization");
   if (!authHeader?.startsWith("Bearer ")) return false;
 
+  const audience = process.env.NEXT_PUBLIC_APP_URL;
+  if (!audience) return false; // Reject if app URL not configured
+
   const token = authHeader.slice(7);
   try {
     const { payload } = await jwtVerify(token, GOOGLE_JWKS, {
       issuer: "accounts.google.com",
-      audience: process.env.NEXT_PUBLIC_APP_URL ?? "https://suprateam.xyz",
+      audience,
     });
-    // Verify the email claim matches Google's push service
-    if (payload.email !== "noreply@google.com") {
+    // Verify the email claim matches Google's push service with verified email
+    if (payload.email !== "noreply@google.com" || payload.email_verified !== true) {
       return false;
     }
     return true;
@@ -65,58 +68,59 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true }); // Ack but skip
   }
 
-  // Find the connection by email
+  // Find ALL connections for this email (supports shared inboxes)
   const { data: connections } = await admin
     .from("crm_email_connections")
     .select("id, user_id, watch_history_id")
-    .eq("email", payload.emailAddress)
-    .limit(1);
+    .eq("email", payload.emailAddress);
 
   if (!connections?.length) {
     return NextResponse.json({ ok: true }); // No matching connection
   }
 
-  const conn = connections[0];
-  const previousHistoryId = conn.watch_history_id;
+  // Process each connection (handles shared inboxes where multiple users connect same email)
+  for (const conn of connections) {
+    const previousHistoryId = conn.watch_history_id;
 
-  // Validate historyId is monotonically increasing to prevent replay attacks
-  try {
-    if (previousHistoryId && BigInt(payload.historyId) <= BigInt(previousHistoryId)) {
-      return NextResponse.json({ ok: true }); // Stale or replayed notification — skip
-    }
-  } catch {
-    console.error("[gmail-webhook] Invalid historyId — cannot convert to BigInt:", payload.historyId);
-    return NextResponse.json({ ok: true }); // Ack to prevent Google retry loop
-  }
-
-  // Get changes since last known history ID
-  let threadIds: string[] = [];
-  try {
-    if (previousHistoryId) {
-      const { driver } = await getDriverForUser(conn.user_id, conn.id);
-      if ("listHistory" in driver && typeof driver.listHistory === "function") {
-        const result = await driver.listHistory(previousHistoryId);
-        threadIds = result.changes.map((c: { threadId: string }) => c.threadId);
+    // Validate historyId is monotonically increasing to prevent replay attacks
+    try {
+      if (previousHistoryId && BigInt(payload.historyId) <= BigInt(previousHistoryId)) {
+        continue; // Stale or replayed notification for this connection — skip
       }
+    } catch {
+      console.error("[gmail-webhook] Invalid historyId — cannot convert to BigInt:", payload.historyId);
+      continue;
     }
-  } catch {
-    // Non-fatal — still update history ID
+
+    // Get changes since last known history ID
+    let threadIds: string[] = [];
+    try {
+      if (previousHistoryId) {
+        const { driver } = await getDriverForUser(conn.user_id, conn.id);
+        if ("listHistory" in driver && typeof driver.listHistory === "function") {
+          const result = await driver.listHistory(previousHistoryId);
+          threadIds = result.changes.map((c: { threadId: string }) => c.threadId);
+        }
+      }
+    } catch {
+      // Non-fatal — still update history ID
+    }
+
+    // Update connection's history ID (scoped by user_id for safety)
+    await admin
+      .from("crm_email_connections")
+      .update({ watch_history_id: payload.historyId })
+      .eq("id", conn.id)
+      .eq("user_id", conn.user_id);
+
+    // Insert push event for Realtime subscription
+    await admin.from("crm_email_push_events").insert({
+      user_id: conn.user_id,
+      email: payload.emailAddress,
+      history_id: payload.historyId,
+      thread_ids: threadIds,
+    });
   }
-
-  // Update connection's history ID (scoped by user_id for safety)
-  await admin
-    .from("crm_email_connections")
-    .update({ watch_history_id: payload.historyId })
-    .eq("id", conn.id)
-    .eq("user_id", conn.user_id);
-
-  // Insert push event for Realtime subscription
-  await admin.from("crm_email_push_events").insert({
-    user_id: conn.user_id,
-    email: payload.emailAddress,
-    history_id: payload.historyId,
-    thread_ids: threadIds,
-  });
 
   return NextResponse.json({ ok: true });
 }

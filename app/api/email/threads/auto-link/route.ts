@@ -23,11 +23,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "thread_id and at least one email list required" }, { status: 400 });
   }
 
-  // Check if already linked
+  // Check if already linked by THIS user (not other users)
   const { data: existingLinks } = await auth.admin
     .from("crm_email_thread_links")
     .select("id")
     .eq("thread_id", body.thread_id)
+    .eq("linked_by", auth.user.id)
     .eq("auto_linked", true)
     .limit(1);
 

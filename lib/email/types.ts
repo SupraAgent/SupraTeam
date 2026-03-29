@@ -93,6 +93,7 @@ export type SendParams = {
   to: EmailAddress[];
   cc?: EmailAddress[];
   bcc?: EmailAddress[];
+  from?: EmailAddress; // Explicit sender (prevents wrong send-as alias)
   subject: string;
   body: string; // HTML
   bodyText?: string;
