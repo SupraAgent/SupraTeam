@@ -11,7 +11,7 @@ import { requireAuth } from "@/lib/auth-guard";
 export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { user, admin: supabase } = auth;
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -24,6 +24,15 @@ export async function POST(request: Request) {
   if (!sequence_id) {
     return NextResponse.json({ error: "sequence_id is required" }, { status: 400 });
   }
+
+  // Ownership check
+  const { data: seq } = await supabase
+    .from("crm_outreach_sequences")
+    .select("created_by")
+    .eq("id", sequence_id)
+    .single();
+  if (!seq) return NextResponse.json({ error: "Sequence not found" }, { status: 404 });
+  if (seq.created_by !== user.id) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   // Fetch sequence + steps + enrollments in parallel
   const [seqRes, stepsRes, enrollmentsRes] = await Promise.all([

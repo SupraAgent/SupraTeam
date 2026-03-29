@@ -5,13 +5,7 @@
 
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
-
-const TONE_DESCRIPTIONS: Record<string, string> = {
-  professional: "Clear, respectful, business-focused",
-  casual: "Friendly, conversational, emoji-ok",
-  web3_native: "Crypto/DeFi jargon, informal, community-focused",
-  formal: "Polished, corporate, no slang",
-};
+import { TONE_DESCRIPTIONS } from "@/lib/outreach-constants";
 
 export async function POST(request: Request) {
   const auth = await requireAuth();

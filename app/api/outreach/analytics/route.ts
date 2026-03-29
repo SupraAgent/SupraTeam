@@ -75,8 +75,7 @@ export async function GET(request: Request) {
   return NextResponse.json({ sequences: result });
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function getSequenceDetail(supabase: any, sequenceId: string) {
+async function getSequenceDetail(supabase: import("@supabase/supabase-js").SupabaseClient, sequenceId: string) {
   // Phase 1: run independent queries in parallel
   const [seqRes, stepsRes, enrollmentsRes] = await Promise.all([
     supabase.from("crm_outreach_sequences").select("id, name, status, board_type").eq("id", sequenceId).single(),

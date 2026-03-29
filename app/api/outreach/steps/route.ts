@@ -5,11 +5,23 @@
 
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+async function verifySequenceAccess(supabase: SupabaseClient, sequenceId: string, userId: string) {
+  const { data: seq } = await supabase
+    .from("crm_outreach_sequences")
+    .select("created_by")
+    .eq("id", sequenceId)
+    .single();
+  if (!seq) return NextResponse.json({ error: "Sequence not found" }, { status: 404 });
+  if (seq.created_by !== userId) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  return null;
+}
 
 export async function GET(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { user, admin: supabase } = auth;
 
   const { searchParams } = new URL(request.url);
   const sequenceId = searchParams.get("sequence_id");
@@ -17,6 +29,9 @@ export async function GET(request: Request) {
   if (!sequenceId) {
     return NextResponse.json({ error: "sequence_id required" }, { status: 400 });
   }
+
+  const accessErr = await verifySequenceAccess(supabase, sequenceId, user.id);
+  if (accessErr) return accessErr;
 
   const { data: steps } = await supabase
     .from("crm_outreach_steps")
@@ -30,13 +45,16 @@ export async function GET(request: Request) {
 export async function PUT(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { user, admin: supabase } = auth;
 
   const { sequence_id, steps } = await request.json();
 
   if (!sequence_id || !Array.isArray(steps)) {
     return NextResponse.json({ error: "sequence_id and steps array required" }, { status: 400 });
   }
+
+  const accessErr = await verifySequenceAccess(supabase, sequence_id, user.id);
+  if (accessErr) return accessErr;
 
   // Fetch existing steps to diff against
   const { data: existingSteps } = await supabase

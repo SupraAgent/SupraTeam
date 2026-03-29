@@ -47,6 +47,11 @@ export async function computeOnChainScore(
     const balanceData = await balanceRes.json();
     const txCountData = await txCountRes.json();
 
+    // Check for JSON-RPC level errors (distinct from HTTP errors)
+    if (balanceData.error || txCountData.error) {
+      throw new Error(`RPC error: ${balanceData.error?.message ?? txCountData.error?.message}`);
+    }
+
     const balanceHex: string = balanceData.result ?? "0x0";
     const txCountHex: string = txCountData.result ?? "0x0";
 

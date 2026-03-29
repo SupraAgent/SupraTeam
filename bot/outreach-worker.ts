@@ -443,8 +443,8 @@ async function checkAutoWinner(step: Step) {
 
     const winner = aReplyRate > bReplyRate ? "A" : "B";
 
-    // Apply auto-winner
-    const updates: Record<string, unknown> = { variant_b_template: null };
+    // Apply auto-winner — clear both B and C variants
+    const updates: Record<string, unknown> = { variant_b_template: null, variant_c_template: null };
     if (winner === "B") {
       updates.message_template = step.variant_b_template;
     }
