@@ -4,6 +4,7 @@
  */
 
 import { createSupabaseAdmin } from "@/lib/supabase";
+import { decryptToken } from "@/lib/crypto";
 import { createHmac } from "crypto";
 
 export type WebhookEvent =
@@ -69,9 +70,10 @@ async function deliverWebhook(
     ...customHeaders,
   };
 
-  // Add HMAC signature if secret is configured
+  // Add HMAC signature if secret is configured (secret is stored encrypted)
   if (secret) {
-    const signature = createHmac("sha256", secret).update(body).digest("hex");
+    const plaintextSecret = decryptToken(secret);
+    const signature = createHmac("sha256", plaintextSecret).update(body).digest("hex");
     headers["X-Webhook-Signature"] = `sha256=${signature}`;
   }
 

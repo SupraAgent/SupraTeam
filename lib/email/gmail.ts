@@ -54,8 +54,9 @@ export class GmailDriver implements MailDriver {
             tokens.access_token,
             tokens.expiry_date ? new Date(tokens.expiry_date) : undefined
           );
-          // Invalidate cached drivers so next request gets fresh tokens
-          serverCache.invalidatePrefix("driver:");
+          // Invalidate only this user's cached driver (not all users)
+          const userPrefix = this.userId ? `driver:${this.userId}:` : "driver:";
+          serverCache.invalidatePrefix(userPrefix);
         } catch {
           // Non-fatal: token will be refreshed again next time
         }

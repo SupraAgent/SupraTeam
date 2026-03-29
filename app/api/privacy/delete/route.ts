@@ -56,7 +56,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { user, admin: supabase } = auth;
 
   const { id } = await request.json();
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
@@ -70,6 +70,17 @@ export async function PATCH(request: Request) {
 
   if (!req) return NextResponse.json({ error: "Request not found" }, { status: 404 });
   if (req.status !== "pending") return NextResponse.json({ error: "Request already processed" }, { status: 400 });
+
+  // Only the requester or an admin can process deletion requests
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("crm_role")
+    .eq("id", user.id)
+    .single();
+  const isAdmin = profile?.crm_role === "admin_lead";
+  if (req.requested_by !== user.id && !isAdmin) {
+    return NextResponse.json({ error: "Only the requester or an admin can process deletion requests" }, { status: 403 });
+  }
 
   // Mark as processing
   await supabase.from("crm_data_deletion_requests").update({ status: "processing" }).eq("id", id);

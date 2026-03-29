@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { timingSafeEqual } from "crypto";
 
 /**
  * Verify cron requests come from a trusted source.
@@ -22,7 +23,11 @@ export function verifyCron(request: Request): NextResponse | null {
   }
 
   const authHeader = request.headers.get("authorization");
-  if (authHeader === `Bearer ${cronSecret}`) return null; // Valid
+  const expected = `Bearer ${cronSecret}`;
+  if (authHeader && authHeader.length === expected.length &&
+    timingSafeEqual(Buffer.from(authHeader), Buffer.from(expected))) {
+    return null; // Valid
+  }
 
   return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 }

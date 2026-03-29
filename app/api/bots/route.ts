@@ -10,7 +10,9 @@ export async function GET() {
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-  const admin = createSupabaseAdmin()!;
+  const admin = createSupabaseAdmin();
+  if (!admin) return NextResponse.json({ error: "Supabase admin not configured" }, { status: 500 });
+
   const { data: bots, error } = await admin
     .from("crm_bots")
     .select("id, label, bot_username, bot_first_name, bot_telegram_id, is_active, is_default, groups_count, last_verified_at, created_by, created_at, updated_at")
@@ -57,7 +59,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Failed to verify token with Telegram" }, { status: 502 });
   }
 
-  const admin = createSupabaseAdmin()!;
+  const admin = createSupabaseAdmin();
+  if (!admin) return NextResponse.json({ error: "Supabase admin not configured" }, { status: 500 });
 
   // Check if this bot is already registered
   const { data: existing } = await admin

@@ -6,6 +6,7 @@ import { cn, timeAgo } from "@/lib/utils";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import DOMPurify from "dompurify";
 import {
   Shield, ShieldOff, Users, MessageCircle, Tag, ExternalLink,
   Activity, TrendingUp, BarChart3, Star, StarOff, RefreshCw, UserCheck,
@@ -403,7 +404,7 @@ export function GroupDetailPanel({ group, open, onClose }: GroupDetailPanelProps
           {summary && (
             <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-1">
               <div className="text-xs text-foreground whitespace-pre-wrap leading-relaxed prose-sm"
-                dangerouslySetInnerHTML={{ __html: summary.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br/>') }}
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(summary.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br/>'), { ALLOWED_TAGS: ['strong', 'br'] }) }}
               />
               {summaryMeta && (
                 <p className="text-[9px] text-muted-foreground pt-1 border-t border-white/5">

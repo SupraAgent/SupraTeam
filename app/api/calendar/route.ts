@@ -13,6 +13,20 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "from and to params required" }, { status: 400 });
   }
 
+  // Validate ISO date format and reasonable range
+  const fromDate = new Date(from);
+  const toDate = new Date(to);
+  if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
+    return NextResponse.json({ error: "Invalid date format — use ISO 8601" }, { status: 400 });
+  }
+  if (toDate < fromDate) {
+    return NextResponse.json({ error: "'to' must be after 'from'" }, { status: 400 });
+  }
+  const rangeDays = (toDate.getTime() - fromDate.getTime()) / (1000 * 60 * 60 * 24);
+  if (rangeDays > 366) {
+    return NextResponse.json({ error: "Date range cannot exceed 1 year" }, { status: 400 });
+  }
+
   // Fetch deals with expected close dates in range
   const [dealsRes, historyRes, remindersRes, broadcastsRes] = await Promise.all([
     supabase

@@ -26,14 +26,22 @@ function isRateLimited(trackingId: string, ipHash: string): boolean {
   return false;
 }
 
-// Periodic cleanup of stale entries (every 1000 lookups)
+// Periodic cleanup of stale entries (every 500 lookups or when map exceeds max size)
+const MAX_TRACKER_SIZE = 10_000;
 let lookupCount = 0;
 function maybeCleanup() {
-  if (++lookupCount < 1000) return;
+  lookupCount++;
+  if (lookupCount < 500 && openTracker.size < MAX_TRACKER_SIZE) return;
   lookupCount = 0;
   const now = Date.now();
   for (const [key, entry] of openTracker) {
     if (now - entry.ts > RATE_WINDOW) openTracker.delete(key);
+  }
+  // If still over limit after expiry cleanup, evict oldest entries
+  if (openTracker.size >= MAX_TRACKER_SIZE) {
+    const entries = [...openTracker.entries()].sort((a, b) => a[1].ts - b[1].ts);
+    const toRemove = entries.slice(0, entries.length - Math.floor(MAX_TRACKER_SIZE * 0.75));
+    for (const [key] of toRemove) openTracker.delete(key);
   }
 }
 

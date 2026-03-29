@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { getSlackToken, sendSlackMessage } from "@/lib/slack";
+import { requireAuth } from "@/lib/auth-guard";
 
 export async function POST(request: Request) {
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+
   const token = await getSlackToken();
   if (!token) {
     return NextResponse.json({ error: "Slack not connected" }, { status: 400 });

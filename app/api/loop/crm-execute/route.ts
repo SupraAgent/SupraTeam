@@ -475,6 +475,26 @@ export async function POST(request: Request) {
           break;
         }
 
+        // Block SSRF: reject private/internal IP ranges
+        const hostname = parsed.hostname.toLowerCase();
+        const ssrfBlocked = [
+          /^localhost$/i,
+          /^127\./,
+          /^10\./,
+          /^192\.168\./,
+          /^169\.254\./,
+          /^172\.(1[6-9]|2\d|3[01])\./,
+          /^0\./,
+          /^::1$/,
+          /^0\.0\.0\.0$/,
+          /^fc00:/i,
+          /^fe80:/i,
+        ];
+        if (ssrfBlocked.some((p) => p.test(hostname))) {
+          result = { success: false, error: "URLs targeting private/internal networks are not allowed" };
+          break;
+        }
+
         const method = (cfg.method || "GET").toUpperCase();
         if (!["GET", "POST", "PUT", "PATCH", "DELETE"].includes(method)) {
           result = { success: false, error: `Unsupported HTTP method: ${method}` };

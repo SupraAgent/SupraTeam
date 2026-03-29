@@ -57,10 +57,17 @@ export async function PUT(request: Request) {
   const { admin: supabase } = auth;
 
   const body = await request.json();
-  const { id, ...updates } = body;
+  const { id } = body;
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
-  updates.updated_at = new Date().toISOString();
+  // Allowlist of fields that can be updated
+  const allowedFields = ["name", "description", "trigger_type", "trigger_config", "condition_config", "action_type", "action_config", "is_active"] as const;
+  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  for (const field of allowedFields) {
+    if (field in body) {
+      updates[field] = body[field];
+    }
+  }
 
   const { data, error } = await supabase
     .from("crm_automation_rules")

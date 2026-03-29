@@ -22,7 +22,17 @@ export async function POST(request: Request) {
   }
 
   // fieldOverrides: optional { field: value } to explicitly set on primary (from merge preview)
-  const fieldOverrides: Record<string, unknown> = body.fieldOverrides ?? {};
+  const ALLOWED_OVERRIDE_FIELDS = new Set([
+    "name", "company", "email", "phone", "telegram_user_id", "telegram_username",
+    "notes", "source", "tags", "title", "custom_fields",
+  ]);
+  const rawOverrides: Record<string, unknown> = body.fieldOverrides ?? {};
+  const fieldOverrides: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(rawOverrides)) {
+    if (ALLOWED_OVERRIDE_FIELDS.has(key)) {
+      fieldOverrides[key] = value;
+    }
+  }
 
   // Merge enrichment data: fill empty fields on primary from merged contacts
   const { data: primary } = await supabase

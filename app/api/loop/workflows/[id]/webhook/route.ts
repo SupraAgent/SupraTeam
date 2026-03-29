@@ -5,6 +5,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { timingSafeEqual } from "crypto";
 import { createSupabaseAdmin } from "@/lib/supabase";
 import { executeLoopWorkflow } from "@/lib/loop-workflow-engine";
 
@@ -43,8 +44,10 @@ export async function POST(
   const webhookSecret = (workflow.metadata as Record<string, unknown> | null)?.webhook_secret as string | undefined;
   if (webhookSecret) {
     const providedSecret = request.headers.get("x-webhook-secret") ??
-      new URL(request.url).searchParams.get("secret");
-    if (providedSecret !== webhookSecret) {
+      request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? null;
+    if (!providedSecret ||
+      providedSecret.length !== webhookSecret.length ||
+      !timingSafeEqual(Buffer.from(providedSecret), Buffer.from(webhookSecret))) {
       return NextResponse.json({ error: "Invalid webhook secret" }, { status: 401 });
     }
   }

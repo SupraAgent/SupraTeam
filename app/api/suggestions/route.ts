@@ -91,7 +91,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Suggestion ID required" }, { status: 400 });
   }
 
-  // Handle upvote toggle
+  // Handle upvote toggle (optimistic locking to prevent race conditions)
   if (action === "upvote") {
     const { data: existing } = await supabase
       .from("crm_feature_suggestions")
@@ -105,22 +105,28 @@ export async function PATCH(request: Request) {
 
     const upvotedBy: string[] = existing.upvoted_by ?? [];
     const hasVoted = upvotedBy.includes(user.id);
+    const previousLength = upvotedBy.length;
 
     const newUpvotedBy = hasVoted
       ? upvotedBy.filter((uid: string) => uid !== user.id)
       : [...upvotedBy, user.id];
 
-    const { error } = await supabase
+    // Use optimistic locking: only update if upvoted_by array length hasn't changed
+    const { data: updated, error } = await supabase
       .from("crm_feature_suggestions")
       .update({
         upvotes: newUpvotedBy.length,
         upvoted_by: newUpvotedBy,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", id);
+      .eq("id", id)
+      .eq("upvotes", previousLength)
+      .select("upvotes")
+      .single();
 
-    if (error) {
-      return NextResponse.json({ error: "Failed to upvote" }, { status: 500 });
+    if (error || !updated) {
+      // Row was modified concurrently -- client should retry
+      return NextResponse.json({ error: "Conflict, please retry" }, { status: 409 });
     }
 
     return NextResponse.json({ ok: true, upvotes: newUpvotedBy.length, voted: !hasVoted });

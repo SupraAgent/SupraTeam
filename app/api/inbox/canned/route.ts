@@ -75,7 +75,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { user, admin: supabase } = auth;
 
   let body: { id?: string; title?: string; body?: string; shortcut?: string; category?: string; increment_usage?: boolean };
   try {
@@ -107,6 +107,7 @@ export async function PATCH(request: Request) {
     .from("crm_canned_responses")
     .update(update)
     .eq("id", body.id)
+    .eq("created_by", user.id)
     .select()
     .single();
 
@@ -120,7 +121,7 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { user, admin: supabase } = auth;
 
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
@@ -128,7 +129,7 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "id required" }, { status: 400 });
   }
 
-  const { error } = await supabase.from("crm_canned_responses").delete().eq("id", id);
+  const { error } = await supabase.from("crm_canned_responses").delete().eq("id", id).eq("created_by", user.id);
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

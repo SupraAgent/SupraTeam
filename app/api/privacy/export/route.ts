@@ -61,8 +61,8 @@ export async function GET(request: Request) {
       supabase.from("crm_email_scheduled").select("id, subject, to, scheduled_for, status, created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(200),
       supabase.from("crm_email_sequence_enrollments").select("id, sequence_id, contact_email, status, current_step, created_at").eq("enrolled_by", user.id).order("created_at", { ascending: false }).limit(200),
       supabase.from("crm_email_push_events").select("id, email, history_id, created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(200),
-      supabase.from("crm_ai_conversations").select("id, telegram_chat_id, user_message, ai_response, escalated, created_at").order("created_at", { ascending: false }).limit(200),
-      supabase.from("crm_automation_log").select("*").order("created_at", { ascending: false }).limit(200),
+      supabase.from("crm_ai_conversations").select("id, telegram_chat_id, user_message, ai_response, escalated, created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(200),
+      supabase.from("crm_automation_log").select("*").eq("user_id", user.id).order("created_at", { ascending: false }).limit(200),
     ]);
 
     exportData.profile = profile.data;

@@ -5,6 +5,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { timingSafeEqual } from "crypto";
 import { createSupabaseAdmin } from "@/lib/supabase";
 import { executeWorkflowFromData } from "@/lib/workflow-engine";
 import type { Workflow } from "@/lib/workflow-db-types";
@@ -44,7 +45,9 @@ export async function POST(
   if (expectedSecret) {
     const authHeader = request.headers.get("authorization");
     const providedSecret = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
-    if (providedSecret !== expectedSecret) {
+    if (!providedSecret ||
+      providedSecret.length !== expectedSecret.length ||
+      !timingSafeEqual(Buffer.from(providedSecret), Buffer.from(expectedSecret))) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
   } else {

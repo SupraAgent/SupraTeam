@@ -35,7 +35,7 @@ async function getChatMemberCount(chatId: number): Promise<number> {
 export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { user, admin: supabase } = auth;
   if (!BOT_TOKEN) return NextResponse.json({ error: "Bot token not configured" }, { status: 503 });
 
   const { group_id } = await request.json();
@@ -99,7 +99,7 @@ export async function POST(request: Request) {
       telegram_user_id: user.id,
       company: group.group_name,
       notes: `Imported from Telegram group: ${group.group_name}`,
-      created_by: null,
+      created_by: user.id,
     });
 
     if (!error) {

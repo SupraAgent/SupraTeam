@@ -92,7 +92,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { user, admin: supabase } = auth;
 
   let body: {
     id?: string;
@@ -134,6 +134,7 @@ export async function PATCH(request: Request) {
     .from("crm_assignment_rules")
     .update(update)
     .eq("id", body.id)
+    .eq("created_by", user.id)
     .select()
     .single();
 
@@ -147,7 +148,7 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { user, admin: supabase } = auth;
 
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
@@ -158,7 +159,8 @@ export async function DELETE(request: Request) {
   const { error } = await supabase
     .from("crm_assignment_rules")
     .delete()
-    .eq("id", id);
+    .eq("id", id)
+    .eq("created_by", user.id);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

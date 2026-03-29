@@ -46,12 +46,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     .from("crm_docs")
     .update(updates)
     .eq("id", id)
+    .eq("created_by", user.id)
     .select()
     .single();
 
   if (error) {
     console.error("[api/docs/[id]] update error:", error);
-    return NextResponse.json({ error: "Failed to update doc" }, { status: 500 });
+    return NextResponse.json({ error: "Doc not found or not owned by you" }, { status: 404 });
   }
 
   // If links provided, replace them
@@ -78,13 +79,19 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   const { id } = await params;
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { user, admin: supabase } = auth;
 
-  const { error } = await supabase.from("crm_docs").delete().eq("id", id);
+  const { data, error } = await supabase
+    .from("crm_docs")
+    .delete()
+    .eq("id", id)
+    .eq("created_by", user.id)
+    .select("id")
+    .single();
 
-  if (error) {
+  if (error || !data) {
     console.error("[api/docs/[id]] delete error:", error);
-    return NextResponse.json({ error: "Failed to delete doc" }, { status: 500 });
+    return NextResponse.json({ error: "Doc not found or not owned by you" }, { status: 404 });
   }
 
   return NextResponse.json({ ok: true });

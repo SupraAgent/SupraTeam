@@ -11,11 +11,12 @@ import { createHash, randomBytes } from "crypto";
 export async function GET() {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { user, admin: supabase } = auth;
 
   const { data: keys } = await supabase
     .from("crm_api_keys")
     .select("id, name, key_prefix, scopes, is_active, last_used_at, request_count, created_at, expires_at")
+    .eq("created_by", user.id)
     .order("created_at", { ascending: false });
 
   return NextResponse.json({ keys: keys ?? [] });
