@@ -1,8 +1,41 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdmin } from "@/lib/supabase";
 import { getDriverForUser } from "@/lib/email/driver";
+import { createRemoteJWKSet, jwtVerify } from "jose";
+
+// Google's public key set for Pub/Sub push JWTs
+const GOOGLE_JWKS = createRemoteJWKSet(
+  new URL("https://www.googleapis.com/oauth2/v3/certs")
+);
+
+/** Verify the Google Pub/Sub push JWT bearer token */
+async function verifyPubSubToken(request: Request): Promise<boolean> {
+  const authHeader = request.headers.get("authorization");
+  if (!authHeader?.startsWith("Bearer ")) return false;
+
+  const token = authHeader.slice(7);
+  try {
+    const { payload } = await jwtVerify(token, GOOGLE_JWKS, {
+      issuer: "accounts.google.com",
+      audience: process.env.NEXT_PUBLIC_APP_URL ?? "https://suprateam.xyz",
+    });
+    // Verify the email claim matches Google's push service
+    if (payload.email !== "noreply@google.com" && payload.email_verified !== true) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export async function POST(request: Request) {
+  // Verify the request is from Google Pub/Sub
+  const isValid = await verifyPubSubToken(request);
+  if (!isValid) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const admin = createSupabaseAdmin();
   if (!admin) {
     return NextResponse.json({ error: "Not configured" }, { status: 503 });

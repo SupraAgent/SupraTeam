@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createHash } from "crypto";
 import { createSupabaseAdmin } from "@/lib/supabase";
 
 // 1x1 transparent GIF pixel
@@ -40,12 +41,8 @@ export async function GET(request: Request, { params }: Params) {
   });
 }
 
-/** Simple non-reversible hash for privacy — we don't need the actual IP */
+/** SHA-256 hash with salt for privacy — non-reversible, no raw IP stored */
 function hashIp(ip: string): string {
-  let hash = 0;
-  for (let i = 0; i < ip.length; i++) {
-    hash = ((hash << 5) - hash) + ip.charCodeAt(i);
-    hash |= 0;
-  }
-  return Math.abs(hash).toString(16).padStart(8, "0");
+  const salt = process.env.TOKEN_ENCRYPTION_KEY ?? "tracking-salt";
+  return createHash("sha256").update(`${salt}:${ip}`).digest("hex").slice(0, 16);
 }

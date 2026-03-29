@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { getDriverForUser } from "@/lib/email/driver";
 import { logEmailAction } from "@/lib/email/audit";
+import { rateLimit } from "@/lib/rate-limit";
 
 /**
  * POST: AI email features
@@ -13,6 +14,9 @@ import { logEmailAction } from "@/lib/email/audit";
 export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
+
+  const rl = rateLimit(`email-ai:${auth.user.id}`, { max: 20, windowSec: 60 });
+  if (rl) return rl;
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -36,6 +40,16 @@ export async function POST(request: Request) {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
+  }
+
+  // Input length validation
+  const MAX_PROMPT = 50_000;
+  const MAX_TEXT = 200_000;
+  if (body.prompt && body.prompt.length > MAX_PROMPT) {
+    return NextResponse.json({ error: `Prompt exceeds ${MAX_PROMPT} character limit` }, { status: 400 });
+  }
+  if (body.text && body.text.length > MAX_TEXT) {
+    return NextResponse.json({ error: `Text exceeds ${MAX_TEXT} character limit` }, { status: 400 });
   }
 
   try {
@@ -235,8 +249,8 @@ async function callClaude(
   });
 
   if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Claude API error: ${res.status} ${err}`);
+    console.error(`[email/ai] Claude API error: ${res.status}`);
+    throw new Error("AI service unavailable");
   }
 
   const data = await res.json();

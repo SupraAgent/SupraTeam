@@ -38,7 +38,9 @@ export async function updateSession(request: NextRequest) {
     pathname === "/login" ||
     pathname.startsWith("/auth/") ||
     pathname.startsWith("/apply") ||
-    pathname.startsWith("/tma");
+    pathname.startsWith("/tma") ||
+    pathname === "/privacy" ||
+    pathname === "/terms";
 
   // Dev access bypass: cookie set by /api/auth/dev-login
   const hasDevAuth =
