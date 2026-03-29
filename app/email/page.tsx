@@ -31,18 +31,22 @@ function EmailPageInner() {
   const [activeLabel, setActiveLabel] = React.useState("INBOX");
   const [selectedThreadId, setSelectedThreadId] = React.useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = React.useState(0);
-  const [searchInput, setSearchInput] = React.useState("");
   const [searchQuery, setSearchQuery] = React.useState("");
-  const [showSearch, setShowSearch] = React.useState(false);
   const [advancedSearchOpen, setAdvancedSearchOpen] = React.useState(false);
   const [keyboardHelpOpen, setKeyboardHelpOpen] = React.useState(false);
   const [activeCategory, setActiveCategory] = React.useState<InboxCategory | "all">("all");
   const searchRef = React.useRef<HTMLInputElement>(null);
   const searchTimerRef = React.useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  // Debounce search by 400ms
+  // Clean up debounce timer on unmount
+  React.useEffect(() => {
+    return () => {
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    };
+  }, []);
+
+  // Debounce search by 200ms
   const handleSearchChange = React.useCallback((value: string) => {
-    setSearchInput(value);
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
     searchTimerRef.current = setTimeout(() => setSearchQuery(value), 200);
   }, []);
@@ -291,7 +295,6 @@ function EmailPageInner() {
           onSelectLabel={(id) => {
             setActiveLabel(id);
             setSelectedThreadId(null);
-            setSearchInput("");
             setSearchQuery("");
             setActiveCategory("all");
           }}
@@ -378,7 +381,7 @@ function EmailPageInner() {
                 Edit
               </button>
               <button
-                onClick={() => { setSearchQuery(""); setShowSearch(false); }}
+                onClick={() => { setSearchQuery(""); }}
                 className="text-[10px] text-muted-foreground hover:text-foreground transition"
               >
                 Clear
@@ -578,7 +581,6 @@ function EmailPageInner() {
         onClose={() => setAdvancedSearchOpen(false)}
         onSearch={(q) => {
           setSearchQuery(q);
-          setShowSearch(true);
           setSelectedThreadId(null);
           setSelectedIndex(0);
         }}

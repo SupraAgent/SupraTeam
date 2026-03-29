@@ -58,6 +58,10 @@ export async function POST(request: Request) {
   if (scheduledDate.getTime() <= Date.now()) {
     return NextResponse.json({ error: "scheduled_for must be in the future" }, { status: 400 });
   }
+  const MAX_SCHEDULE_MS = 365 * 24 * 60 * 60 * 1000; // 1 year
+  if (scheduledDate.getTime() > Date.now() + MAX_SCHEDULE_MS) {
+    return NextResponse.json({ error: "scheduled_for cannot be more than 1 year in the future" }, { status: 400 });
+  }
 
   // Verify connection ownership
   const { data: conn } = await auth.admin

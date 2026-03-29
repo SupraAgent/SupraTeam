@@ -11,7 +11,7 @@ export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
 
-  const rl = rateLimit(`email-send:${auth.user.id}`, { max: 30, windowSec: 60 });
+  const rl = rateLimit(`email-send:${auth.user.id}`, { max: 10, windowSec: 60 });
   if (rl) return rl;
 
   let body: {
@@ -125,7 +125,7 @@ export async function POST(request: Request) {
       action: `email_${body.type}`,
       threadId: body.threadId ?? result?.threadId,
       recipient: body.to?.[0]?.email,
-      metadata: { connection_email: connection.email, subject: body.subject },
+      metadata: { connection_email: connection.email, subject: body.subject?.slice(0, 50) },
     });
 
     return NextResponse.json({ data: result, source: "gmail" });

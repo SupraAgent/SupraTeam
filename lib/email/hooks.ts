@@ -154,7 +154,7 @@ export function useThreads(options?: {
 
   React.useEffect(() => { fetchThreads(); }, [fetchThreads]);
 
-  // Background polling — refresh every 30s when tab is visible
+  // Background polling — refresh every 120s when tab is visible
   React.useEffect(() => {
     let timer: ReturnType<typeof setInterval>;
 
@@ -284,11 +284,16 @@ export function usePrefetchThread() {
 /** Prefetch first N threads on list load for instant navigation */
 export function useBatchPrefetch(threads: { id: string }[]) {
   const prefetchedRef = React.useRef(new Set<string>());
+  const threadsRef = React.useRef(threads);
+  threadsRef.current = threads;
+
+  const depKey = threads.slice(0, PREFETCH_BATCH).map((t) => t.id).join(",");
 
   React.useEffect(() => {
-    if (threads.length === 0) return;
+    const current = threadsRef.current;
+    if (current.length === 0) return;
 
-    const toPrefetch = threads
+    const toPrefetch = current
       .slice(0, PREFETCH_BATCH)
       .filter((t) => {
         if (prefetchedRef.current.has(t.id)) return false;
@@ -297,8 +302,9 @@ export function useBatchPrefetch(threads: { id: string }[]) {
       });
 
     // Stagger prefetches to avoid request burst
+    const timers: ReturnType<typeof setTimeout>[] = [];
     toPrefetch.forEach((t, i) => {
-      setTimeout(() => {
+      timers.push(setTimeout(() => {
         prefetchedRef.current.add(t.id);
         fetch(`/api/email/threads/${t.id}`)
           .then((r) => r.json())
@@ -306,9 +312,11 @@ export function useBatchPrefetch(threads: { id: string }[]) {
             if (json.data) setCachedThread(t.id, json.data);
           })
           .catch(() => {});
-      }, i * 200); // 200ms stagger between each
+      }, i * 200));
     });
-  }, [threads.map((t) => t.id).slice(0, PREFETCH_BATCH).join(",")]);
+
+    return () => { timers.forEach(clearTimeout); };
+  }, [depKey]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 
 // ── Labels ──────────────────────────────────────────────────
@@ -416,15 +424,17 @@ export function useAICategories(threads: ThreadListItem[]) {
       .then(r => r.json())
       .then(json => {
         const cats = json.data?.categories ?? {};
-        const updated = new Map(categories);
-        for (const [id, cat] of Object.entries(cats)) {
-          aiCategoryCache.set(id, cat as InboxCategory);
-          updated.set(id, cat as InboxCategory);
-        }
-        setCategories(updated);
+        setCategories(prev => {
+          const updated = new Map(prev);
+          for (const [id, cat] of Object.entries(cats)) {
+            aiCategoryCache.set(id, cat as InboxCategory);
+            updated.set(id, cat as InboxCategory);
+          }
+          return updated;
+        });
       })
       .catch(() => {});
-  }, [threads]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [threads]);
 
   return categories;
 }
@@ -481,13 +491,15 @@ export function useGmailPush(onNewMail: () => void) {
 export function useEmailActions(
   setThreads: React.Dispatch<React.SetStateAction<ThreadListItem[]>>
 ) {
-  // Undo support
+  // Undo support — use ref to avoid dependency loop in performAction
   const [undoAction, setUndoAction] = React.useState<{
     threadId: string;
     action: string;
     undo: () => void;
     timer: ReturnType<typeof setTimeout>;
   } | null>(null);
+  const undoActionRef = React.useRef(undoAction);
+  undoActionRef.current = undoAction;
 
   const performAction = React.useCallback(
     async (threadId: string, action: string, extraIn?: Record<string, unknown>) => {
@@ -502,8 +514,8 @@ export function useEmailActions(
 
         // Undo support — 5 second window
         if (removedThread) {
-          if (undoAction) {
-            clearTimeout(undoAction.timer);
+          if (undoActionRef.current) {
+            clearTimeout(undoActionRef.current.timer);
           }
 
           const timer = setTimeout(() => {
@@ -565,7 +577,7 @@ export function useEmailActions(
         body: JSON.stringify({ action, ...extra }),
       }).catch(() => {});
     },
-    [setThreads, undoAction]
+    [setThreads]
   );
 
   return { performAction, undoAction };
