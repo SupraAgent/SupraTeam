@@ -5,10 +5,11 @@ import { ContactTable } from "@/components/contacts/contact-table";
 import { CreateContactModal } from "@/components/contacts/create-contact-modal";
 import { ContactDetailPanel } from "@/components/contacts/contact-detail-panel";
 import { ImportTelegramModal } from "@/components/contacts/import-telegram-modal";
+import { BulkXImportModal } from "@/components/contacts/bulk-x-import-modal";
 import { SavedViewsBar } from "@/components/saved-views-bar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Download, Upload, Users, MessageCircle, Building2, ArrowUpDown, Trash2, Filter, GitMerge, Sparkles, AlertTriangle } from "lucide-react";
+import { Download, Upload, Users, MessageCircle, Building2, ArrowUpDown, Trash2, Filter, GitMerge, Sparkles, AlertTriangle, Twitter } from "lucide-react";
 import { MergePreviewModal } from "@/components/contacts/merge-preview-modal";
 import type { Contact, PipelineStage, Deal, LifecycleStage } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -44,6 +45,7 @@ export default function ContactsPage() {
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const [createOpen, setCreateOpen] = React.useState(false);
   const [importOpen, setImportOpen] = React.useState(false);
+  const [bulkXOpen, setBulkXOpen] = React.useState(false);
   const [selectedContact, setSelectedContact] = React.useState<Contact | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [bulkDeleting, setBulkDeleting] = React.useState(false);
@@ -290,6 +292,11 @@ export default function ContactsPage() {
           <Button size="sm" variant="ghost" onClick={scanDuplicates} disabled={scanningDupes}>
             <GitMerge className="mr-1 h-3.5 w-3.5" />
             {scanningDupes ? "Scanning..." : "Find Duplicates"}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setBulkXOpen(true)}>
+            <Twitter className="mr-1 h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Bulk X Import</span>
+            <span className="sm:hidden">X Import</span>
           </Button>
           <Button size="sm" variant="ghost" onClick={() => setImportOpen(true)}>
             <Download className="mr-1 h-3.5 w-3.5" />
@@ -606,6 +613,12 @@ export default function ContactsPage() {
       <ImportTelegramModal
         open={importOpen}
         onClose={() => setImportOpen(false)}
+        onImported={fetchData}
+      />
+
+      <BulkXImportModal
+        open={bulkXOpen}
+        onClose={() => setBulkXOpen(false)}
         onImported={fetchData}
       />
 
