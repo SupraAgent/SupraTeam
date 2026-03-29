@@ -20,7 +20,7 @@ async function verifyPubSubToken(request: Request): Promise<boolean> {
       audience: process.env.NEXT_PUBLIC_APP_URL ?? "https://suprateam.xyz",
     });
     // Verify the email claim matches Google's push service
-    if (payload.email !== "noreply@google.com" && payload.email_verified !== true) {
+    if (payload.email !== "noreply@google.com") {
       return false;
     }
     return true;

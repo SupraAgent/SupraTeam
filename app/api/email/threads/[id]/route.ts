@@ -82,7 +82,7 @@ export async function POST(request: Request, { params }: Params) {
         );
         break;
       default:
-        return NextResponse.json({ error: `Unknown action: ${body.action}` }, { status: 400 });
+        return NextResponse.json({ error: "Unknown action" }, { status: 400 });
     }
 
     // Invalidate server-side caches after mutation

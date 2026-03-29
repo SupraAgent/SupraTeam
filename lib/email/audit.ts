@@ -11,8 +11,8 @@ export function logEmailAction(
     bulkId?: string;
   }
 ): void {
-  // Fire-and-forget — use void to not block the response
-  void admin.from("crm_email_audit_log").insert({
+  // Fire-and-forget — don't block the response but log failures
+  admin.from("crm_email_audit_log").insert({
     user_id: params.userId,
     action: params.action,
     thread_id: params.threadId ?? null,
@@ -21,5 +21,7 @@ export function logEmailAction(
       ...params.metadata,
       ...(params.bulkId ? { bulk_id: params.bulkId } : {}),
     },
+  }).then(({ error }) => {
+    if (error) console.error("[audit] failed to log:", error.message);
   });
 }

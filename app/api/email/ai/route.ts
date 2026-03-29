@@ -63,8 +63,10 @@ export async function POST(request: Request) {
         const { driver } = await getDriverForUser(auth.user.id);
         const thread = await driver.getThread(body.threadId);
         const threadContext = thread.messages
+          .slice(-10) // Limit to last 10 messages
           .map((m) => `From: ${m.from.name || m.from.email}\n${m.bodyText}`)
-          .join("\n---\n");
+          .join("\n---\n")
+          .slice(0, 50_000); // Cap at 50k chars
 
         const draft = await callClaude(apiKey, [
           {
@@ -121,8 +123,10 @@ export async function POST(request: Request) {
         const { driver } = await getDriverForUser(auth.user.id);
         const thread = await driver.getThread(body.threadId);
         const threadText = thread.messages
+          .slice(-10)
           .map((m) => `From: ${m.from.name || m.from.email} (${m.date})\n${m.bodyText}`)
-          .join("\n---\n");
+          .join("\n---\n")
+          .slice(0, 50_000);
 
         const summary = await callClaude(apiKey, [
           {

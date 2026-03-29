@@ -12,6 +12,7 @@ export async function GET(request: Request) {
   let query = auth.admin
     .from("crm_email_templates")
     .select("*")
+    .eq("created_by", auth.user.id)
     .order("created_at", { ascending: false });
 
   if (boardType) {
@@ -56,6 +57,7 @@ export async function POST(request: Request) {
         updated_at: new Date().toISOString(),
       })
       .eq("id", body.id)
+      .eq("created_by", auth.user.id)
       .select()
       .single();
 

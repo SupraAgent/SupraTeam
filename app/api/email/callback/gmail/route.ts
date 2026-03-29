@@ -49,15 +49,23 @@ export async function GET(request: Request) {
     );
   }
 
-  // Verify the authenticated user matches the state
+  // Verify the authenticated user matches the state — session is REQUIRED
   const supabase = await createClient();
-  if (supabase) {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user && user.id !== userId) {
-      return NextResponse.redirect(
-        new URL("/settings/integrations/email?error=user_mismatch", baseUrl)
-      );
-    }
+  if (!supabase) {
+    return NextResponse.redirect(
+      new URL("/settings/integrations/email?error=session_required", baseUrl)
+    );
+  }
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.redirect(
+      new URL("/settings/integrations/email?error=not_authenticated", baseUrl)
+    );
+  }
+  if (user.id !== userId) {
+    return NextResponse.redirect(
+      new URL("/settings/integrations/email?error=user_mismatch", baseUrl)
+    );
   }
 
   const admin = createSupabaseAdmin();

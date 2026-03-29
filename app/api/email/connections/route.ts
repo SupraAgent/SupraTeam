@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { decryptToken } from "@/lib/crypto";
+import { serverCache } from "@/lib/email/server-cache";
 
 /** GET: List user's connected email accounts */
 export async function GET() {
@@ -39,8 +40,19 @@ export async function DELETE(request: Request) {
     .eq("user_id", auth.user.id)
     .single();
 
-  // Revoke the Google OAuth token before deleting
-  if (conn?.access_token_encrypted) {
+  // Revoke Google OAuth tokens before deleting — revoking the refresh token
+  // also invalidates all associated access tokens
+  if (conn?.refresh_token_encrypted) {
+    try {
+      const token = decryptToken(conn.refresh_token_encrypted);
+      await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(token)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      });
+    } catch {
+      // Non-fatal — still delete the connection
+    }
+  } else if (conn?.access_token_encrypted) {
     try {
       const token = decryptToken(conn.access_token_encrypted);
       await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(token)}`, {
@@ -62,6 +74,9 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Failed to disconnect" }, { status: 500 });
   }
 
+  // Invalidate cached drivers for this user
+  serverCache.invalidatePrefix(`driver:${auth.user.id}:`);
+
   return NextResponse.json({ ok: true, source: "supabase" });
 }
 
@@ -75,6 +90,10 @@ export async function PATCH(request: Request) {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
+  }
+
+  if (!body.id) {
+    return NextResponse.json({ error: "id is required" }, { status: 400 });
   }
 
   // Remove default from all (check for errors)

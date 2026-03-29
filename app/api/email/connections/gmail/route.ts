@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { google } from "googleapis";
-import { createHmac } from "crypto";
+import { createHmac, timingSafeEqual } from "crypto";
 import { requireAuth } from "@/lib/auth-guard";
 import { rateLimit } from "@/lib/rate-limit";
 
@@ -36,7 +36,9 @@ export function verifyState(state: string): Record<string, unknown> | null {
     if (!key) return null;
     const { d, s } = JSON.parse(Buffer.from(state, "base64url").toString());
     const expected = createHmac("sha256", key).update(d).digest("base64url");
-    if (s !== expected) return null;
+    const a = Buffer.from(s);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
     return JSON.parse(d);
   } catch {
     return null;
