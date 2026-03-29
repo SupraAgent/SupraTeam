@@ -281,6 +281,7 @@ export default function PipelinePage() {
   }, [fetchData]);
 
   async function handleMoveDeal(dealId: string, newStageId: string) {
+    if (dealId.startsWith("sample-")) return;
     // Optimistic update
     setDeals((prev) =>
       prev.map((d) =>
@@ -347,6 +348,7 @@ export default function PipelinePage() {
 
   // Bulk actions
   function toggleSelectDeal(dealId: string) {
+    if (dealId.startsWith("sample-")) return;
     setSelectedDealIds((prev) => {
       const next = new Set(prev);
       next.has(dealId) ? next.delete(dealId) : next.add(dealId);
@@ -356,7 +358,7 @@ export default function PipelinePage() {
 
   function selectAllVisible() {
     const boardFiltered = board === "All" ? searchFiltered : searchFiltered.filter((d) => d.board_type === board);
-    setSelectedDealIds(new Set(boardFiltered.map((d) => d.id)));
+    setSelectedDealIds(new Set(boardFiltered.filter((d) => !d.id.startsWith("sample-")).map((d) => d.id)));
   }
 
   function clearSelection() {
@@ -414,6 +416,7 @@ export default function PipelinePage() {
   }
 
   async function handleQuickOutcome(dealId: string, outcome: string) {
+    if (dealId.startsWith("sample-")) return;
     const res = await fetch(`/api/deals/${dealId}/outcome`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -428,6 +431,7 @@ export default function PipelinePage() {
   }
 
   async function handleInlineEdit(dealId: string, field: string, val: number | null) {
+    if (dealId.startsWith("sample-")) return;
     const res = await fetch(`/api/deals/${dealId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
