@@ -19,7 +19,7 @@ const ShellContext = React.createContext<ShellContextValue | null>(null);
 
 export function ShellProvider({ children }: { children: React.ReactNode }) {
   const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = React.useState(false);
+  const [sidebarCollapsed, setSidebarCollapsedState] = React.useState(false);
   const [viewDensity, setViewDensityState] = React.useState<ViewDensity>("comfortable");
   const [crmRole, setCrmRole] = React.useState<string | null>(null);
 
@@ -29,6 +29,13 @@ export function ShellProvider({ children }: { children: React.ReactNode }) {
     if (saved === "compact" || saved === "comfortable" || saved === "spacious") {
       setViewDensityState(saved);
     }
+    const savedCollapsed = localStorage.getItem("supracrm:sidebar-collapsed");
+    if (savedCollapsed === "true") setSidebarCollapsedState(true);
+  }, []);
+
+  const setSidebarCollapsed = React.useCallback((v: boolean) => {
+    setSidebarCollapsedState(v);
+    localStorage.setItem("supracrm:sidebar-collapsed", String(v));
   }, []);
 
   const setViewDensity = React.useCallback((v: ViewDensity) => {
