@@ -13,6 +13,7 @@ import type {
 } from "@supra/loop-builder";
 import type { Node, Edge } from "@xyflow/react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { CRM_NODE_TYPES } from "./_lib/crm-node-types";
 import { CRM_PALETTE_ITEMS, CRM_NODE_TYPE_INFO } from "./_lib/crm-palette-items";
 import { CRM_NODE_EDITORS } from "./_lib/crm-node-editors";
@@ -366,6 +367,7 @@ function WorkflowManagerPanel({
 // ── Main Page ───────────────────────────────────────────────
 
 export default function Automations2Page() {
+  const searchParams = useSearchParams();
   const [activeWorkflowId, setActiveWorkflowId] = React.useState<string | null>(null);
   const [activeWorkflowName, setActiveWorkflowName] = React.useState("New Workflow");
   const [isActive, setIsActive] = React.useState(false);
@@ -524,6 +526,16 @@ export default function Automations2Page() {
       setSaveError("Network error loading workflow");
     }
   }, []);
+
+  // Auto-load workflow from URL query param (?workflow=uuid)
+  const loadedFromUrl = React.useRef(false);
+  React.useEffect(() => {
+    const workflowId = searchParams.get("workflow");
+    if (workflowId && !loadedFromUrl.current) {
+      loadedFromUrl.current = true;
+      handleLoad(workflowId);
+    }
+  }, [searchParams, handleLoad]);
 
   /** Toggle workflow active state */
   const handleToggleActive = React.useCallback(async () => {
