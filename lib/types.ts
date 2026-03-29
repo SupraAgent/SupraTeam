@@ -31,6 +31,11 @@ export type Contact = {
   wallet_address: string | null;
   wallet_chain: string | null;
   on_chain_score: number;
+  x_bio: string | null;
+  x_followers: number | null;
+  x_last_tweet_at: string | null;
+  enriched_at: string | null;
+  enrichment_source: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
