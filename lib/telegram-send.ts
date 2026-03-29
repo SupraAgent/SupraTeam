@@ -39,29 +39,78 @@ function refillChat(chatId: number) {
   bucket.lastRefill = now;
 }
 
+// ── Supabase-backed rate limiter (source of truth) ─────────
+// Calls the consume_rate_limit_token() RPC for atomic cross-instance limiting.
+// Falls back to in-memory only if DB is unavailable.
+
+async function consumeDbToken(bucketId: string, maxTokens: number, refillRate: number): Promise<boolean | null> {
+  try {
+    const supabase = createSupabaseAdmin();
+    if (!supabase) return null; // no DB available, fall back to memory
+
+    const { data, error } = await supabase.rpc("consume_rate_limit_token", {
+      bucket_id: bucketId,
+      p_max_tokens: maxTokens,
+      p_refill_rate: refillRate,
+    });
+
+    if (error) {
+      console.error("[rate-limit] DB RPC error, falling back to in-memory:", error.message);
+      return null;
+    }
+
+    return data as boolean;
+  } catch (err) {
+    console.error("[rate-limit] DB call failed, falling back to in-memory:", err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 // Serialize rate limit acquisition to prevent concurrent callers going negative
 let rateLimitQueue: Promise<void> = Promise.resolve();
 
 async function acquireRateLimit(chatId: number): Promise<void> {
   const acquire = async () => {
-    // Global bucket
+    // ── Fast path: in-memory check first (avoids DB round-trip when clearly OK) ──
     refillGlobal();
-    if (globalTokens < 1) {
-      const waitMs = Math.ceil((1 - globalTokens) / RATE_LIMIT.tokensPerSec * 1000);
-      await new Promise((r) => setTimeout(r, waitMs));
-      refillGlobal();
-    }
-    globalTokens -= 1;
-
-    // Per-chat bucket
     refillChat(chatId);
     const bucket = chatBuckets.get(chatId)!;
-    if (bucket.tokens < 1) {
-      const waitMs = Math.ceil((1 - bucket.tokens) / RATE_LIMIT.perChatPerMin * 60000);
-      await new Promise((r) => setTimeout(r, Math.min(waitMs, 3000))); // cap wait at 3s
-      refillChat(chatId);
+
+    const memoryGlobalOk = globalTokens >= 1;
+    const memoryChatOk = bucket.tokens >= 1;
+
+    // ── Source of truth: DB-backed limiter ──
+    // Per-chat refill rate: 20 tokens per 60 seconds = 1/3 tokens/sec
+    const dbGlobal = await consumeDbToken("global", RATE_LIMIT.maxTokens, RATE_LIMIT.tokensPerSec);
+    const dbChat = await consumeDbToken(`chat:${chatId}`, RATE_LIMIT.perChatPerMin, RATE_LIMIT.perChatPerMin / 60);
+
+    // Determine effective allow/deny. DB is authoritative when available.
+    const globalAllowed = dbGlobal ?? memoryGlobalOk;
+    const chatAllowed = dbChat ?? memoryChatOk;
+
+    if (!globalAllowed) {
+      // Wait for global bucket refill
+      const waitMs = Math.ceil((1 / RATE_LIMIT.tokensPerSec) * 1000);
+      await new Promise((r) => setTimeout(r, waitMs));
+      // Re-attempt DB consume after wait
+      const retry = await consumeDbToken("global", RATE_LIMIT.maxTokens, RATE_LIMIT.tokensPerSec);
+      if (retry === false) {
+        // Still denied — proceed anyway (best-effort, Telegram will 429 us)
+      }
     }
-    bucket.tokens -= 1;
+
+    if (!chatAllowed) {
+      const waitMs = Math.min(Math.ceil((1 / (RATE_LIMIT.perChatPerMin / 60)) * 1000), 3000);
+      await new Promise((r) => setTimeout(r, waitMs));
+      const retry = await consumeDbToken(`chat:${chatId}`, RATE_LIMIT.perChatPerMin, RATE_LIMIT.perChatPerMin / 60);
+      if (retry === false) {
+        // Still denied — proceed best-effort
+      }
+    }
+
+    // ── Keep in-memory state in sync (for fast-path accuracy) ──
+    if (globalAllowed || dbGlobal === null) globalTokens = Math.max(0, globalTokens - 1);
+    if (chatAllowed || dbChat === null) bucket.tokens = Math.max(0, bucket.tokens - 1);
 
     // Evict old chat buckets to prevent memory leak
     if (chatBuckets.size > 500) {
