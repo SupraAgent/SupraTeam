@@ -68,6 +68,7 @@ export function useThreads(options?: {
   const [loading, setLoading] = React.useState(true);
   const [nextPageToken, setNextPageToken] = React.useState<string>();
   const [error, setError] = React.useState<string>();
+  const [reconnect, setReconnect] = React.useState(false);
 
   const cacheKey = getListCacheKey(options?.labelIds, options?.query);
 
@@ -101,6 +102,7 @@ export function useThreads(options?: {
     }
 
     setError(undefined);
+    setReconnect(false);
     try {
       const params = new URLSearchParams();
       if (options?.labelIds?.length) params.set("labelIds", options.labelIds.join(","));
@@ -113,6 +115,7 @@ export function useThreads(options?: {
 
       if (!res.ok) {
         setError(json.error ?? "Failed to load");
+        setReconnect(!!json.reconnect);
         return;
       }
 
@@ -177,7 +180,7 @@ export function useThreads(options?: {
     return fetchThreads();
   }, [fetchThreads, cacheKey]);
 
-  return { threads, loading, error, nextPageToken, loadMore, refresh, setThreads };
+  return { threads, loading, error, reconnect, nextPageToken, loadMore, refresh, setThreads };
 }
 
 // ── Single thread — with cache ──────────────────────────────

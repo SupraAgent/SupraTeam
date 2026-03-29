@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { getDriverForUser } from "@/lib/email/driver";
+import { sanitizeEmailError } from "@/lib/email/errors";
 
 /** POST: Save a draft */
 export async function POST(request: Request) {
@@ -34,7 +35,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ data: draft, source: "gmail" });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Failed to save draft";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const { message, status, reconnect } = sanitizeEmailError(err, "Failed to save draft");
+    return NextResponse.json({ error: message, reconnect }, { status });
   }
 }

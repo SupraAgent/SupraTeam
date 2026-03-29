@@ -65,7 +65,7 @@ function EmailPageInner() {
   const [snoozeThreadId, setSnoozeThreadId] = React.useState<string | null>(null);
 
   // Data hooks
-  const { threads, loading, error, nextPageToken, loadMore, refresh, setThreads } = useThreads({
+  const { threads, loading, error, reconnect, nextPageToken, loadMore, refresh, setThreads } = useThreads({
     labelIds: searchQuery ? undefined : [activeLabel],
     query: searchQuery || undefined,
   });
@@ -406,8 +406,24 @@ function EmailPageInner() {
             </button>
           </div>
         ) : error ? (
-          <div className="px-3 py-2 text-xs text-red-400 border-b border-white/10">
-            {error}
+          <div className="mx-3 mt-2 rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3">
+            <p className="text-xs text-red-400">{error}</p>
+            <div className="flex items-center gap-2 mt-2">
+              <button
+                onClick={refresh}
+                className="rounded-lg bg-white/5 border border-white/10 px-3 py-1.5 text-[11px] font-medium text-foreground hover:bg-white/10 transition"
+              >
+                Retry
+              </button>
+              {reconnect && (
+                <button
+                  onClick={() => router.push("/settings/integrations/email")}
+                  className="rounded-lg bg-primary px-3 py-1.5 text-[11px] font-medium text-white hover:bg-primary/90 transition"
+                >
+                  Reconnect Gmail
+                </button>
+              )}
+            </div>
           </div>
         ) : null}
 
