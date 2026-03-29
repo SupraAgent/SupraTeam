@@ -75,6 +75,31 @@ const GMAIL_ERROR_PATTERNS: GmailErrorPattern[] = [
     status: 502,
     reconnect: false,
   },
+  // ── IMAP-specific errors (personal Gmail / App Password connections) ──
+  {
+    pattern: /AUTHENTICATIONFAILED|LOGIN failed/i,
+    message: "Gmail authentication failed. Please check your App Password in Settings.",
+    status: 401,
+    reconnect: true,
+  },
+  {
+    pattern: /ECONNREFUSED|ENOTFOUND/i,
+    message: "Could not connect to Gmail. Please check your internet connection.",
+    status: 503,
+    reconnect: false,
+  },
+  {
+    pattern: /ETIMEDOUT|ERR_SOCKET_TIMEOUT|socketTimeout/i,
+    message: "Connection to Gmail timed out. Please try again.",
+    status: 504,
+    reconnect: false,
+  },
+  {
+    pattern: /IMAP.*disabled|IMAP.*not.*enabled/i,
+    message: "IMAP access is disabled for this account. Enable it in Gmail Settings > Forwarding and POP/IMAP.",
+    status: 403,
+    reconnect: false,
+  },
 ];
 
 export interface SanitizedError {

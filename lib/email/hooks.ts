@@ -504,7 +504,13 @@ export function useGmailPush(onNewMail: () => void) {
     // Firing on every mount wastes API quota on page navigation.
     if (!sessionStorage.getItem("gmail_watch_registered")) {
       fetch("/api/email/watch", { method: "POST" })
-        .then((r) => { if (r.ok) sessionStorage.setItem("gmail_watch_registered", "1"); })
+        .then((r) => {
+          // Set flag on success OR non-retryable errors (4xx = not applicable / not supported).
+          // Only skip setting the flag on 5xx so those get retried on next navigation.
+          if (r.ok || r.status < 500) {
+            sessionStorage.setItem("gmail_watch_registered", "1");
+          }
+        })
         .catch(() => {});
     }
 
