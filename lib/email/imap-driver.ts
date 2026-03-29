@@ -33,6 +33,59 @@ interface ImapDriverConfig {
 const GMAIL_IMAP = { host: "imap.gmail.com", port: 993 };
 const GMAIL_SMTP = { host: "smtp.gmail.com", port: 465 };
 
+// ── Connection pool ──────────────────────────────────────
+const imapPool = new Map<string, { client: ImapFlow; timer: ReturnType<typeof setTimeout>; createdAt: number }>();
+const IMAP_POOL_TTL = 30_000;
+const IMAP_POOL_MAX = 20;
+
+function evictOldestPoolEntry(): void {
+  let oldestKey: string | null = null;
+  let oldestTime = Infinity;
+  for (const [key, entry] of imapPool) {
+    if (entry.createdAt < oldestTime) {
+      oldestTime = entry.createdAt;
+      oldestKey = key;
+    }
+  }
+  if (oldestKey) {
+    const entry = imapPool.get(oldestKey);
+    if (entry) {
+      clearTimeout(entry.timer);
+      entry.client.logout().catch(() => {});
+      imapPool.delete(oldestKey);
+    }
+  }
+}
+
+function returnToPool(key: string, client: ImapFlow): void {
+  // If pool is at capacity, evict oldest before adding
+  if (imapPool.size >= IMAP_POOL_MAX && !imapPool.has(key)) {
+    evictOldestPoolEntry();
+  }
+  const timer = setTimeout(() => {
+    const entry = imapPool.get(key);
+    if (entry) {
+      entry.client.logout().catch(() => {});
+      imapPool.delete(key);
+    }
+  }, IMAP_POOL_TTL);
+  // Unref so the timer doesn't keep the process alive
+  if (typeof timer === "object" && "unref" in timer) {
+    (timer as NodeJS.Timeout).unref();
+  }
+  imapPool.set(key, { client, timer, createdAt: Date.now() });
+}
+
+function destroyPoolEntry(key: string): void {
+  const entry = imapPool.get(key);
+  if (entry) {
+    clearTimeout(entry.timer);
+    entry.client.logout().catch(() => {});
+    try { entry.client.close(); } catch { /* already closed */ }
+    imapPool.delete(key);
+  }
+}
+
 // Gmail IMAP label → folder mapping
 const LABEL_TO_FOLDER: Record<string, string> = {
   INBOX: "INBOX",
@@ -63,6 +116,7 @@ export class ImapDriver implements MailDriver {
         pass: this.config.appPassword,
       },
       logger: false,
+      socketTimeout: 30_000,
     });
   }
 
@@ -75,17 +129,50 @@ export class ImapDriver implements MailDriver {
         user: this.config.email,
         pass: this.config.appPassword,
       },
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 30_000,
     });
   }
 
-  /** Run a callback with an IMAP connection, auto-closing after */
+  /** Run a callback with a pooled IMAP connection */
   private async withImap<T>(fn: (client: ImapFlow) => Promise<T>): Promise<T> {
-    const client = this.createImapClient();
-    await client.connect();
+    const poolKey = this.config.email;
+    const pooled = imapPool.get(poolKey);
+    let client: ImapFlow;
+    let fromPool = false;
+
+    if (pooled && pooled.client.usable) {
+      // Reuse pooled connection
+      clearTimeout(pooled.timer);
+      imapPool.delete(poolKey);
+      client = pooled.client;
+      fromPool = true;
+    } else {
+      // Clean up stale entry if present
+      if (pooled) {
+        destroyPoolEntry(poolKey);
+      }
+      client = this.createImapClient();
+      await client.connect();
+    }
+
     try {
-      return await fn(client);
-    } finally {
-      await client.logout().catch(() => {});
+      const result = await fn(client);
+      // Return to pool on success if still usable
+      if (client.usable) {
+        returnToPool(poolKey, client);
+      } else {
+        client.logout().catch(() => {});
+      }
+      return result;
+    } catch (err) {
+      // On error, destroy — don't return to pool
+      destroyPoolEntry(poolKey);
+      if (!fromPool) {
+        client.logout().catch(() => {});
+      }
+      throw err;
     }
   }
 
@@ -103,8 +190,15 @@ export class ImapDriver implements MailDriver {
         // Use Gmail search if query provided, otherwise fetch recent
         let uids: number[];
         if (params.query) {
-          // Gmail IMAP supports X-GM-RAW for native Gmail search
-          uids = await client.search({ gmRaw: params.query } as Record<string, unknown>)
+          // Standard IMAP search across subject, from, and to fields
+          const query = params.query;
+          uids = await client.search({
+            or: [
+              { subject: query },
+              { from: query },
+              { to: query },
+            ],
+          })
             .then((r) => (r as number[]).slice(-maxResults * 2).reverse())
             .catch(() => []);
         } else {
@@ -196,10 +290,10 @@ export class ImapDriver implements MailDriver {
 
   async getThread(threadId: string): Promise<Thread> {
     return this.withImap(async (client) => {
-      const lock = await client.getMailboxLock("INBOX");
+      // Search [Gmail]/All Mail first — it contains ALL messages regardless of label
+      let uids: number[] = [];
+      const lock = await client.getMailboxLock("[Gmail]/All Mail");
       try {
-        // Search for messages with this Gmail thread ID
-        let uids: number[];
         try {
           uids = await client.search({ threadId } as Record<string, unknown>)
             .then((r) => r as number[]);
@@ -207,14 +301,19 @@ export class ImapDriver implements MailDriver {
           // Fallback: treat threadId as UID
           uids = [parseInt(threadId, 10)];
         }
+      } finally {
+        lock.release();
+      }
 
-        if (uids.length === 0) {
-          // Try other folders
-          lock.release();
-          return this.getThreadFromAllFolders(client, threadId);
-        }
+      if (uids.length === 0) {
+        // Try INBOX and Sent Mail as fallback
+        return this.getThreadFromAllFolders(client, threadId);
+      }
 
-        const messages: Message[] = [];
+      // Fetch full messages from All Mail
+      const messages: Message[] = [];
+      const fetchLock = await client.getMailboxLock("[Gmail]/All Mail");
+      try {
         for await (const msg of client.fetch(uids, {
           uid: true,
           envelope: true,
@@ -223,44 +322,49 @@ export class ImapDriver implements MailDriver {
           threadId: true,
         }, { uid: true })) {
           const parsed = await this.parseSource(msg.source);
-          messages.push(this.parsedMailToMessage(parsed, String(msg.uid), threadId, (msg.flags ?? new Set<string>()) as Set<string>));
+          const flags = (msg.flags ?? new Set<string>()) as Set<string>;
+          messages.push(this.parsedMailToMessage(parsed, String(msg.uid), threadId, flags));
         }
-
-        messages.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-        if (messages.length === 0) {
-          throw new Error("Thread not found");
-        }
-
-        const allLabels = new Set<string>(["INBOX"]);
-        let isUnread = false;
-        let isStarred = false;
-        for (const m of messages) {
-          if (m.isUnread) isUnread = true;
-        }
-
-        return {
-          id: threadId,
-          subject: messages[0].subject,
-          snippet: messages[messages.length - 1].bodyText.slice(0, 200),
-          from: messages.map((m) => m.from),
-          to: messages[0].to,
-          messages,
-          labelIds: Array.from(allLabels),
-          isUnread,
-          isStarred,
-          lastMessageAt: messages[messages.length - 1].date,
-          messageCount: messages.length,
-        };
       } finally {
-        lock.release();
+        fetchLock.release();
       }
+
+      messages.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+      if (messages.length === 0) {
+        throw new Error("Thread not found");
+      }
+
+      let isUnread = false;
+      let isStarred = false;
+      for (const m of messages) {
+        if (m.isUnread) isUnread = true;
+        if (!isStarred) {
+          // Check raw flags from the parsed message — isUnread uses \\Seen,
+          // but we need to check \\Flagged which isn't exposed on Message type.
+          // For now, leave isStarred from the thread-level detection.
+        }
+      }
+
+      return {
+        id: threadId,
+        subject: messages[0].subject,
+        snippet: messages[messages.length - 1].bodyText.slice(0, 200),
+        from: messages.map((m) => m.from),
+        to: messages[0].to,
+        messages,
+        labelIds: [],
+        isUnread,
+        isStarred,
+        lastMessageAt: messages[messages.length - 1].date,
+        messageCount: messages.length,
+      };
     });
   }
 
   private async getThreadFromAllFolders(client: ImapFlow, threadId: string): Promise<Thread> {
-    // Search across common folders
-    for (const folder of ["INBOX", "[Gmail]/Sent Mail", "[Gmail]/All Mail"]) {
+    // Search INBOX and Sent Mail (All Mail already searched by getThread caller)
+    for (const folder of ["INBOX", "[Gmail]/Sent Mail"]) {
       try {
         const lock = await client.getMailboxLock(folder);
         try {
@@ -375,8 +479,7 @@ export class ImapDriver implements MailDriver {
   }
 
   async modifyLabels(_threadId: string, _add: string[], _remove: string[]): Promise<void> {
-    // Gmail IMAP labels are mapped to folders — moving between folders is complex.
-    // For now, this is a no-op. Full label support requires IMAP MOVE operations.
+    throw new Error("Label modification is not yet supported for personal Gmail connections. Use the Gmail web interface to manage labels.");
   }
 
   async send(params: SendParams): Promise<Message> {
@@ -453,10 +556,24 @@ export class ImapDriver implements MailDriver {
   }
 
   async forward(messageId: string, params: ForwardParams): Promise<Message> {
-    // For IMAP, messageId is the UID — we need to fetch the original
-    const thread = await this.getThread(messageId);
-    const original = thread.messages[0];
-    if (!original) throw new Error("Message not found");
+    // Fetch the specific message by UID, not the whole thread
+    const original = await this.withImap(async (client) => {
+      const lock = await client.getMailboxLock("[Gmail]/All Mail");
+      try {
+        for await (const msg of client.fetch([parseInt(messageId, 10)], {
+          uid: true,
+          envelope: true,
+          flags: true,
+          source: true,
+        }, { uid: true })) {
+          const parsed = await this.parseSource(msg.source);
+          return this.parsedMailToMessage(parsed, String(msg.uid), "", (msg.flags ?? new Set<string>()) as Set<string>);
+        }
+        throw new Error("Message not found");
+      } finally {
+        lock.release();
+      }
+    });
 
     const { sanitizeTemplateHtml } = await import("./sanitize");
     const sanitizedBody = sanitizeTemplateHtml(original.body);
@@ -476,29 +593,30 @@ export class ImapDriver implements MailDriver {
   }
 
   async createDraft(params: DraftParams): Promise<Draft> {
-    // Append to Drafts folder via IMAP
-    const transport = this.createSmtpTransport();
     const formatAddr = (a: EmailAddress) =>
       a.name ? `"${a.name}" <${a.email}>` : a.email;
 
-    const mailOptions = {
+    // Build raw RFC822 message using nodemailer's MailComposer (does NOT send)
+    const MailComposer = (await import("nodemailer/lib/mail-composer")).default;
+    const composer = new MailComposer({
       from: this.config.email,
       to: params.to.map(formatAddr).join(", "),
       cc: params.cc?.map(formatAddr).join(", "),
       subject: params.subject,
       html: params.body,
       text: params.bodyText || params.body.replace(/<[^>]+>/g, ""),
-    };
+    });
+    const rawMessage = await composer.compile().build();
 
-    // Build raw message using nodemailer
-    const rawMessage = await transport.sendMail({
-      ...mailOptions,
-      // Don't actually send — get the raw message
-      dryRun: true,
-    } as nodemailer.SendMailOptions).catch(() => null);
+    // Append to [Gmail]/Drafts via IMAP
+    const draftId = await this.withImap(async (client) => {
+      const result = await client.append("[Gmail]/Drafts", rawMessage, ["\\Draft", "\\Seen"]);
+      if (result && typeof result === "object" && "uid" in result) {
+        return String((result as { uid: number }).uid);
+      }
+      return crypto.randomUUID();
+    });
 
-    // Fallback: just create a minimal draft message
-    const draftId = crypto.randomUUID();
     const message: Message = {
       id: draftId,
       threadId: draftId,
@@ -513,17 +631,6 @@ export class ImapDriver implements MailDriver {
       attachments: [],
       isUnread: false,
     };
-
-    // If we got a raw message, try to append it to [Gmail]/Drafts via IMAP
-    if (rawMessage) {
-      try {
-        await this.withImap(async (client) => {
-          await client.append("[Gmail]/Drafts", rawMessage.toString(), ["\\Draft"]);
-        });
-      } catch {
-        // Draft creation via IMAP failed — still return the draft object
-      }
-    }
 
     return { id: draftId, message };
   }
@@ -552,7 +659,7 @@ export class ImapDriver implements MailDriver {
 
   async getAttachment(messageId: string, attachmentId: string): Promise<Attachment> {
     return this.withImap(async (client) => {
-      const lock = await client.getMailboxLock("INBOX");
+      const lock = await client.getMailboxLock("[Gmail]/All Mail");
       try {
         const uid = parseInt(messageId, 10);
         for await (const msg of client.fetch([uid], { source: true }, { uid: true })) {
@@ -577,11 +684,35 @@ export class ImapDriver implements MailDriver {
   }
 
   async getProfile(): Promise<EmailProfile> {
-    const name = this.config.email.split("@")[0]?.replace(/[._]/g, " ") ?? this.config.email;
-    return {
-      email: this.config.email,
-      name,
-    };
+    // Try to get real display name from Sent Mail
+    try {
+      return await this.withImap(async (client) => {
+        const lock = await client.getMailboxLock("[Gmail]/Sent Mail");
+        try {
+          const uids = await client.search({ from: this.config.email })
+            .then((r) => (r as number[]).slice(-1))
+            .catch(() => [] as number[]);
+          if (uids.length > 0) {
+            for await (const msg of client.fetch(uids, { envelope: true }, { uid: true })) {
+              const from = (msg.envelope as Record<string, unknown>)?.from as AddressObject[] | undefined;
+              const val = from?.[0]?.value?.[0];
+              if (val?.name) {
+                return { email: this.config.email, name: val.name };
+              }
+            }
+          }
+        } finally {
+          lock.release();
+        }
+        // Fallback: derive from email
+        const name = this.config.email.split("@")[0]?.replace(/[._]/g, " ") ?? this.config.email;
+        return { email: this.config.email, name };
+      });
+    } catch {
+      // If IMAP fails, use email-derived name
+      const name = this.config.email.split("@")[0]?.replace(/[._]/g, " ") ?? this.config.email;
+      return { email: this.config.email, name };
+    }
   }
 
   /** Parse IMAP message source into ParsedMail, handling type overloads */

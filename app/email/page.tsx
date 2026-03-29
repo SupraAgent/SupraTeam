@@ -398,22 +398,33 @@ function EmailPageInner() {
         )}
 
         {noConnection ? (
-          <div className="mx-3 mt-2 flex items-center gap-2 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 text-sm text-primary">
-            <MailPlusIcon className="h-4 w-4 shrink-0" />
-            <span className="flex-1">No email connection found.</span>
-            <button
-              onClick={async () => {
-                try {
-                  const res = await fetch("/api/email/connections/gmail", { method: "POST" });
-                  const json = await res.json();
-                  if (json.url) window.location.href = json.url;
-                  else toast.error(json.error ?? "Failed to start Gmail OAuth");
-                } catch { toast.error("Failed to connect Gmail"); }
-              }}
-              className="shrink-0 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary/90 transition"
-            >
-              Connect Gmail
-            </button>
+          <div className="mx-3 mt-2 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3">
+            <div className="flex items-center gap-2 text-sm text-primary">
+              <MailPlusIcon className="h-4 w-4 shrink-0" />
+              <span className="flex-1">No email connection found. Connect your Gmail to get started.</span>
+            </div>
+            <div className="flex items-center gap-2 mt-3">
+              <button
+                onClick={async () => {
+                  try {
+                    const res = await fetch("/api/email/connections/gmail", { method: "POST" });
+                    const json = await res.json();
+                    if (json.url) window.location.href = json.url;
+                    else toast.error(json.error ?? "Failed to start Gmail OAuth");
+                  } catch { toast.error("Failed to connect Gmail"); }
+                }}
+                className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary/90 transition"
+              >
+                Connect Gmail
+              </button>
+              <button
+                onClick={() => router.push("/settings/integrations/email")}
+                className="rounded-lg bg-white/5 border border-white/10 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-white/10 transition"
+              >
+                Personal Gmail
+              </button>
+              <span className="text-[10px] text-muted-foreground">Use App Password — no admin required</span>
+            </div>
           </div>
         ) : error ? (
           <div className="mx-3 mt-2 rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3">
@@ -433,6 +444,12 @@ function EmailPageInner() {
                   Reconnect Gmail
                 </button>
               )}
+              <button
+                onClick={() => router.push("/settings/integrations/email")}
+                className="rounded-lg bg-white/5 border border-white/10 px-3 py-1.5 text-[11px] font-medium text-foreground hover:bg-white/10 transition"
+              >
+                Try Personal Gmail
+              </button>
             </div>
           </div>
         ) : null}

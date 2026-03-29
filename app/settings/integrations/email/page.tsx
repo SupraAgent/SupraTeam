@@ -79,9 +79,11 @@ export default function EmailSettingsPage() {
         fetchConnections();
       } else {
         setPersonalError(json.error ?? "Failed to connect");
+        setPersonalAppPassword("");
       }
     } catch {
       setPersonalError("Connection failed. Please try again.");
+      setPersonalAppPassword("");
     } finally {
       setPersonalConnecting(false);
     }
@@ -151,7 +153,14 @@ export default function EmailSettingsPage() {
             <Button
               size="default"
               variant="outline"
-              onClick={() => setShowPersonalForm(!showPersonalForm)}
+              onClick={() => {
+                const next = !showPersonalForm;
+                setShowPersonalForm(next);
+                if (!next) {
+                  setPersonalAppPassword("");
+                  setPersonalError("");
+                }
+              }}
               className="px-5 py-2.5 text-sm w-full sm:w-auto"
             >
               <PersonalMailIcon className="h-5 w-5 mr-2" />
