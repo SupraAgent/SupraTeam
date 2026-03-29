@@ -17,12 +17,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "sequence_id, deal_id, and contact_id required" }, { status: 400 });
   }
 
-  // Check if already enrolled and active
+  // Check if already enrolled and active (by this user)
   const { data: existing } = await auth.admin
     .from("crm_email_sequence_enrollments")
     .select("id, status")
     .eq("sequence_id", body.sequence_id)
     .eq("contact_id", body.contact_id)
+    .eq("enrolled_by", auth.user.id)
     .eq("status", "active")
     .limit(1);
 
@@ -30,11 +31,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Contact is already enrolled in this sequence" }, { status: 409 });
   }
 
-  // Get sequence to calculate first send time
+  // Get sequence to calculate first send time — verify ownership
   const { data: sequence, error: seqErr } = await auth.admin
     .from("crm_email_sequences")
     .select("steps")
     .eq("id", body.sequence_id)
+    .eq("created_by", auth.user.id)
     .single();
 
   if (seqErr || !sequence) {

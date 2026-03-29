@@ -13,6 +13,7 @@ export async function GET(request: Request) {
   let query = auth.admin
     .from("crm_email_tracking_events")
     .select("*")
+    .eq("user_id", auth.user.id)
     .order("opened_at", { ascending: false });
 
   if (trackingId) {

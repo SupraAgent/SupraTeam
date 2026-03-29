@@ -36,8 +36,8 @@ export async function GET(request: Request, { params }: Params) {
       headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" },
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Failed to fetch thread";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[email/threads] fetch error:", err);
+    return NextResponse.json({ error: "Failed to fetch thread" }, { status: 500 });
   }
 }
 
@@ -81,7 +81,7 @@ export async function POST(request: Request, { params }: Params) {
         );
         break;
       default:
-        return NextResponse.json({ error: `Unknown action: ${body.action}` }, { status: 400 });
+        return NextResponse.json({ error: "Unknown action" }, { status: 400 });
     }
 
     // Invalidate server-side caches after mutation
@@ -99,7 +99,7 @@ export async function POST(request: Request, { params }: Params) {
 
     return NextResponse.json({ ok: true, source: "gmail" });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Action failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[email/threads] action error:", err);
+    return NextResponse.json({ error: "Action failed" }, { status: 500 });
   }
 }

@@ -32,7 +32,7 @@ export async function POST() {
 
     return NextResponse.json({ data: result, source: "gmail" });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Watch registration failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[email/watch] error:", err);
+    return NextResponse.json({ error: "Watch registration failed" }, { status: 500 });
   }
 }

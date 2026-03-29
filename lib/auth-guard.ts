@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { createHmac } from "crypto";
 import { createClient } from "@/lib/supabase/server";
 import { createSupabaseAdmin } from "@/lib/supabase";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
@@ -38,12 +39,15 @@ export async function requireAuth(): Promise<AuthResult> {
     return { error: NextResponse.json({ error: "Supabase not configured" }, { status: 503 }) };
   }
 
-  // Dev access bypass — disabled in production
+  // Dev access bypass — disabled in production, validates cookie against password
   if (process.env.DEV_ACCESS_PASSWORD && process.env.NODE_ENV !== "production") {
     const cookieStore = await cookies();
-    if (cookieStore.get("dev-auth")?.value === "true") {
-      // In dev mode the scoped client is also admin (no real JWT)
-      return { user: DEV_USER, supabase: admin, admin };
+    const devCookie = cookieStore.get("dev-auth")?.value;
+    if (devCookie) {
+      const expected = createHmac("sha256", process.env.DEV_ACCESS_PASSWORD).update("dev-auth").digest("hex");
+      if (devCookie === expected) {
+        return { user: DEV_USER, supabase: admin, admin };
+      }
     }
   }
 
