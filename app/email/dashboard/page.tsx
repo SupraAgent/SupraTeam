@@ -16,6 +16,7 @@ import { EmailTagsPanel } from "@/components/email/dashboard/email-tags-panel";
 import { OutreachQueuePanel } from "@/components/email/dashboard/outreach-queue-panel";
 import { MetricsStripPanel } from "@/components/email/dashboard/metrics-strip-panel";
 import { ActivityFeedPanel } from "@/components/email/dashboard/activity-feed-panel";
+import { BroadcastComposerPanel } from "@/components/email/dashboard/broadcast-composer-panel";
 import { Mail, LayoutDashboard, Plus, ArrowLeft } from "lucide-react";
 import type { PanelId } from "@/lib/plugins/types";
 
@@ -57,6 +58,8 @@ export default function EmailDashboardPage() {
         return <MetricsStripPanel />;
       case "activity-feed":
         return <ActivityFeedPanel />;
+      case "broadcast-composer":
+        return <BroadcastComposerPanel />;
       default:
         return <PlaceholderPanel panelId={panelId} />;
     }
