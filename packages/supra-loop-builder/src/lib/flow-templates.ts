@@ -9,7 +9,7 @@ export type FlowTemplate = {
   id: string;
   name: string;
   description: string;
-  category: "team" | "app" | "benchmark" | "scoring" | "improve" | "workflow" | "custom";
+  category: "crm" | "telegram" | "email" | "benchmark" | "scoring" | "improve" | "workflow" | "custom";
   nodes: Node[];
   edges: Edge[];
   createdAt: string;
@@ -93,7 +93,7 @@ export type StepNodeData = {
   subtitle: string;
   status: "pending" | "active" | "completed";
   summary: string;
-  flowCategory: "team" | "app" | "benchmark" | "scoring" | "improve";
+  flowCategory: "crm" | "telegram" | "email" | "benchmark" | "scoring" | "improve";
 };
 
 export type ConsensusNodeData = {
@@ -176,12 +176,12 @@ export type RescoreNodeData = {
 // ── Built-in Templates ──────────────────────────────────────────
 
 export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
-  // ── TEAM templates ──
+  // ── WORKFLOW templates (formerly team) ──
   {
     id: "team-balanced",
     name: "Balanced Team",
     description: "5 personas with balanced vote weights — product, eng, design, growth, QA",
-    category: "team",
+    category: "workflow",
     isBuiltIn: true,
     createdAt: "2026-01-01",
     nodes: [
@@ -204,7 +204,7 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
     id: "team-design-led",
     name: "Design-Led Team",
     description: "Design-heavy weighting — ideal for consumer apps where UX is the differentiator",
-    category: "team",
+    category: "workflow",
     isBuiltIn: true,
     createdAt: "2026-01-01",
     nodes: [
@@ -227,7 +227,7 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
     id: "team-eng-heavy",
     name: "Eng-Heavy Team",
     description: "Engineering-weighted — ideal for infrastructure, developer tools, or performance-critical apps",
-    category: "team",
+    category: "workflow",
     isBuiltIn: true,
     createdAt: "2026-01-01",
     nodes: [
@@ -252,7 +252,7 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
     id: "app-saas",
     name: "SaaS Product",
     description: "Standard SaaS app structure with auth, dashboard, billing, and team features",
-    category: "app",
+    category: "workflow",
     isBuiltIn: true,
     createdAt: "2026-01-01",
     nodes: [
@@ -274,7 +274,7 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
     id: "app-mobile",
     name: "Mobile-First App",
     description: "Mobile-optimized app structure focused on onboarding and performance",
-    category: "app",
+    category: "workflow",
     isBuiltIn: true,
     createdAt: "2026-01-01",
     nodes: [
@@ -369,7 +369,7 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
     id: "crm-deal-pipeline",
     name: "Deal Pipeline Automation",
     description: "Automate deal stage changes: trigger on move -> notify Telegram group -> update contact status -> log to history",
-    category: "workflow",
+    category: "crm",
     isBuiltIn: true,
     createdAt: "2026-03-30",
     nodes: [
@@ -393,7 +393,7 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
     id: "crm-lead-qualification",
     name: "Lead Qualification",
     description: "AI-powered lead scoring: new contact -> enrich with Claude -> score fit -> route to BD, Marketing, or Admin board",
-    category: "workflow",
+    category: "crm",
     isBuiltIn: true,
     createdAt: "2026-03-30",
     nodes: [
@@ -417,7 +417,7 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
     id: "crm-tg-broadcast",
     name: "TG Broadcast Flow",
     description: "Targeted Telegram broadcasts: select slug -> filter groups -> personalize with merge vars -> send via bot -> log delivery",
-    category: "workflow",
+    category: "telegram",
     isBuiltIn: true,
     createdAt: "2026-03-30",
     nodes: [
@@ -441,7 +441,7 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
     id: "crm-outreach-sequence",
     name: "Outreach Sequence",
     description: "Multi-step outreach: new deal -> send intro -> wait -> follow up -> check response -> escalate or close",
-    category: "workflow",
+    category: "crm",
     isBuiltIn: true,
     createdAt: "2026-03-30",
     nodes: [
@@ -466,7 +466,7 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
     id: "crm-slug-access",
     name: "Slug Access Control",
     description: "Automate TG group access: deal stage change -> check slug permissions -> bulk add/remove users -> audit log",
-    category: "workflow",
+    category: "crm",
     isBuiltIn: true,
     createdAt: "2026-03-30",
     nodes: [
@@ -490,7 +490,7 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
     id: "crm-daily-digest",
     name: "Daily Pipeline Digest",
     description: "Daily summary: schedule -> query deals by board -> AI summarize activity -> send digest to each board's TG group",
-    category: "workflow",
+    category: "crm",
     isBuiltIn: true,
     createdAt: "2026-03-30",
     nodes: [
@@ -507,6 +507,148 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
       { id: "e3", source: "query-bd", target: "summarize", type: "smoothstep", animated: true },
       { id: "e4", source: "query-mkt", target: "summarize", type: "smoothstep", animated: true },
       { id: "e5", source: "summarize", target: "send", type: "smoothstep", animated: true },
+    ],
+  },
+
+  // ── TELEGRAM templates ──
+  {
+    id: "tg-new-member-welcome",
+    name: "New Member Welcome",
+    description: "Auto-welcome new TG group members: detect join -> check if contact exists -> personalize greeting -> send welcome message",
+    category: "telegram",
+    isBuiltIn: true,
+    createdAt: "2026-03-30",
+    nodes: [
+      { id: "trigger", type: "triggerNode", position: { x: 0, y: 200 }, data: { label: "Member Joined", triggerType: "event", config: "telegram.member_joined" } },
+      { id: "lookup", type: "transformNode", position: { x: 300, y: 200 }, data: { label: "Lookup Contact", transformType: "extract", expression: "crm_contacts WHERE telegram_id = event.user.id" } },
+      { id: "condition", type: "conditionNode", position: { x: 600, y: 200 }, data: { label: "Known Contact?", condition: "contact != null" } },
+      { id: "personalize", type: "llmNode", position: { x: 900, y: 100 }, data: { label: "Personal Welcome", provider: "claude", model: "claude-sonnet-4-5-20250514", systemPrompt: "Generate a warm, personalized welcome message for {{contact.name}} who works at {{contact.company}}. Keep it under 200 chars.", temperature: 0.7, maxTokens: 256 } },
+      { id: "generic", type: "outputNode", position: { x: 900, y: 350 }, data: { label: "Generic Welcome", outputType: "notify", destination: "telegram://group" } },
+      { id: "send", type: "outputNode", position: { x: 1200, y: 100 }, data: { label: "Send Welcome", outputType: "notify", destination: "telegram://group" } },
+    ],
+    edges: [
+      { id: "e1", source: "trigger", target: "lookup", type: "smoothstep", animated: true },
+      { id: "e2", source: "lookup", target: "condition", type: "smoothstep", animated: true },
+      { id: "e3", source: "condition", target: "personalize", type: "smoothstep", animated: true, label: "Yes" },
+      { id: "e4", source: "condition", target: "generic", type: "smoothstep", animated: true, label: "No" },
+      { id: "e5", source: "personalize", target: "send", type: "smoothstep", animated: true },
+    ],
+  },
+  {
+    id: "tg-keyword-capture",
+    name: "Keyword Lead Capture",
+    description: "Monitor TG groups for keywords -> extract lead info -> create CRM contact -> notify BD team",
+    category: "telegram",
+    isBuiltIn: true,
+    createdAt: "2026-03-30",
+    nodes: [
+      { id: "trigger", type: "triggerNode", position: { x: 0, y: 200 }, data: { label: "Message Received", triggerType: "event", config: "telegram.message" } },
+      { id: "filter", type: "conditionNode", position: { x: 300, y: 200 }, data: { label: "Has Keywords?", condition: "message matches /partnership|integrate|listing|collaborate/i" } },
+      { id: "extract", type: "llmNode", position: { x: 600, y: 200 }, data: { label: "Extract Lead Info", provider: "claude", model: "claude-sonnet-4-5-20250514", systemPrompt: "Extract: name, company, intent, urgency (1-5) from this TG message. Return JSON.", temperature: 0.3, maxTokens: 512 } },
+      { id: "create", type: "outputNode", position: { x: 900, y: 100 }, data: { label: "Create Contact", outputType: "api", destination: "POST /api/contacts" } },
+      { id: "notify", type: "outputNode", position: { x: 900, y: 350 }, data: { label: "Notify BD", outputType: "notify", destination: "telegram://bd_team" } },
+    ],
+    edges: [
+      { id: "e1", source: "trigger", target: "filter", type: "smoothstep", animated: true },
+      { id: "e2", source: "filter", target: "extract", type: "smoothstep", animated: true, label: "Match" },
+      { id: "e3", source: "extract", target: "create", type: "smoothstep", animated: true },
+      { id: "e4", source: "extract", target: "notify", type: "smoothstep", animated: true },
+    ],
+  },
+  {
+    id: "tg-sentiment-alert",
+    name: "Sentiment Alert",
+    description: "Monitor TG group sentiment: analyze messages -> detect negative trends -> alert team -> suggest response",
+    category: "telegram",
+    isBuiltIn: true,
+    createdAt: "2026-03-30",
+    nodes: [
+      { id: "trigger", type: "triggerNode", position: { x: 0, y: 200 }, data: { label: "Every 4 Hours", triggerType: "schedule", config: "0 */4 * * *" } },
+      { id: "fetch", type: "transformNode", position: { x: 300, y: 200 }, data: { label: "Recent Messages", transformType: "extract", expression: "tg_messages WHERE created_at > now() - 4h GROUP BY group_id" } },
+      { id: "analyze", type: "llmNode", position: { x: 600, y: 200 }, data: { label: "Sentiment Analysis", provider: "claude", model: "claude-sonnet-4-5-20250514", systemPrompt: "Analyze sentiment of these TG messages. Return: overall_score (-1 to 1), negative_topics[], requires_attention (bool), suggested_response if negative.", temperature: 0.3, maxTokens: 1024 } },
+      { id: "check", type: "conditionNode", position: { x: 900, y: 200 }, data: { label: "Needs Attention?", condition: "requires_attention == true" } },
+      { id: "alert", type: "outputNode", position: { x: 1200, y: 100 }, data: { label: "Alert Team", outputType: "notify", destination: "telegram://admin_group" } },
+      { id: "log", type: "outputNode", position: { x: 1200, y: 350 }, data: { label: "Log Sentiment", outputType: "log", destination: "sentiment_history" } },
+    ],
+    edges: [
+      { id: "e1", source: "trigger", target: "fetch", type: "smoothstep", animated: true },
+      { id: "e2", source: "fetch", target: "analyze", type: "smoothstep", animated: true },
+      { id: "e3", source: "analyze", target: "check", type: "smoothstep", animated: true },
+      { id: "e4", source: "check", target: "alert", type: "smoothstep", animated: true, label: "Yes" },
+      { id: "e5", source: "check", target: "log", type: "smoothstep", animated: true, label: "No" },
+    ],
+  },
+
+  // ── EMAIL templates ──
+  {
+    id: "email-welcome-drip",
+    name: "Welcome Drip Sequence",
+    description: "Automated welcome email series: new contact -> Day 0 intro -> Day 3 value prop -> Day 7 case study -> Day 14 CTA",
+    category: "email",
+    isBuiltIn: true,
+    createdAt: "2026-03-30",
+    nodes: [
+      { id: "trigger", type: "triggerNode", position: { x: 0, y: 200 }, data: { label: "New Contact", triggerType: "event", config: "contact.created" } },
+      { id: "email1", type: "outputNode", position: { x: 300, y: 200 }, data: { label: "Day 0: Welcome", outputType: "notify", destination: "email://welcome_template" } },
+      { id: "delay1", type: "delayNode", position: { x: 600, y: 200 }, data: { label: "Wait 3 Days", duration: 259200 } },
+      { id: "email2", type: "outputNode", position: { x: 900, y: 200 }, data: { label: "Day 3: Value Prop", outputType: "notify", destination: "email://value_template" } },
+      { id: "delay2", type: "delayNode", position: { x: 1200, y: 200 }, data: { label: "Wait 4 Days", duration: 345600 } },
+      { id: "email3", type: "outputNode", position: { x: 1500, y: 200 }, data: { label: "Day 7: Case Study", outputType: "notify", destination: "email://case_study_template" } },
+      { id: "delay3", type: "delayNode", position: { x: 1800, y: 200 }, data: { label: "Wait 7 Days", duration: 604800 } },
+      { id: "email4", type: "outputNode", position: { x: 2100, y: 200 }, data: { label: "Day 14: CTA", outputType: "notify", destination: "email://cta_template" } },
+    ],
+    edges: [
+      { id: "e1", source: "trigger", target: "email1", type: "smoothstep", animated: true },
+      { id: "e2", source: "email1", target: "delay1", type: "smoothstep", animated: true },
+      { id: "e3", source: "delay1", target: "email2", type: "smoothstep", animated: true },
+      { id: "e4", source: "email2", target: "delay2", type: "smoothstep", animated: true },
+      { id: "e5", source: "delay2", target: "email3", type: "smoothstep", animated: true },
+      { id: "e6", source: "email3", target: "delay3", type: "smoothstep", animated: true },
+      { id: "e7", source: "delay3", target: "email4", type: "smoothstep", animated: true },
+    ],
+  },
+  {
+    id: "email-deal-stage-notify",
+    name: "Deal Stage Email Alerts",
+    description: "Email notifications on deal progress: stage change -> check stage -> send appropriate email to stakeholders",
+    category: "email",
+    isBuiltIn: true,
+    createdAt: "2026-03-30",
+    nodes: [
+      { id: "trigger", type: "triggerNode", position: { x: 0, y: 200 }, data: { label: "Deal Stage Changed", triggerType: "event", config: "deal.stage_changed" } },
+      { id: "check", type: "conditionNode", position: { x: 300, y: 200 }, data: { label: "Which Stage?", condition: "stage.position >= 4" } },
+      { id: "compose-high", type: "llmNode", position: { x: 600, y: 100 }, data: { label: "High-Priority Email", provider: "claude", model: "claude-sonnet-4-5-20250514", systemPrompt: "Compose a professional email update for leadership about {{deal.name}} reaching {{stage.name}}. Include deal value, next steps, and timeline. Keep concise.", temperature: 0.5, maxTokens: 512 } },
+      { id: "compose-update", type: "llmNode", position: { x: 600, y: 350 }, data: { label: "Team Update Email", provider: "claude", model: "claude-sonnet-4-5-20250514", systemPrompt: "Compose a brief team update email about {{deal.name}} moving to {{stage.name}}. Include key details and any action items.", temperature: 0.5, maxTokens: 512 } },
+      { id: "send-leadership", type: "outputNode", position: { x: 900, y: 100 }, data: { label: "Email Leadership", outputType: "notify", destination: "email://leadership_list" } },
+      { id: "send-team", type: "outputNode", position: { x: 900, y: 350 }, data: { label: "Email Team", outputType: "notify", destination: "email://bd_team_list" } },
+    ],
+    edges: [
+      { id: "e1", source: "trigger", target: "check", type: "smoothstep", animated: true },
+      { id: "e2", source: "check", target: "compose-high", type: "smoothstep", animated: true, label: "Advanced" },
+      { id: "e3", source: "check", target: "compose-update", type: "smoothstep", animated: true, label: "Early" },
+      { id: "e4", source: "compose-high", target: "send-leadership", type: "smoothstep", animated: true },
+      { id: "e5", source: "compose-update", target: "send-team", type: "smoothstep", animated: true },
+    ],
+  },
+  {
+    id: "email-weekly-report",
+    name: "Weekly Pipeline Report",
+    description: "Automated weekly email report: schedule -> aggregate pipeline metrics -> AI summary -> send to stakeholders",
+    category: "email",
+    isBuiltIn: true,
+    createdAt: "2026-03-30",
+    nodes: [
+      { id: "trigger", type: "triggerNode", position: { x: 0, y: 200 }, data: { label: "Every Monday 8am", triggerType: "schedule", config: "0 8 * * 1" } },
+      { id: "metrics", type: "transformNode", position: { x: 300, y: 200 }, data: { label: "Pipeline Metrics", transformType: "extract", expression: "deals GROUP BY stage, board — count, total_value, avg_days_in_stage" } },
+      { id: "compose", type: "llmNode", position: { x: 600, y: 200 }, data: { label: "AI Report Writer", provider: "claude", model: "claude-sonnet-4-5-20250514", systemPrompt: "Generate a professional weekly pipeline report email. Include: executive summary, deals by stage, week-over-week changes, top deals to watch, and recommended actions. Use tables and bullet points.", temperature: 0.4, maxTokens: 2048 } },
+      { id: "send", type: "outputNode", position: { x: 900, y: 200 }, data: { label: "Email Report", outputType: "notify", destination: "email://weekly_report_list" } },
+      { id: "archive", type: "outputNode", position: { x: 900, y: 400 }, data: { label: "Archive Report", outputType: "file", destination: "reports/weekly/" } },
+    ],
+    edges: [
+      { id: "e1", source: "trigger", target: "metrics", type: "smoothstep", animated: true },
+      { id: "e2", source: "metrics", target: "compose", type: "smoothstep", animated: true },
+      { id: "e3", source: "compose", target: "send", type: "smoothstep", animated: true },
+      { id: "e4", source: "compose", target: "archive", type: "smoothstep", animated: true },
     ],
   },
 
@@ -693,7 +835,7 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
     id: "affinity-graph",
     name: "Persona-Category Affinity",
     description: "Bipartite graph — personas on the left, scoring categories on the right, edges weighted by domain expertise",
-    category: "team",
+    category: "workflow",
     isBuiltIn: true,
     createdAt: "2026-01-01",
     nodes: [
