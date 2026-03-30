@@ -389,18 +389,6 @@ function EmailPageInner() {
 
   // ── Render ───────────────────────────────────────────────
 
-  // Active connection for display
-  const activeConnection = connections.find((c) => c.id === activeConnectionId);
-
-  function switchAccount(connectionId: string) {
-    setActiveConnectionId(connectionId);
-    setSelectedThreadId(null);
-    setSelectedIndex(0);
-    setSearchQuery("");
-    setActiveCategory("all");
-    setActiveLabel("INBOX");
-  }
-
   return (
     <EmailErrorBoundary>
     <div className="flex flex-col h-[calc(100vh-3.5rem)] md:h-screen">
