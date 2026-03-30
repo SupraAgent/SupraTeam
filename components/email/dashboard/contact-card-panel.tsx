@@ -8,6 +8,7 @@ import {
   User, Building2, Phone, Mail, ExternalLink,
   Plus, MessageCircle, Globe, Briefcase,
 } from "lucide-react";
+import { useThreadContext } from "@/lib/plugins/thread-context";
 
 interface ContactData {
   contact: {
@@ -43,14 +44,8 @@ interface ContactData {
   lastTouchpoint: string;
 }
 
-interface ContactCardPanelProps {
-  /** Email address to look up */
-  email: string | null;
-  /** Sender name for display before data loads */
-  senderName?: string;
-}
-
-export function ContactCardPanel({ email, senderName }: ContactCardPanelProps) {
+export function ContactCardPanel() {
+  const { email, senderName } = useThreadContext();
   const [data, setData] = React.useState<ContactData | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [notFound, setNotFound] = React.useState(false);
@@ -166,7 +161,7 @@ export function ContactCardPanel({ email, senderName }: ContactCardPanelProps) {
           </div>
           {contact.lifecycle_stage && (
             <span className={cn(
-              "inline-block mt-1 rounded-full px-2 py-0.5 text-[9px] font-medium",
+              "inline-block mt-1 rounded-full px-2 py-0.5 text-[10px] font-medium",
               contact.lifecycle_stage === "customer" ? "bg-green-500/10 text-green-400" :
               contact.lifecycle_stage === "lead" ? "bg-blue-500/10 text-blue-400" :
               contact.lifecycle_stage === "opportunity" ? "bg-yellow-500/10 text-yellow-400" :
@@ -196,13 +191,13 @@ export function ContactCardPanel({ email, senderName }: ContactCardPanelProps) {
           {contact.quality_score !== null && (
             <div className="text-center">
               <div className="text-xs font-semibold text-foreground">{contact.quality_score}</div>
-              <div className="text-[9px] text-muted-foreground">Quality</div>
+              <div className="text-[10px] text-muted-foreground">Quality</div>
             </div>
           )}
           {contact.engagement_score !== null && (
             <div className="text-center">
               <div className="text-xs font-semibold text-foreground">{contact.engagement_score}</div>
-              <div className="text-[9px] text-muted-foreground">Engagement</div>
+              <div className="text-[10px] text-muted-foreground">Engagement</div>
             </div>
           )}
         </div>

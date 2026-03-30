@@ -79,7 +79,7 @@ export function MetricsStripPanel() {
                 <Icon className={cn("h-3 w-3", metric.color)} />
                 <span className="text-sm font-semibold text-foreground">{metric.value}</span>
               </div>
-              <span className="text-[9px] text-muted-foreground">{metric.label}</span>
+              <span className="text-[10px] text-muted-foreground">{metric.label}</span>
             </div>
           );
         })}
@@ -117,7 +117,7 @@ export function MetricsStripPanel() {
                       />
                     </div>
                   </div>
-                  <span className="text-[8px] text-muted-foreground/60">{dayLabel}</span>
+                  <span className="text-[10px] text-muted-foreground/60">{dayLabel}</span>
                 </div>
               );
             })}
@@ -125,11 +125,11 @@ export function MetricsStripPanel() {
           <div className="flex items-center gap-3 mt-1.5">
             <div className="flex items-center gap-1">
               <div className="h-2 w-2 rounded bg-primary/40" />
-              <span className="text-[8px] text-muted-foreground">Opens</span>
+              <span className="text-[10px] text-muted-foreground">Opens</span>
             </div>
             <div className="flex items-center gap-1">
               <div className="h-2 w-2 rounded bg-purple-500/60" />
-              <span className="text-[8px] text-muted-foreground">Clicks</span>
+              <span className="text-[10px] text-muted-foreground">Clicks</span>
             </div>
           </div>
         </div>

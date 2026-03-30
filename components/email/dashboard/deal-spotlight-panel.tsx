@@ -5,6 +5,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { timeAgo } from "@/lib/utils";
 import { Target, ExternalLink, LinkIcon, RotateCcw } from "lucide-react";
+import { useThreadContext } from "@/lib/plugins/thread-context";
 
 interface SpotlightEntry {
   threadId: string;
@@ -21,11 +22,8 @@ interface SpotlightEntry {
   lastActivity: string | null;
 }
 
-interface DealSpotlightPanelProps {
-  onSelectThread?: (threadId: string) => void;
-}
-
-export function DealSpotlightPanel({ onSelectThread }: DealSpotlightPanelProps) {
+export function DealSpotlightPanel() {
+  const { selectThread } = useThreadContext();
   const [entries, setEntries] = React.useState<SpotlightEntry[]>([]);
   const [loading, setLoading] = React.useState(true);
 
@@ -95,7 +93,7 @@ export function DealSpotlightPanel({ onSelectThread }: DealSpotlightPanelProps) 
             <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               {stageName}
             </span>
-            <span className="rounded-full bg-white/5 px-1.5 py-0.5 text-[9px] text-muted-foreground">
+            <span className="rounded-full bg-white/5 px-1.5 py-0.5 text-[10px] text-muted-foreground">
               {stage.items.length}
             </span>
           </div>
@@ -122,7 +120,7 @@ export function DealSpotlightPanel({ onSelectThread }: DealSpotlightPanelProps) 
                     >
                       {entry.dealName}
                     </Link>
-                    <span className="text-[9px] text-muted-foreground shrink-0 rounded bg-white/5 px-1 py-0.5">
+                    <span className="text-[10px] text-muted-foreground shrink-0 rounded bg-white/5 px-1 py-0.5">
                       {entry.boardType}
                     </span>
                     {entry.value !== null && (
@@ -139,7 +137,7 @@ export function DealSpotlightPanel({ onSelectThread }: DealSpotlightPanelProps) 
                       </span>
                     )}
                     {entry.autoLinked && (
-                      <span className="flex items-center gap-0.5 text-[9px] text-primary/60">
+                      <span className="flex items-center gap-0.5 text-[10px] text-primary/60">
                         <LinkIcon className="h-2 w-2" />
                         auto
                       </span>
@@ -155,7 +153,7 @@ export function DealSpotlightPanel({ onSelectThread }: DealSpotlightPanelProps) 
                 {/* Actions */}
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition shrink-0">
                   <button
-                    onClick={() => onSelectThread?.(entry.threadId)}
+                    onClick={() => selectThread(entry.threadId)}
                     className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-white/5 transition"
                     title="Open thread"
                   >
