@@ -24,7 +24,8 @@ export type PanelId =
   | "outreach-queue"
   | "metrics-strip"
   | "activity-feed"
-  | "broadcast-composer";
+  | "broadcast-composer"
+  | "calendar";
 
 export interface PanelLayoutState {
   enabledPanels: PanelId[];

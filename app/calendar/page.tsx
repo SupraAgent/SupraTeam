@@ -8,19 +8,33 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
   Clock, Plus, CheckCircle2, AlertTriangle, ArrowRight, X,
-  ChevronDown, Snowflake, Zap, StickyNote, User, Flag,
+  ChevronDown, Snowflake, Zap, StickyNote, User, Flag, Video, ExternalLink,
 } from "lucide-react";
 
 // ── Types ──
 
 interface CalendarEvent {
   id: string;
-  type: "close_date" | "stage_change" | "reminder" | "broadcast";
+  type: "close_date" | "stage_change" | "reminder" | "broadcast" | "google";
   date: string;
   title: string;
   subtitle?: string;
   color: string;
   meta?: Record<string, unknown>;
+}
+
+interface GoogleCalEvent {
+  id: string;
+  summary: string;
+  start_at: string | null;
+  start_date: string | null;
+  end_at: string | null;
+  end_date: string | null;
+  is_all_day: boolean;
+  html_link: string | null;
+  hangout_link: string | null;
+  location: string | null;
+  attendees: { email: string; displayName?: string }[] | null;
 }
 
 interface Task {
@@ -54,6 +68,7 @@ const TYPE_LABELS: Record<string, string> = {
   stage_change: "Stage Change",
   reminder: "Reminder",
   broadcast: "Broadcast",
+  google: "Google Calendar",
 };
 
 const TYPE_ICONS: Record<string, string> = {
@@ -61,6 +76,7 @@ const TYPE_ICONS: Record<string, string> = {
   stage_change: "→",
   reminder: "!",
   broadcast: "📢",
+  google: "📅",
 };
 
 const TASK_TYPE_CONFIG: Record<string, { icon: React.ReactNode; label: string; color: string }> = {
@@ -116,7 +132,7 @@ export default function CalendarPage() {
   const [calLoading, setCalLoading] = React.useState(true);
   const [viewMode, setViewMode] = React.useState<ViewMode>("month");
   const [filterTypes, setFilterTypes] = React.useState<Set<string>>(
-    new Set(["close_date", "stage_change", "reminder", "broadcast"])
+    new Set(["close_date", "stage_change", "reminder", "broadcast", "google"])
   );
   const [selectedEvent, setSelectedEvent] = React.useState<CalendarEvent | null>(null);
 
@@ -158,10 +174,43 @@ export default function CalendarPage() {
   React.useEffect(() => {
     setCalLoading(true);
     const params = new URLSearchParams({ from: dateRange.from, to: dateRange.to });
-    fetch(`/api/calendar?${params}`)
+
+    // Fetch CRM events and Google Calendar events in parallel
+    const crmFetch = fetch(`/api/calendar?${params}`)
       .then((r) => r.json())
-      .then((d) => { setEvents(d.events ?? []); setCalLoading(false); })
-      .catch(() => setCalLoading(false));
+      .then((d) => (d.events ?? []) as CalendarEvent[])
+      .catch(() => [] as CalendarEvent[]);
+
+    const googleFetch = fetch(`/api/calendar/google/events?${params}`)
+      .then((r) => (r.ok ? r.json() : { data: [] }))
+      .then((d) => {
+        const gEvents = (d.data ?? []) as GoogleCalEvent[];
+        return gEvents.map((g): CalendarEvent => ({
+          id: `gcal-${g.id}`,
+          type: "google",
+          date: g.start_at ?? g.start_date ?? "",
+          title: g.summary,
+          subtitle: g.is_all_day
+            ? "All day"
+            : g.start_at
+              ? new Date(g.start_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+              : undefined,
+          color: "#4285f4",
+          meta: {
+            html_link: g.html_link,
+            hangout_link: g.hangout_link,
+            location: g.location,
+            attendees: g.attendees,
+          },
+        }));
+      })
+      .catch(() => [] as CalendarEvent[]);
+
+    Promise.all([crmFetch, googleFetch])
+      .then(([crm, google]) => {
+        setEvents([...crm, ...google]);
+        setCalLoading(false);
+      });
   }, [dateRange]);
 
   const fetchTasks = React.useCallback(async () => {
@@ -498,6 +547,7 @@ export default function CalendarPage() {
               stage_change: "#8b5cf6",
               reminder: "#f59e0b",
               broadcast: "#10b981",
+              google: "#4285f4",
             };
             const active = filterTypes.has(type);
             return (
@@ -811,6 +861,34 @@ export default function CalendarPage() {
               >
                 View deal in pipeline →
               </a>
+            ) : null}
+            {selectedEvent.type === "google" && typeof selectedEvent.meta?.hangout_link === "string" ? (
+              <a
+                href={selectedEvent.meta.hangout_link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300"
+              >
+                <Video className="h-3 w-3" />
+                Join Google Meet
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            ) : null}
+            {selectedEvent.type === "google" && typeof selectedEvent.meta?.html_link === "string" ? (
+              <a
+                href={selectedEvent.meta.html_link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <ExternalLink className="h-3 w-3" />
+                Open in Google Calendar
+              </a>
+            ) : null}
+            {selectedEvent.type === "google" && typeof selectedEvent.meta?.location === "string" ? (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Location: {selectedEvent.meta.location}
+              </p>
             ) : null}
           </div>
         </div>
