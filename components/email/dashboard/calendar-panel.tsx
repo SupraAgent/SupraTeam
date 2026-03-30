@@ -86,14 +86,19 @@ export function CalendarPanel() {
 
   if (!connected) {
     return (
-      <div className="text-center py-4">
-        <Calendar className="mx-auto h-6 w-6 text-muted-foreground/30" />
-        <p className="mt-2 text-xs text-muted-foreground">
-          Connect Google Calendar in{" "}
-          <a href="/settings/integrations" className="text-primary hover:underline">
-            Settings
-          </a>
+      <div className="text-center py-6">
+        <Calendar className="mx-auto h-8 w-8 text-muted-foreground/30" />
+        <p className="mt-3 text-sm font-medium text-foreground">Connect Calendar</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Link your Google Calendar to see upcoming events and meetings
         </p>
+        <a
+          href="/settings/integrations"
+          className="inline-flex items-center gap-1.5 mt-3 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary/90 transition"
+        >
+          <Calendar className="h-3.5 w-3.5" />
+          Connect Google Calendar
+        </a>
       </div>
     );
   }

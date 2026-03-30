@@ -679,6 +679,12 @@ function EmailPageInner() {
         "flex-1 flex flex-col",
         !selectedThreadId && "hidden md:flex"
       )}>
+        {/* Persistent dashboard bar */}
+        <DashboardBar
+          isThreadView={!!activeThread}
+          onBackToDashboard={() => setSelectedThreadId(null)}
+        />
+
         {activeThread ? (
           <>
             <ThreadView
@@ -692,7 +698,6 @@ function EmailPageInner() {
               onStar={handleStar}
               onMarkUnread={handleMarkUnread}
               onBack={() => setSelectedThreadId(null)}
-              onDashboard={() => setSelectedThreadId(null)}
             />
             <AutoDraftBanner
               threadId={selectedThreadId}
@@ -872,6 +877,33 @@ function RefreshIcon({ className }: { className?: string }) {
 
 function PlusIcon({ className }: { className?: string }) {
   return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>;
+}
+
+// ── Inline Dashboard (shown when no thread is selected) ────
+
+// ── Persistent Dashboard Bar ─────────────────────────────────
+
+function DashboardBar({
+  isThreadView,
+  onBackToDashboard,
+}: {
+  isThreadView: boolean;
+  onBackToDashboard: () => void;
+}) {
+  if (isThreadView) {
+    return (
+      <button
+        onClick={onBackToDashboard}
+        className="px-4 py-2 border-b border-white/10 flex items-center gap-2 shrink-0 hover:bg-white/[0.02] transition-colors w-full text-left"
+      >
+        <LayoutDashboard className="h-3.5 w-3.5 text-primary" />
+        <span className="text-xs font-medium text-foreground">Dashboard</span>
+        <span className="text-[10px] text-muted-foreground ml-1">Back to panels</span>
+      </button>
+    );
+  }
+
+  return null; // InlineDashboard renders its own header
 }
 
 // ── Inline Dashboard (shown when no thread is selected) ────
