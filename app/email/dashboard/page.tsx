@@ -11,6 +11,7 @@ import { PlaceholderPanel } from "@/components/email/dashboard/placeholder-panel
 import { ContactCardPanel } from "@/components/email/dashboard/contact-card-panel";
 import { FollowupTrackerPanel } from "@/components/email/dashboard/followup-tracker-panel";
 import { AISummaryPanel } from "@/components/email/dashboard/ai-summary-panel";
+import { DealSpotlightPanel } from "@/components/email/dashboard/deal-spotlight-panel";
 import { Mail, LayoutDashboard, Plus, ArrowLeft } from "lucide-react";
 import type { PanelId } from "@/lib/plugins/types";
 
@@ -42,6 +43,8 @@ export default function EmailDashboardPage() {
         return <FollowupTrackerPanel />;
       case "ai-summary":
         return <AISummaryPanel messages={threadMessages} subject={threadSubject} dealId={linkedDealId} />;
+      case "deal-spotlight":
+        return <DealSpotlightPanel />;
       default:
         return <PlaceholderPanel panelId={panelId} />;
     }
