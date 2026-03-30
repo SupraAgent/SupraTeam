@@ -581,9 +581,14 @@ export function useEmailActions(
     action: string;
     undo: () => void;
     timer: ReturnType<typeof setTimeout>;
+    connectionId?: string;
   } | null>(null);
   const undoActionRef = React.useRef(undoAction);
   undoActionRef.current = undoAction;
+
+  // Ref to always have the latest connectionId (for unmount cleanup)
+  const connectionIdRef = React.useRef(connectionId);
+  connectionIdRef.current = connectionId;
 
   // Refs for values captured inside setThreads updaters (concurrent-mode safe)
   const removedThreadRef = React.useRef<ThreadListItem | undefined>(undefined);
@@ -597,11 +602,12 @@ export function useEmailActions(
       if (pending) {
         clearTimeout(pending.timer);
         const ids = Array.isArray(pending.threadId) ? pending.threadId : [pending.threadId];
+        const connId = pending.connectionId;
         for (const id of ids) {
           fetch(`/api/email/threads/${id}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: pending.action, ...(connectionId ? { connection_id: connectionId } : {}) }),
+            body: JSON.stringify({ action: pending.action, ...(connId ? { connection_id: connId } : {}) }),
           }).catch(() => {});
         }
       }
@@ -648,19 +654,21 @@ export function useEmailActions(
           if (undoActionRef.current) {
             clearTimeout(undoActionRef.current.timer);
             const prev = undoActionRef.current;
+            const prevConnId = prev.connectionId;
             fetch(`/api/email/threads/${prev.threadId}`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ action: prev.action, ...(connectionId ? { connection_id: connectionId } : {}) }),
+              body: JSON.stringify({ action: prev.action, ...(prevConnId ? { connection_id: prevConnId } : {}) }),
             }).catch(() => {});
           }
 
+          const capturedConnectionId = connectionId;
           const timer = setTimeout(() => {
             // Actually execute
             fetch(`/api/email/threads/${threadId}`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ action, ...extra, ...(connectionId ? { connection_id: connectionId } : {}) }),
+              body: JSON.stringify({ action, ...extra, ...(capturedConnectionId ? { connection_id: capturedConnectionId } : {}) }),
             });
             setUndoAction(null);
           }, 5000);
@@ -670,6 +678,7 @@ export function useEmailActions(
             threadId,
             action,
             timer,
+            connectionId,
             undo: () => {
               clearTimeout(timer);
               setThreads((prev) => [captured, ...prev]);
@@ -746,7 +755,7 @@ export function useEmailActions(
         }
       });
     },
-    [setThreads]
+    [setThreads, connectionId]
   );
 
   const performBulkAction = React.useCallback(
@@ -765,23 +774,25 @@ export function useEmailActions(
         if (undoActionRef.current) {
           clearTimeout(undoActionRef.current.timer);
           const prev = undoActionRef.current;
+          const prevConnId = prev.connectionId;
           const prevIds = Array.isArray(prev.threadId) ? prev.threadId : [prev.threadId];
           for (const id of prevIds) {
             fetch(`/api/email/threads/${id}`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ action: prev.action, ...(connectionId ? { connection_id: connectionId } : {}) }),
+              body: JSON.stringify({ action: prev.action, ...(prevConnId ? { connection_id: prevConnId } : {}) }),
             }).catch(() => {});
           }
         }
 
         // Single undo timer for the entire batch
+        const capturedConnectionId = connectionId;
         const timer = setTimeout(() => {
           for (const id of threadIds) {
             fetch(`/api/email/threads/${id}`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ action, ...(connectionId ? { connection_id: connectionId } : {}) }),
+              body: JSON.stringify({ action, ...(capturedConnectionId ? { connection_id: capturedConnectionId } : {}) }),
             });
           }
           setUndoAction(null);
@@ -792,6 +803,7 @@ export function useEmailActions(
           threadId: threadIds,
           action,
           timer,
+          connectionId,
           undo: () => {
             clearTimeout(timer);
             setThreads((prev) => [...captured, ...prev]);
@@ -806,7 +818,7 @@ export function useEmailActions(
         performAction(id, action);
       }
     },
-    [setThreads, performAction]
+    [setThreads, performAction, connectionId]
   );
 
   return { performAction, performBulkAction, undoAction };

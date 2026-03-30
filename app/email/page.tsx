@@ -591,6 +591,7 @@ function EmailPageInner() {
             />
             <AutoDraftBanner
               threadId={selectedThreadId}
+              connectionId={activeConnectionId}
               onUseDraft={(text) => {
                 openCompose("reply", selectedThreadId ?? undefined);
                 // Small delay to let compose modal mount, then we'd need to prefill
@@ -647,6 +648,7 @@ function EmailPageInner() {
         open={snoozeOpen}
         onClose={() => setSnoozeOpen(false)}
         threadId={snoozeThreadId}
+        connectionId={activeConnectionId}
         onSnoozed={() => {
           // Remove snoozed thread from list
           if (snoozeThreadId) {
@@ -690,6 +692,7 @@ function EmailPageInner() {
         mode={composeMode}
         threadId={composeThreadId}
         messageId={composeMessageId}
+        connectionId={activeConnectionId}
         onSent={() => {
           refresh();
         }}

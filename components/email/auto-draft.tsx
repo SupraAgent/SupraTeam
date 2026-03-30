@@ -11,7 +11,7 @@ const draftCache = new Map<string, string>();
 // ---------------------------------------------------------------------------
 // Hook: useAutoDraft
 // ---------------------------------------------------------------------------
-export function useAutoDraft(threadId: string | null) {
+export function useAutoDraft(threadId: string | null, connectionId?: string) {
   const [draft, setDraft] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -38,7 +38,7 @@ export function useAutoDraft(threadId: string | null) {
         const res = await fetch("/api/email/ai", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "draft", threadId: tid }),
+          body: JSON.stringify({ action: "draft", threadId: tid, ...(connectionId ? { connection_id: connectionId } : {}) }),
         });
 
         // Guard against stale responses (user switched threads)
@@ -67,7 +67,7 @@ export function useAutoDraft(threadId: string | null) {
         }
       }
     },
-    [],
+    [connectionId],
   );
 
   // When threadId changes, debounce the fetch by 500ms.
@@ -123,10 +123,11 @@ export function useAutoDraft(threadId: string | null) {
 type AutoDraftBannerProps = {
   threadId: string | null;
   onUseDraft: (text: string) => void;
+  connectionId?: string;
 };
 
-export function AutoDraftBanner({ threadId, onUseDraft }: AutoDraftBannerProps) {
-  const { draft, loading, error, refresh } = useAutoDraft(threadId);
+export function AutoDraftBanner({ threadId, onUseDraft, connectionId }: AutoDraftBannerProps) {
+  const { draft, loading, error, refresh } = useAutoDraft(threadId, connectionId);
   const [dismissed, setDismissed] = React.useState(false);
 
   // Reset dismissed state when thread changes
