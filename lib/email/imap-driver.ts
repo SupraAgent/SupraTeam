@@ -137,7 +137,8 @@ export class ImapDriver implements MailDriver {
 
   /** Run a callback with a pooled IMAP connection */
   private async withImap<T>(fn: (client: ImapFlow) => Promise<T>): Promise<T> {
-    const poolKey = this.config.email;
+    // Key by userId:email to prevent cross-user connection reuse
+    const poolKey = `${this.userId ?? "anon"}:${this.config.email}`;
     const pooled = imapPool.get(poolKey);
     let client: ImapFlow;
     let fromPool = false;

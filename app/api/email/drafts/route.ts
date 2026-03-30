@@ -15,6 +15,7 @@ export async function POST(request: Request) {
     subject?: string;
     body: string;
     bodyText?: string;
+    connection_id?: string;
   };
   try {
     body = await request.json();
@@ -31,7 +32,7 @@ export async function POST(request: Request) {
   const sanitizedBody = sanitizeTemplateHtml(body.body);
 
   try {
-    const { driver } = await getDriverForUser(auth.user.id);
+    const { driver } = await getDriverForUser(auth.user.id, body.connection_id);
     const draft = await driver.createDraft({
       to: body.to ?? [],
       subject: body.subject ?? "",

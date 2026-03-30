@@ -26,14 +26,16 @@ function evictIfNeeded<V>(map: Map<string, V>, maxSize: number) {
   }
 }
 
-function getCachedThread(id: string): Thread | null {
-  const entry = threadCache.get(id);
+function getCachedThread(id: string, connectionId?: string): Thread | null {
+  const key = `${connectionId ?? "default"}:${id}`;
+  const entry = threadCache.get(key);
   if (!entry) return null;
   return entry.data;
 }
 
-function setCachedThread(id: string, data: Thread) {
-  threadCache.set(id, { data, ts: Date.now() });
+function setCachedThread(id: string, data: Thread, connectionId?: string) {
+  const key = `${connectionId ?? "default"}:${id}`;
+  threadCache.set(key, { data, ts: Date.now() });
   evictIfNeeded(threadCache, THREAD_CACHE_MAX);
 }
 
@@ -43,8 +45,8 @@ function isCacheStale(key: string, cache: Map<string, { ts: number }>): boolean 
   return Date.now() - entry.ts > CACHE_TTL;
 }
 
-function getListCacheKey(labelIds?: string[], query?: string): string {
-  return `${labelIds?.join(",") ?? ""}|${query ?? ""}`;
+function getListCacheKey(labelIds?: string[], query?: string, connectionId?: string): string {
+  return `${connectionId ?? "default"}|${labelIds?.join(",") ?? ""}|${query ?? ""}`;
 }
 
 // ── Connections ─────────────────────────────────────────────
@@ -77,6 +79,7 @@ export function useThreads(options?: {
   labelIds?: string[];
   query?: string;
   maxResults?: number;
+  connectionId?: string;
 }) {
   const [threads, setThreads] = React.useState<ThreadListItem[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -84,7 +87,7 @@ export function useThreads(options?: {
   const [error, setError] = React.useState<string>();
   const [reconnect, setReconnect] = React.useState(false);
 
-  const cacheKey = getListCacheKey(options?.labelIds, options?.query);
+  const cacheKey = getListCacheKey(options?.labelIds, options?.query, options?.connectionId);
 
   const fetchThreads = React.useCallback(async (pageToken?: string) => {
     // Serve from cache immediately (stale-while-revalidate)
@@ -101,8 +104,9 @@ export function useThreads(options?: {
         // Otherwise continue to revalidate in background (don't show loading)
       } else {
         // Try IndexedDB for instant first paint (offline-first)
+        // IDB is not scoped by connectionId — only use for default connection
         const labelId = options?.labelIds?.[0];
-        if (labelId && !options?.query) {
+        if (labelId && !options?.query && !options?.connectionId) {
           getCachedThreads(labelId).then((idbThreads) => {
             if (idbThreads.length > 0) {
               // Use functional update to avoid stale closure over threads
@@ -123,6 +127,7 @@ export function useThreads(options?: {
       if (options?.labelIds?.length) params.set("labelIds", options.labelIds.join(","));
       if (options?.query) params.set("q", options.query);
       if (options?.maxResults) params.set("maxResults", String(options.maxResults));
+      if (options?.connectionId) params.set("connectionId", options.connectionId);
       if (pageToken) params.set("pageToken", pageToken);
 
       const res = await fetch(`/api/email/threads?${params}`);
@@ -154,9 +159,10 @@ export function useThreads(options?: {
 
       // Pre-warm thread cache with list items (snippet data)
       for (const t of data.threads) {
-        if (!threadCache.has(t.id)) {
+        const threadCacheKey = `${options?.connectionId ?? "default"}:${t.id}`;
+        if (!threadCache.has(threadCacheKey)) {
           // Store partial data for instant thread preview
-          threadCache.set(t.id, {
+          threadCache.set(threadCacheKey, {
             data: { ...t, messages: [] } as unknown as Thread,
             ts: 0, // Mark as stale so full fetch happens
           });
@@ -168,7 +174,7 @@ export function useThreads(options?: {
     } finally {
       setLoading(false);
     }
-  }, [options?.labelIds?.join(","), options?.query, options?.maxResults, cacheKey]);
+  }, [options?.labelIds?.join(","), options?.query, options?.maxResults, options?.connectionId, cacheKey]);
 
   React.useEffect(() => { fetchThreads(); }, [fetchThreads]);
 
@@ -203,7 +209,7 @@ export function useThreads(options?: {
 
 // ── Single thread — with cache ──────────────────────────────
 
-export function useThread(threadId: string | null) {
+export function useThread(threadId: string | null, connectionId?: string) {
   const [thread, setThread] = React.useState<Thread | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string>();
@@ -216,12 +222,13 @@ export function useThread(threadId: string | null) {
     }
 
     // Serve cached immediately — show data before network, no loading spinner
-    const cached = getCachedThread(threadId);
+    const cached = getCachedThread(threadId, connectionId);
     if (cached) {
       setThread(cached);
       // If cache has full messages and is fresh, skip network entirely
       if (cached.messages?.length > 0) {
-        const entry = threadCache.get(threadId);
+        const cacheKey = `${connectionId ?? "default"}:${threadId}`;
+        const entry = threadCache.get(cacheKey);
         if (entry && Date.now() - entry.ts < CACHE_TTL) {
           return;
         }
@@ -231,7 +238,10 @@ export function useThread(threadId: string | null) {
       setLoading(true);
     }
     setError(undefined);
-    fetch(`/api/email/threads/${threadId}`)
+    const threadUrl = connectionId
+      ? `/api/email/threads/${threadId}?connection_id=${connectionId}`
+      : `/api/email/threads/${threadId}`;
+    fetch(threadUrl)
       .then(async (r) => {
         const json = await r.json();
         if (!r.ok) {
@@ -239,7 +249,7 @@ export function useThread(threadId: string | null) {
           // Try IndexedDB fallback for offline
           getCachedMessages(threadId).then((msgs) => {
             if (msgs.length > 0) {
-              const cached = getCachedThread(threadId);
+              const cached = getCachedThread(threadId, connectionId);
               if (cached) {
                 setThread({ ...cached, messages: msgs as unknown as Thread["messages"] });
               }
@@ -252,7 +262,7 @@ export function useThread(threadId: string | null) {
         const data = json.data ?? null;
         setThread(data);
         if (data) {
-          setCachedThread(threadId, data);
+          setCachedThread(threadId, data, connectionId);
           // Persist messages to IDB for offline reading
           if (data.messages?.length > 0) {
             cacheFullThread(threadId, data.messages).catch(() => {});
@@ -264,7 +274,7 @@ export function useThread(threadId: string | null) {
         // Try IndexedDB fallback for offline
         getCachedMessages(threadId).then((msgs) => {
           if (msgs.length > 0) {
-            const cached = getCachedThread(threadId);
+            const cached = getCachedThread(threadId, connectionId);
             if (cached) {
               setThread({ ...cached, messages: msgs as unknown as Thread["messages"] });
             }
@@ -274,33 +284,37 @@ export function useThread(threadId: string | null) {
         }).catch(() => setThread(null));
       })
       .finally(() => setLoading(false));
-  }, [threadId]);
+  }, [threadId, connectionId]);
 
   return { thread, loading, error, setThread };
 }
 
 // ── Prefetch thread on hover ────────────────────────────────
 
-export function usePrefetchThread() {
+export function usePrefetchThread(connectionId?: string) {
   const prefetch = React.useCallback((threadId: string) => {
-    const entry = threadCache.get(threadId);
+    const cacheKey = `${connectionId ?? "default"}:${threadId}`;
+    const entry = threadCache.get(cacheKey);
     // Only prefetch if we don't have full data
     if (entry && entry.data.messages?.length > 0 && Date.now() - entry.ts < CACHE_TTL) {
       return;
     }
-    fetch(`/api/email/threads/${threadId}`)
+    const url = connectionId
+      ? `/api/email/threads/${threadId}?connection_id=${connectionId}`
+      : `/api/email/threads/${threadId}`;
+    fetch(url)
       .then((r) => r.json())
       .then((json) => {
-        if (json.data) setCachedThread(threadId, json.data);
+        if (json.data) setCachedThread(threadId, json.data, connectionId);
       })
       .catch(() => {});
-  }, []);
+  }, [connectionId]);
 
   return prefetch;
 }
 
 /** Prefetch first N threads on list load for instant navigation */
-export function useBatchPrefetch(threads: { id: string }[]) {
+export function useBatchPrefetch(threads: { id: string }[], connectionId?: string) {
   const prefetchedRef = React.useRef(new Set<string>());
   const threadsRef = React.useRef(threads);
   threadsRef.current = threads;
@@ -315,7 +329,8 @@ export function useBatchPrefetch(threads: { id: string }[]) {
       .slice(0, PREFETCH_BATCH)
       .filter((t) => {
         if (prefetchedRef.current.has(t.id)) return false;
-        const entry = threadCache.get(t.id);
+        const cacheKey = `${connectionId ?? "default"}:${t.id}`;
+        const entry = threadCache.get(cacheKey);
         return !(entry && entry.data.messages?.length > 0 && Date.now() - entry.ts < CACHE_TTL);
       });
 
@@ -324,28 +339,34 @@ export function useBatchPrefetch(threads: { id: string }[]) {
     toPrefetch.forEach((t, i) => {
       timers.push(setTimeout(() => {
         prefetchedRef.current.add(t.id);
-        fetch(`/api/email/threads/${t.id}`)
+        const url = connectionId
+          ? `/api/email/threads/${t.id}?connection_id=${connectionId}`
+          : `/api/email/threads/${t.id}`;
+        fetch(url)
           .then((r) => r.json())
           .then((json) => {
-            if (json.data) setCachedThread(t.id, json.data);
+            if (json.data) setCachedThread(t.id, json.data, connectionId);
           })
           .catch(() => {});
       }, i * 200));
     });
 
     return () => { timers.forEach(clearTimeout); };
-  }, [depKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [depKey, connectionId]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 
 // ── Labels ──────────────────────────────────────────────────
 
-export function useLabels() {
+export function useLabels(connectionId?: string) {
   const [labels, setLabels] = React.useState<Label[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string>();
 
   React.useEffect(() => {
-    fetch("/api/email/labels")
+    const labelsUrl = connectionId
+      ? `/api/email/labels?connectionId=${connectionId}`
+      : "/api/email/labels";
+    fetch(labelsUrl)
       .then(async (r) => {
         const json = await r.json();
         if (!r.ok) {
@@ -358,7 +379,7 @@ export function useLabels() {
         setError("Network error");
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [connectionId]);
 
   return { labels, loading, error };
 }
@@ -551,7 +572,8 @@ export function useGmailPush(onNewMail: () => void) {
 // ── Thread actions (optimistic) ─────────────────────────────
 
 export function useEmailActions(
-  setThreads: React.Dispatch<React.SetStateAction<ThreadListItem[]>>
+  setThreads: React.Dispatch<React.SetStateAction<ThreadListItem[]>>,
+  connectionId?: string
 ) {
   // Undo support — use ref to avoid dependency loop in performAction
   const [undoAction, setUndoAction] = React.useState<{
@@ -579,12 +601,34 @@ export function useEmailActions(
           fetch(`/api/email/threads/${id}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: pending.action }),
+            body: JSON.stringify({ action: pending.action, ...(connectionId ? { connection_id: connectionId } : {}) }),
           }).catch(() => {});
         }
       }
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When connectionId changes (account switch), flush pending undo against the correct account
+  const prevConnectionIdRef = React.useRef(connectionId);
+  React.useEffect(() => {
+    if (prevConnectionIdRef.current !== connectionId) {
+      const pending = undoActionRef.current;
+      if (pending) {
+        clearTimeout(pending.timer);
+        const ids = Array.isArray(pending.threadId) ? pending.threadId : [pending.threadId];
+        const prevConnId = prevConnectionIdRef.current;
+        for (const id of ids) {
+          fetch(`/api/email/threads/${id}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: pending.action, ...(prevConnId ? { connection_id: prevConnId } : {}) }),
+          }).catch(() => {});
+        }
+        setUndoAction(null);
+      }
+      prevConnectionIdRef.current = connectionId;
+    }
+  }, [connectionId]);
 
   const performAction = React.useCallback(
     async (threadId: string, action: string, extraIn?: Record<string, unknown>) => {
@@ -607,7 +651,7 @@ export function useEmailActions(
             fetch(`/api/email/threads/${prev.threadId}`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ action: prev.action }),
+              body: JSON.stringify({ action: prev.action, ...(connectionId ? { connection_id: connectionId } : {}) }),
             }).catch(() => {});
           }
 
@@ -616,7 +660,7 @@ export function useEmailActions(
             fetch(`/api/email/threads/${threadId}`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ action, ...extra }),
+              body: JSON.stringify({ action, ...extra, ...(connectionId ? { connection_id: connectionId } : {}) }),
             });
             setUndoAction(null);
           }, 5000);
@@ -667,7 +711,7 @@ export function useEmailActions(
       fetch(`/api/email/threads/${threadId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, ...extra }),
+        body: JSON.stringify({ action, ...extra, ...(connectionId ? { connection_id: connectionId } : {}) }),
       }).then((res) => {
         if (!res.ok) {
           // Rollback: revert the optimistic update
@@ -726,7 +770,7 @@ export function useEmailActions(
             fetch(`/api/email/threads/${id}`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ action: prev.action }),
+              body: JSON.stringify({ action: prev.action, ...(connectionId ? { connection_id: connectionId } : {}) }),
             }).catch(() => {});
           }
         }
@@ -737,7 +781,7 @@ export function useEmailActions(
             fetch(`/api/email/threads/${id}`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ action }),
+              body: JSON.stringify({ action, ...(connectionId ? { connection_id: connectionId } : {}) }),
             });
           }
           setUndoAction(null);

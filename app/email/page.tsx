@@ -27,7 +27,8 @@ export default function EmailPage() {
 }
 
 function EmailPageInner() {
-  const { connections, loading: connectionsLoading } = useEmailConnections();
+  const { connections, loading: connectionsLoading, refresh: refreshConnections } = useEmailConnections();
+  const [activeConnectionId, setActiveConnectionId] = React.useState<string | undefined>(undefined);
   const [activeLabel, setActiveLabel] = React.useState("INBOX");
   const [selectedThreadId, setSelectedThreadId] = React.useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = React.useState(0);
@@ -37,6 +38,14 @@ function EmailPageInner() {
   const [activeCategory, setActiveCategory] = React.useState<InboxCategory | "all">("all");
   const searchRef = React.useRef<HTMLInputElement>(null);
   const searchTimerRef = React.useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  // Set default connection as active when connections load
+  React.useEffect(() => {
+    if (!activeConnectionId && connections.length > 0) {
+      const defaultConn = connections.find((c) => c.is_default) ?? connections[0];
+      setActiveConnectionId(defaultConn.id);
+    }
+  }, [connections, activeConnectionId]);
 
   // Clean up debounce timer on unmount
   React.useEffect(() => {
@@ -72,18 +81,19 @@ function EmailPageInner() {
   const { threads, loading, error, reconnect, nextPageToken, loadMore, refresh, setThreads } = useThreads({
     labelIds: searchQuery ? undefined : [activeLabel],
     query: searchQuery || undefined,
+    connectionId: activeConnectionId,
   });
-  const { thread: activeThread, loading: threadLoading } = useThread(selectedThreadId);
-  const { labels, loading: labelsLoading } = useLabels();
-  const { performAction, performBulkAction, undoAction } = useEmailActions(setThreads);
+  const { thread: activeThread, loading: threadLoading } = useThread(selectedThreadId, activeConnectionId);
+  const { labels, loading: labelsLoading } = useLabels(activeConnectionId);
+  const { performAction, performBulkAction, undoAction } = useEmailActions(setThreads, activeConnectionId);
   const undoActionRef = React.useRef(undoAction);
   undoActionRef.current = undoAction;
   const aiCategories = useAICategories(threads);
   const { split, counts } = useSplitInbox(threads, aiCategories);
-  const prefetchThread = usePrefetchThread();
+  const prefetchThread = usePrefetchThread(activeConnectionId);
 
   // Batch-prefetch first 3 threads for instant navigation
-  useBatchPrefetch(threads);
+  useBatchPrefetch(threads, activeConnectionId);
 
   // Gmail Pub/Sub push — refresh on new mail
   useGmailPush(refresh);
@@ -101,10 +111,7 @@ function EmailPageInner() {
   const router = useRouter();
   const noConnection = !connectionsLoading && connections.length === 0;
 
-  // Redirect to email settings if no connection
-  React.useEffect(() => {
-    if (noConnection) router.replace("/settings/integrations/email");
-  }, [noConnection, router]);
+  // No longer redirect — show connection banners inline instead
 
   // ── Action handlers ──────────────────────────────────────
 
@@ -287,11 +294,69 @@ function EmailPageInner() {
     onCommandPalette: () => setCommandPaletteOpen(true),
   }, !composeOpen && !snoozeOpen && !advancedSearchOpen && !keyboardHelpOpen && !commandPaletteOpen);
 
+  // Active connection for display
+  const activeConnection = connections.find((c) => c.id === activeConnectionId);
+
+  function switchAccount(connectionId: string) {
+    setActiveConnectionId(connectionId);
+    setSelectedThreadId(null);
+    setSelectedIndex(0);
+    setSearchQuery("");
+    setActiveCategory("all");
+    setActiveLabel("INBOX");
+    setSelectedIds(new Set());
+    setComposeOpen(false);
+  }
+
   // ── Render ───────────────────────────────────────────────
 
   return (
     <EmailErrorBoundary>
-    <div className="flex h-[calc(100vh-3.5rem)] md:h-screen">
+    <div className="flex flex-col h-[calc(100vh-3.5rem)] md:h-screen">
+      {/* Account tabs — browser-tab style */}
+      {connections.length > 0 && (
+        <div className="flex items-center border-b border-white/10 shrink-0 px-1" style={{ backgroundColor: "hsl(var(--surface-1))" }}>
+          {connections.map((conn) => {
+            const isActive = conn.id === activeConnectionId;
+            const emailLabel = conn.email.split("@")[0];
+            const domain = conn.email.split("@")[1];
+            const isPersonal = conn.provider === "gmail_app_password";
+            return (
+              <button
+                key={conn.id}
+                onClick={() => switchAccount(conn.id)}
+                className={cn(
+                  "group relative flex items-center gap-2 px-3 py-2 text-xs font-medium transition-colors max-w-[200px] min-w-0",
+                  isActive
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-white/[0.03]"
+                )}
+              >
+                {isActive && (
+                  <div className="absolute bottom-0 left-2 right-2 h-0.5 bg-primary rounded-full" />
+                )}
+                <span className={cn(
+                  "shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold",
+                  isActive ? "bg-primary/20 text-primary" : "bg-white/10 text-muted-foreground"
+                )}>
+                  {isPersonal ? "P" : "G"}
+                </span>
+                <span className="truncate">{emailLabel}</span>
+                <span className="text-[10px] text-muted-foreground hidden sm:inline truncate">@{domain}</span>
+              </button>
+            );
+          })}
+          <button
+            onClick={() => router.push("/settings/integrations/email")}
+            className="flex items-center justify-center w-7 h-7 ml-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-white/5 transition shrink-0"
+            title="Add email account"
+          >
+            <PlusIcon className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
+    <div className="flex flex-1 min-h-0">
       {/* Label sidebar */}
       <div className={cn(
         "w-44 border-r border-white/10 py-3 px-2 shrink-0 overflow-y-auto thin-scroll hidden lg:block"
@@ -638,6 +703,7 @@ function EmailPageInner() {
         }}
       />
     </div>
+    </div>
     </EmailErrorBoundary>
   );
 }
@@ -711,4 +777,8 @@ function ComposeIcon({ className }: { className?: string }) {
 
 function RefreshIcon({ className }: { className?: string }) {
   return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" /></svg>;
+}
+
+function PlusIcon({ className }: { className?: string }) {
+  return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>;
 }
