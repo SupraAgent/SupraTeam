@@ -2,6 +2,13 @@
 
 import React from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { NodeExecutionOverlay } from "../_lib/execution-overlay";
+
+export interface RetryConfig {
+  maxRetries: number;     // 0-5, default 2
+  retryDelay: number;     // ms, default 2000
+  retryOn?: string[];     // error types to retry: ["timeout", "rate_limit", "server"]. Empty = retry all transient errors
+}
 
 export interface CrmActionNodeData {
   label: string;
@@ -22,8 +29,11 @@ export interface CrmActionNodeData {
     | "ai_classify"
     | "add_to_sequence"
     | "remove_from_sequence"
+    | "send_tg_buttons"
     | "http_request";
   config?: Record<string, string>;
+  retryConfig?: RetryConfig;
+  hasErrorPath?: boolean;
 }
 
 const ACTION_META: Record<string, { icon: string; border: string; bg: string; label: string }> = {
@@ -44,6 +54,7 @@ const ACTION_META: Record<string, { icon: string; border: string; bg: string; la
   add_to_sequence: { icon: "📋", border: "border-sky-500/40", bg: "bg-sky-500/10", label: "Add to Sequence" },
   remove_from_sequence: { icon: "📋", border: "border-slate-500/40", bg: "bg-slate-500/10", label: "Remove from Sequence" },
   http_request: { icon: "🌐", border: "border-gray-500/40", bg: "bg-gray-500/10", label: "HTTP Request" },
+  send_tg_buttons: { icon: "🔘", border: "border-cyan-500/40", bg: "bg-cyan-500/10", label: "TG Buttons" },
 };
 
 function getCrmActionData(data: Record<string, unknown>): CrmActionNodeData {
@@ -51,20 +62,37 @@ function getCrmActionData(data: Record<string, unknown>): CrmActionNodeData {
     label: (data.label as string) || "",
     crmAction: (data.crmAction as CrmActionNodeData["crmAction"]) || "update_deal",
     config: data.config as Record<string, string> | undefined,
+    retryConfig: data.retryConfig as RetryConfig | undefined,
+    hasErrorPath: !!data.hasErrorPath,
   };
 }
 
-export const CrmActionNode = React.memo(function CrmActionNode({ data }: NodeProps) {
+export const CrmActionNode = React.memo(function CrmActionNode({ id, data }: NodeProps) {
   const d = getCrmActionData(data as Record<string, unknown>);
   const meta = ACTION_META[d.crmAction] ?? ACTION_META.update_deal;
 
   return (
+    <NodeExecutionOverlay nodeId={id}>
     <div className={`rounded-xl border-2 ${meta.border} ${meta.bg} px-4 py-3 min-w-[180px] max-w-[240px]`}>
       <Handle type="target" position={Position.Left} className="!bg-blue-400 !w-2.5 !h-2.5" />
-      <Handle type="source" position={Position.Right} className="!bg-blue-400 !w-2.5 !h-2.5" />
+      {d.hasErrorPath ? (
+        <>
+          <Handle type="source" id="success" position={Position.Right} style={{ top: "35%" }} className="!bg-emerald-400 !w-2.5 !h-2.5" />
+          <span className="absolute text-[8px] font-mono text-emerald-400/80 pointer-events-none" style={{ right: -18, top: "35%", transform: "translateY(-50%)" }}>OK</span>
+          <Handle type="source" id="error" position={Position.Right} style={{ top: "65%" }} className="!bg-red-400 !w-2.5 !h-2.5" />
+          <span className="absolute text-[8px] font-mono text-red-400/80 pointer-events-none" style={{ right: -18, top: "65%", transform: "translateY(-50%)" }}>Err</span>
+        </>
+      ) : (
+        <Handle type="source" position={Position.Right} className="!bg-blue-400 !w-2.5 !h-2.5" />
+      )}
       <div className="flex items-center gap-2 mb-1">
         <span className="text-base">{meta.icon}</span>
         <span className="font-semibold text-sm text-foreground truncate">{d.label || meta.label}</span>
+        {d.retryConfig && d.retryConfig.maxRetries > 0 && (
+          <span className="ml-auto shrink-0 text-[9px] font-mono text-muted-foreground bg-white/5 rounded px-1 py-0.5" title={`Retry up to ${d.retryConfig.maxRetries}x`}>
+            ↻{d.retryConfig.maxRetries}
+          </span>
+        )}
       </div>
       <div className="text-[10px] text-muted-foreground uppercase tracking-wide">
         CRM Action
@@ -79,5 +107,6 @@ export const CrmActionNode = React.memo(function CrmActionNode({ data }: NodePro
         </div>
       )}
     </div>
+    </NodeExecutionOverlay>
   );
 });

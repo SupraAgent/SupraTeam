@@ -101,6 +101,23 @@ export function createSupabasePersistence(): PersistenceAdapter {
       }
     },
 
+    async recordNodeStart(runId: string, nodeId: string): Promise<void> {
+      const supabase = createSupabaseAdmin();
+      if (!supabase) return;
+
+      await supabase
+        .from("crm_workflow_node_executions")
+        .upsert(
+          {
+            run_id: runId,
+            node_id: nodeId,
+            status: "running",
+            started_at: new Date().toISOString(),
+          },
+          { onConflict: "run_id,node_id" }
+        );
+    },
+
     async scheduleResume(
       runId: string,
       workflowId: string,

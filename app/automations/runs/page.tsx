@@ -24,6 +24,7 @@ import {
   FileWarning,
   HelpCircle,
   Timer,
+  Star,
 } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
 
@@ -41,6 +42,21 @@ interface RunRow {
   trigger_event: Record<string, unknown> | null;
   error: string | null;
   error_type: string | null;
+  started_at: string;
+  completed_at: string | null;
+  duration_ms: number | null;
+  pinned?: boolean;
+}
+
+interface NodeExecution {
+  id: string;
+  node_id: string;
+  node_type: string;
+  node_label: string | null;
+  input_data: Record<string, unknown> | null;
+  output_data: Record<string, unknown> | null;
+  error_message: string | null;
+  status: string;
   started_at: string;
   completed_at: string | null;
   duration_ms: number | null;
@@ -112,11 +128,32 @@ export default function AutomationRunsDashboard() {
   const [error, setError] = React.useState<string | null>(null);
   const [debouncedSearch, setDebouncedSearch] = React.useState("");
   const [expandedRunId, setExpandedRunId] = React.useState<string | null>(null);
-  const [expandedDetail, setExpandedDetail] = React.useState<Record<string, unknown> | null>(null);
+  const [nodeExecutions, setNodeExecutions] = React.useState<NodeExecution[]>([]);
   const [loadingDetail, setLoadingDetail] = React.useState(false);
   const [rerunning, setRerunning] = React.useState<string | null>(null);
+  const [pinnedIds, setPinnedIds] = React.useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set();
+    try {
+      const stored = localStorage.getItem("loop-pinned-runs");
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch { return new Set(); }
+  });
 
   const pollRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Persist pinned runs to localStorage
+  React.useEffect(() => {
+    localStorage.setItem("loop-pinned-runs", JSON.stringify([...pinnedIds]));
+  }, [pinnedIds]);
+
+  function togglePin(runId: string) {
+    setPinnedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(runId)) next.delete(runId);
+      else next.add(runId);
+      return next;
+    });
+  }
 
   // Debounce search input — 300ms delay
   React.useEffect(() => {
@@ -135,7 +172,7 @@ export default function AutomationRunsDashboard() {
       limit: "100",
     });
     try {
-      const res = await fetch(`/api/workflows/runs?${params}`);
+      const res = await fetch(`/api/loop/runs?${params}`);
       if (!res.ok) {
         setError(`Failed to load runs (${res.status})`);
         setLoading(false);
@@ -171,7 +208,7 @@ export default function AutomationRunsDashboard() {
     setRetrying(true);
     setRetryMsg("");
     try {
-      const res = await fetch("/api/workflows/runs", {
+      const res = await fetch("/api/loop/runs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "retry_failed", run_ids: failedIds }),
@@ -190,17 +227,17 @@ export default function AutomationRunsDashboard() {
   async function handleExpandRun(runId: string) {
     if (expandedRunId === runId) {
       setExpandedRunId(null);
-      setExpandedDetail(null);
+      setNodeExecutions([]);
       return;
     }
     setExpandedRunId(runId);
-    setExpandedDetail(null);
+    setNodeExecutions([]);
     setLoadingDetail(true);
     try {
-      const res = await fetch(`/api/workflows/runs/nodes?run_id=${runId}`);
+      const res = await fetch(`/api/loop/runs/nodes?run_id=${runId}`);
       if (res.ok) {
         const data = await res.json();
-        setExpandedDetail(data);
+        setNodeExecutions(data.nodes ?? []);
       }
     } catch { /* ignore */ }
     setLoadingDetail(false);
@@ -236,7 +273,7 @@ export default function AutomationRunsDashboard() {
     try {
       const params = new URLSearchParams({ time_range: timeRange });
       if (mode === "failed") params.set("status", "failed");
-      const res = await fetch(`/api/workflows/runs?${params}`, { method: "DELETE" });
+      const res = await fetch(`/api/loop/runs?${params}`, { method: "DELETE" });
       if (res.ok) {
         setRetryMsg(`Deleted ${mode} runs`);
         fetchData();
@@ -272,6 +309,22 @@ export default function AutomationRunsDashboard() {
       }
     }
     return buckets;
+  }, [runs]);
+
+  // Sort: pinned first, then by current sort
+  const sortedRuns = React.useMemo(() => {
+    const pinned = runs.filter((r) => pinnedIds.has(r.id));
+    const unpinned = runs.filter((r) => !pinnedIds.has(r.id));
+    return [...pinned, ...unpinned];
+  }, [runs, pinnedIds]);
+
+  // Duration sparkline data (last 20 completed runs)
+  const sparklineData = React.useMemo(() => {
+    return runs
+      .filter((r) => r.duration_ms != null && r.status === "completed")
+      .slice(0, 20)
+      .reverse()
+      .map((r) => r.duration_ms as number);
   }, [runs]);
 
   const failedCount = stats?.failed ?? 0;
@@ -321,6 +374,14 @@ export default function AutomationRunsDashboard() {
             comparison={comparison?.failed}
             negative
           />
+        </div>
+      )}
+
+      {/* Duration sparkline */}
+      {sparklineData.length >= 3 && (
+        <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
+          <p className="text-[11px] text-muted-foreground uppercase tracking-wider mb-2">Duration Trend (last {sparklineData.length} runs)</p>
+          <DurationSparkline data={sparklineData} />
         </div>
       )}
 
@@ -467,34 +528,45 @@ export default function AutomationRunsDashboard() {
                   </button>
                 </td>
               </tr>
-            ) : runs.length === 0 ? (
+            ) : sortedRuns.length === 0 ? (
               <tr>
                 <td colSpan={6} className="px-4 py-12 text-center text-xs text-muted-foreground/50">
                   No runs found for this time range
                 </td>
               </tr>
             ) : (
-              runs.map((run) => (
+              sortedRuns.map((run) => {
+                const isPinned = pinnedIds.has(run.id);
+                return (
                 <React.Fragment key={run.id}>
                   <tr
                     onClick={() => handleExpandRun(run.id)}
-                    className="hover:bg-white/[0.02] transition-colors group cursor-pointer"
+                    className={cn("hover:bg-white/[0.02] transition-colors group cursor-pointer", isPinned && "bg-primary/[0.03]")}
                   >
                     <td className="px-4 py-2.5">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); router.push(`/automations/${run.workflow_id}`); }}
-                        className="text-xs text-foreground hover:text-primary transition-colors flex items-center gap-1 group/link"
-                      >
-                        {run.workflow_name}
-                        <ExternalLink className="h-3 w-3 opacity-0 group-hover/link:opacity-50 transition-opacity" />
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); togglePin(run.id); }}
+                          className={cn("shrink-0 transition", isPinned ? "text-amber-400" : "text-muted-foreground/20 opacity-0 group-hover:opacity-100")}
+                          title={isPinned ? "Unpin run" : "Pin run"}
+                        >
+                          <Star className={cn("h-3 w-3", isPinned && "fill-current")} />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); router.push(`/automations/${run.workflow_id}`); }}
+                          className="text-xs text-foreground hover:text-primary transition-colors flex items-center gap-1 group/link"
+                        >
+                          {run.workflow_name}
+                          <ExternalLink className="h-3 w-3 opacity-0 group-hover/link:opacity-50 transition-opacity" />
+                        </button>
+                      </div>
                     </td>
                     <td className="px-4 py-2.5">
                       <StatusBadge status={run.status} />
                     </td>
                     <td className="px-4 py-2.5">
                       <span className="text-[10px] text-muted-foreground">
-                        {TRIGGER_LABELS[run.trigger_type ?? ""] ?? run.trigger_type ?? "—"}
+                        {TRIGGER_LABELS[run.trigger_type ?? ""] ?? run.trigger_type ?? "\u2014"}
                       </span>
                     </td>
                     <td className="px-4 py-2.5 max-w-[200px]">
@@ -506,7 +578,7 @@ export default function AutomationRunsDashboard() {
                           </span>
                         </div>
                       ) : (
-                        <span className="text-[10px] text-muted-foreground/30">—</span>
+                        <span className="text-[10px] text-muted-foreground/30">\u2014</span>
                       )}
                     </td>
                     <td className="px-4 py-2.5">
@@ -516,11 +588,11 @@ export default function AutomationRunsDashboard() {
                     </td>
                     <td className="px-4 py-2.5">
                       <span className="text-[10px] text-muted-foreground font-mono">
-                        {run.duration_ms != null ? formatMs(run.duration_ms) : "—"}
+                        {run.duration_ms != null ? formatMs(run.duration_ms) : "\u2014"}
                       </span>
                     </td>
                   </tr>
-                  {/* Expanded row detail */}
+                  {/* Expanded row — node execution timeline */}
                   {expandedRunId === run.id && (
                     <tr>
                       <td colSpan={6} className="px-4 py-3 bg-white/[0.01] border-t border-white/5">
@@ -552,34 +624,12 @@ export default function AutomationRunsDashboard() {
                           {loadingDetail ? (
                             <div className="flex items-center gap-2 py-2">
                               <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/30" />
-                              <span className="text-[10px] text-muted-foreground">Loading node outputs...</span>
+                              <span className="text-[10px] text-muted-foreground">Loading node executions...</span>
                             </div>
-                          ) : expandedDetail && (expandedDetail as Record<string, unknown>).node_outputs ? (
+                          ) : nodeExecutions.length > 0 ? (
                             <div>
-                              <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Node Outputs</p>
-                              <div className="space-y-1">
-                                {Object.entries((expandedDetail as Record<string, unknown>).node_outputs as Record<string, unknown>)
-                                  .filter(([k]) => !k.startsWith("_"))
-                                  .map(([nodeId, output]) => {
-                                    const o = output as Record<string, unknown>;
-                                    const ok = o.success !== false && !o.error;
-                                    return (
-                                      <div key={nodeId} className={cn(
-                                        "rounded-md border px-3 py-2 text-[11px]",
-                                        ok ? "border-emerald-500/20 bg-emerald-500/5" : "border-red-500/20 bg-red-500/5"
-                                      )}>
-                                        <div className="flex items-center gap-1.5">
-                                          <span className={ok ? "text-emerald-400" : "text-red-400"}>{ok ? "\u2713" : "\u2717"}</span>
-                                          <span className="font-medium text-foreground font-mono">{nodeId.slice(0, 16)}</span>
-                                          {o.duration_ms != null && (
-                                            <span className="text-muted-foreground ml-auto">{formatMs(o.duration_ms as number)}</span>
-                                          )}
-                                        </div>
-                                        {o.error ? <div className="text-red-400/80 mt-1 text-[10px]">{String(o.error)}</div> : null}
-                                      </div>
-                                    );
-                                  })}
-                              </div>
+                              <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2">Node Execution Timeline</p>
+                              <NodeTimeline nodes={nodeExecutions} />
                             </div>
                           ) : null}
                         </div>
@@ -587,7 +637,8 @@ export default function AutomationRunsDashboard() {
                     </tr>
                   )}
                 </React.Fragment>
-              ))
+                );
+              })
             )}
           </tbody>
         </table>
@@ -694,4 +745,100 @@ function formatMs(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)}ms`;
   if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
   return `${Math.round(ms / 60000)}m`;
+}
+
+/** SVG sparkline showing duration trend */
+function DurationSparkline({ data }: { data: number[] }) {
+  if (data.length < 2) return null;
+  const w = 320;
+  const h = 40;
+  const max = Math.max(...data);
+  const min = Math.min(...data);
+  const range = max - min || 1;
+  const points = data.map((v, i) => {
+    const x = (i / (data.length - 1)) * w;
+    const y = h - ((v - min) / range) * (h - 4) - 2;
+    return `${x},${y}`;
+  });
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-10" preserveAspectRatio="none">
+      <polyline
+        points={points.join(" ")}
+        fill="none"
+        stroke="hsl(160, 60%, 45%)"
+        strokeWidth="2"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+      {/* Fill area under line */}
+      <polygon
+        points={`0,${h} ${points.join(" ")} ${w},${h}`}
+        fill="hsl(160, 60%, 45%)"
+        fillOpacity="0.08"
+      />
+    </svg>
+  );
+}
+
+/** Node execution timeline — shows each node as a step with status dot, label, duration, and error */
+function NodeTimeline({ nodes }: { nodes: NodeExecution[] }) {
+  const [expandedNode, setExpandedNode] = React.useState<string | null>(null);
+  return (
+    <div className="relative pl-4">
+      {/* Timeline line */}
+      <div className="absolute left-[7px] top-1 bottom-1 w-px bg-white/10" />
+      <div className="space-y-1">
+        {nodes.map((node) => {
+          const ok = node.status === "completed" || node.status === "success";
+          const isExpanded = expandedNode === node.id;
+          return (
+            <div key={node.id}>
+              <button
+                onClick={() => setExpandedNode(isExpanded ? null : node.id)}
+                className="w-full text-left flex items-center gap-2 py-1.5 hover:bg-white/[0.02] rounded-md px-1 -ml-1 transition"
+              >
+                {/* Status dot */}
+                <div className={cn(
+                  "w-3 h-3 rounded-full border-2 shrink-0 -ml-[13px] z-10 bg-background",
+                  ok ? "border-emerald-400" : node.status === "running" ? "border-blue-400" : "border-red-400"
+                )} />
+                <span className="text-[11px] font-medium text-foreground truncate">
+                  {node.node_label || node.node_type}
+                </span>
+                <span className="text-[9px] text-muted-foreground/50 uppercase">{node.node_type}</span>
+                {node.duration_ms != null && (
+                  <span className="text-[10px] text-muted-foreground font-mono ml-auto shrink-0">{formatMs(node.duration_ms)}</span>
+                )}
+                {!ok && node.status !== "running" && (
+                  <XCircle className="h-3 w-3 text-red-400 shrink-0" />
+                )}
+              </button>
+              {isExpanded && (
+                <div className="ml-4 mb-2 space-y-1">
+                  {node.error_message && (
+                    <div className="text-[10px] text-red-400/80 bg-red-500/5 rounded-md px-2 py-1">
+                      {node.error_message}
+                    </div>
+                  )}
+                  {node.output_data && (
+                    <pre className="text-[10px] text-muted-foreground/80 bg-white/5 rounded-md p-2 max-h-32 overflow-auto whitespace-pre-wrap font-mono">
+                      {JSON.stringify(node.output_data, null, 2)}
+                    </pre>
+                  )}
+                  {node.input_data && (
+                    <details className="text-[10px]">
+                      <summary className="text-muted-foreground/50 cursor-pointer hover:text-muted-foreground">Input data</summary>
+                      <pre className="text-muted-foreground/80 bg-white/5 rounded-md p-2 max-h-24 overflow-auto whitespace-pre-wrap font-mono mt-1">
+                        {JSON.stringify(node.input_data, null, 2)}
+                      </pre>
+                    </details>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }

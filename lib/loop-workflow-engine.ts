@@ -96,21 +96,63 @@ function translateNodes(nodes: FlowNode[]): FlowNode[] {
           actionType: (data.crmAction as string) || "update_deal",
           label: (data.label as string) || "CRM Action",
           config: (data.config as Record<string, unknown>) ?? {},
+          retryConfig: data.retryConfig ?? undefined,
+          hasErrorPath: !!data.hasErrorPath,
         },
       } as FlowNode;
     }
 
     if (node.type === "crmConditionNode") {
+      const condConfig = {
+        field: (data.field as string) || "stage",
+        operator: (data.operator as string) || "equals",
+        value: (data.value as string) || "",
+        conditions: Array.isArray(data.conditions) && data.conditions.length > 0
+          ? (data.conditions as { field: string; operator: string; value: string }[])
+          : undefined,
+        logic: Array.isArray(data.conditions) && data.conditions.length > 0
+          ? ((data.logic as "and" | "or") || "and")
+          : undefined,
+      };
       return {
         ...node,
         type: "condition",
         data: {
           nodeType: "condition",
           label: (data.label as string) || "CRM Condition",
+          config: condConfig,
+        },
+      } as FlowNode;
+    }
+
+    if (node.type === "crmLoopNode") {
+      return {
+        ...node,
+        type: "loop",
+        data: {
+          nodeType: "loop",
+          label: (data.label as string) || "Loop",
           config: {
-            field: (data.field as string) || "stage",
-            operator: (data.operator as string) || "equals",
-            value: (data.value as string) || "",
+            sourceVariable: (data.sourceVariable as string) || "",
+            itemVariable: (data.itemVariable as string) || "item",
+            maxIterations: (data.maxIterations as number) || 100,
+            continueOnError: data.continueOnError !== false,
+          },
+        },
+      } as FlowNode;
+    }
+
+    if (node.type === "crmSubworkflowNode") {
+      return {
+        ...node,
+        type: "subworkflow",
+        data: {
+          nodeType: "subworkflow",
+          label: (data.label as string) || "Sub-Workflow",
+          config: {
+            workflowId: (data.workflowId as string) || "",
+            passVars: data.passVars !== false,
+            waitForCompletion: data.waitForCompletion !== false,
           },
         },
       } as FlowNode;
@@ -341,6 +383,50 @@ async function executeExtendedAction(
       return error ? { success: false, error: error.message } : { success: true, output: { removed: config.sequence_id } };
     }
 
+    case "send_tg_buttons": {
+      if (!config.message) return { success: false, error: "message required" };
+
+      // Parse inline buttons from config
+      let buttons: { text: string; callback_data: string }[] = [];
+      try {
+        buttons = JSON.parse(config.buttons || "[]");
+        if (!Array.isArray(buttons)) buttons = [];
+      } catch {
+        return { success: false, error: "Invalid buttons JSON" };
+      }
+      if (buttons.length === 0) return { success: false, error: "At least one button required" };
+
+      // Resolve chat ID
+      let tgChatId = config.chat_id ? Number(config.chat_id) : null;
+      if (!tgChatId && ctx.dealId) {
+        const { data: deal } = await supabase
+          .from("crm_deals")
+          .select("telegram_chat_id")
+          .eq("id", ctx.dealId)
+          .single();
+        tgChatId = deal?.telegram_chat_id ?? null;
+      }
+      if (!tgChatId) return { success: false, error: "No chat ID available" };
+
+      const message = renderTemplate(config.message, ctx.vars);
+      const inlineKeyboard = [buttons.map((b) => ({ text: b.text, callback_data: b.callback_data }))];
+
+      const { sendTelegramWithTracking } = await import("@/lib/telegram-send");
+      const btnResult = await sendTelegramWithTracking({
+        chatId: tgChatId,
+        text: message,
+        notificationType: "workflow",
+        dealId: ctx.dealId,
+        replyMarkup: { inline_keyboard: inlineKeyboard },
+      });
+
+      return {
+        success: btnResult.success,
+        output: { messageId: btnResult.messageId, buttonsCount: buttons.length },
+        error: btnResult.error,
+      };
+    }
+
     default:
       return { success: false, error: `Unhandled action type: ${actionType}` };
   }
@@ -350,7 +436,8 @@ async function executeExtendedAction(
 
 async function buildVars(
   event: LoopWorkflowEvent,
-  supabase: NonNullable<ReturnType<typeof createSupabaseAdmin>>
+  supabase: NonNullable<ReturnType<typeof createSupabaseAdmin>>,
+  triggerConfig?: Record<string, string>
 ): Promise<Record<string, string | number | undefined>> {
   const vars: Record<string, string | number | undefined> = {
     ...Object.fromEntries(
@@ -373,6 +460,41 @@ async function buildVars(
       vars.contact_email = (deal.contact as { email?: string } | null)?.email;
     }
   }
+
+  // Inject TG conversation context for Telegram triggers
+  if (
+    event.type === "tg_message" ||
+    event.type === "tg_member_joined" ||
+    event.type === "tg_member_left"
+  ) {
+    const chatId = event.payload.chat_id as string | undefined;
+    if (chatId) {
+      const messageCount = Number(triggerConfig?.recent_message_count) || 10;
+      if (messageCount > 0) {
+        const { data: messages } = await supabase
+          .from("tg_group_messages")
+          .select("sender_name, message_text, sent_at")
+          .eq("telegram_chat_id", chatId)
+          .order("sent_at", { ascending: false })
+          .limit(Math.min(messageCount, 50));
+
+        if (messages && messages.length > 0) {
+          const reversed = [...messages].reverse();
+          vars.recent_messages = reversed
+            .map((m) => `[${m.sender_name || "Unknown"}]: ${m.message_text || ""}`)
+            .join("\n");
+          vars.recent_messages_json = JSON.stringify(reversed);
+          vars.last_sender = messages[0].sender_name || "Unknown";
+          vars.message_count = messages.length;
+        }
+      }
+    }
+    // Ensure message_text is always available from payload
+    if (event.payload.message_text && !vars.message_text) {
+      vars.message_text = String(event.payload.message_text);
+    }
+  }
+
   return vars;
 }
 
@@ -451,14 +573,29 @@ async function logWorkflowFailureAlert(
 
 // ── Public API ──────────────────────────────────────────────
 
+/** Maximum sub-workflow nesting depth to prevent infinite recursion */
+const MAX_SUBWORKFLOW_DEPTH = 3;
+
 /**
  * Execute a Loop Builder workflow by ID.
  * Translates CRM node types → generic types, then delegates to genericExecuteWorkflow.
+ * @param depth Current nesting depth for sub-workflow recursion (0 = top-level)
  */
 export async function executeLoopWorkflow(
   workflowId: string,
-  event: LoopWorkflowEvent
+  event: LoopWorkflowEvent,
+  depth = 0
 ) {
+  if (depth > MAX_SUBWORKFLOW_DEPTH) {
+    return {
+      runId: "",
+      status: "failed" as const,
+      nodeOutputs: {},
+      nodeTimings: {},
+      error: `Sub-workflow depth limit exceeded (max ${MAX_SUBWORKFLOW_DEPTH}). Check for circular references.`,
+    };
+  }
+
   const supabase = createSupabaseAdmin();
   if (!supabase) {
     return { runId: "", status: "failed" as const, nodeOutputs: {}, nodeTimings: {}, error: "Supabase not configured" };
@@ -476,7 +613,11 @@ export async function executeLoopWorkflow(
 
   const rawNodes = (workflow.nodes ?? []) as FlowNode[];
   const rawEdges = (workflow.edges ?? []) as FlowEdge[];
-  const vars = await buildVars(event, supabase);
+  const triggerNode = rawNodes.find((n) => n.type === "crmTriggerNode");
+  const triggerConfig = triggerNode
+    ? ((triggerNode.data as unknown as Record<string, unknown>).config as Record<string, string>) ?? {}
+    : {};
+  const vars = await buildVars(event, supabase, triggerConfig);
 
   const workflowData: WorkflowData = {
     id: workflow.id,
@@ -498,6 +639,47 @@ export async function executeLoopWorkflow(
     EXECUTION_TIMEOUT_MS,
     `Workflow ${workflowId}`
   );
+
+  // Process sub-workflow markers in node outputs
+  if (result.status === "completed" || result.status === "paused") {
+    for (const [nodeId, output] of Object.entries(result.nodeOutputs)) {
+      const out = output as Record<string, unknown> | null;
+      if (!out || !out.subworkflow) continue;
+
+      const subWorkflowId = out.workflowId as string;
+      const passVars = out.passVars !== false;
+      const waitForCompletion = out.waitForCompletion !== false;
+
+      if (!subWorkflowId) {
+        result.nodeOutputs[nodeId] = { ...out, error: "No workflowId configured" };
+        continue;
+      }
+
+      const subEvent: LoopWorkflowEvent = {
+        type: event.type,
+        dealId: event.dealId,
+        contactId: event.contactId,
+        payload: passVars ? { ...event.payload, ...vars } : event.payload,
+      };
+
+      if (waitForCompletion) {
+        const subResult = await executeLoopWorkflow(subWorkflowId, subEvent, depth + 1);
+        result.nodeOutputs[nodeId] = {
+          ...out,
+          executed: true,
+          subRunId: subResult.runId,
+          subStatus: subResult.status,
+          subError: subResult.error,
+        };
+      } else {
+        // Fire-and-forget: launch but don't await
+        executeLoopWorkflow(subWorkflowId, subEvent, depth + 1).catch((err) => {
+          console.error(`[loop-workflow-engine] Sub-workflow ${subWorkflowId} fire-and-forget error:`, err);
+        });
+        result.nodeOutputs[nodeId] = { ...out, executed: true, async: true };
+      }
+    }
+  }
 
   // Log failure alert for monitoring
   if (result.status === "failed" && result.error) {
@@ -531,7 +713,11 @@ export async function executeLoopWorkflowDryRun(
 
   const rawNodes = (workflow.nodes ?? []) as FlowNode[];
   const rawEdges = (workflow.edges ?? []) as FlowEdge[];
-  const vars = await buildVars(event, supabase);
+  const triggerNode = rawNodes.find((n) => n.type === "crmTriggerNode");
+  const triggerConfig = triggerNode
+    ? ((triggerNode.data as unknown as Record<string, unknown>).config as Record<string, string>) ?? {}
+    : {};
+  const vars = await buildVars(event, supabase, triggerConfig);
 
   const workflowData: WorkflowData = {
     id: workflow.id,
@@ -586,7 +772,11 @@ export async function resumeLoopWorkflowRun(runId: string) {
 
   const rawNodes = (workflow.nodes ?? []) as FlowNode[];
   const rawEdges = (workflow.edges ?? []) as FlowEdge[];
-  const vars = await buildVars(triggerEvent, supabase);
+  const triggerNode = rawNodes.find((n) => n.type === "crmTriggerNode");
+  const triggerConfig = triggerNode
+    ? ((triggerNode.data as unknown as Record<string, unknown>).config as Record<string, string>) ?? {}
+    : {};
+  const vars = await buildVars(triggerEvent, supabase, triggerConfig);
 
   const workflowData: WorkflowData = {
     id: workflow.id,

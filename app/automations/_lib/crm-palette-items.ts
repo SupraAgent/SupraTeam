@@ -43,13 +43,26 @@ export const CRM_PALETTE_ITEMS: CustomPaletteItem[] = [
   { type: "crmActionNode", label: "Add to Sequence", emoji: "📋", description: "Add contact to outreach sequence", help: "Enroll a contact in a drip sequence", group: "CRM Actions", data: { label: "Add to Sequence", crmAction: "add_to_sequence", config: {} } },
   { type: "crmActionNode", label: "Remove from Sequence", emoji: "📋", description: "Remove from outreach sequence", help: "Remove a contact from a drip sequence", group: "CRM Actions", data: { label: "Remove from Sequence", crmAction: "remove_from_sequence", config: {} } },
   { type: "crmActionNode", label: "HTTP Request", emoji: "🌐", description: "Make an HTTP request", help: "Call an external API endpoint", group: "CRM Actions", data: { label: "HTTP Request", crmAction: "http_request", config: {} } },
+  { type: "crmActionNode", label: "Send TG Buttons", emoji: "🔘", description: "Send message with inline buttons", help: "Send a Telegram message with inline keyboard buttons", group: "CRM Actions", data: { label: "TG Buttons", crmAction: "send_tg_buttons", config: {} } },
 
   // ── Conditions (1) ──
   { type: "crmConditionNode", label: "CRM Condition", emoji: "🔀", description: "Branch on CRM data", help: "Route the workflow based on CRM field values (deal stage, tags, value, etc.)", group: "CRM Logic", data: { label: "CRM Condition", field: "stage", operator: "equals", value: "" } },
+
+  // ── Loop (1) ──
+  { type: "crmLoopNode", label: "Loop / Iterator", emoji: "🔄", description: "Iterate over an array of items", help: "Execute downstream nodes once per item in an array. Connect 'Each Item' to actions that run per-item, 'Done' to actions that run after all iterations.", group: "CRM Logic", data: { label: "Loop", sourceVariable: "", itemVariable: "item", maxIterations: 100, continueOnError: true } },
+
+  // ── Merge (1) ──
+  { type: "crmMergeNode", label: "Merge / Wait", emoji: "\uD83D\uDD00", description: "Wait for multiple branches", help: "Waits for multiple upstream branches to complete before continuing. 'Wait All' requires every branch; 'Wait Any' continues on the first arrival.", group: "CRM Logic", data: { label: "Merge", mode: "all" } },
+
+  // ── Sub-Workflow (1) ──
+  { type: "crmSubworkflowNode", label: "Sub-Workflow", emoji: "\uD83D\uDD17", description: "Run another workflow", help: "Embed another workflow as a reusable building block. Supports passing variables and sync/async execution. Max nesting depth: 3.", group: "CRM Logic", data: { label: "Sub-Workflow", workflowId: "", workflowName: "", passVars: true, waitForCompletion: true } },
 ];
 
 export const CRM_NODE_TYPE_INFO: Record<string, CustomNodeTypeInfo> = {
   crmTriggerNode: { emoji: "▶", label: "CRM Trigger", color: "text-violet-400" },
   crmActionNode: { emoji: "⚡", label: "CRM Action", color: "text-blue-400" },
   crmConditionNode: { emoji: "🔀", label: "CRM Condition", color: "text-yellow-400" },
+  crmLoopNode: { emoji: "🔄", label: "CRM Loop", color: "text-rose-400" },
+  crmMergeNode: { emoji: "\uD83D\uDD00", label: "CRM Merge", color: "text-indigo-400" },
+  crmSubworkflowNode: { emoji: "\uD83D\uDD17", label: "Sub-Workflow", color: "text-indigo-400" },
 };

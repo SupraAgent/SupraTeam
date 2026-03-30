@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
+import { getAnthropicKey } from "@/lib/ai-key";
 
 /**
  * POST: Global AI assistant chat
@@ -9,10 +10,10 @@ export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = await getAnthropicKey(auth.user.id);
   if (!apiKey) {
     return NextResponse.json(
-      { error: "AI not configured. Set ANTHROPIC_API_KEY." },
+      { error: "No API key configured. Add your Anthropic key in Settings > Integrations." },
       { status: 503 }
     );
   }

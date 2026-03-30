@@ -22,6 +22,10 @@ export {
   type ConditionOperator,
   type ConditionConfig,
   type DelayConfig,
+  type NodeRetryConfig,
+  type LoopNodeData,
+  type MergeNodeData,
+  type SubworkflowNodeData,
 } from "./core/types";
 
 export { executeWorkflow, resumeWorkflow, evaluateCondition, defaultRenderTemplate, type EngineConfig } from "./core/engine";

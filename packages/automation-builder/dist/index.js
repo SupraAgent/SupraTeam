@@ -48,7 +48,7 @@ function defaultRenderTemplate(template, vars) {
   });
 }
 async function executeWorkflow(workflow, event, context, config) {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s;
   const nodes = (_a = workflow.nodes) != null ? _a : [];
   const edges = (_b = workflow.edges) != null ? _b : [];
   if (nodes.length === 0) {
@@ -72,47 +72,200 @@ async function executeWorkflow(workflow, event, context, config) {
     await config.persistence.updateRun(runId, "failed", nodeOutputs, "No trigger node found");
     return { runId, status: "failed", nodeOutputs, error: "No trigger node found" };
   }
+  const incomingEdgeCount = /* @__PURE__ */ new Map();
+  for (const edge of edges) {
+    incomingEdgeCount.set(edge.target, ((_e = incomingEdgeCount.get(edge.target)) != null ? _e : 0) + 1);
+  }
+  const mergeArrivalCount = /* @__PURE__ */ new Map();
   const queue = [triggerNode.id];
   const visited = /* @__PURE__ */ new Set();
   try {
     while (queue.length > 0) {
       const nodeId2 = queue.shift();
-      if (visited.has(nodeId2)) continue;
-      visited.add(nodeId2);
       const node = nodes.find((n) => n.id === nodeId2);
       if (!node) continue;
+      if (node.data.nodeType === "merge") {
+        const mergeData = node.data;
+        const arrivals = ((_f = mergeArrivalCount.get(nodeId2)) != null ? _f : 0) + 1;
+        mergeArrivalCount.set(nodeId2, arrivals);
+        const totalIncoming = (_g = incomingEdgeCount.get(nodeId2)) != null ? _g : 1;
+        if (mergeData.config.mode === "all") {
+          if (arrivals < totalIncoming) continue;
+        } else {
+          if (visited.has(nodeId2)) continue;
+        }
+        visited.add(nodeId2);
+        nodeOutputs[nodeId2] = { merge: true, mode: mergeData.config.mode, arrivals, totalIncoming };
+        const nextEdges2 = (_h = outEdges.get(nodeId2)) != null ? _h : [];
+        for (const e of nextEdges2) queue.push(e.target);
+        continue;
+      }
+      if (visited.has(nodeId2)) continue;
+      visited.add(nodeId2);
       await config.persistence.updateRun(runId, "running", nodeOutputs, void 0, nodeId2);
       const data = node.data;
       if (data.nodeType === "trigger") {
         nodeOutputs[nodeId2] = { type: "trigger", triggered: true };
-        const nextEdges2 = (_e = outEdges.get(nodeId2)) != null ? _e : [];
+        const nextEdges2 = (_i = outEdges.get(nodeId2)) != null ? _i : [];
         for (const e of nextEdges2) queue.push(e.target);
         continue;
       }
       if (data.nodeType === "action") {
         const actionData = data;
+        if (config.persistence.recordNodeStart) {
+          await config.persistence.recordNodeStart(runId, nodeId2);
+        }
         const result = await executeActionWithRetry(
           actionData.actionType,
           actionData.config,
           actionCtx,
-          config
+          config,
+          actionData.retryConfig
         );
         nodeOutputs[nodeId2] = result;
+        const nextEdges2 = (_j = outEdges.get(nodeId2)) != null ? _j : [];
         if (!result.success) {
           console.error(`[automation-builder] Action node ${nodeId2} failed: ${result.error}`);
+          actionCtx.vars.error_message = (_k = result.error) != null ? _k : "Unknown error";
+          actionCtx.vars.failed_node = nodeId2;
+          actionCtx.vars.failed_action = actionData.actionType;
+          const errorEdges = nextEdges2.filter((e) => e.sourceHandle === "error");
+          for (const e of errorEdges) queue.push(e.target);
+          continue;
         }
-        const nextEdges2 = (_f = outEdges.get(nodeId2)) != null ? _f : [];
-        for (const e of nextEdges2) queue.push(e.target);
+        delete actionCtx.vars.error_message;
+        delete actionCtx.vars.failed_node;
+        delete actionCtx.vars.failed_action;
+        const successEdges = nextEdges2.filter((e) => e.sourceHandle !== "error");
+        for (const e of successEdges) queue.push(e.target);
         continue;
       }
       if (data.nodeType === "condition") {
         const condResult = evaluateCondition(data, actionCtx);
         nodeOutputs[nodeId2] = { condition: condResult };
-        const nextEdges2 = (_g = outEdges.get(nodeId2)) != null ? _g : [];
+        const nextEdges2 = (_l = outEdges.get(nodeId2)) != null ? _l : [];
         const targetHandle = condResult ? "true" : "false";
         for (const e of nextEdges2) {
           if (e.sourceHandle === targetHandle) queue.push(e.target);
         }
+        continue;
+      }
+      if (data.nodeType === "loop") {
+        const loopData = data;
+        const cfg = loopData.config;
+        const renderFn = (_m = config.renderTemplate) != null ? _m : defaultRenderTemplate;
+        let sourceArray;
+        const rawSource = actionCtx.vars[cfg.sourceVariable];
+        if (typeof rawSource === "string") {
+          try {
+            sourceArray = JSON.parse(rawSource);
+          } catch (e) {
+            sourceArray = [rawSource];
+          }
+        } else if (Array.isArray(rawSource)) {
+          sourceArray = rawSource;
+        } else {
+          sourceArray = rawSource ? [rawSource] : [];
+        }
+        const maxIter = Math.min(cfg.maxIterations || 100, 1e3);
+        sourceArray = sourceArray.slice(0, maxIter);
+        const nextEdges2 = (_n = outEdges.get(nodeId2)) != null ? _n : [];
+        const itemEdges = nextEdges2.filter((e) => e.sourceHandle === "item");
+        const doneEdges = nextEdges2.filter((e) => e.sourceHandle === "done" || e.sourceHandle !== "item");
+        const iterResults = [];
+        let iterErrors = 0;
+        for (let i = 0; i < sourceArray.length; i++) {
+          const item = sourceArray[i];
+          actionCtx.vars[cfg.itemVariable || "item"] = typeof item === "object" ? JSON.stringify(item) : String(item != null ? item : "");
+          actionCtx.vars.loop_index = i;
+          actionCtx.vars.loop_total = sourceArray.length;
+          for (const edge of itemEdges) {
+            const targetNode = nodes.find((n) => n.id === edge.target);
+            if (!targetNode) continue;
+            const targetData = targetNode.data;
+            if (targetData.nodeType === "action") {
+              const actionData = targetData;
+              const actionConfig = __spreadValues({}, actionData.config);
+              for (const [k, v] of Object.entries(actionConfig)) {
+                if (typeof v === "string") {
+                  actionConfig[k] = renderFn(
+                    v,
+                    actionCtx.vars
+                  );
+                }
+              }
+              const result = await executeActionWithRetry(
+                actionData.actionType,
+                actionConfig,
+                actionCtx,
+                config,
+                actionData.retryConfig
+              );
+              nodeOutputs[`${targetNode.id}_iter_${i}`] = __spreadProps(__spreadValues({}, result), { iteration: i, item });
+              if (!result.success) {
+                iterErrors++;
+                if (!cfg.continueOnError) break;
+              } else {
+                iterResults.push(result.output);
+              }
+            } else if (targetData.nodeType === "condition") {
+              const condResult = evaluateCondition(targetData, actionCtx);
+              nodeOutputs[`${targetNode.id}_iter_${i}`] = { condition: condResult, iteration: i, item };
+              const condHandle = condResult ? "true" : "false";
+              const condEdges = (_o = outEdges.get(targetNode.id)) != null ? _o : [];
+              for (const ce of condEdges) {
+                if (ce.sourceHandle !== condHandle) continue;
+                const branchNode = nodes.find((n) => n.id === ce.target);
+                if (!branchNode || branchNode.data.nodeType !== "action") continue;
+                const branchAction = branchNode.data;
+                const branchConfig = __spreadValues({}, branchAction.config);
+                for (const [k, v] of Object.entries(branchConfig)) {
+                  if (typeof v === "string") {
+                    branchConfig[k] = renderFn(
+                      v,
+                      actionCtx.vars
+                    );
+                  }
+                }
+                const branchResult = await executeActionWithRetry(
+                  branchAction.actionType,
+                  branchConfig,
+                  actionCtx,
+                  config,
+                  branchAction.retryConfig
+                );
+                nodeOutputs[`${branchNode.id}_iter_${i}`] = __spreadProps(__spreadValues({}, branchResult), { iteration: i, item });
+                if (!branchResult.success) {
+                  iterErrors++;
+                  if (!cfg.continueOnError) break;
+                } else {
+                  iterResults.push(branchResult.output);
+                }
+                visited.add(branchNode.id);
+              }
+              visited.add(targetNode.id);
+            }
+          }
+          if (iterErrors > 0 && !cfg.continueOnError) break;
+        }
+        nodeOutputs[nodeId2] = {
+          success: true,
+          iterations: sourceArray.length,
+          completed: sourceArray.length - iterErrors,
+          errors: iterErrors,
+          results: iterResults
+        };
+        for (const edge of itemEdges) {
+          visited.add(edge.target);
+        }
+        for (const e of doneEdges) {
+          if (e.sourceHandle === "done" || !itemEdges.some((ie) => ie.id === e.id)) {
+            queue.push(e.target);
+          }
+        }
+        delete actionCtx.vars[cfg.itemVariable || "item"];
+        delete actionCtx.vars.loop_index;
+        delete actionCtx.vars.loop_total;
         continue;
       }
       if (data.nodeType === "delay") {
@@ -123,7 +276,13 @@ async function executeWorkflow(workflow, event, context, config) {
         if (cfg.unit === "days") delayMs = cfg.duration * 24 * 60 * 60 * 1e3;
         const resumeAt = new Date(Date.now() + delayMs).toISOString();
         nodeOutputs[nodeId2] = { delay: true, resumeAt, unit: cfg.unit, duration: cfg.duration };
-        const nextEdges2 = (_h = outEdges.get(nodeId2)) != null ? _h : [];
+        if (config.dryRun) {
+          nodeOutputs[nodeId2].dryRun = true;
+          const nextEdges3 = (_p = outEdges.get(nodeId2)) != null ? _p : [];
+          for (const e of nextEdges3) queue.push(e.target);
+          continue;
+        }
+        const nextEdges2 = (_q = outEdges.get(nodeId2)) != null ? _q : [];
         const nextNodeIds = nextEdges2.map((e) => e.target);
         await config.persistence.updateRun(
           runId,
@@ -137,7 +296,19 @@ async function executeWorkflow(workflow, event, context, config) {
         }
         return { runId, status: "paused", nodeOutputs };
       }
-      const nextEdges = (_i = outEdges.get(nodeId2)) != null ? _i : [];
+      if (data.nodeType === "subworkflow") {
+        const subData = data;
+        nodeOutputs[nodeId2] = {
+          subworkflow: true,
+          workflowId: subData.config.workflowId,
+          passVars: subData.config.passVars !== false,
+          waitForCompletion: subData.config.waitForCompletion
+        };
+        const nextEdges2 = (_r = outEdges.get(nodeId2)) != null ? _r : [];
+        for (const e of nextEdges2) queue.push(e.target);
+        continue;
+      }
+      const nextEdges = (_s = outEdges.get(nodeId2)) != null ? _s : [];
       for (const e of nextEdges) queue.push(e.target);
     }
     await config.persistence.updateRun(runId, "completed", nodeOutputs);
@@ -152,7 +323,7 @@ async function executeWorkflow(workflow, event, context, config) {
   }
 }
 async function resumeWorkflow(workflow, runId, resumeTargets, existingOutputs, event, context, config) {
-  var _a, _b, _c, _d, _e, _f, _g, _h;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q;
   const nodes = (_a = workflow.nodes) != null ? _a : [];
   const edges = (_b = workflow.edges) != null ? _b : [];
   const nodeOutputs = __spreadValues({}, existingOutputs);
@@ -170,38 +341,189 @@ async function resumeWorkflow(workflow, runId, resumeTargets, existingOutputs, e
     vars: (_d = context.vars) != null ? _d : {}
   }, context);
   await config.persistence.updateRun(runId, "running", nodeOutputs);
+  const incomingEdgeCount = /* @__PURE__ */ new Map();
+  for (const edge of edges) {
+    incomingEdgeCount.set(edge.target, ((_e = incomingEdgeCount.get(edge.target)) != null ? _e : 0) + 1);
+  }
+  const mergeArrivalCount = /* @__PURE__ */ new Map();
   const queue = [...resumeTargets];
   const visited = new Set(Object.keys(nodeOutputs));
   try {
     while (queue.length > 0) {
       const nodeId2 = queue.shift();
-      if (visited.has(nodeId2)) continue;
-      visited.add(nodeId2);
       const node = nodes.find((n) => n.id === nodeId2);
       if (!node) continue;
+      if (node.data.nodeType === "merge") {
+        const mergeData = node.data;
+        const arrivals = ((_f = mergeArrivalCount.get(nodeId2)) != null ? _f : 0) + 1;
+        mergeArrivalCount.set(nodeId2, arrivals);
+        const totalIncoming = (_g = incomingEdgeCount.get(nodeId2)) != null ? _g : 1;
+        if (mergeData.config.mode === "all") {
+          if (arrivals < totalIncoming) continue;
+        } else {
+          if (visited.has(nodeId2)) continue;
+        }
+        visited.add(nodeId2);
+        nodeOutputs[nodeId2] = { merge: true, mode: mergeData.config.mode, arrivals, totalIncoming };
+        const nextEdges2 = (_h = outEdges.get(nodeId2)) != null ? _h : [];
+        for (const e of nextEdges2) queue.push(e.target);
+        continue;
+      }
+      if (visited.has(nodeId2)) continue;
+      visited.add(nodeId2);
       await config.persistence.updateRun(runId, "running", nodeOutputs, void 0, nodeId2);
       const data = node.data;
       if (data.nodeType === "action") {
         const actionData = data;
+        if (config.persistence.recordNodeStart) {
+          await config.persistence.recordNodeStart(runId, nodeId2);
+        }
         const result = await executeActionWithRetry(
           actionData.actionType,
           actionData.config,
           actionCtx,
-          config
+          config,
+          actionData.retryConfig
         );
         nodeOutputs[nodeId2] = result;
-        const nextEdges2 = (_e = outEdges.get(nodeId2)) != null ? _e : [];
-        for (const e of nextEdges2) queue.push(e.target);
+        const nextEdges2 = (_i = outEdges.get(nodeId2)) != null ? _i : [];
+        if (!result.success) {
+          actionCtx.vars.error_message = (_j = result.error) != null ? _j : "Unknown error";
+          actionCtx.vars.failed_node = nodeId2;
+          actionCtx.vars.failed_action = actionData.actionType;
+          const errorEdges = nextEdges2.filter((e) => e.sourceHandle === "error");
+          for (const e of errorEdges) queue.push(e.target);
+          continue;
+        }
+        delete actionCtx.vars.error_message;
+        delete actionCtx.vars.failed_node;
+        delete actionCtx.vars.failed_action;
+        const successEdges = nextEdges2.filter((e) => e.sourceHandle !== "error");
+        for (const e of successEdges) queue.push(e.target);
         continue;
       }
       if (data.nodeType === "condition") {
         const condResult = evaluateCondition(data, actionCtx);
         nodeOutputs[nodeId2] = { condition: condResult };
-        const nextEdges2 = (_f = outEdges.get(nodeId2)) != null ? _f : [];
+        const nextEdges2 = (_k = outEdges.get(nodeId2)) != null ? _k : [];
         const targetHandle = condResult ? "true" : "false";
         for (const e of nextEdges2) {
           if (e.sourceHandle === targetHandle) queue.push(e.target);
         }
+        continue;
+      }
+      if (data.nodeType === "loop") {
+        const loopData = data;
+        const cfg = loopData.config;
+        const renderFn = (_l = config.renderTemplate) != null ? _l : defaultRenderTemplate;
+        let sourceArray;
+        const rawSource = actionCtx.vars[cfg.sourceVariable];
+        if (typeof rawSource === "string") {
+          try {
+            sourceArray = JSON.parse(rawSource);
+          } catch (e) {
+            sourceArray = [rawSource];
+          }
+        } else if (Array.isArray(rawSource)) {
+          sourceArray = rawSource;
+        } else {
+          sourceArray = rawSource ? [rawSource] : [];
+        }
+        const maxIter = Math.min(cfg.maxIterations || 100, 1e3);
+        sourceArray = sourceArray.slice(0, maxIter);
+        const nextEdges2 = (_m = outEdges.get(nodeId2)) != null ? _m : [];
+        const itemEdges = nextEdges2.filter((e) => e.sourceHandle === "item");
+        const doneEdges = nextEdges2.filter((e) => e.sourceHandle === "done" || e.sourceHandle !== "item");
+        const iterResults = [];
+        let iterErrors = 0;
+        for (let i = 0; i < sourceArray.length; i++) {
+          const item = sourceArray[i];
+          actionCtx.vars[cfg.itemVariable || "item"] = typeof item === "object" ? JSON.stringify(item) : String(item != null ? item : "");
+          actionCtx.vars.loop_index = i;
+          actionCtx.vars.loop_total = sourceArray.length;
+          for (const edge of itemEdges) {
+            const targetNode = nodes.find((n) => n.id === edge.target);
+            if (!targetNode) continue;
+            const targetData = targetNode.data;
+            if (targetData.nodeType === "action") {
+              const actionData = targetData;
+              const actionConfig = __spreadValues({}, actionData.config);
+              for (const [k, v] of Object.entries(actionConfig)) {
+                if (typeof v === "string") {
+                  actionConfig[k] = renderFn(
+                    v,
+                    actionCtx.vars
+                  );
+                }
+              }
+              const result = await executeActionWithRetry(
+                actionData.actionType,
+                actionConfig,
+                actionCtx,
+                config,
+                actionData.retryConfig
+              );
+              nodeOutputs[`${targetNode.id}_iter_${i}`] = __spreadProps(__spreadValues({}, result), { iteration: i, item });
+              if (!result.success) {
+                iterErrors++;
+                if (!cfg.continueOnError) break;
+              } else {
+                iterResults.push(result.output);
+              }
+            } else if (targetData.nodeType === "condition") {
+              const condResult = evaluateCondition(targetData, actionCtx);
+              nodeOutputs[`${targetNode.id}_iter_${i}`] = { condition: condResult, iteration: i, item };
+              const condHandle = condResult ? "true" : "false";
+              const condEdges = (_n = outEdges.get(targetNode.id)) != null ? _n : [];
+              for (const ce of condEdges) {
+                if (ce.sourceHandle !== condHandle) continue;
+                const branchNode = nodes.find((n) => n.id === ce.target);
+                if (!branchNode || branchNode.data.nodeType !== "action") continue;
+                const branchAction = branchNode.data;
+                const branchConfig = __spreadValues({}, branchAction.config);
+                for (const [k, v] of Object.entries(branchConfig)) {
+                  if (typeof v === "string") {
+                    branchConfig[k] = renderFn(
+                      v,
+                      actionCtx.vars
+                    );
+                  }
+                }
+                const branchResult = await executeActionWithRetry(
+                  branchAction.actionType,
+                  branchConfig,
+                  actionCtx,
+                  config,
+                  branchAction.retryConfig
+                );
+                nodeOutputs[`${branchNode.id}_iter_${i}`] = __spreadProps(__spreadValues({}, branchResult), { iteration: i, item });
+                if (!branchResult.success) {
+                  iterErrors++;
+                  if (!cfg.continueOnError) break;
+                } else {
+                  iterResults.push(branchResult.output);
+                }
+                visited.add(branchNode.id);
+              }
+              visited.add(targetNode.id);
+            }
+          }
+          if (iterErrors > 0 && !cfg.continueOnError) break;
+        }
+        nodeOutputs[nodeId2] = {
+          success: true,
+          iterations: sourceArray.length,
+          completed: sourceArray.length - iterErrors,
+          errors: iterErrors,
+          results: iterResults
+        };
+        for (const edge of itemEdges) visited.add(edge.target);
+        for (const e of doneEdges) {
+          if (e.sourceHandle === "done" || !itemEdges.some((ie) => ie.id === e.id)) queue.push(e.target);
+        }
+        delete actionCtx.vars[cfg.itemVariable || "item"];
+        delete actionCtx.vars.loop_index;
+        delete actionCtx.vars.loop_total;
         continue;
       }
       if (data.nodeType === "delay") {
@@ -212,7 +534,7 @@ async function resumeWorkflow(workflow, runId, resumeTargets, existingOutputs, e
         if (cfg.unit === "days") delayMs = cfg.duration * 24 * 60 * 60 * 1e3;
         const resumeAt = new Date(Date.now() + delayMs).toISOString();
         nodeOutputs[nodeId2] = { delay: true, resumeAt };
-        const nextEdges2 = (_g = outEdges.get(nodeId2)) != null ? _g : [];
+        const nextEdges2 = (_o = outEdges.get(nodeId2)) != null ? _o : [];
         const nextNodeIds = nextEdges2.map((e) => e.target);
         await config.persistence.updateRun(
           runId,
@@ -226,7 +548,19 @@ async function resumeWorkflow(workflow, runId, resumeTargets, existingOutputs, e
         }
         return { runId, status: "paused", nodeOutputs };
       }
-      const nextEdges = (_h = outEdges.get(nodeId2)) != null ? _h : [];
+      if (data.nodeType === "subworkflow") {
+        const subData = data;
+        nodeOutputs[nodeId2] = {
+          subworkflow: true,
+          workflowId: subData.config.workflowId,
+          passVars: subData.config.passVars !== false,
+          waitForCompletion: subData.config.waitForCompletion
+        };
+        const nextEdges2 = (_p = outEdges.get(nodeId2)) != null ? _p : [];
+        for (const e of nextEdges2) queue.push(e.target);
+        continue;
+      }
+      const nextEdges = (_q = outEdges.get(nodeId2)) != null ? _q : [];
       for (const e of nextEdges) queue.push(e.target);
     }
     await config.persistence.updateRun(runId, "completed", nodeOutputs);
@@ -240,19 +574,41 @@ async function resumeWorkflow(workflow, runId, resumeTargets, existingOutputs, e
     return { runId, status: "failed", nodeOutputs, error: errorMsg };
   }
 }
-async function executeActionWithRetry(actionType, config, ctx, engineConfig) {
-  var _a, _b;
-  const maxRetries = (_a = engineConfig.maxRetries) != null ? _a : 2;
+function classifyError(error, structuredType) {
+  if (structuredType && ["timeout", "rate_limit", "server", "auth", "validation", "unknown"].includes(structuredType)) {
+    return structuredType;
+  }
+  const lower = error.toLowerCase();
+  if (lower.includes("timeout") || lower.includes("timed out") || lower.includes("etimedout") || lower.includes("aborted")) return "timeout";
+  if (lower.includes("rate limit") || lower.includes("too many requests")) return "rate_limit";
+  if (/\b(500|502|503|504)\b/.test(lower) || lower.includes("server error") || lower.includes("internal error")) return "server";
+  if (/\b(401|403)\b/.test(lower) || lower.includes("forbidden") || lower.includes("unauthorized")) return "auth";
+  if (lower.includes("invalid") || lower.includes("missing required")) return "validation";
+  return "unknown";
+}
+async function executeActionWithRetry(actionType, config, ctx, engineConfig, nodeRetryConfig) {
+  var _a, _b, _c;
+  if (engineConfig.dryRun) {
+    return {
+      success: true,
+      output: { dryRun: true, actionType, config, skipped: true }
+    };
+  }
+  const maxRetries = (_b = (_a = nodeRetryConfig == null ? void 0 : nodeRetryConfig.maxRetries) != null ? _a : engineConfig.maxRetries) != null ? _b : 2;
+  const baseDelay = nodeRetryConfig == null ? void 0 : nodeRetryConfig.retryDelay;
+  const retryOnTypes = nodeRetryConfig == null ? void 0 : nodeRetryConfig.retryOn;
   let lastResult = { success: false, error: "Unknown action" };
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     lastResult = await engineConfig.executeAction(actionType, config, ctx);
     if (lastResult.success) return lastResult;
-    const err = (_b = lastResult.error) != null ? _b : "";
-    if (err.includes("not found") || err.includes("No ") || err.includes("Invalid") || err.includes("Unknown")) {
-      break;
-    }
+    const err = (_c = lastResult.error) != null ? _c : "";
+    const errorType = classifyError(err, lastResult.errorType);
+    if (errorType === "validation" || errorType === "auth") break;
+    if (retryOnTypes && retryOnTypes.length > 0 && !retryOnTypes.includes(errorType)) break;
     if (attempt < maxRetries) {
-      await new Promise((r) => setTimeout(r, (attempt + 1) * 1e3 + 1e3));
+      const jitter = Math.random() * 1e3;
+      const delay = baseDelay != null ? baseDelay : Math.min(2 ** attempt * 1e3 + jitter, 6e4);
+      await new Promise((r) => setTimeout(r, delay));
     }
   }
   return lastResult;
@@ -1296,6 +1652,109 @@ function Field({ label, children }) {
     children
   ] });
 }
+
+// src/core/auto-layout.ts
+var MIN_GAP_X = 30;
+var MIN_GAP_Y = 40;
+var ROW_THRESHOLD = 80;
+var MAX_NODE_WIDTH = 300;
+var DEFAULT_SIZES = {
+  appNode: { w: 280, h: 130 },
+  personaNode: { w: 240, h: 200 },
+  competitorNode: { w: 220, h: 150 },
+  actionNode: { w: 220, h: 170 },
+  noteNode: { w: 220, h: 200 },
+  triggerNode: { w: 220, h: 110 },
+  conditionNode: { w: 220, h: 110 },
+  transformNode: { w: 220, h: 110 },
+  outputNode: { w: 220, h: 110 },
+  llmNode: { w: 260, h: 220 },
+  stepNode: { w: 280, h: 200 },
+  consensusNode: { w: 260, h: 220 },
+  affinityCategoryNode: { w: 220, h: 150 }
+};
+var DEFAULT_SIZE = { w: 220, h: 130 };
+function getNodeRect(node, idx) {
+  var _a, _b, _c, _d;
+  const measured = node.measured;
+  const fallback = (_b = DEFAULT_SIZES[(_a = node.type) != null ? _a : ""]) != null ? _b : DEFAULT_SIZE;
+  return {
+    idx,
+    x: node.position.x,
+    y: node.position.y,
+    w: Math.min((_c = measured == null ? void 0 : measured.width) != null ? _c : fallback.w, MAX_NODE_WIDTH),
+    h: (_d = measured == null ? void 0 : measured.height) != null ? _d : fallback.h
+  };
+}
+function groupIntoRows(rects) {
+  const sorted = [...rects].sort((a, b) => a.y - b.y);
+  const rows = [];
+  let currentRow = [];
+  let rowY = -Infinity;
+  for (const rect of sorted) {
+    if (rect.y - rowY > ROW_THRESHOLD && currentRow.length > 0) {
+      rows.push(currentRow);
+      currentRow = [];
+    }
+    if (currentRow.length === 0) rowY = rect.y;
+    currentRow.push(rect);
+  }
+  if (currentRow.length > 0) rows.push(currentRow);
+  return rows;
+}
+function spreadRow(row) {
+  if (row.length <= 1) return;
+  row.sort((a, b) => a.x - b.x);
+  const avgY = Math.round(row.reduce((s, r) => s + r.y, 0) / row.length);
+  for (const r of row) r.y = avgY;
+  for (let i = 1; i < row.length; i++) {
+    const prev = row[i - 1];
+    const curr = row[i];
+    const minX = prev.x + prev.w + MIN_GAP_X;
+    if (curr.x < minX) {
+      curr.x = minX;
+    }
+  }
+  const origPositions = row.map((r) => r.x);
+  const origMid = (Math.min(...origPositions) + Math.max(...origPositions)) / 2;
+  const currLeft = row[0].x;
+  const currRight = row[row.length - 1].x + row[row.length - 1].w;
+  const currMid = (currLeft + currRight) / 2;
+  const shift = origMid - currMid;
+  for (const r of row) r.x = Math.round(r.x + shift);
+}
+function spaceRows(rows) {
+  for (let i = 1; i < rows.length; i++) {
+    const prevRow = rows[i - 1];
+    const currRow = rows[i];
+    const prevBottom = Math.max(...prevRow.map((r) => r.y + r.h));
+    const currTop = Math.min(...currRow.map((r) => r.y));
+    const gap = currTop - prevBottom;
+    if (gap < MIN_GAP_Y) {
+      const shift = MIN_GAP_Y - gap;
+      for (let j = i; j < rows.length; j++) {
+        for (const r of rows[j]) r.y = Math.round(r.y + shift);
+      }
+    }
+  }
+}
+function autoLayout(nodes) {
+  if (nodes.length <= 1) return nodes;
+  const rects = nodes.map((n, i) => getNodeRect(n, i));
+  const rows = groupIntoRows(rects);
+  for (const row of rows) spreadRow(row);
+  spaceRows(rows);
+  const positions = /* @__PURE__ */ new Map();
+  for (const row of rows) {
+    for (const r of row) {
+      positions.set(r.idx, { x: r.x, y: r.y });
+    }
+  }
+  return nodes.map((node, i) => {
+    const pos = positions.get(i);
+    return pos ? __spreadProps(__spreadValues({}, node), { position: { x: pos.x, y: pos.y } }) : node;
+  });
+}
 var nodeTypes = {
   trigger: TriggerNode,
   action: ActionNode,
@@ -1316,7 +1775,7 @@ function FlowCanvasInner({
   hideSidebar,
   hideConfigPanel
 }) {
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+  const [nodes, setNodes, onNodesChange] = useNodesState(autoLayout(initialNodes));
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [selectedNode, setSelectedNode] = React2.useState(null);
   const reactFlowWrapper = React2.useRef(null);
