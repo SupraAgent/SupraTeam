@@ -9,6 +9,7 @@ import {
   BarChart3,
   Activity,
   Radio,
+  Calendar,
 } from "lucide-react";
 import type { DashboardPanel, PanelId } from "./types";
 import { ContactCardPanel } from "@/components/email/dashboard/contact-card-panel";
@@ -19,6 +20,7 @@ import { OutreachQueuePanel } from "@/components/email/dashboard/outreach-queue-
 import { MetricsStripPanel } from "@/components/email/dashboard/metrics-strip-panel";
 import { ActivityFeedPanel } from "@/components/email/dashboard/activity-feed-panel";
 import { BroadcastComposerPanel } from "@/components/email/dashboard/broadcast-composer-panel";
+import { CalendarPanel } from "@/components/email/dashboard/calendar-panel";
 
 export const PANELS: DashboardPanel[] = [
   {
@@ -92,6 +94,15 @@ export const PANELS: DashboardPanel[] = [
     size: "full",
     defaultEnabled: false,
     component: BroadcastComposerPanel,
+  },
+  {
+    id: "calendar",
+    title: "Calendar",
+    icon: Calendar,
+    description: "Upcoming Google Calendar events and meetings",
+    size: "1x1",
+    defaultEnabled: true,
+    component: CalendarPanel,
   },
 ];
 

@@ -6,6 +6,7 @@ import {
   MessageCircle,
   Hash,
   Mail,
+  Calendar,
   Webhook,
   Link2,
   Key,
@@ -64,6 +65,15 @@ export default function IntegrationsOverviewPage() {
       connected: null,
     },
     {
+      key: "calendar",
+      label: "Google Calendar",
+      description: "Sync calendar events and link meetings to deals and contacts",
+      href: "/settings/integrations/calendar",
+      icon: <Calendar className="h-5 w-5 text-[#4285f4]" />,
+      iconBg: "bg-[#4285f4]/10",
+      connected: null,
+    },
+    {
       key: "webhooks",
       label: "Webhooks",
       description: "Receive and send webhook events for external integrations",
@@ -117,6 +127,15 @@ export default function IntegrationsOverviewPage() {
         updateStatus("email", !!data, data ? "Gmail connected" : undefined);
       })
       .catch(() => updateStatus("email", false));
+
+    // Check Google Calendar
+    fetch("/api/calendar/google/sync")
+      .then((r) => (r.ok ? r.json() : { data: { connections: [] } }))
+      .then(({ data }) => {
+        const count = data?.connections?.length ?? 0;
+        updateStatus("calendar", count > 0, count > 0 ? `${count} account${count !== 1 ? "s" : ""} connected` : undefined);
+      })
+      .catch(() => updateStatus("calendar", false));
 
     // TG Connect + Webhooks — mark as configured (no API check needed)
     updateStatus("tg-connect", false);

@@ -22,6 +22,7 @@ import {
   Users,
   Check,
 } from "lucide-react";
+import DOMPurify from "dompurify";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { MergeVariablePicker } from "./MergeVariablePicker";
@@ -348,18 +349,12 @@ export function BroadcastCompose({
                 Telegram Preview
               </p>
               <div
-                className="text-sm text-foreground whitespace-pre-wrap"
+                className="text-sm text-foreground whitespace-pre-wrap [&_code]:bg-white/10 [&_code]:px-1 [&_code]:rounded"
                 dangerouslySetInnerHTML={{
-                  __html: message
-                    .replace(/</g, "&lt;")
-                    .replace(/&lt;b&gt;/g, "<b>")
-                    .replace(/&lt;\/b&gt;/g, "</b>")
-                    .replace(/&lt;i&gt;/g, "<i>")
-                    .replace(/&lt;\/i&gt;/g, "</i>")
-                    .replace(/&lt;u&gt;/g, "<u>")
-                    .replace(/&lt;\/u&gt;/g, "</u>")
-                    .replace(/&lt;code&gt;/g, '<code class="bg-white/10 px-1 rounded">')
-                    .replace(/&lt;\/code&gt;/g, "</code>"),
+                  __html: DOMPurify.sanitize(message, {
+                    ALLOWED_TAGS: ["b", "i", "u", "s", "code", "pre", "a"],
+                    ALLOWED_ATTR: ["href"],
+                  }),
                 }}
               />
             </div>

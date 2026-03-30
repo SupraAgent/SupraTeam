@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { createHmac, timingSafeEqual } from "crypto";
+import { createHash, createHmac, timingSafeEqual } from "crypto";
+import os from "os";
 import { createClient } from "@/lib/supabase/server";
 import { createSupabaseAdmin } from "@/lib/supabase";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
@@ -15,9 +16,21 @@ interface AuthSuccess {
 
 type AuthResult = AuthSuccess | { error: NextResponse };
 
+/**
+ * Generate a deterministic, machine-specific dev user UUID to avoid collisions
+ * when multiple developers share the same Supabase instance.
+ * Uses hostname + DEV_ACCESS_PASSWORD as entropy.
+ */
+function getDevUserId(): string {
+  const h = createHash("sha256")
+    .update(`${os.hostname()}:${process.env.DEV_ACCESS_PASSWORD || "dev"}`)
+    .digest("hex");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
+}
+
 /** Synthetic user for dev-access sessions (no real Supabase auth). */
 const DEV_USER: User = {
-  id: "dev-00000000-0000-0000-0000-000000000000",
+  id: getDevUserId(),
   email: "dev@supracrm.local",
   app_metadata: {},
   user_metadata: { full_name: "Dev User" },
@@ -48,6 +61,11 @@ export async function requireAuth(): Promise<AuthResult> {
       const cookieBuf = Buffer.from(devCookie);
       const expectedBuf = Buffer.from(expected);
       if (cookieBuf.length === expectedBuf.length && timingSafeEqual(cookieBuf, expectedBuf)) {
+        // KNOWN LIMITATION: In dev mode, the RLS-scoped client IS the admin client because
+        // the synthetic dev user doesn't exist in auth.users, so a real RLS client would fail
+        // on every query. The proper fix is creating a real dev user in Supabase, but that's
+        // a larger architectural change. All queries bypass RLS in dev mode.
+        console.warn("[auth-guard] Dev mode: RLS bypassed. All queries use service-role client.");
         return { user: DEV_USER, supabase: admin, admin };
       }
     }

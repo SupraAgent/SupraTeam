@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
+import { sanitizePostgrestValue } from "@/lib/utils";
 
 export async function GET(request: Request) {
   const auth = await requireAuth();
@@ -10,10 +11,13 @@ export async function GET(request: Request) {
   const q = searchParams.get("q");
   if (!q || q.length < 2) return NextResponse.json({ deals: [], contacts: [], groups: [] });
 
-  const sanitized = q.replace(/[%_(),\\]/g, "");
+  // sanitizePostgrestValue strips dots and other PostgREST operator delimiters
+  const sanitized = sanitizePostgrestValue(q).replace(/[%_]/g, "");
   if (!sanitized) return NextResponse.json({ deals: [], contacts: [], groups: [] });
   const pattern = `%${sanitized}%`;
 
+  // Use parameterized .ilike() calls instead of string-interpolated .or() to prevent
+  // PostgREST filter injection via dot-separated operator delimiters.
   const [dealsRes, contactsRes, groupsRes] = await Promise.all([
     supabase
       .from("crm_deals")
