@@ -5,7 +5,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
-const SETTINGS_GROUPS = [
+interface SettingsItem {
+  href: string;
+  label: string;
+  disabled?: boolean;
+}
+
+const SETTINGS_GROUPS: { label: string; items: SettingsItem[] }[] = [
   {
     label: "General",
     items: [
@@ -53,6 +59,13 @@ const SETTINGS_GROUPS = [
     ],
   },
   {
+    label: "Coming Soon",
+    items: [
+      { href: "#", label: "Graph (soon)", disabled: true },
+      { href: "#", label: "Docs (soon)", disabled: true },
+    ],
+  },
+  {
     label: "Compliance",
     items: [
       { href: "/settings/privacy", label: "Privacy & GDPR" },
@@ -77,6 +90,16 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
               </p>
               <div className="space-y-0.5">
                 {group.items.map((item) => {
+                  if (item.disabled) {
+                    return (
+                      <span
+                        key={item.label}
+                        className="block rounded-lg px-2 py-1.5 text-[13px] font-medium text-muted-foreground/40 cursor-not-allowed"
+                      >
+                        {item.label}
+                      </span>
+                    );
+                  }
                   const active = item.href === "/settings"
                     ? pathname === "/settings"
                     : pathname.startsWith(item.href);
@@ -105,6 +128,16 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
       <div className="md:hidden w-full overflow-x-auto pb-3 -mt-2">
         <div className="flex gap-1 min-w-max px-1">
           {SETTINGS_GROUPS.flatMap((g) => g.items).map((item) => {
+            if (item.disabled) {
+              return (
+                <span
+                  key={item.label}
+                  className="rounded-lg px-2.5 py-1.5 text-xs font-medium whitespace-nowrap text-muted-foreground/40 cursor-not-allowed"
+                >
+                  {item.label}
+                </span>
+              );
+            }
             const active = item.href === "/settings"
               ? pathname === "/settings"
               : pathname.startsWith(item.href);
