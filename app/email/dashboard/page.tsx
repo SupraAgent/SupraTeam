@@ -14,6 +14,7 @@ import { AISummaryPanel } from "@/components/email/dashboard/ai-summary-panel";
 import { DealSpotlightPanel } from "@/components/email/dashboard/deal-spotlight-panel";
 import { EmailTagsPanel } from "@/components/email/dashboard/email-tags-panel";
 import { OutreachQueuePanel } from "@/components/email/dashboard/outreach-queue-panel";
+import { MetricsStripPanel } from "@/components/email/dashboard/metrics-strip-panel";
 import { Mail, LayoutDashboard, Plus, ArrowLeft } from "lucide-react";
 import type { PanelId } from "@/lib/plugins/types";
 
@@ -51,6 +52,8 @@ export default function EmailDashboardPage() {
         return <EmailTagsPanel threadId={null} />;
       case "outreach-queue":
         return <OutreachQueuePanel />;
+      case "metrics-strip":
+        return <MetricsStripPanel />;
       default:
         return <PlaceholderPanel panelId={panelId} />;
     }
