@@ -8,6 +8,7 @@ import { getPanelById, PANELS } from "@/lib/plugins/registry";
 import { PanelCard } from "@/components/email/dashboard/panel-card";
 import { PanelPicker } from "@/components/email/dashboard/panel-picker";
 import { PlaceholderPanel } from "@/components/email/dashboard/placeholder-panel";
+import { ContactCardPanel } from "@/components/email/dashboard/contact-card-panel";
 import { Mail, LayoutDashboard, Plus, ArrowLeft } from "lucide-react";
 import type { PanelId } from "@/lib/plugins/types";
 
@@ -23,7 +24,19 @@ export default function EmailDashboardPage() {
 
   useEmailDashboardKeys(keyHandlers, !pickerOpen);
 
+  const [selectedEmail, setSelectedEmail] = React.useState<string | null>(null);
+  const [selectedSenderName, setSelectedSenderName] = React.useState<string | undefined>();
+
   const enabledPanels = layout.enabledPanels;
+
+  function renderPanel(panelId: PanelId) {
+    switch (panelId) {
+      case "contact-card":
+        return <ContactCardPanel email={selectedEmail} senderName={selectedSenderName} />;
+      default:
+        return <PlaceholderPanel panelId={panelId} />;
+    }
+  }
 
   return (
     <div className="flex flex-col h-[calc(100vh-3.5rem)] md:h-screen">
@@ -86,7 +99,7 @@ export default function EmailDashboardPage() {
                   panel={panel}
                   onRemove={() => togglePanel(panelId)}
                 >
-                  <PlaceholderPanel panelId={panelId} />
+                  {renderPanel(panelId)}
                 </PanelCard>
               );
             })}
