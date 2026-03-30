@@ -26,7 +26,8 @@ type Note = { id: string; text: string; created_at: string };
 type Activity = { id: string; type: string; title: string; body?: string; tg_deep_link?: string; created_at: string };
 
 export default function TMADealDetailPage() {
-  const { id } = useParams();
+  const rawId = useParams().id;
+  const id = Array.isArray(rawId) ? rawId[0] : rawId;
   const router = useRouter();
   const [deal, setDeal] = React.useState<Deal | null>(null);
   const [notes, setNotes] = React.useState<Note[]>([]);

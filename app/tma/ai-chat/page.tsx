@@ -65,9 +65,10 @@ export default function TMAAIChatPage() {
       let assistantContent = "";
       const decoder = new TextDecoder();
       let lineBuffer = ""; // Buffer for partial lines split across TCP chunks
+      let streamDone = false;
       setMessages([...newMessages, { role: "assistant", content: "" }]);
 
-      while (true) {
+      while (!streamDone) {
         const { done, value } = await reader.read();
         if (done) break;
 
@@ -80,7 +81,10 @@ export default function TMAAIChatPage() {
         for (const line of lines) {
           if (line.startsWith("data: ")) {
             const data = line.slice(6);
-            if (data === "[DONE]") break;
+            if (data === "[DONE]") {
+              streamDone = true;
+              break;
+            }
             try {
               const parsed = JSON.parse(data);
               if (parsed.text) {

@@ -198,7 +198,7 @@ export default function PipelinePage() {
       setHighlightDealId(highlight);
       // Scroll to the deal card after a short delay
       setTimeout(() => {
-        const el = document.querySelector(`[data-deal-id="${highlight}"]`);
+        const el = document.querySelector(`[data-deal-id="${CSS.escape(highlight)}"]`);
         if (el) {
           el.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
         }
@@ -237,8 +237,8 @@ export default function PipelinePage() {
         setDeals(fetchedDeals);
       }
       if (contactsRes.ok) {
-        const { contacts } = await contactsRes.json();
-        setContacts(contacts);
+        const { contacts: fetchedContacts } = await contactsRes.json();
+        setContacts(fetchedContacts ?? []);
       }
       if (highlightsRes.ok) {
         const { highlighted_deal_ids, highlights: hlList } = await highlightsRes.json();
@@ -420,7 +420,7 @@ export default function PipelinePage() {
         })
       )
     );
-    const succeeded = results.filter((r) => r.status === "fulfilled").length;
+    const succeeded = results.filter((r) => r.status === "fulfilled" && r.value.ok).length;
     toast.success(`Moved ${succeeded} deal${succeeded !== 1 ? "s" : ""}`);
     clearSelection();
     fetchData();
@@ -431,7 +431,7 @@ export default function PipelinePage() {
     const results = await Promise.allSettled(
       ids.map((id) => fetch(`/api/deals/${id}`, { method: "DELETE" }))
     );
-    const succeeded = results.filter((r) => r.status === "fulfilled").length;
+    const succeeded = results.filter((r) => r.status === "fulfilled" && r.value.ok).length;
     toast.success(`Deleted ${succeeded} deal${succeeded !== 1 ? "s" : ""}`);
     clearSelection();
     fetchData();
@@ -448,7 +448,7 @@ export default function PipelinePage() {
         })
       )
     );
-    const succeeded = results.filter((r) => r.status === "fulfilled").length;
+    const succeeded = results.filter((r) => r.status === "fulfilled" && r.value.ok).length;
     toast.success(`Marked ${succeeded} deal${succeeded !== 1 ? "s" : ""} as ${outcome}`);
     clearSelection();
     fetchData();

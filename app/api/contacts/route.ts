@@ -51,8 +51,13 @@ export async function POST(request: Request) {
   if ("error" in auth) return auth.error;
   const { user, supabase } = auth;
 
-  const body = await request.json();
-  const { name, email, phone, telegram_username, telegram_user_id, company, company_id, title, notes, stage_id, lifecycle_stage, source, x_handle, wallet_address, wallet_chain } = body;
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+  const { name, email, phone, telegram_username, telegram_user_id, company, company_id, title, notes, stage_id, lifecycle_stage, source, x_handle, wallet_address, wallet_chain } = body as Record<string, unknown>;
 
   if (!name) {
     return NextResponse.json({ error: "name is required" }, { status: 400 });
