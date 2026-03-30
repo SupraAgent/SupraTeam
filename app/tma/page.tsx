@@ -5,6 +5,8 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { AlertTriangle, Clock, Flame, ChevronRight, Zap } from "lucide-react";
 import { BottomTabBar } from "@/components/tma/bottom-tab-bar";
+import { PullToRefresh } from "@/components/tma/pull-to-refresh";
+import { useTelegramWebApp } from "@/components/tma/use-telegram";
 
 type Deal = {
   id: string;
@@ -25,33 +27,26 @@ export default function TMAHomePage() {
   const [deals, setDeals] = React.useState<Deal[]>([]);
   const [stats, setStats] = React.useState<Stats | null>(null);
   const [loading, setLoading] = React.useState(true);
-  const [tgUser, setTgUser] = React.useState<{ first_name: string; username?: string } | null>(null);
 
-  React.useEffect(() => {
-    // Init Telegram WebApp
-    if (typeof window !== "undefined" && (window as unknown as Record<string, unknown>).Telegram) {
-      const tg = (window as unknown as { Telegram: { WebApp: { ready: () => void; expand: () => void; initDataUnsafe: { user?: { first_name: string; username?: string } } } } }).Telegram.WebApp;
-      tg.ready();
-      tg.expand();
-      if (tg.initDataUnsafe?.user) {
-        setTgUser(tg.initDataUnsafe.user);
-      }
-    }
+  const { tgUser } = useTelegramWebApp();
 
-    // Fetch data
-    Promise.all([
+  const fetchData = React.useCallback(async () => {
+    const [dealsData, statsData] = await Promise.all([
       fetch("/api/deals").then((r) => r.json()).catch(() => ({ deals: [] })),
       fetch("/api/stats").then((r) => r.ok ? r.json() : null).catch(() => null),
-    ]).then(([dealsData, statsData]) => {
-      setDeals(dealsData.deals ?? []);
-      setStats(statsData ? {
-        totalDeals: statsData.totalDeals ?? 0,
-        staleDeals: statsData.staleDeals ?? [],
-        followUps: statsData.followUps ?? [],
-        hotConversations: statsData.hotConversations ?? [],
-      } : { totalDeals: 0, staleDeals: [], followUps: [], hotConversations: [] });
-    }).finally(() => setLoading(false));
+    ]);
+    setDeals(dealsData.deals ?? []);
+    setStats(statsData ? {
+      totalDeals: statsData.totalDeals ?? 0,
+      staleDeals: statsData.staleDeals ?? [],
+      followUps: statsData.followUps ?? [],
+      hotConversations: statsData.hotConversations ?? [],
+    } : { totalDeals: 0, staleDeals: [], followUps: [], hotConversations: [] });
   }, []);
+
+  React.useEffect(() => {
+    fetchData().finally(() => setLoading(false));
+  }, [fetchData]);
 
   if (loading) {
     return (
@@ -64,6 +59,7 @@ export default function TMAHomePage() {
 
   return (
     <div className="pb-20">
+      <PullToRefresh onRefresh={fetchData}>
       {/* Header */}
       <div className="px-4 pt-4 pb-3">
         <h1 className="text-lg font-semibold text-foreground">
@@ -149,6 +145,7 @@ export default function TMAHomePage() {
           )}
         </div>
       </div>
+      </PullToRefresh>
 
       <BottomTabBar active="home" />
     </div>

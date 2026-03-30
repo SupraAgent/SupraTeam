@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Users, Radio, Settings, ChevronRight, Bell } from "lucide-react";
 import { BottomTabBar } from "@/components/tma/bottom-tab-bar";
 import { hapticImpact } from "@/components/tma/haptic";
+import { useTelegramWebApp } from "@/components/tma/use-telegram";
 
 const ITEMS = [
   { href: "/tma/contacts", label: "Contacts", description: "View and manage CRM contacts", icon: Users },
@@ -48,13 +49,9 @@ export default function TMAMorePage() {
   const saveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingPrefs = React.useRef<PushPrefs | null>(null);
 
-  React.useEffect(() => {
-    if (typeof window !== "undefined" && (window as unknown as Record<string, unknown>).Telegram) {
-      const tg = (window as unknown as { Telegram: { WebApp: { ready: () => void; expand: () => void } } }).Telegram.WebApp;
-      tg.ready();
-      tg.expand();
-    }
+  useTelegramWebApp();
 
+  React.useEffect(() => {
     // Load notification preferences
     fetch("/api/notification-preferences")
       .then((r) => r.ok ? r.json() : null)

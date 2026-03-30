@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { Zap, CheckSquare, MessageSquare, MoreHorizontal } from "lucide-react";
+import { Zap, CheckSquare, Inbox, MoreHorizontal } from "lucide-react";
 
-type Tab = "home" | "pipeline" | "tasks" | "chat" | "more";
+type Tab = "home" | "pipeline" | "inbox" | "tasks" | "more";
 
 const TABS: { key: Tab; label: string; href: string; icon: React.ReactNode }[] = [
   {
@@ -26,16 +26,16 @@ const TABS: { key: Tab; label: string; href: string; icon: React.ReactNode }[] =
     ),
   },
   {
+    key: "inbox",
+    label: "Inbox",
+    href: "/tma/inbox",
+    icon: <Inbox className="h-5 w-5" />,
+  },
+  {
     key: "tasks",
     label: "Tasks",
     href: "/tma/tasks",
     icon: <CheckSquare className="h-5 w-5" />,
-  },
-  {
-    key: "chat",
-    label: "Chat",
-    href: "/tma/ai-chat",
-    icon: <MessageSquare className="h-5 w-5" />,
   },
   {
     key: "more",
