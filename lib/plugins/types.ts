@@ -1,5 +1,6 @@
 // ── Email Dashboard Plugin Types ────────────────────────────
 
+import type { ComponentType } from "react";
 import type { LucideIcon } from "lucide-react";
 
 export interface DashboardPanel {
@@ -11,6 +12,8 @@ export interface DashboardPanel {
   size: "1x1" | "2x1" | "full";
   /** Default enabled state */
   defaultEnabled: boolean;
+  /** Panel component (reads thread state from ThreadContext) */
+  component: ComponentType;
 }
 
 export type PanelId =
@@ -18,7 +21,6 @@ export type PanelId =
   | "followup-tracker"
   | "ai-summary"
   | "deal-spotlight"
-  | "email-tags"
   | "outreach-queue"
   | "metrics-strip"
   | "activity-feed"
@@ -29,7 +31,6 @@ export interface PanelLayoutState {
 }
 
 export interface DashboardKeyboardHandlers {
-  onToggleDashboard?: () => void;
-  onRefreshPanels?: () => void;
-  onFocusPanel?: (index: number) => void;
+  onToggleDashboard: () => void;
+  onRefresh: () => void;
 }

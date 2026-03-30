@@ -28,13 +28,15 @@ export function OutreachQueuePanel() {
   const [items, setItems] = React.useState<QueueItem[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [acting, setActing] = React.useState<string | null>(null);
+  const [error, setError] = React.useState(false);
 
   const fetchQueue = React.useCallback(() => {
     setLoading(true);
+    setError(false);
     fetch("/api/plugins/outreach-queue")
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((json) => setItems(json.data ?? []))
-      .catch(() => {})
+      .catch(() => setError(true))
       .finally(() => setLoading(false));
   }, []);
 
@@ -45,12 +47,13 @@ export function OutreachQueuePanel() {
   async function handleAction(enrollmentId: string, action: "skip" | "pause") {
     setActing(enrollmentId);
     try {
-      const status = action === "skip" ? "completed" : "paused";
-      await fetch(`/api/outreach/enrollments/${enrollmentId}`, {
+      const status = action === "skip" ? "skipped" : "paused";
+      const res = await fetch(`/api/outreach/enrollments/${enrollmentId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
       });
+      if (!res.ok) throw new Error();
       setItems((prev) => prev.filter((i) => i.enrollmentId !== enrollmentId));
       toast(action === "skip" ? "Step skipped" : "Sequence paused");
     } catch {
@@ -72,6 +75,16 @@ export function OutreachQueuePanel() {
             </div>
           </div>
         ))}
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center py-6 text-muted-foreground gap-2">
+        <AlertCircle className="h-8 w-8 opacity-20" />
+        <p className="text-xs text-red-400/80">Failed to load queue</p>
+        <button onClick={fetchQueue} className="text-[10px] text-primary hover:underline">Retry</button>
       </div>
     );
   }
@@ -110,7 +123,7 @@ export function OutreachQueuePanel() {
               <span className="text-xs font-medium text-foreground truncate">
                 {item.contactName || item.contactEmail || "Unknown"}
               </span>
-              <span className="text-[9px] text-muted-foreground shrink-0">
+              <span className="text-[10px] text-muted-foreground shrink-0">
                 Step {item.currentStep}/{item.totalSteps}
               </span>
             </div>

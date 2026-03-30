@@ -18,12 +18,13 @@ interface MetricsData {
 export function MetricsStripPanel() {
   const [data, setData] = React.useState<MetricsData | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState(false);
 
   React.useEffect(() => {
     fetch("/api/plugins/email-metrics")
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((json) => setData(json.data ?? null))
-      .catch(() => {})
+      .catch(() => setError(true))
       .finally(() => setLoading(false));
   }, []);
 
@@ -33,6 +34,14 @@ export function MetricsStripPanel() {
         {[1, 2, 3, 4, 5].map((i) => (
           <div key={i} className="flex-1 rounded-lg bg-white/5 animate-pulse h-16" />
         ))}
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-4">
+        <p className="text-xs text-red-400/80">Failed to load metrics</p>
       </div>
     );
   }
@@ -70,7 +79,7 @@ export function MetricsStripPanel() {
                 <Icon className={cn("h-3 w-3", metric.color)} />
                 <span className="text-sm font-semibold text-foreground">{metric.value}</span>
               </div>
-              <span className="text-[9px] text-muted-foreground">{metric.label}</span>
+              <span className="text-[10px] text-muted-foreground">{metric.label}</span>
             </div>
           );
         })}
@@ -108,7 +117,7 @@ export function MetricsStripPanel() {
                       />
                     </div>
                   </div>
-                  <span className="text-[8px] text-muted-foreground/60">{dayLabel}</span>
+                  <span className="text-[10px] text-muted-foreground/60">{dayLabel}</span>
                 </div>
               );
             })}
@@ -116,11 +125,11 @@ export function MetricsStripPanel() {
           <div className="flex items-center gap-3 mt-1.5">
             <div className="flex items-center gap-1">
               <div className="h-2 w-2 rounded bg-primary/40" />
-              <span className="text-[8px] text-muted-foreground">Opens</span>
+              <span className="text-[10px] text-muted-foreground">Opens</span>
             </div>
             <div className="flex items-center gap-1">
               <div className="h-2 w-2 rounded bg-purple-500/60" />
-              <span className="text-[8px] text-muted-foreground">Clicks</span>
+              <span className="text-[10px] text-muted-foreground">Clicks</span>
             </div>
           </div>
         </div>

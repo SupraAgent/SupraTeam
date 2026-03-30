@@ -4,6 +4,7 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 import { Tag, Plus, X, Check, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { useThreadContext } from "@/lib/plugins/thread-context";
 
 interface EmailTag {
   id: string;
@@ -20,12 +21,8 @@ interface ThreadTag {
   crm_email_tags: EmailTag | null;
 }
 
-interface EmailTagsPanelProps {
-  /** Thread ID to tag */
-  threadId: string | null;
-}
-
-export function EmailTagsPanel({ threadId }: EmailTagsPanelProps) {
+export function EmailTagsPanel() {
+  const { threadId } = useThreadContext();
   const [allTags, setAllTags] = React.useState<EmailTag[]>([]);
   const [threadTags, setThreadTags] = React.useState<ThreadTag[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -145,7 +142,7 @@ export function EmailTagsPanel({ threadId }: EmailTagsPanelProps) {
                 >
                   {tag.name}
                   {tt.auto_tagged && (
-                    <span className="text-[8px] opacity-60">auto</span>
+                    <span className="text-[10px] opacity-60">auto</span>
                   )}
                   <button
                     onClick={() => handleToggleTag(tag.id)}

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { timeAgo } from "@/lib/utils";
 import { Clock, Mail, AlertTriangle, CheckCircle, RotateCcw } from "lucide-react";
+import { useThreadContext } from "@/lib/plugins/thread-context";
 
 interface FollowupItem {
   id: string;
@@ -23,10 +24,6 @@ interface FollowupItem {
   stageColor: string | null;
 }
 
-interface FollowupTrackerPanelProps {
-  onSelectThread?: (threadId: string) => void;
-}
-
 const AGE_GROUPS = [
   { key: "today", label: "Today", color: "text-green-400" },
   { key: "1-3d", label: "1-3 days", color: "text-yellow-400" },
@@ -34,7 +31,8 @@ const AGE_GROUPS = [
   { key: "7d+", label: "7+ days", color: "text-red-400" },
 ] as const;
 
-export function FollowupTrackerPanel({ onSelectThread }: FollowupTrackerPanelProps) {
+export function FollowupTrackerPanel() {
+  const { selectThread } = useThreadContext();
   const [followups, setFollowups] = React.useState<FollowupItem[]>([]);
   const [loading, setLoading] = React.useState(true);
 
@@ -52,12 +50,16 @@ export function FollowupTrackerPanel({ onSelectThread }: FollowupTrackerPanelPro
   }, [fetchFollowups]);
 
   async function handleDismiss(id: string) {
-    setFollowups((prev) => prev.filter((f) => f.id !== id));
-    await fetch(`/api/email/scheduled/${id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "cancelled" }),
-    }).catch(() => {});
+    const prev = followups;
+    setFollowups((f) => f.filter((x) => x.id !== id));
+    try {
+      const res = await fetch(`/api/email/scheduled?id=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error();
+    } catch {
+      setFollowups(prev);
+    }
   }
 
   if (loading) {
@@ -99,7 +101,7 @@ export function FollowupTrackerPanel({ onSelectThread }: FollowupTrackerPanelPro
             <span className={cn("text-[10px] font-semibold uppercase tracking-wider", group.color)}>
               {group.label}
             </span>
-            <span className="rounded-full bg-white/5 px-1.5 py-0.5 text-[9px] text-muted-foreground">
+            <span className="rounded-full bg-white/5 px-1.5 py-0.5 text-[10px] text-muted-foreground">
               {group.items.length}
             </span>
           </div>
@@ -125,7 +127,7 @@ export function FollowupTrackerPanel({ onSelectThread }: FollowupTrackerPanelPro
                   <div className="flex items-center gap-1.5">
                     {item.threadId ? (
                       <button
-                        onClick={() => onSelectThread?.(item.threadId!)}
+                        onClick={() => selectThread(item.threadId!)}
                         className="text-xs text-foreground truncate hover:text-primary transition-colors text-left"
                       >
                         {item.subject || "No subject"}
@@ -160,7 +162,7 @@ export function FollowupTrackerPanel({ onSelectThread }: FollowupTrackerPanelPro
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition shrink-0">
                   {item.threadId && (
                     <button
-                      onClick={() => onSelectThread?.(item.threadId!)}
+                      onClick={() => selectThread(item.threadId!)}
                       className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-white/5 transition"
                       title="Open thread"
                     >

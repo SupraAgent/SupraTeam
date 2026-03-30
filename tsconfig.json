@@ -20,7 +20,8 @@
     ],
     "paths": {
       "@/*": ["./*"],
-      "@supra/automation-builder": ["./node_modules/@supra/automation-builder/dist/index"],
+      "@supra/automation-builder": ["./packages/automation-builder/dist/index"],
+      "@supra/automation-builder/engine": ["./packages/automation-builder/dist/engine"],
       "@supra/loop-builder": ["./packages/supra-loop-builder/src/index"],
       "@supra/loop-builder/*": ["./packages/supra-loop-builder/src/*"]
     }

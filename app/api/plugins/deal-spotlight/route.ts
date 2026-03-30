@@ -75,23 +75,9 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // 2. Get contacts with active deals that could be auto-linked (for "Link to deal?" prompts)
-  const { data: dealContacts } = await supabase
-    .from("crm_contacts")
-    .select("id, name, email")
-    .eq("created_by", user.id)
-    .not("email", "is", null);
-
-  // Get active deal counts per contact
-  const contactEmails: string[] = [];
-  for (const c of dealContacts ?? []) {
-    if (c.email) contactEmails.push(c.email.toLowerCase());
-  }
-
   return NextResponse.json({
     data: {
       entries: spotlightEntries,
-      knownContactEmails: contactEmails,
     },
   });
 }

@@ -2,18 +2,44 @@
 
 import * as React from "react";
 import { cn } from "@/lib/utils";
-import { ChevronDown, ChevronRight, X } from "lucide-react";
+import { ChevronDown, ChevronRight, X, AlertTriangle } from "lucide-react";
 import type { DashboardPanel } from "@/lib/plugins/types";
+
+class PanelErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex flex-col items-center justify-center py-6 text-muted-foreground gap-2">
+          <AlertTriangle className="h-6 w-6 opacity-40" />
+          <p className="text-xs">Something went wrong</p>
+          <button
+            onClick={() => this.setState({ hasError: false })}
+            className="text-[10px] text-primary hover:underline"
+          >
+            Retry
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 interface PanelCardProps {
   panel: DashboardPanel;
   onRemove: () => void;
   children: React.ReactNode;
   className?: string;
-  /** If provided, shows a badge count in header */
-  badgeCount?: number;
-  /** Loading state */
-  loading?: boolean;
 }
 
 export function PanelCard({
@@ -21,8 +47,6 @@ export function PanelCard({
   onRemove,
   children,
   className,
-  badgeCount,
-  loading,
 }: PanelCardProps) {
   const [collapsed, setCollapsed] = React.useState(false);
   const Icon = panel.icon;
@@ -51,11 +75,6 @@ export function PanelCard({
         </button>
         <Icon className="h-4 w-4 text-muted-foreground" />
         <span className="text-xs font-semibold text-foreground">{panel.title}</span>
-        {typeof badgeCount === "number" && badgeCount > 0 && (
-          <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold text-primary">
-            {badgeCount}
-          </span>
-        )}
         <div className="ml-auto">
           <button
             onClick={onRemove}
@@ -70,15 +89,9 @@ export function PanelCard({
       {/* Content */}
       {!collapsed && (
         <div className="p-4">
-          {loading ? (
-            <div className="space-y-2">
-              <div className="h-4 w-3/4 rounded bg-white/5 animate-pulse" />
-              <div className="h-4 w-1/2 rounded bg-white/5 animate-pulse" />
-              <div className="h-4 w-2/3 rounded bg-white/5 animate-pulse" />
-            </div>
-          ) : (
-            children
-          )}
+          <PanelErrorBoundary>
+            {children}
+          </PanelErrorBoundary>
         </div>
       )}
     </div>

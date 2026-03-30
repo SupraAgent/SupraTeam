@@ -18,7 +18,7 @@ import {
   type FlowNode,
   type FlowEdge,
   type WorkflowEvent,
-} from "@supra/automation-builder";
+} from "@supra/automation-builder/engine";
 import { createSupabaseAdmin } from "@/lib/supabase";
 import { createSupabasePersistence } from "@/lib/workflow-persistence";
 import { renderTemplate } from "@/lib/telegram-templates";
@@ -139,7 +139,7 @@ function translateNodes(nodes: FlowNode[]): FlowNode[] {
             continueOnError: data.continueOnError !== false,
           },
         },
-      } as FlowNode;
+      } as unknown as FlowNode;
     }
 
     if (node.type === "crmSubworkflowNode") {
@@ -155,7 +155,7 @@ function translateNodes(nodes: FlowNode[]): FlowNode[] {
             waitForCompletion: data.waitForCompletion !== false,
           },
         },
-      } as FlowNode;
+      } as unknown as FlowNode;
     }
 
     // Non-CRM nodes (delay, etc.) pass through unchanged

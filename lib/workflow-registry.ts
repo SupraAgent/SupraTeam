@@ -2,7 +2,7 @@
  * CRM-specific node registry for the automation builder.
  * Defines SupraTeam's triggers, actions, config schemas, and icons.
  */
-import type { NodeRegistry, NodePaletteItem, ConfigFieldDef } from "@supra/automation-builder";
+import type { NodeRegistry, NodePaletteItem, ConfigFieldDef } from "@supra/automation-builder/engine";
 import {
   ArrowRightLeft,
   PlusCircle,
