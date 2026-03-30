@@ -12,6 +12,7 @@ import { ContactCardPanel } from "@/components/email/dashboard/contact-card-pane
 import { FollowupTrackerPanel } from "@/components/email/dashboard/followup-tracker-panel";
 import { AISummaryPanel } from "@/components/email/dashboard/ai-summary-panel";
 import { DealSpotlightPanel } from "@/components/email/dashboard/deal-spotlight-panel";
+import { EmailTagsPanel } from "@/components/email/dashboard/email-tags-panel";
 import { Mail, LayoutDashboard, Plus, ArrowLeft } from "lucide-react";
 import type { PanelId } from "@/lib/plugins/types";
 
@@ -45,6 +46,8 @@ export default function EmailDashboardPage() {
         return <AISummaryPanel messages={threadMessages} subject={threadSubject} dealId={linkedDealId} />;
       case "deal-spotlight":
         return <DealSpotlightPanel />;
+      case "email-tags":
+        return <EmailTagsPanel threadId={null} />;
       default:
         return <PlaceholderPanel panelId={panelId} />;
     }
