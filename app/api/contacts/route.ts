@@ -12,11 +12,15 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const search = searchParams.get("search");
   const stageFilter = searchParams.get("stage");
+  const rawLimit = Number(searchParams.get("limit") ?? 50);
+  const rawOffset = Number(searchParams.get("offset") ?? 0);
+  const limit = Math.min(isNaN(rawLimit) ? 50 : rawLimit, 200);
+  const offset = isNaN(rawOffset) ? 0 : rawOffset;
 
   // Use scoped client — RLS filters to contacts the user created or is a lead
   let query = supabase
     .from("crm_contacts")
-    .select("*, stage:pipeline_stages(*)")
+    .select("*, stage:pipeline_stages(*)", { count: "exact" })
     .order("name");
 
   if (search) {
@@ -30,14 +34,16 @@ export async function GET(request: Request) {
     query = query.eq("stage_id", stageFilter);
   }
 
-  const { data: contacts, error } = await query;
+  query = query.range(offset, offset + limit - 1);
+
+  const { data: contacts, error, count } = await query;
 
   if (error) {
     console.error("[api/contacts] error:", error);
     return NextResponse.json({ error: "Failed to fetch contacts" }, { status: 500 });
   }
 
-  return NextResponse.json({ contacts: contacts ?? [], source: "supabase" });
+  return NextResponse.json({ contacts: contacts ?? [], total: count ?? 0, limit, offset, source: "supabase" });
 }
 
 export async function POST(request: Request) {

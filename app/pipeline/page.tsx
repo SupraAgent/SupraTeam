@@ -280,8 +280,21 @@ export default function PipelinePage() {
     fetchData();
   }, [fetchData]);
 
+  // Track active undo toasts per deal so we can dismiss stale ones
+  const undoToastIds = React.useRef<Map<string, string | number>>(new Map());
+
   async function handleMoveDeal(dealId: string, newStageId: string) {
     if (dealId.startsWith("sample-")) return;
+    const deal = deals.find((d) => d.id === dealId);
+    if (!deal) return;
+    const oldStageId = deal.stage_id;
+    const oldStage = deal.stage;
+    if (oldStageId === newStageId) return;
+
+    // Dismiss any previous undo toast for this deal
+    const prevToast = undoToastIds.current.get(dealId);
+    if (prevToast) toast.dismiss(prevToast);
+
     // Optimistic update
     setDeals((prev) =>
       prev.map((d) =>
@@ -300,7 +313,36 @@ export default function PipelinePage() {
     if (!res.ok) {
       toast.error("Failed to move deal");
       fetchData();
+      return;
     }
+
+    const newStageName = stages.find((s) => s.id === newStageId)?.name ?? "stage";
+    const toastId = toast(`Moved "${deal.deal_name}" to ${newStageName}`, {
+      action: {
+        label: "Undo",
+        onClick: async () => {
+          // Revert optimistically
+          setDeals((prev) =>
+            prev.map((d) =>
+              d.id === dealId
+                ? { ...d, stage_id: oldStageId, stage: oldStage }
+                : d
+            )
+          );
+          const undoRes = await fetch(`/api/deals/${dealId}/move`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ stage_id: oldStageId }),
+          });
+          if (!undoRes.ok) {
+            toast.error("Failed to undo move");
+            fetchData();
+          }
+        },
+      },
+      duration: 5000,
+    });
+    undoToastIds.current.set(dealId, toastId);
   }
 
   // Search + advanced filters
