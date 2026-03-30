@@ -26,7 +26,8 @@ type Note = { id: string; text: string; created_at: string };
 type Activity = { id: string; type: string; title: string; body?: string; tg_deep_link?: string; created_at: string };
 
 export default function TMADealDetailPage() {
-  const { id } = useParams();
+  const rawId = useParams().id;
+  const id = Array.isArray(rawId) ? rawId[0] : rawId;
   const router = useRouter();
   const [deal, setDeal] = React.useState<Deal | null>(null);
   const [notes, setNotes] = React.useState<Note[]>([]);
@@ -42,11 +43,21 @@ export default function TMADealDetailPage() {
   useTelegramWebApp({ onBack: goBack });
 
   React.useEffect(() => {
+    async function safeFetch<T>(url: string, fallback: T): Promise<T> {
+      try {
+        const r = await fetch(url);
+        if (!r.ok) return fallback;
+        return await r.json();
+      } catch {
+        return fallback;
+      }
+    }
+
     Promise.all([
-      fetch(`/api/deals/${id}`).then((r) => r.json()),
-      fetch(`/api/deals/${id}/notes`).then((r) => r.json()),
-      fetch(`/api/deals/${id}/activity`).then((r) => r.json()),
-      fetch("/api/pipeline").then((r) => r.json()),
+      safeFetch(`/api/deals/${id}`, { deal: null }),
+      safeFetch(`/api/deals/${id}/notes`, { notes: [] }),
+      safeFetch(`/api/deals/${id}/activity`, { activities: [] }),
+      safeFetch("/api/pipeline", { stages: [] }),
     ]).then(([dealData, notesData, actData, stagesData]) => {
       setDeal(dealData.deal ?? null);
       setNotes(notesData.notes ?? []);
@@ -221,19 +232,33 @@ export default function TMADealDetailPage() {
             <div className="flex gap-2">
               <button
                 onClick={async () => {
-                  await fetch(`/api/deals/${id}/outcome`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ outcome: "won" }) });
-                  setDeal((d) => d ? { ...d, outcome: "won" } : d);
+                  if (movingStage) return; // guard against double-tap
+                  setMovingStage(true);
+                  try {
+                    await fetch(`/api/deals/${id}/outcome`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ outcome: "won" }) });
+                    setDeal((d) => d ? { ...d, outcome: "won" } : d);
+                  } finally {
+                    setMovingStage(false);
+                  }
                 }}
-                className="flex-1 rounded-xl bg-green-500/10 border border-green-500/20 py-2 text-xs font-medium text-green-400 transition active:bg-green-500/20"
+                disabled={movingStage}
+                className={cn("flex-1 rounded-xl bg-green-500/10 border border-green-500/20 py-2 text-xs font-medium text-green-400 transition active:bg-green-500/20", movingStage && "opacity-50")}
               >
                 Won
               </button>
               <button
                 onClick={async () => {
-                  await fetch(`/api/deals/${id}/outcome`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ outcome: "lost" }) });
-                  setDeal((d) => d ? { ...d, outcome: "lost" } : d);
+                  if (movingStage) return;
+                  setMovingStage(true);
+                  try {
+                    await fetch(`/api/deals/${id}/outcome`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ outcome: "lost" }) });
+                    setDeal((d) => d ? { ...d, outcome: "lost" } : d);
+                  } finally {
+                    setMovingStage(false);
+                  }
                 }}
-                className="flex-1 rounded-xl bg-red-500/10 border border-red-500/20 py-2 text-xs font-medium text-red-400 transition active:bg-red-500/20"
+                disabled={movingStage}
+                className={cn("flex-1 rounded-xl bg-red-500/10 border border-red-500/20 py-2 text-xs font-medium text-red-400 transition active:bg-red-500/20", movingStage && "opacity-50")}
               >
                 Lost
               </button>

@@ -155,11 +155,16 @@ export async function GET(request: Request) {
 
   // Fetch linked deals for these chats
   const dealChatIds = conversations.map((c) => c.chat_id);
-  const { data: deals } = await supabase
-    .from("crm_deals")
-    .select("id, deal_name, board_type, telegram_chat_id, stage:pipeline_stages(name, color), assigned_to, contact:crm_contacts(id, name)")
-    .in("telegram_chat_id", dealChatIds)
-    .eq("outcome", "open");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let deals: any[] | null = [];
+  if (dealChatIds.length > 0) {
+    const { data } = await supabase
+      .from("crm_deals")
+      .select("id, deal_name, board_type, telegram_chat_id, stage:pipeline_stages(name, color), assigned_to, contact:crm_contacts(id, name)")
+      .in("telegram_chat_id", dealChatIds)
+      .eq("outcome", "open");
+    deals = data;
+  }
 
   const dealsByChat: Record<number, typeof deals> = {};
   for (const deal of deals ?? []) {

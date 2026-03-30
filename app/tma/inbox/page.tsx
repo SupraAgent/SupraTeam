@@ -64,8 +64,11 @@ export default function TMAInboxPage() {
       if (statusRes.ok) {
         const data = await statusRes.json();
         const map = new Map<number, InboxStatus>();
-        for (const s of data.statuses ?? []) {
-          map.set(s.chat_id, s);
+        // API returns statuses as a Record<chat_id, status> object, not an array
+        const statusObj = data.statuses ?? {};
+        for (const key of Object.keys(statusObj)) {
+          const s = statusObj[key];
+          map.set(Number(key), s);
         }
         setStatuses(map);
       }
@@ -92,10 +95,15 @@ export default function TMAInboxPage() {
     });
 
     try {
+      const body: Record<string, unknown> = { chat_id: chatId, status };
+      // API requires snoozed_until when snoozing — default to 24h from now
+      if (status === "snoozed") {
+        body.snoozed_until = new Date(Date.now() + 24 * 3600000).toISOString();
+      }
       await fetch("/api/inbox/status", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: chatId, status }),
+        body: JSON.stringify(body),
       });
     } catch {
       await fetchData();

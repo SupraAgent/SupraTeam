@@ -27,7 +27,7 @@ export function PullToRefresh({ onRefresh, children }: PullToRefreshProps) {
 
   const handleTouchStart = React.useCallback((e: React.TouchEvent) => {
     const el = containerRef.current;
-    if (!el || el.scrollTop > 0) return;
+    if (!el || el.scrollTop > 1) return; // threshold of 1px to handle iOS momentum fractional scrolling
     touchStartY.current = e.touches[0].clientY;
     pulling.current = true;
     hapticFired.current = false;

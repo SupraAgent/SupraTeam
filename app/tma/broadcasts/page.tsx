@@ -32,8 +32,12 @@ export default function TMABroadcastsPage() {
   const [message, setMessage] = React.useState("");
   const [sending, setSending] = React.useState(false);
   const [sent, setSent] = React.useState(false);
+  const sentTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // handleSend is hoisted — safe to reference before definition because the hook stores in a ref
+  // Clean up sent timer on unmount
+  React.useEffect(() => {
+    return () => { if (sentTimerRef.current) clearTimeout(sentTimerRef.current); };
+  }, []);
   const mainButtonText = selectedGroups.size > 0 && message.trim() ? `Send to ${selectedGroups.size} group${selectedGroups.size > 1 ? "s" : ""}` : undefined;
   useTelegramWebApp({
     mainButtonText,
@@ -94,7 +98,8 @@ export default function TMABroadcastsPage() {
         setSent(true);
         setMessage("");
         setSelectedGroups(new Set());
-        setTimeout(() => setSent(false), 3000);
+        if (sentTimerRef.current) clearTimeout(sentTimerRef.current);
+        sentTimerRef.current = setTimeout(() => setSent(false), 3000);
       }
     } finally {
       setSending(false);

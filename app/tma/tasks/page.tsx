@@ -93,6 +93,11 @@ export default function TMATasksPage() {
     return true;
   });
 
+  const handleRefresh = React.useCallback(async () => {
+    await fetchTasks();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const FILTERS: { key: Filter; label: string }[] = [
     { key: "all", label: "All" },
     { key: "due", label: "Due" },
@@ -108,10 +113,6 @@ export default function TMATasksPage() {
       </div>
     );
   }
-
-  const handleRefresh = React.useCallback(async () => {
-    await fetchTasks();
-  }, []);
 
   return (
     <div className="pb-20">
