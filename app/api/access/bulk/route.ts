@@ -18,11 +18,25 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Only admin_lead can manage access" }, { status: 403 });
   }
 
-  const body = await request.json();
-  const { action, user_id, slug } = body;
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+  const { action, user_id, slug, expires_at } = body as { action?: string; user_id?: string; slug?: string; expires_at?: string };
 
   if (!action || !user_id || !slug) {
     return NextResponse.json({ error: "action, user_id, and slug are required" }, { status: 400 });
+  }
+
+  // Validate expires_at if provided — must be a valid future ISO timestamp
+  let expiresDate: Date | null = null;
+  if (expires_at) {
+    expiresDate = new Date(expires_at);
+    if (isNaN(expiresDate.getTime()) || expiresDate <= new Date()) {
+      return NextResponse.json({ error: "expires_at must be a future ISO timestamp" }, { status: 400 });
+    }
   }
 
   if (!["add_to_groups", "remove_from_groups"].includes(action)) {
@@ -99,6 +113,25 @@ export async function POST(request: Request) {
         success: false,
         error: "Bot is not admin in this group",
       });
+    }
+  }
+
+  // Upsert the access grant row when adding (so expiry/revoke cron can track it)
+  if (action === "add_to_groups") {
+    const { error: grantErr } = await supabase
+      .from("crm_user_slug_access")
+      .upsert(
+        {
+          user_id,
+          slug,
+          granted_by: user.id,
+          granted_at: new Date().toISOString(),
+          ...(expiresDate ? { expires_at: expiresDate.toISOString() } : {}),
+        },
+        { onConflict: "user_id,slug" }
+      );
+    if (grantErr) {
+      console.error("[api/access/bulk] grant upsert error:", grantErr);
     }
   }
 
