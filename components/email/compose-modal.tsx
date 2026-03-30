@@ -272,7 +272,7 @@ export function ComposeModal({
     }
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [open, bodyText, bodyHtml, to, subject, cc, bcc, mode, threadId, messageId, attachments]);
+  }, [open, bodyText, bodyHtml, to, subject, cc, bcc, mode, threadId, messageId, attachments, connectionId]);
 
   const title =
     mode === "compose"

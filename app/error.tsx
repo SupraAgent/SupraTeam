@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
+import { reportError } from "@/lib/error-reporter";
 
 export default function GlobalError({
   error,
@@ -9,6 +11,15 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  useEffect(() => {
+    reportError(error, {
+      severity: "fatal",
+      source: "client",
+      component: "GlobalErrorBoundary",
+      metadata: { digest: error.digest },
+    });
+  }, [error]);
+
   return (
     <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4 px-4">
       <div className="h-12 w-12 rounded-2xl bg-red-500/10 flex items-center justify-center">

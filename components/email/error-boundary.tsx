@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { reportError } from "@/lib/error-reporter";
 
 type Props = {
   children: React.ReactNode;
@@ -24,6 +25,12 @@ export class EmailErrorBoundary extends React.Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error("[EmailErrorBoundary]", error, errorInfo);
+    reportError(error, {
+      severity: "error",
+      source: "client",
+      component: errorInfo.componentStack?.split("\n")[1]?.trim() ?? "EmailErrorBoundary",
+      action: "email.render",
+    });
   }
 
   render() {

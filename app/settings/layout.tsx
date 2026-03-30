@@ -71,6 +71,7 @@ const SETTINGS_GROUPS: { label: string; items: SettingsItem[] }[] = [
       { href: "/settings/privacy", label: "Privacy & GDPR" },
       { href: "/settings/privacy/notifications", label: "Notifications" },
       { href: "/settings/privacy/audit", label: "Audit Log" },
+      { href: "/settings/privacy/errors", label: "Error Log" },
     ],
   },
 ];
