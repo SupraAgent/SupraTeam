@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { cn, timeAgo } from "@/lib/utils";
-import { Send, Loader2, ExternalLink, Search, ChevronUp, ChevronDown, MessageCircle, Bot, User, Image, FileText, Sparkles } from "lucide-react";
+import { Send, Loader2, ExternalLink, Search, ChevronUp, ChevronDown, MessageCircle, Bot, User, Image, FileText, Sparkles, GitBranch, StickyNote, Brain } from "lucide-react";
 
 type Message = {
   id: string;
@@ -24,16 +24,29 @@ type Message = {
   contact_name?: string | null;
 };
 
+type ActivityCard = {
+  id: string;
+  type: "stage_change" | "note" | "created" | "ai_insight";
+  title: string;
+  body?: string;
+  created_at: string;
+};
+
+type TimelineItem =
+  | { kind: "message"; data: Message }
+  | { kind: "activity"; data: ActivityCard };
+
 type ConversationTimelineProps = {
   dealId: string;
   telegramChatId: number | null;
   telegramChatLink?: string | null;
   onUnreadChange?: (count: number) => void;
+  activities?: ActivityCard[];
 };
 
 const POLL_INTERVAL = 15_000; // 15 seconds
 
-export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink, onUnreadChange }: ConversationTimelineProps) {
+export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink, onUnreadChange, activities = [] }: ConversationTimelineProps) {
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [hasMore, setHasMore] = React.useState(false);
@@ -201,6 +214,20 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
     );
   }, [messages, searchQuery]);
 
+  // Merge messages and activities into a chronological timeline
+  const timelineItems = React.useMemo<TimelineItem[]>(() => {
+    const items: TimelineItem[] = [
+      ...filtered.map((m): TimelineItem => ({ kind: "message", data: m })),
+      ...activities.map((a): TimelineItem => ({ kind: "activity", data: a })),
+    ];
+    items.sort((a, b) => {
+      const aTime = a.kind === "message" ? a.data.sent_at : a.data.created_at;
+      const bTime = b.kind === "message" ? b.data.sent_at : b.data.created_at;
+      return new Date(aTime).getTime() - new Date(bTime).getTime();
+    });
+    return items;
+  }, [filtered, activities]);
+
   if (!telegramChatId) {
     return (
       <div className="text-center py-10">
@@ -280,7 +307,7 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
         )}
 
         {/* Empty state */}
-        {filtered.length === 0 && (
+        {timelineItems.length === 0 && (
           <div className="text-center py-8">
             <MessageCircle className="mx-auto h-6 w-6 text-muted-foreground/20" />
             <p className="mt-2 text-xs text-muted-foreground">
@@ -289,13 +316,46 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
           </div>
         )}
 
-        {/* Message bubbles */}
-        {filtered.map((msg, i) => {
-          const prevMsg = i > 0 ? filtered[i - 1] : null;
+        {/* Timeline: messages + context cards */}
+        {timelineItems.map((item, i) => {
+          const itemTime = item.kind === "message" ? item.data.sent_at : item.data.created_at;
+          const prevItem = i > 0 ? timelineItems[i - 1] : null;
+          const prevTime = prevItem ? (prevItem.kind === "message" ? prevItem.data.sent_at : prevItem.data.created_at) : null;
+          const showDateSep = !prevTime || new Date(itemTime).toDateString() !== new Date(prevTime).toDateString();
+
+          // Context card for activities
+          if (item.kind === "activity") {
+            const act = item.data;
+            const icon = act.type === "stage_change" ? <GitBranch className="h-3 w-3" /> :
+                         act.type === "note" ? <StickyNote className="h-3 w-3" /> :
+                         act.type === "ai_insight" ? <Brain className="h-3 w-3" /> :
+                         <MessageCircle className="h-3 w-3" />;
+            const color = act.type === "stage_change" ? "border-purple-500/20 bg-purple-500/5 text-purple-300" :
+                          act.type === "note" ? "border-yellow-500/20 bg-yellow-500/5 text-yellow-300" :
+                          act.type === "ai_insight" ? "border-cyan-500/20 bg-cyan-500/5 text-cyan-300" :
+                          "border-white/10 bg-white/[0.03] text-muted-foreground";
+            return (
+              <React.Fragment key={`act-${act.id}`}>
+                {showDateSep && (
+                  <div className="flex items-center gap-2 py-2">
+                    <div className="flex-1 h-px bg-white/5" />
+                    <span className="text-[9px] text-muted-foreground/40 shrink-0">
+                      {new Date(itemTime).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                    </span>
+                    <div className="flex-1 h-px bg-white/5" />
+                  </div>
+                )}
+                <ActivityCardItem act={act} icon={icon} color={color} />
+              </React.Fragment>
+            );
+          }
+
+          // Regular message
+          const msg = item.data;
+          const prevMsg = prevItem?.kind === "message" ? prevItem.data : null;
           const sameSender = prevMsg?.sender_telegram_id === msg.sender_telegram_id && prevMsg?.sender_name === msg.sender_name;
           const timeDiff = prevMsg ? new Date(msg.sent_at).getTime() - new Date(prevMsg.sent_at).getTime() : Infinity;
           const showHeader = !sameSender || timeDiff > 5 * 60 * 1000; // 5 min gap
-          const showDateSep = !prevMsg || new Date(msg.sent_at).toDateString() !== new Date(prevMsg.sent_at).toDateString();
 
           return (
             <React.Fragment key={msg.id}>
@@ -460,6 +520,38 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
           {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
         </button>
       </div>
+    </div>
+  );
+}
+
+/** Context card for activities (stage changes, notes, AI insights) */
+function ActivityCardItem({ act, icon, color }: { act: ActivityCard; icon: React.ReactNode; color: string }) {
+  const [expanded, setExpanded] = React.useState(false);
+  const hasBody = !!act.body && act.body.length > 0;
+  const isLongBody = hasBody && act.body!.length > 60;
+
+  return (
+    <div
+      className={cn(
+        "flex items-start gap-2 mx-2 my-2 rounded-lg border px-3 py-1.5",
+        color,
+        isLongBody && "cursor-pointer"
+      )}
+      onClick={isLongBody ? () => setExpanded(!expanded) : undefined}
+      role={isLongBody ? "button" : undefined}
+      aria-expanded={isLongBody ? expanded : undefined}
+    >
+      <span className="shrink-0 mt-0.5" aria-hidden="true">{icon}</span>
+      <span className="sr-only">{act.type.replace("_", " ")}:</span>
+      <span className="text-[10px] font-medium flex-1 min-w-0">
+        {act.title}
+        {hasBody && (
+          <span className={cn("block text-[9px] opacity-70 mt-0.5", !expanded && "truncate")}>
+            {act.body}
+          </span>
+        )}
+      </span>
+      <span className="text-[9px] opacity-50 shrink-0 mt-0.5">{timeAgo(act.created_at)}</span>
     </div>
   );
 }
