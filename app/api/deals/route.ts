@@ -12,6 +12,10 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const board = searchParams.get("board");
   const tgGroupId = searchParams.get("tg_group_id");
+  const rawLimit = Number(searchParams.get("limit") ?? 100);
+  const rawOffset = Number(searchParams.get("offset") ?? 0);
+  const limit = Math.min(isNaN(rawLimit) ? 100 : rawLimit, 500);
+  const offset = isNaN(rawOffset) ? 0 : rawOffset;
 
   // Use scoped client — RLS filters to deals the user created, is assigned to, or is a lead
   let query = supabase
@@ -20,7 +24,7 @@ export async function GET(request: Request) {
       *,
       contact:crm_contacts(*),
       stage:pipeline_stages(*)
-    `)
+    `, { count: "exact" })
     .order("created_at", { ascending: false });
 
   if (board && board !== "All") {
@@ -31,7 +35,9 @@ export async function GET(request: Request) {
     query = query.eq("tg_group_id", tgGroupId);
   }
 
-  const { data: deals, error } = await query;
+  query = query.range(offset, offset + limit - 1);
+
+  const { data: deals, error, count } = await query;
 
   if (error) {
     console.error("[api/deals] error:", error);
@@ -60,7 +66,7 @@ export async function GET(request: Request) {
     assigned_profile: d.assigned_to ? profileMap[d.assigned_to] ?? null : null,
   }));
 
-  return NextResponse.json({ deals: enriched, source: "supabase" });
+  return NextResponse.json({ deals: enriched, total: count ?? 0, limit, offset, source: "supabase" });
 }
 
 export async function POST(request: Request) {

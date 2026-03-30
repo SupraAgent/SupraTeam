@@ -50,6 +50,9 @@ export default function ContactsPage() {
   const [selectedContact, setSelectedContact] = React.useState<Contact | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [bulkDeleting, setBulkDeleting] = React.useState(false);
+  const [totalContacts, setTotalContacts] = React.useState(0);
+  const [loadingMore, setLoadingMore] = React.useState(false);
+  const PAGE_SIZE = 50;
 
   // Duplicate scanner
   type DupGroup = { contacts: { id: string; name: string; email: string | null; phone: string | null; telegram_username: string | null; company: string | null; title: string | null }[]; reason: string; confidence: number; signals: string[] };
@@ -62,13 +65,14 @@ export default function ContactsPage() {
   const fetchData = React.useCallback(async () => {
     try {
       const [contactsRes, stagesRes, dealsRes] = await Promise.all([
-        fetch("/api/contacts"),
+        fetch(`/api/contacts?limit=${PAGE_SIZE}&offset=0`),
         fetch("/api/pipeline"),
         fetch("/api/deals"),
       ]);
       if (contactsRes.ok) {
-        const { contacts } = await contactsRes.json();
-        setContacts(contacts);
+        const data = await contactsRes.json();
+        setContacts(data.contacts ?? []);
+        setTotalContacts(data.total ?? 0);
       }
       if (stagesRes.ok) {
         const { stages } = await stagesRes.json();
@@ -82,6 +86,26 @@ export default function ContactsPage() {
       setLoading(false);
     }
   }, []);
+
+  async function loadMoreContacts() {
+    setLoadingMore(true);
+    try {
+      const params = new URLSearchParams({
+        limit: String(PAGE_SIZE),
+        offset: String(contacts.length),
+      });
+      if (search) params.set("search", search);
+      if (stageFilter && stageFilter !== "all") params.set("stage", stageFilter);
+      const res = await fetch(`/api/contacts?${params}`);
+      if (res.ok) {
+        const data = await res.json();
+        setContacts((prev) => [...prev, ...(data.contacts ?? [])]);
+        setTotalContacts(data.total ?? 0);
+      }
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   React.useEffect(() => {
     fetchData();
@@ -316,7 +340,7 @@ export default function ContactsPage() {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="rounded-xl border border-white/10 bg-white/[0.035] p-3 text-center">
           <Users className="mx-auto h-4 w-4 text-blue-400" />
-          <p className="mt-1 text-lg font-semibold text-foreground">{contacts.length}</p>
+          <p className="mt-1 text-lg font-semibold text-foreground">{totalContacts || contacts.length}</p>
           <p className="text-[10px] text-muted-foreground">Total Contacts</p>
         </div>
         <div className="rounded-xl border border-white/10 bg-white/[0.035] p-3 text-center">
@@ -625,6 +649,19 @@ export default function ContactsPage() {
         onToggleSelect={toggleSelect}
         onToggleSelectAll={toggleSelectAll}
       />
+
+      {contacts.length < totalContacts && (
+        <div className="flex justify-center py-4">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={loadMoreContacts}
+            disabled={loadingMore}
+          >
+            {loadingMore ? "Loading..." : `Load more (${contacts.length} of ${totalContacts})`}
+          </Button>
+        </div>
+      )}
 
       <CreateContactModal
         open={createOpen}
