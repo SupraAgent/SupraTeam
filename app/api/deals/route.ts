@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { evaluateAutomationRules } from "@/lib/automation-engine";
 import { dispatchWebhook } from "@/lib/webhooks";
+import { evaluateAssignment } from "@/lib/assignment";
 
 export async function GET(request: Request) {
   const auth = await requireAuth();
@@ -115,6 +116,46 @@ export async function POST(request: Request) {
 
     if (fieldValues.length > 0) {
       await supabase.from("crm_deal_field_values").insert(fieldValues);
+    }
+  }
+
+  // Auto-assign via rules engine if no manual assignment was provided
+  if (deal && !deal.assigned_to) {
+    try {
+      // Fetch group slugs via two-step lookup (deal stores TG chat ID, slugs reference group UUID)
+      let groupSlugs: string[] = [];
+      if (deal.telegram_chat_id) {
+        const { data: group } = await supabase
+          .from("tg_groups")
+          .select("id")
+          .eq("telegram_group_id", String(deal.telegram_chat_id))
+          .single();
+
+        if (group) {
+          const { data: slugRows } = await supabase
+            .from("tg_group_slugs")
+            .select("slug")
+            .eq("group_id", group.id);
+          groupSlugs = (slugRows ?? []).map((r: { slug: string }) => r.slug);
+        }
+      }
+
+      const result = await evaluateAssignment(supabase, {
+        chatId: deal.telegram_chat_id ? Number(deal.telegram_chat_id) : 0,
+        messageText: deal.deal_name,
+        senderTelegramId: 0,
+        groupSlugs,
+      });
+
+      if (result) {
+        await supabase
+          .from("crm_deals")
+          .update({ assigned_to: result.userId, assignment_reason: result.reason })
+          .eq("id", deal.id);
+        deal.assigned_to = result.userId;
+      }
+    } catch (err) {
+      console.error("[api/deals] auto-assign error:", err);
     }
   }
 
