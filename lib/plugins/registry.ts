@@ -21,6 +21,7 @@ import { MetricsStripPanel } from "@/components/email/dashboard/metrics-strip-pa
 import { ActivityFeedPanel } from "@/components/email/dashboard/activity-feed-panel";
 import { BroadcastComposerPanel } from "@/components/email/dashboard/broadcast-composer-panel";
 import { CalendarPanel } from "@/components/email/dashboard/calendar-panel";
+import { CalendarViewPanel } from "@/components/email/dashboard/calendar-view-panel";
 
 export const PANELS: DashboardPanel[] = [
   {
@@ -103,6 +104,15 @@ export const PANELS: DashboardPanel[] = [
     size: "full",
     defaultEnabled: true,
     component: CalendarPanel,
+  },
+  {
+    id: "calendar-view",
+    title: "Calendar View",
+    icon: Calendar,
+    description: "Full month/week calendar grid with events",
+    size: "full",
+    defaultEnabled: true,
+    component: CalendarViewPanel,
   },
 ];
 

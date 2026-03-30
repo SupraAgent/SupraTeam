@@ -84,6 +84,19 @@ export function CalendarPanel() {
     }
   }
 
+  async function handleConnect() {
+    try {
+      const res = await fetch("/api/calendar/google/connect", { method: "POST" });
+      const json = await res.json();
+      if (json.url) {
+        window.location.href = json.url;
+      }
+    } catch {
+      // Fallback to settings page
+      window.location.href = "/settings/integrations/calendar";
+    }
+  }
+
   if (!connected) {
     return (
       <div className="text-center py-6">
@@ -92,13 +105,13 @@ export function CalendarPanel() {
         <p className="mt-1 text-xs text-muted-foreground">
           Link your Google Calendar to see upcoming events and meetings
         </p>
-        <a
-          href="/settings/integrations"
+        <button
+          onClick={handleConnect}
           className="inline-flex items-center gap-1.5 mt-3 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary/90 transition"
         >
           <Calendar className="h-3.5 w-3.5" />
           Connect Google Calendar
-        </a>
+        </button>
       </div>
     );
   }
