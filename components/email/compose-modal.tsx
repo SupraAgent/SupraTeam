@@ -21,6 +21,7 @@ type ComposeModalProps = {
   prefillSubject?: string;
   onSent?: () => void;
   onSentAndArchive?: () => void;
+  connectionId?: string;
 };
 
 function formatFileSize(bytes: number): string {
@@ -43,6 +44,7 @@ export function ComposeModal({
   prefillSubject,
   onSent,
   onSentAndArchive,
+  connectionId,
 }: ComposeModalProps) {
   const [to, setTo] = React.useState(prefillTo ?? "");
   const [cc, setCc] = React.useState("");
@@ -146,6 +148,7 @@ export function ComposeModal({
       type: mode === "replyAll" ? "reply" : mode,
       body: html,
       bodyText,
+      ...(connectionId ? { connection_id: connectionId } : {}),
     };
 
     if (mode === "compose" || mode === "forward") {
@@ -205,12 +208,16 @@ export function ComposeModal({
     setError("");
 
     try {
-      // Get default connection
-      const connRes = await fetch("/api/email/connections");
-      const connJson = await connRes.json();
-      const defaultConn = (connJson.data ?? []).find((c: { is_default: boolean }) => c.is_default) ?? connJson.data?.[0];
+      // Use provided connectionId or fall back to default connection
+      let connId = connectionId;
+      if (!connId) {
+        const connRes = await fetch("/api/email/connections");
+        const connJson = await connRes.json();
+        const defaultConn = (connJson.data ?? []).find((c: { is_default: boolean }) => c.is_default) ?? connJson.data?.[0];
+        connId = defaultConn?.id;
+      }
 
-      if (!defaultConn) {
+      if (!connId) {
         setError("No email connection");
         return;
       }
@@ -220,7 +227,7 @@ export function ComposeModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type: "send_later",
-          connection_id: defaultConn.id,
+          connection_id: connId,
           draft_data: payload,
           scheduled_for: scheduledFor,
         }),
