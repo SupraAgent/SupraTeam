@@ -50,8 +50,8 @@ export async function POST(request: Request) {
   }
 
   // Verify the credentials actually work by attempting an IMAP connection
+  const driver = new ImapDriver({ email, appPassword: cleanPassword });
   try {
-    const driver = new ImapDriver({ email, appPassword: cleanPassword });
     const profile = await driver.getProfile();
     if (!profile.email) {
       return NextResponse.json({ error: "Could not verify email" }, { status: 400 });
@@ -77,6 +77,10 @@ export async function POST(request: Request) {
       { error: "Failed to verify credentials. Please check your email and app password." },
       { status: 400 }
     );
+  } finally {
+    // Destroy the pooled connection — verification uses anon: pool key
+    // and we don't want it lingering after a one-off check
+    await driver.cleanup();
   }
 
   // Store the connection

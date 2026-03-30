@@ -177,6 +177,12 @@ export class ImapDriver implements MailDriver {
     }
   }
 
+  /** Destroy the pooled connection for this driver (use after one-off verification) */
+  async cleanup(): Promise<void> {
+    const poolKey = `${this.userId ?? "anon"}:${this.config.email}`;
+    destroyPoolEntry(poolKey);
+  }
+
   async listThreads(params: ListThreadsParams): Promise<ThreadList> {
     return this.withImap(async (client) => {
       // Determine which mailbox to open
@@ -196,8 +202,7 @@ export class ImapDriver implements MailDriver {
           uids = await client.search({
             or: [
               { subject: query },
-              { from: query },
-              { to: query },
+              { or: [{ from: query }, { to: query }] },
             ],
           })
             .then((r) => (r as number[]).slice(-maxResults * 2).reverse())
@@ -210,7 +215,7 @@ export class ImapDriver implements MailDriver {
             : 0;
           if (total === 0) return { threads: [] };
           const start = Math.max(1, total - maxResults * 2 + 1);
-          uids = await client.search({ seq: `${start}:*` } as Record<string, unknown>)
+          uids = await client.search({ uid: `${start}:*` } as Record<string, unknown>)
             .then((r) => (r as number[]).reverse())
             .catch(() => []);
         }
@@ -291,8 +296,9 @@ export class ImapDriver implements MailDriver {
 
   async getThread(threadId: string): Promise<Thread> {
     return this.withImap(async (client) => {
-      // Search [Gmail]/All Mail first — it contains ALL messages regardless of label
+      // Search and fetch from [Gmail]/All Mail in a single lock
       let uids: number[] = [];
+      const messages: Message[] = [];
       const lock = await client.getMailboxLock("[Gmail]/All Mail");
       try {
         try {
@@ -302,6 +308,21 @@ export class ImapDriver implements MailDriver {
           // Fallback: treat threadId as UID
           uids = [parseInt(threadId, 10)];
         }
+
+        // Fetch full messages while we still hold the lock
+        if (uids.length > 0) {
+          for await (const msg of client.fetch(uids, {
+            uid: true,
+            envelope: true,
+            flags: true,
+            source: true,
+            threadId: true,
+          }, { uid: true })) {
+            const parsed = await this.parseSource(msg.source);
+            const flags = (msg.flags ?? new Set<string>()) as Set<string>;
+            messages.push(this.parsedMailToMessage(parsed, String(msg.uid), threadId, flags));
+          }
+        }
       } finally {
         lock.release();
       }
@@ -309,25 +330,6 @@ export class ImapDriver implements MailDriver {
       if (uids.length === 0) {
         // Try INBOX and Sent Mail as fallback
         return this.getThreadFromAllFolders(client, threadId);
-      }
-
-      // Fetch full messages from All Mail
-      const messages: Message[] = [];
-      const fetchLock = await client.getMailboxLock("[Gmail]/All Mail");
-      try {
-        for await (const msg of client.fetch(uids, {
-          uid: true,
-          envelope: true,
-          flags: true,
-          source: true,
-          threadId: true,
-        }, { uid: true })) {
-          const parsed = await this.parseSource(msg.source);
-          const flags = (msg.flags ?? new Set<string>()) as Set<string>;
-          messages.push(this.parsedMailToMessage(parsed, String(msg.uid), threadId, flags));
-        }
-      } finally {
-        fetchLock.release();
       }
 
       messages.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -543,6 +545,9 @@ export class ImapDriver implements MailDriver {
       ? lastMsg.subject
       : `Re: ${lastMsg.subject}`;
 
+    // Use RFC822 Message-ID for threading headers (not IMAP UID)
+    const rfc822Id = lastMsg.messageId ?? lastMsg.id;
+
     return this.send({
       to,
       cc: params.cc,
@@ -551,8 +556,8 @@ export class ImapDriver implements MailDriver {
       body: params.body,
       bodyText: params.bodyText,
       attachments: params.attachments,
-      inReplyTo: lastMsg.id,
-      references: lastMsg.id,
+      inReplyTo: rfc822Id,
+      references: rfc822Id,
     });
   }
 
@@ -757,6 +762,7 @@ export class ImapDriver implements MailDriver {
     return {
       id: uid,
       threadId,
+      messageId: parsed.messageId ?? undefined,
       from,
       to: getAddresses(parsed.to),
       cc: getAddresses(parsed.cc),

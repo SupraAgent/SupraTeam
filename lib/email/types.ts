@@ -17,6 +17,7 @@ export type AttachmentMeta = {
 export type Message = {
   id: string;
   threadId: string;
+  messageId?: string; // RFC822 Message-ID header (for In-Reply-To / References)
   from: EmailAddress;
   to: EmailAddress[];
   cc: EmailAddress[];
