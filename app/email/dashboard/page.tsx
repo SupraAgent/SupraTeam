@@ -10,6 +10,7 @@ import { PanelPicker } from "@/components/email/dashboard/panel-picker";
 import { PlaceholderPanel } from "@/components/email/dashboard/placeholder-panel";
 import { ContactCardPanel } from "@/components/email/dashboard/contact-card-panel";
 import { FollowupTrackerPanel } from "@/components/email/dashboard/followup-tracker-panel";
+import { AISummaryPanel } from "@/components/email/dashboard/ai-summary-panel";
 import { Mail, LayoutDashboard, Plus, ArrowLeft } from "lucide-react";
 import type { PanelId } from "@/lib/plugins/types";
 
@@ -27,6 +28,9 @@ export default function EmailDashboardPage() {
 
   const [selectedEmail, setSelectedEmail] = React.useState<string | null>(null);
   const [selectedSenderName, setSelectedSenderName] = React.useState<string | undefined>();
+  const [threadMessages, setThreadMessages] = React.useState<{ from: string; date: string; body: string }[] | null>(null);
+  const [threadSubject, setThreadSubject] = React.useState<string | undefined>();
+  const [linkedDealId, setLinkedDealId] = React.useState<string | null>(null);
 
   const enabledPanels = layout.enabledPanels;
 
@@ -36,6 +40,8 @@ export default function EmailDashboardPage() {
         return <ContactCardPanel email={selectedEmail} senderName={selectedSenderName} />;
       case "followup-tracker":
         return <FollowupTrackerPanel />;
+      case "ai-summary":
+        return <AISummaryPanel messages={threadMessages} subject={threadSubject} dealId={linkedDealId} />;
       default:
         return <PlaceholderPanel panelId={panelId} />;
     }
