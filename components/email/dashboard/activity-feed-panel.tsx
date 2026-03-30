@@ -31,13 +31,15 @@ const EVENT_CONFIG: Record<string, { icon: React.ElementType; color: string }> =
 export function ActivityFeedPanel() {
   const [events, setEvents] = React.useState<ActivityEvent[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState(false);
 
   const fetchActivity = React.useCallback(() => {
     setLoading(true);
+    setError(false);
     fetch("/api/dashboard/activity?limit=15")
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((json) => setEvents(json.data ?? []))
-      .catch(() => {})
+      .catch(() => setError(true))
       .finally(() => setLoading(false));
   }, []);
 
@@ -61,6 +63,16 @@ export function ActivityFeedPanel() {
             </div>
           </div>
         ))}
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center py-6 text-muted-foreground gap-2">
+        <Activity className="h-8 w-8 opacity-20" />
+        <p className="text-xs text-red-400/80">Failed to load activity</p>
+        <button onClick={fetchActivity} className="text-[10px] text-primary hover:underline">Retry</button>
       </div>
     );
   }

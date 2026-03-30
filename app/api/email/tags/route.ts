@@ -24,7 +24,7 @@ export async function GET() {
     .eq("user_id", user.id)
     .order("name");
 
-  // Seed default tags if none exist
+  // Seed default tags if none exist (upsert to avoid race condition)
   if (!tags || tags.length === 0) {
     const inserts = DEFAULT_TAGS.map((t) => ({
       user_id: user.id,
@@ -36,7 +36,7 @@ export async function GET() {
 
     const { data: seeded } = await supabase
       .from("crm_email_tags")
-      .insert(inserts)
+      .upsert(inserts, { onConflict: "user_id,name", ignoreDuplicates: true })
       .select("id, name, color, icon, is_system, created_at");
 
     return NextResponse.json({ data: seeded ?? [] });
@@ -51,7 +51,12 @@ export async function POST(req: NextRequest) {
   if ("error" in auth) return auth.error;
   const { supabase, user } = auth;
 
-  const body = await req.json();
+  let body: { name?: string; color?: string; icon?: string };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
   if (!body.name || typeof body.name !== "string") {
     return NextResponse.json({ error: "name required" }, { status: 400 });
   }

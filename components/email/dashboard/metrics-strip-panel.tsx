@@ -18,12 +18,13 @@ interface MetricsData {
 export function MetricsStripPanel() {
   const [data, setData] = React.useState<MetricsData | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState(false);
 
   React.useEffect(() => {
     fetch("/api/plugins/email-metrics")
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((json) => setData(json.data ?? null))
-      .catch(() => {})
+      .catch(() => setError(true))
       .finally(() => setLoading(false));
   }, []);
 
@@ -33,6 +34,14 @@ export function MetricsStripPanel() {
         {[1, 2, 3, 4, 5].map((i) => (
           <div key={i} className="flex-1 rounded-lg bg-white/5 animate-pulse h-16" />
         ))}
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-4">
+        <p className="text-xs text-red-400/80">Failed to load metrics</p>
       </div>
     );
   }

@@ -29,7 +29,6 @@ export interface PanelLayoutState {
 }
 
 export interface DashboardKeyboardHandlers {
-  onToggleDashboard?: () => void;
-  onRefreshPanels?: () => void;
-  onFocusPanel?: (index: number) => void;
+  onToggleDashboard: () => void;
+  onRefresh: () => void;
 }

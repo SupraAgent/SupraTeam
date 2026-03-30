@@ -34,11 +34,14 @@ export async function GET(req: NextRequest) {
     .order("updated_at", { ascending: false })
     .limit(5);
 
-  // Get TG groups the contact is in (via slug access)
-  const { data: groups } = await supabase
-    .from("tg_groups")
-    .select("id, group_name, group_type, member_count")
-    .limit(5);
+  // Get TG groups the contact is in (via telegram_user_id membership)
+  const { data: groups } = contact.telegram_user_id
+    ? await supabase
+        .from("tg_groups")
+        .select("id, group_name, group_type, member_count")
+        .contains("member_ids", [contact.telegram_user_id])
+        .limit(5)
+    : { data: [] };
 
   // Last interaction (most recent deal activity)
   const lastTouchpoint = deals?.[0]?.last_activity_at ?? contact.updated_at;

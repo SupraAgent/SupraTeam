@@ -44,7 +44,7 @@ export const PANELS: DashboardPanel[] = [
     icon: User,
     description: "CRM profile for selected sender",
     size: "1x1",
-    defaultEnabled: true,
+    defaultEnabled: false,
   },
   {
     id: "outreach-queue",
@@ -60,7 +60,7 @@ export const PANELS: DashboardPanel[] = [
     icon: Sparkles,
     description: "Claude-generated thread summaries with action items",
     size: "2x1",
-    defaultEnabled: true,
+    defaultEnabled: false,
   },
   {
     id: "email-tags",
@@ -68,7 +68,7 @@ export const PANELS: DashboardPanel[] = [
     icon: Tag,
     description: "Auto and manual email thread tags",
     size: "1x1",
-    defaultEnabled: true,
+    defaultEnabled: false,
   },
   {
     id: "activity-feed",

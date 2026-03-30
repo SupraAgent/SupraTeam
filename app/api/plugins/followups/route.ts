@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
     `)
     .eq("linked_by", user.id)
     .order("linked_at", { ascending: false })
-    .limit(50);
+    .limit(20);
 
   // Build a map of thread_id -> CRM context
   const threadContext: Record<string, {

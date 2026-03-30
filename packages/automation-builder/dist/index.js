@@ -48,7 +48,7 @@ function defaultRenderTemplate(template, vars) {
   });
 }
 async function executeWorkflow(workflow, event, context, config) {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j;
   const nodes = (_a = workflow.nodes) != null ? _a : [];
   const edges = (_b = workflow.edges) != null ? _b : [];
   if (nodes.length === 0) {
@@ -100,6 +100,7 @@ async function executeWorkflow(workflow, event, context, config) {
         nodeOutputs[nodeId2] = result;
         if (!result.success) {
           console.error(`[automation-builder] Action node ${nodeId2} failed: ${result.error}`);
+          continue;
         }
         const nextEdges2 = (_f = outEdges.get(nodeId2)) != null ? _f : [];
         for (const e of nextEdges2) queue.push(e.target);
@@ -123,7 +124,13 @@ async function executeWorkflow(workflow, event, context, config) {
         if (cfg.unit === "days") delayMs = cfg.duration * 24 * 60 * 60 * 1e3;
         const resumeAt = new Date(Date.now() + delayMs).toISOString();
         nodeOutputs[nodeId2] = { delay: true, resumeAt, unit: cfg.unit, duration: cfg.duration };
-        const nextEdges2 = (_h = outEdges.get(nodeId2)) != null ? _h : [];
+        if (config.dryRun) {
+          nodeOutputs[nodeId2].dryRun = true;
+          const nextEdges3 = (_h = outEdges.get(nodeId2)) != null ? _h : [];
+          for (const e of nextEdges3) queue.push(e.target);
+          continue;
+        }
+        const nextEdges2 = (_i = outEdges.get(nodeId2)) != null ? _i : [];
         const nextNodeIds = nextEdges2.map((e) => e.target);
         await config.persistence.updateRun(
           runId,
@@ -137,7 +144,7 @@ async function executeWorkflow(workflow, event, context, config) {
         }
         return { runId, status: "paused", nodeOutputs };
       }
-      const nextEdges = (_i = outEdges.get(nodeId2)) != null ? _i : [];
+      const nextEdges = (_j = outEdges.get(nodeId2)) != null ? _j : [];
       for (const e of nextEdges) queue.push(e.target);
     }
     await config.persistence.updateRun(runId, "completed", nodeOutputs);
@@ -190,6 +197,7 @@ async function resumeWorkflow(workflow, runId, resumeTargets, existingOutputs, e
           config
         );
         nodeOutputs[nodeId2] = result;
+        if (!result.success) continue;
         const nextEdges2 = (_e = outEdges.get(nodeId2)) != null ? _e : [];
         for (const e of nextEdges2) queue.push(e.target);
         continue;
@@ -242,6 +250,12 @@ async function resumeWorkflow(workflow, runId, resumeTargets, existingOutputs, e
 }
 async function executeActionWithRetry(actionType, config, ctx, engineConfig) {
   var _a, _b;
+  if (engineConfig.dryRun) {
+    return {
+      success: true,
+      output: { dryRun: true, actionType, config, skipped: true }
+    };
+  }
   const maxRetries = (_a = engineConfig.maxRetries) != null ? _a : 2;
   let lastResult = { success: false, error: "Unknown action" };
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -1296,6 +1310,109 @@ function Field({ label, children }) {
     children
   ] });
 }
+
+// src/core/auto-layout.ts
+var MIN_GAP_X = 30;
+var MIN_GAP_Y = 40;
+var ROW_THRESHOLD = 80;
+var MAX_NODE_WIDTH = 300;
+var DEFAULT_SIZES = {
+  appNode: { w: 280, h: 130 },
+  personaNode: { w: 240, h: 200 },
+  competitorNode: { w: 220, h: 150 },
+  actionNode: { w: 220, h: 170 },
+  noteNode: { w: 220, h: 200 },
+  triggerNode: { w: 220, h: 110 },
+  conditionNode: { w: 220, h: 110 },
+  transformNode: { w: 220, h: 110 },
+  outputNode: { w: 220, h: 110 },
+  llmNode: { w: 260, h: 220 },
+  stepNode: { w: 280, h: 200 },
+  consensusNode: { w: 260, h: 220 },
+  affinityCategoryNode: { w: 220, h: 150 }
+};
+var DEFAULT_SIZE = { w: 220, h: 130 };
+function getNodeRect(node, idx) {
+  var _a, _b, _c, _d;
+  const measured = node.measured;
+  const fallback = (_b = DEFAULT_SIZES[(_a = node.type) != null ? _a : ""]) != null ? _b : DEFAULT_SIZE;
+  return {
+    idx,
+    x: node.position.x,
+    y: node.position.y,
+    w: Math.min((_c = measured == null ? void 0 : measured.width) != null ? _c : fallback.w, MAX_NODE_WIDTH),
+    h: (_d = measured == null ? void 0 : measured.height) != null ? _d : fallback.h
+  };
+}
+function groupIntoRows(rects) {
+  const sorted = [...rects].sort((a, b) => a.y - b.y);
+  const rows = [];
+  let currentRow = [];
+  let rowY = -Infinity;
+  for (const rect of sorted) {
+    if (rect.y - rowY > ROW_THRESHOLD && currentRow.length > 0) {
+      rows.push(currentRow);
+      currentRow = [];
+    }
+    if (currentRow.length === 0) rowY = rect.y;
+    currentRow.push(rect);
+  }
+  if (currentRow.length > 0) rows.push(currentRow);
+  return rows;
+}
+function spreadRow(row) {
+  if (row.length <= 1) return;
+  row.sort((a, b) => a.x - b.x);
+  const avgY = Math.round(row.reduce((s, r) => s + r.y, 0) / row.length);
+  for (const r of row) r.y = avgY;
+  for (let i = 1; i < row.length; i++) {
+    const prev = row[i - 1];
+    const curr = row[i];
+    const minX = prev.x + prev.w + MIN_GAP_X;
+    if (curr.x < minX) {
+      curr.x = minX;
+    }
+  }
+  const origPositions = row.map((r) => r.x);
+  const origMid = (Math.min(...origPositions) + Math.max(...origPositions)) / 2;
+  const currLeft = row[0].x;
+  const currRight = row[row.length - 1].x + row[row.length - 1].w;
+  const currMid = (currLeft + currRight) / 2;
+  const shift = origMid - currMid;
+  for (const r of row) r.x = Math.round(r.x + shift);
+}
+function spaceRows(rows) {
+  for (let i = 1; i < rows.length; i++) {
+    const prevRow = rows[i - 1];
+    const currRow = rows[i];
+    const prevBottom = Math.max(...prevRow.map((r) => r.y + r.h));
+    const currTop = Math.min(...currRow.map((r) => r.y));
+    const gap = currTop - prevBottom;
+    if (gap < MIN_GAP_Y) {
+      const shift = MIN_GAP_Y - gap;
+      for (let j = i; j < rows.length; j++) {
+        for (const r of rows[j]) r.y = Math.round(r.y + shift);
+      }
+    }
+  }
+}
+function autoLayout(nodes) {
+  if (nodes.length <= 1) return nodes;
+  const rects = nodes.map((n, i) => getNodeRect(n, i));
+  const rows = groupIntoRows(rects);
+  for (const row of rows) spreadRow(row);
+  spaceRows(rows);
+  const positions = /* @__PURE__ */ new Map();
+  for (const row of rows) {
+    for (const r of row) {
+      positions.set(r.idx, { x: r.x, y: r.y });
+    }
+  }
+  return nodes.map((node, i) => {
+    const pos = positions.get(i);
+    return pos ? __spreadProps(__spreadValues({}, node), { position: { x: pos.x, y: pos.y } }) : node;
+  });
+}
 var nodeTypes = {
   trigger: TriggerNode,
   action: ActionNode,
@@ -1316,7 +1433,7 @@ function FlowCanvasInner({
   hideSidebar,
   hideConfigPanel
 }) {
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+  const [nodes, setNodes, onNodesChange] = useNodesState(autoLayout(initialNodes));
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [selectedNode, setSelectedNode] = React2.useState(null);
   const reactFlowWrapper = React2.useRef(null);

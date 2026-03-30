@@ -603,8 +603,6 @@ export default function WorkflowEditorPage() {
               initialEdges={(workflow.edges ?? []) as Edge[]}
               onSave={handleSave}
               saving={saving}
-              canvasStateKey="__supracrm_canvas_state"
-              disableAutoLayout
             />
           </BuilderProvider>
         </div>
