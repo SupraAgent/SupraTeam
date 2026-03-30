@@ -18,7 +18,12 @@ import { EmailErrorBoundary } from "@/components/email/error-boundary";
 import { toast } from "sonner";
 import { CommandPalette } from "@/components/email/command-palette";
 import { AutoDraftBanner } from "@/components/email/auto-draft";
-import { LayoutDashboard } from "lucide-react";
+import { LayoutDashboard, Plus } from "lucide-react";
+import { useDashboardLayout } from "@/lib/plugins/hooks";
+import { getPanelById } from "@/lib/plugins/registry";
+import { ThreadContextProvider } from "@/lib/plugins/thread-context";
+import { PanelCard } from "@/components/email/dashboard/panel-card";
+import { PanelPicker } from "@/components/email/dashboard/panel-picker";
 
 export default function EmailPage() {
   return (
@@ -687,6 +692,7 @@ function EmailPageInner() {
               onStar={handleStar}
               onMarkUnread={handleMarkUnread}
               onBack={() => setSelectedThreadId(null)}
+              onDashboard={() => setSelectedThreadId(null)}
             />
             <AutoDraftBanner
               threadId={selectedThreadId}
@@ -701,24 +707,7 @@ function EmailPageInner() {
             />
           </>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-2">
-            <MailOpenIcon className="h-10 w-10 opacity-30" />
-            <p className="text-sm">Select a thread to read</p>
-            <div className="flex flex-wrap items-center gap-2 mt-2 text-[10px]">
-              <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5">j/k</kbd>
-              <span>navigate</span>
-              <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5">Enter</kbd>
-              <span>open</span>
-              <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5">e</kbd>
-              <span>archive</span>
-              <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5">c</kbd>
-              <span>compose</span>
-              <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5">/</kbd>
-              <span>search</span>
-              <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5">h</kbd>
-              <span>snooze</span>
-            </div>
-          </div>
+          <InlineDashboard />
         )}
       </div>
 
@@ -883,4 +872,75 @@ function RefreshIcon({ className }: { className?: string }) {
 
 function PlusIcon({ className }: { className?: string }) {
   return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>;
+}
+
+// ── Inline Dashboard (shown when no thread is selected) ────
+
+function InlineDashboard() {
+  const { layout, togglePanel, resetLayout } = useDashboardLayout();
+  const [pickerOpen, setPickerOpen] = React.useState(false);
+  const enabledPanels = layout.enabledPanels;
+
+  return (
+    <ThreadContextProvider>
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="px-4 py-2.5 border-b border-white/10 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2">
+            <LayoutDashboard className="h-3.5 w-3.5 text-primary" />
+            <span className="text-xs font-medium text-foreground">Dashboard</span>
+          </div>
+          <button
+            onClick={() => setPickerOpen(true)}
+            className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-white/5 border border-white/10 transition"
+          >
+            <Plus className="h-3 w-3" />
+            Panels
+          </button>
+        </div>
+
+        {/* Panel grid */}
+        <div className="flex-1 overflow-y-auto p-3 thin-scroll">
+          {enabledPanels.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-3">
+              <LayoutDashboard className="h-10 w-10 opacity-20" />
+              <p className="text-xs">No panels enabled</p>
+              <button
+                onClick={() => setPickerOpen(true)}
+                className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium bg-primary text-white hover:bg-primary/90 transition"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add Panels
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3">
+              {enabledPanels.map((panelId) => {
+                const panel = getPanelById(panelId);
+                if (!panel) return null;
+                const PanelComponent = panel.component;
+                return (
+                  <PanelCard
+                    key={panelId}
+                    panel={panel}
+                    onRemove={() => togglePanel(panelId)}
+                  >
+                    <PanelComponent />
+                  </PanelCard>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <PanelPicker
+          open={pickerOpen}
+          onClose={() => setPickerOpen(false)}
+          enabledPanels={enabledPanels}
+          onToggle={togglePanel}
+          onReset={resetLayout}
+        />
+      </div>
+    </ThreadContextProvider>
+  );
 }
