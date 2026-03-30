@@ -20,6 +20,7 @@ import type {
   EmailAddress,
   AttachmentMeta,
 } from "./types";
+import { encodeMessageRef, decodeMessageRef } from "./message-ref";
 
 interface ImapDriverConfig {
   email: string;
@@ -713,10 +714,9 @@ export class ImapDriver implements MailDriver {
   }
 
   async getAttachment(messageId: string, attachmentId: string): Promise<Attachment> {
-    // Use parseMessageRef to resolve the correct folder from the "folder:uid" ref
+    // Use decodeMessageRef to resolve the correct folder from the "folder:uid" ref
     return this.withImap(async (client) => {
-      const { folder, uid } = this.parseMessageRef(messageId);
-      if (isNaN(uid)) throw new Error("Invalid message reference");
+      const { folder, uid } = decodeMessageRef(messageId);
 
       const lock = await client.getMailboxLock(folder);
       try {
@@ -820,8 +820,10 @@ export class ImapDriver implements MailDriver {
       size: a.size,
     }));
 
-    // Encode folder:uid so forward/getAttachment can find the right mailbox
-    const qualifiedId = sourceFolder ? `${sourceFolder}:${uid}` : uid;
+    // Encode folder:uid so forward/getAttachment resolve the correct mailbox
+    const qualifiedId = sourceFolder
+      ? encodeMessageRef(sourceFolder, parseInt(uid, 10) || 0)
+      : uid;
 
     return {
       id: qualifiedId,
@@ -841,26 +843,10 @@ export class ImapDriver implements MailDriver {
     };
   }
 
-  /** Parse a message ref that may be "folder:uid" or just "uid" (legacy). */
-  private parseMessageRef(messageRef: string): { folder: string; uid: number } {
-    const colonIdx = messageRef.lastIndexOf(":");
-    // Check if it looks like "folder:uid" (uid part is numeric)
-    if (colonIdx > 0) {
-      const maybePath = messageRef.slice(0, colonIdx);
-      const maybeUid = parseInt(messageRef.slice(colonIdx + 1), 10);
-      if (!isNaN(maybeUid) && maybePath.length > 0) {
-        return { folder: maybePath, uid: maybeUid };
-      }
-    }
-    // Legacy: bare UID, default to All Mail (where getThread primarily fetches)
-    return { folder: "[Gmail]/All Mail", uid: parseInt(messageRef, 10) };
-  }
-
   /** Fetch a single message by its folder-scoped ref ("folder:uid" or bare uid). */
   private async fetchMessageByUid(messageRef: string): Promise<Message> {
     return this.withImap(async (client) => {
-      const { folder, uid } = this.parseMessageRef(messageRef);
-      if (isNaN(uid)) throw new Error("Invalid message reference");
+      const { folder, uid } = decodeMessageRef(messageRef);
 
       const lock = await client.getMailboxLock(folder);
       try {
