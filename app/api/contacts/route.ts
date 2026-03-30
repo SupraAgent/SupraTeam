@@ -46,7 +46,7 @@ export async function POST(request: Request) {
   const { user, supabase } = auth;
 
   const body = await request.json();
-  const { name, email, phone, telegram_username, telegram_user_id, company, title, notes, stage_id, lifecycle_stage, source, x_handle, wallet_address, wallet_chain } = body;
+  const { name, email, phone, telegram_username, telegram_user_id, company, company_id, title, notes, stage_id, lifecycle_stage, source, x_handle, wallet_address, wallet_chain } = body;
 
   if (!name) {
     return NextResponse.json({ error: "name is required" }, { status: 400 });
@@ -62,6 +62,7 @@ export async function POST(request: Request) {
       telegram_username: telegram_username || null,
       telegram_user_id: telegram_user_id || null,
       company: company || null,
+      company_id: company_id || null,
       title: title || null,
       notes: notes || null,
       stage_id: stage_id || null,

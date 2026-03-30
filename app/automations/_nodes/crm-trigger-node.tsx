@@ -2,6 +2,7 @@
 
 import React from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { NodeExecutionOverlay } from "../_lib/execution-overlay";
 
 export interface CrmTriggerNodeData {
   label: string;
@@ -56,11 +57,12 @@ function getCrmTriggerData(data: Record<string, unknown>): CrmTriggerNodeData {
   };
 }
 
-export const CrmTriggerNode = React.memo(function CrmTriggerNode({ data }: NodeProps) {
+export const CrmTriggerNode = React.memo(function CrmTriggerNode({ id, data }: NodeProps) {
   const d = getCrmTriggerData(data as Record<string, unknown>);
   const meta = TRIGGER_META[d.crmTrigger] ?? TRIGGER_META.deal_stage_change;
 
   return (
+    <NodeExecutionOverlay nodeId={id}>
     <div className={`rounded-xl border-2 ${meta.border} ${meta.bg} px-4 py-3 min-w-[180px] max-w-[240px]`}>
       <Handle type="source" position={Position.Right} className="!bg-violet-400 !w-2.5 !h-2.5" />
       <div className="flex items-center gap-2 mb-1">
@@ -80,5 +82,6 @@ export const CrmTriggerNode = React.memo(function CrmTriggerNode({ data }: NodeP
         </div>
       )}
     </div>
+    </NodeExecutionOverlay>
   );
 });

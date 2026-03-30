@@ -3,15 +3,19 @@
 import * as React from "react";
 
 // ---------------------------------------------------------------------------
-// Module-level cache: threadId -> draft text
+// Module-level cache: connectionId:threadId -> draft text
 // Persists across re-renders / re-mounts within the same session.
 // ---------------------------------------------------------------------------
 const draftCache = new Map<string, string>();
 
+function draftCacheKey(threadId: string, connectionId?: string): string {
+  return connectionId ? `${connectionId}:${threadId}` : threadId;
+}
+
 // ---------------------------------------------------------------------------
 // Hook: useAutoDraft
 // ---------------------------------------------------------------------------
-export function useAutoDraft(threadId: string | null) {
+export function useAutoDraft(threadId: string | null, connectionId?: string) {
   const [draft, setDraft] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -22,9 +26,10 @@ export function useAutoDraft(threadId: string | null) {
 
   const fetchDraft = React.useCallback(
     async (tid: string, skipCache = false) => {
+      const cacheKey = draftCacheKey(tid, connectionId);
       // Return cached result if available and not forcing refresh
-      if (!skipCache && draftCache.has(tid)) {
-        setDraft(draftCache.get(tid)!);
+      if (!skipCache && draftCache.has(cacheKey)) {
+        setDraft(draftCache.get(cacheKey)!);
         setLoading(false);
         setError(null);
         return;
@@ -38,7 +43,7 @@ export function useAutoDraft(threadId: string | null) {
         const res = await fetch("/api/email/ai", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "draft", threadId: tid }),
+          body: JSON.stringify({ action: "draft", threadId: tid, ...(connectionId ? { connection_id: connectionId } : {}) }),
         });
 
         // Guard against stale responses (user switched threads)
@@ -56,7 +61,7 @@ export function useAutoDraft(threadId: string | null) {
           throw new Error("Empty draft returned");
         }
 
-        draftCache.set(tid, text);
+        draftCache.set(cacheKey, text);
         setDraft(text);
       } catch (err: unknown) {
         if (activeThreadRef.current !== tid) return;
@@ -67,7 +72,7 @@ export function useAutoDraft(threadId: string | null) {
         }
       }
     },
-    [],
+    [connectionId],
   );
 
   // When threadId changes, debounce the fetch by 500ms.
@@ -88,8 +93,9 @@ export function useAutoDraft(threadId: string | null) {
     }
 
     // If cached, show immediately (no debounce needed)
-    if (draftCache.has(threadId)) {
-      setDraft(draftCache.get(threadId)!);
+    const cacheKey = draftCacheKey(threadId, connectionId);
+    if (draftCache.has(cacheKey)) {
+      setDraft(draftCache.get(cacheKey)!);
       setLoading(false);
       setError(null);
       return;
@@ -123,10 +129,11 @@ export function useAutoDraft(threadId: string | null) {
 type AutoDraftBannerProps = {
   threadId: string | null;
   onUseDraft: (text: string) => void;
+  connectionId?: string;
 };
 
-export function AutoDraftBanner({ threadId, onUseDraft }: AutoDraftBannerProps) {
-  const { draft, loading, error, refresh } = useAutoDraft(threadId);
+export function AutoDraftBanner({ threadId, onUseDraft, connectionId }: AutoDraftBannerProps) {
+  const { draft, loading, error, refresh } = useAutoDraft(threadId, connectionId);
   const [dismissed, setDismissed] = React.useState(false);
 
   // Reset dismissed state when thread changes

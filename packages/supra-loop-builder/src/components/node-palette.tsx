@@ -158,7 +158,7 @@ const PALETTE_ITEMS = [
       subtitle: "",
       status: "pending",
       summary: "",
-      flowCategory: "team",
+      flowCategory: "crm",
     },
   },
   {

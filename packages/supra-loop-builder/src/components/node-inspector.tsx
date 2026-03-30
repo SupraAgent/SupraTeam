@@ -300,8 +300,9 @@ const TRANSFORM_EXPRESSION_SUGGESTIONS: ComboboxOption[] = [
 ];
 
 const STEP_FLOW_CATEGORY_OPTIONS: ComboboxOption[] = [
-  { value: "team", label: "Team" },
-  { value: "app", label: "App" },
+  { value: "crm", label: "CRM" },
+  { value: "telegram", label: "Telegram" },
+  { value: "email", label: "Email" },
   { value: "benchmark", label: "Benchmark" },
   { value: "scoring", label: "Scoring" },
   { value: "improve", label: "Improve" },

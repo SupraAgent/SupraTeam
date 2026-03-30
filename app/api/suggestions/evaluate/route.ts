@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
+import { getAnthropicKey } from "@/lib/ai-key";
 
 const CPO_SYSTEM_PROMPT = `You are the Chief Product Officer (CPO) for SupraTeam, a Telegram-native CRM for Supra's BD, Marketing, and Admin teams. You evaluate feature suggestions with a sharp product eye.
 
@@ -35,9 +36,9 @@ export async function POST(request: Request) {
   if ("error" in auth) return auth.error;
   const { admin: supabase } = auth;
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = await getAnthropicKey(auth.user.id);
   if (!apiKey) {
-    return NextResponse.json({ error: "AI not configured" }, { status: 503 });
+    return NextResponse.json({ error: "No API key configured. Add your Anthropic key in Settings > Integrations." }, { status: 503 });
   }
 
   const body = await request.json();

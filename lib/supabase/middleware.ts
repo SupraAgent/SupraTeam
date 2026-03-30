@@ -1,6 +1,5 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { createHmac, timingSafeEqual } from "crypto";
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -44,15 +43,22 @@ export async function updateSession(request: NextRequest) {
     pathname === "/terms";
 
   // Dev access bypass: cookie set by /api/auth/dev-login (dev only)
-  // Validates HMAC value to match auth-guard.ts
+  // Uses Web Crypto API (edge-runtime compatible) to validate HMAC
   let hasDevAuth = false;
   if (process.env.NODE_ENV !== "production" && process.env.DEV_ACCESS_PASSWORD) {
     const devCookie = request.cookies.get("dev-auth")?.value;
     if (devCookie) {
-      const expected = createHmac("sha256", process.env.DEV_ACCESS_PASSWORD).update("dev-auth").digest("hex");
-      const cookieBuf = Buffer.from(devCookie);
-      const expectedBuf = Buffer.from(expected);
-      hasDevAuth = cookieBuf.length === expectedBuf.length && timingSafeEqual(cookieBuf, expectedBuf);
+      const enc = new TextEncoder();
+      const key = await crypto.subtle.importKey("raw", enc.encode(process.env.DEV_ACCESS_PASSWORD), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+      const sig = await crypto.subtle.sign("HMAC", key, enc.encode("dev-auth"));
+      const expected = Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, "0")).join("");
+      // Constant-time comparison (manual XOR loop because middleware runs in edge runtime
+      // where Node.js crypto.timingSafeEqual is not available)
+      if (devCookie.length === expected.length) {
+        let diff = 0;
+        for (let i = 0; i < devCookie.length; i++) diff |= devCookie.charCodeAt(i) ^ expected.charCodeAt(i);
+        hasDevAuth = diff === 0;
+      }
     }
   }
 

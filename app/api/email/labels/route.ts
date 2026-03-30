@@ -5,12 +5,15 @@ import { serverCache, TTL } from "@/lib/email/server-cache";
 import { sanitizeEmailError } from "@/lib/email/errors";
 
 /** GET: List email labels/folders */
-export async function GET() {
+export async function GET(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
 
+  const { searchParams } = new URL(request.url);
+  const connectionId = searchParams.get("connectionId") ?? undefined;
+
   // Labels barely change — cache for 5 minutes on Railway
-  const cacheKey = `labels:${auth.user.id}`;
+  const cacheKey = `labels:${auth.user.id}:${connectionId ?? "default"}`;
   const cached = serverCache.get(cacheKey);
   if (cached) {
     return NextResponse.json({ data: cached, source: "gmail" }, {
@@ -19,7 +22,7 @@ export async function GET() {
   }
 
   try {
-    const { driver } = await getDriverForUser(auth.user.id);
+    const { driver } = await getDriverForUser(auth.user.id, connectionId);
     const labels = await driver.listLabels();
 
     serverCache.set(cacheKey, labels, TTL.LABELS);

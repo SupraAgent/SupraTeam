@@ -5,6 +5,7 @@ import {
   Inbox,
   Mail,
   Users,
+  Building2,
   MessageCircle,
   Bell,
   Send,
@@ -46,6 +47,7 @@ export const NAV_SECTIONS: NavSection[] = [
     label: "Contacts & Groups",
     items: [
       { href: "/contacts", label: "Contacts", icon: Users },
+      { href: "/companies", label: "Companies", icon: Building2 },
       { href: "/groups", label: "TG Groups", icon: MessageCircle },
     ],
   },

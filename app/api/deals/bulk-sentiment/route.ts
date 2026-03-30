@@ -6,15 +6,16 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { sanitizeForPrompt } from "@/lib/claude-api";
+import { getAnthropicKey } from "@/lib/ai-key";
 
 export async function POST() {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
   const { admin: supabase } = auth;
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = await getAnthropicKey(auth.user.id);
   if (!apiKey) {
-    return NextResponse.json({ error: "ANTHROPIC_API_KEY not set" }, { status: 503 });
+    return NextResponse.json({ error: "No API key configured. Add your Anthropic key in Settings > Integrations." }, { status: 503 });
   }
 
   // Find deals that need analysis (no sentiment or older than 3 days)

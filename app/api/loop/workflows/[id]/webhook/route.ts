@@ -73,6 +73,15 @@ export async function POST(
       payload,
     });
 
+    // Store last received payload in metadata for UI display
+    await supabase.from("crm_workflows").update({
+      metadata: {
+        ...((workflow.metadata as Record<string, unknown>) || {}),
+        last_webhook_payload: rawPayload,
+        last_webhook_received_at: new Date().toISOString(),
+      },
+    }).eq("id", id);
+
     return NextResponse.json({
       ok: true,
       run_id: result.runId,

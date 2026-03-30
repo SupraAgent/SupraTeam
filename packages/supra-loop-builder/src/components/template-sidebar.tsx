@@ -56,8 +56,6 @@ type TemplateSidebarProps = {
   /** Unlock a group */
   onUnlockGroup?: (nodeIds: string[]) => void;
   onClose: () => void;
-  /** Callback to start the Bridge Walkthrough Tour */
-  onStartBridgeTour?: () => void;
 };
 
 export function TemplateSidebar({
@@ -69,7 +67,6 @@ export function TemplateSidebar({
   onSelectGroup,
   onUnlockGroup,
   onClose,
-  onStartBridgeTour,
 }: TemplateSidebarProps) {
   const [tab, setTab] = React.useState<Tab>("templates");
   const [starred, setStarred] = React.useState<Set<string>>(new Set());
@@ -275,8 +272,9 @@ export function TemplateSidebar({
   );
 
   const categoryLabels: Record<string, string> = {
-    team: "Team",
-    app: "App",
+    crm: "CRM",
+    telegram: "Telegram",
+    email: "Email",
     benchmark: "Benchmark",
     scoring: "Scoring",
     improve: "Improve",
@@ -379,26 +377,6 @@ export function TemplateSidebar({
             </div>
           ) : (
             <>
-            {/* Featured Template Spotlight — Bridge */}
-            {!searchQuery && (
-              <FeaturedBridgeSpotlight
-                onUse={() => {
-                  const bridge = BUILT_IN_TEMPLATES.find((t) => t.id === "workflow-bridge");
-                  if (bridge) handleUseBuiltIn(bridge);
-                }}
-                onGuideMe={onStartBridgeTour
-                  ? () => {
-                      // Signal the tour should start, then load template.
-                      // The canvas will start the tour after the template is actually applied
-                      // (which may require a confirmation dialog first).
-                      onStartBridgeTour();
-                      const bridge = BUILT_IN_TEMPLATES.find((t) => t.id === "workflow-bridge");
-                      if (bridge) handleUseBuiltIn(bridge);
-                    }
-                  : undefined
-                }
-              />
-            )}
             {Object.entries(groupedBuiltIn).map(([category, templates]) => (
               <div key={category} className="mb-3">
                 <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -633,75 +611,3 @@ function TemplateCard({
   );
 }
 
-// ── Featured Bridge Spotlight ────────────────────────────────────
-
-function FeaturedBridgeSpotlight({
-  onUse,
-  onGuideMe,
-}: {
-  onUse: () => void;
-  onGuideMe?: () => void;
-}) {
-  return (
-    <div className="mb-4 rounded-xl border border-primary/20 bg-gradient-to-br from-primary/5 via-primary/[0.02] to-transparent p-4">
-      {/* Badge */}
-      <div className="flex items-center gap-2 mb-2">
-        <span className="inline-flex items-center gap-1 rounded-full bg-primary/15 border border-primary/25 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-primary">
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-          </svg>
-          Featured
-        </span>
-      </div>
-
-      {/* Title & description */}
-      <h4 className="text-xs font-bold text-foreground mb-1">
-        Gap-to-Improvement Bridge
-      </h4>
-      <p className="text-[10px] text-muted-foreground leading-relaxed mb-3">
-        The core improvement workflow. Identifies your weakest categories, generates AI fixes, gets feedback, and re-scores — all in one run.
-      </p>
-
-      {/* Flow preview: mini node diagram */}
-      <div className="flex items-center gap-1 mb-3 overflow-x-auto pb-1">
-        {[
-          { label: "Trigger", color: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" },
-          { label: "LLM x3", color: "bg-blue-500/20 text-blue-400 border-blue-500/30" },
-          { label: "Merge", color: "bg-rose-500/20 text-rose-400 border-rose-500/30" },
-          { label: "CPO", color: "bg-amber-500/20 text-amber-400 border-amber-500/30" },
-          { label: "Re-Score", color: "bg-purple-500/20 text-purple-400 border-purple-500/30" },
-          { label: "Output", color: "bg-cyan-500/20 text-cyan-400 border-cyan-500/30" },
-        ].map((node, i, arr) => (
-          <React.Fragment key={node.label}>
-            <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[8px] font-medium ${node.color}`}>
-              {node.label}
-            </span>
-            {i < arr.length - 1 && (
-              <svg className="shrink-0 text-white/20" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                <path d="m9 18 6-6-6-6" />
-              </svg>
-            )}
-          </React.Fragment>
-        ))}
-      </div>
-
-      {/* Actions */}
-      <div className="flex items-center gap-2">
-        <button
-          onClick={onUse}
-          className="flex-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:opacity-90 transition"
-        >
-          Load Template
-        </button>
-        {onGuideMe && (
-          <button
-            onClick={onGuideMe}
-            className="rounded-lg border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/20 transition"
-          >
-            Guide Me
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}

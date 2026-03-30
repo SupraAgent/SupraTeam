@@ -35,7 +35,6 @@ import {
   type Workspace,
 } from "../hooks/use-workspaces";
 import type { WorkflowBuilderProps } from "../types";
-import { OnboardingTour, useOnboarding } from "./onboarding-tour";
 import { CredentialManager } from "./credential-manager";
 import {
   saveExecution,
@@ -320,7 +319,6 @@ export function WorkflowBuilder({
   const [showCredentialManager, setShowCredentialManager] = React.useState(false);
   const [versions, setVersions] = React.useState<VersionIndexEntry[]>([]);
   const [showVersions, setShowVersions] = React.useState(false);
-  const { showTour, completeTour, skipTour } = useOnboarding(storageKeyPrefix);
 
   // Live elapsed time counter while workflow is running
   React.useEffect(() => {
@@ -1506,10 +1504,6 @@ export function WorkflowBuilder({
         )}
       </div>
 
-      {/* Onboarding Tour */}
-      {showTour && !showStartScreen && (
-        <OnboardingTour onComplete={completeTour} onSkip={skipTour} />
-      )}
 
       {/* Credential Manager */}
       {showCredentialManager && (

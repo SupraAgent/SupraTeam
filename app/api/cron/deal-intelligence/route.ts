@@ -19,6 +19,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
   }
 
+  // Cron job runs without user context, so we use the env var directly
+  // instead of the per-user BYOK helper (getAnthropicKey).
   const apiKey = process.env.ANTHROPIC_API_KEY;
   let healthUpdated = 0;
   let sentimentRefreshed = 0;

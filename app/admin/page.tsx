@@ -70,27 +70,18 @@ function timeAgo(dateStr: string): string {
 
 export default function AdminPage() {
   const { user } = useAuth();
-  const { crmRole } = useShell();
+  const { crmRole, crmRoleLoaded } = useShell();
   const router = useRouter();
   const [activeTab, setActiveTab] = React.useState<"team" | "audit">("team");
-  const [checked, setChecked] = React.useState(false);
 
   React.useEffect(() => {
-    if (!user) return;
-    if (crmRole === null && !checked) {
-      // Wait briefly for crmRole to load
-      const timer = setTimeout(() => setChecked(true), 1500);
-      return () => clearTimeout(timer);
-    }
-    if (crmRole && crmRole !== "admin_lead") {
+    if (!user || !crmRoleLoaded) return;
+    if (crmRole !== "admin_lead") {
       router.push("/");
     }
-    if (crmRole === "admin_lead") {
-      setChecked(true);
-    }
-  }, [user, crmRole, checked, router]);
+  }, [user, crmRole, crmRoleLoaded, router]);
 
-  if (!checked || crmRole !== "admin_lead") {
+  if (!crmRoleLoaded || crmRole !== "admin_lead") {
     return (
       <div className="flex items-center justify-center py-20">
         <div className="h-8 w-8 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />

@@ -38,7 +38,7 @@ export function TemplateManager({
   const [customTemplates, setCustomTemplates] = React.useState(getCustomTemplates);
 
   const CATEGORIES: FlowTemplate["category"][] = [
-    "team", "app", "benchmark", "scoring", "improve", "workflow", "custom",
+    "crm", "telegram", "email", "benchmark", "scoring", "improve", "workflow", "custom",
   ];
 
   const templates = selectedCategory === "custom"

@@ -66,6 +66,12 @@ const SETTINGS_GROUPS: { label: string; items: SettingsItem[] }[] = [
     ],
   },
   {
+    label: "Data",
+    items: [
+      { href: "/settings/data", label: "Export" },
+    ],
+  },
+  {
     label: "Compliance",
     items: [
       { href: "/settings/privacy", label: "Privacy & GDPR" },

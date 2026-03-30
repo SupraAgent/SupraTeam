@@ -9,6 +9,7 @@ type SnoozePickerProps = {
   onClose: () => void;
   threadId: string | null;
   onSnoozed?: () => void;
+  connectionId?: string;
 };
 
 const QUICK_OPTIONS = [
@@ -52,7 +53,7 @@ function getSnoozeTime(option: typeof QUICK_OPTIONS[number]): Date {
   return new Date(now.getTime() + 3 * 60 * 60 * 1000);
 }
 
-export function SnoozePicker({ open, onClose, threadId, onSnoozed }: SnoozePickerProps) {
+export function SnoozePicker({ open, onClose, threadId, onSnoozed, connectionId }: SnoozePickerProps) {
   const [customDate, setCustomDate] = React.useState("");
   const [customTime, setCustomTime] = React.useState("09:00");
   const [selectedIndex, setSelectedIndex] = React.useState(0);
@@ -86,12 +87,12 @@ export function SnoozePicker({ open, onClose, threadId, onSnoozed }: SnoozePicke
   }, [open, selectedIndex]);
 
   async function handleQuickSnooze(option: typeof QUICK_OPTIONS[number]) {
-    if (!threadId) return;
+    if (!threadIdRef.current) return;
     const time = getSnoozeTime(option);
-    await scheduleSnooze(threadId, time.toISOString());
+    await scheduleSnooze(threadIdRef.current, time.toISOString(), connectionId);
     toast(`Snoozed until ${formatFriendlyTime(time)}`);
-    onSnoozed?.();
-    onClose();
+    onSnoozedRef.current?.();
+    onCloseRef.current();
   }
 
   async function handleCustomSnooze() {
@@ -101,7 +102,7 @@ export function SnoozePicker({ open, onClose, threadId, onSnoozed }: SnoozePicke
       toast.error("Pick a future time");
       return;
     }
-    await scheduleSnooze(threadId, time.toISOString());
+    await scheduleSnooze(threadId, time.toISOString(), connectionId);
     toast(`Snoozed until ${formatFriendlyTime(time)}`);
     onSnoozed?.();
     onClose();
@@ -172,13 +173,17 @@ export function SnoozePicker({ open, onClose, threadId, onSnoozed }: SnoozePicke
   );
 }
 
-async function scheduleSnooze(threadId: string, scheduledFor: string) {
-  // Get default connection for scheduling
-  const connRes = await fetch("/api/email/connections");
-  const connJson = await connRes.json();
-  const defaultConn = (connJson.data ?? []).find((c: { is_default: boolean }) => c.is_default) ?? connJson.data?.[0];
+async function scheduleSnooze(threadId: string, scheduledFor: string, connectionId?: string) {
+  // Use provided connectionId or fall back to default connection
+  let connId = connectionId;
+  if (!connId) {
+    const connRes = await fetch("/api/email/connections");
+    const connJson = await connRes.json();
+    const defaultConn = (connJson.data ?? []).find((c: { is_default: boolean }) => c.is_default) ?? connJson.data?.[0];
+    connId = defaultConn?.id;
+  }
 
-  if (!defaultConn) return;
+  if (!connId) return;
 
   // Schedule the snooze FIRST — if this fails, the thread stays in inbox (safe)
   const schedRes = await fetch("/api/email/scheduled", {
@@ -186,7 +191,7 @@ async function scheduleSnooze(threadId: string, scheduledFor: string) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       type: "snooze",
-      connection_id: defaultConn.id,
+      connection_id: connId,
       thread_id: threadId,
       scheduled_for: scheduledFor,
     }),
@@ -198,7 +203,7 @@ async function scheduleSnooze(threadId: string, scheduledFor: string) {
   await fetch(`/api/email/threads/${threadId}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "archive" }),
+    body: JSON.stringify({ action: "archive", connection_id: connId }),
   });
 }
 

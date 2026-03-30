@@ -27,6 +27,7 @@ export async function POST(request: Request) {
     bodyText?: string;
     replyAll?: boolean;
     attachments?: { filename: string; mimeType: string; data: string }[];
+    connection_id?: string;
   };
 
   try {
@@ -87,7 +88,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { driver, connection } = await getDriverForUser(auth.user.id);
+    const { driver, connection } = await getDriverForUser(auth.user.id, body.connection_id);
     let result;
 
     switch (body.type) {

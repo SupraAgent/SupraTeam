@@ -169,7 +169,14 @@ export function ContactTable({ contacts, onRowClick, dealCountMap, selected, onT
                     {contact.lifecycle_stage ?? "prospect"}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-muted-foreground" onClick={() => onRowClick(contact)}>{contact.company ?? "-"}</td>
+                <td className="px-4 py-3 text-muted-foreground" onClick={() => onRowClick(contact)}>
+                  {contact.company ? (
+                    <span className="flex items-center gap-1">
+                      {contact.company}
+                      {contact.company_id && <span className="h-1.5 w-1.5 rounded-full bg-green-400 shrink-0" title="Linked to company record" />}
+                    </span>
+                  ) : "-"}
+                </td>
                 <td className="px-4 py-3" onClick={() => onRowClick(contact)}>
                   {contact.telegram_username ? (
                     <span className="text-primary">@{contact.telegram_username}</span>
