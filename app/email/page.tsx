@@ -674,12 +674,12 @@ function EmailPageInner() {
         />
       </div>
 
-      {/* Thread view */}
+      {/* Thread view / Dashboard */}
       <div className={cn(
         "flex-1 flex flex-col",
         !selectedThreadId && "hidden md:flex"
       )}>
-        {/* Persistent dashboard bar */}
+        {/* Persistent dashboard bar — always visible */}
         <DashboardBar
           isThreadView={!!activeThread}
           onBackToDashboard={() => setSelectedThreadId(null)}
@@ -712,7 +712,7 @@ function EmailPageInner() {
             />
           </>
         ) : (
-          <InlineDashboard />
+          <InlineDashboardPanels />
         )}
       </div>
 
@@ -879,9 +879,7 @@ function PlusIcon({ className }: { className?: string }) {
   return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>;
 }
 
-// ── Inline Dashboard (shown when no thread is selected) ────
-
-// ── Persistent Dashboard Bar ─────────────────────────────────
+// ── Persistent Dashboard Bar (always visible at top of right panel) ────
 
 function DashboardBar({
   isThreadView,
@@ -890,88 +888,78 @@ function DashboardBar({
   isThreadView: boolean;
   onBackToDashboard: () => void;
 }) {
-  if (isThreadView) {
-    return (
-      <button
-        onClick={onBackToDashboard}
-        className="px-4 py-2 border-b border-white/10 flex items-center gap-2 shrink-0 hover:bg-white/[0.02] transition-colors w-full text-left"
-      >
-        <LayoutDashboard className="h-3.5 w-3.5 text-primary" />
-        <span className="text-xs font-medium text-foreground">Dashboard</span>
-        <span className="text-[10px] text-muted-foreground ml-1">Back to panels</span>
-      </button>
-    );
-  }
-
-  return null; // InlineDashboard renders its own header
-}
-
-// ── Inline Dashboard (shown when no thread is selected) ────
-
-function InlineDashboard() {
   const { layout, togglePanel, resetLayout } = useDashboardLayout();
   const [pickerOpen, setPickerOpen] = React.useState(false);
-  const enabledPanels = layout.enabledPanels;
 
   return (
-    <ThreadContextProvider>
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="px-4 py-2.5 border-b border-white/10 flex items-center justify-between shrink-0">
+    <>
+      <div className="px-4 py-2 border-b border-white/10 flex items-center justify-between shrink-0">
+        {isThreadView ? (
+          <button
+            onClick={onBackToDashboard}
+            className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+          >
+            <LayoutDashboard className="h-3.5 w-3.5 text-primary" />
+            <span className="text-xs font-medium text-foreground">Dashboard</span>
+          </button>
+        ) : (
           <div className="flex items-center gap-2">
             <LayoutDashboard className="h-3.5 w-3.5 text-primary" />
             <span className="text-xs font-medium text-foreground">Dashboard</span>
           </div>
-          <button
-            onClick={() => setPickerOpen(true)}
-            className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-white/5 border border-white/10 transition"
-          >
-            <Plus className="h-3 w-3" />
-            Panels
-          </button>
-        </div>
+        )}
+        <button
+          onClick={() => setPickerOpen(true)}
+          className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-white/5 border border-white/10 transition"
+        >
+          <Plus className="h-3 w-3" />
+          Panels
+        </button>
+      </div>
+      <PanelPicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        enabledPanels={layout.enabledPanels}
+        onToggle={togglePanel}
+        onReset={resetLayout}
+      />
+    </>
+  );
+}
 
-        {/* Panel grid */}
-        <div className="flex-1 overflow-y-auto p-3 thin-scroll">
-          {enabledPanels.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-3">
-              <LayoutDashboard className="h-10 w-10 opacity-20" />
-              <p className="text-xs">No panels enabled</p>
-              <button
-                onClick={() => setPickerOpen(true)}
-                className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium bg-primary text-white hover:bg-primary/90 transition"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Add Panels
-              </button>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-3">
-              {enabledPanels.map((panelId) => {
-                const panel = getPanelById(panelId);
-                if (!panel) return null;
-                const PanelComponent = panel.component;
-                return (
-                  <PanelCard
-                    key={panelId}
-                    panel={panel}
-                    onRemove={() => togglePanel(panelId)}
-                  >
-                    <PanelComponent />
-                  </PanelCard>
-                );
-              })}
-            </div>
-          )}
-        </div>
+// ── Inline Dashboard Panels (shown when no thread is selected) ────
 
-        <PanelPicker
-          open={pickerOpen}
-          onClose={() => setPickerOpen(false)}
-          enabledPanels={enabledPanels}
-          onToggle={togglePanel}
-          onReset={resetLayout}
-        />
+function InlineDashboardPanels() {
+  const { layout, togglePanel } = useDashboardLayout();
+  const enabledPanels = layout.enabledPanels;
+
+  return (
+    <ThreadContextProvider>
+      <div className="flex-1 overflow-y-auto p-3 thin-scroll">
+        {enabledPanels.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-3">
+            <LayoutDashboard className="h-10 w-10 opacity-20" />
+            <p className="text-xs">No panels enabled</p>
+            <p className="text-[10px] text-muted-foreground">Click + Panels above to add</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-3">
+            {enabledPanels.map((panelId) => {
+              const panel = getPanelById(panelId);
+              if (!panel) return null;
+              const PanelComponent = panel.component;
+              return (
+                <PanelCard
+                  key={panelId}
+                  panel={panel}
+                  onRemove={() => togglePanel(panelId)}
+                >
+                  <PanelComponent />
+                </PanelCard>
+              );
+            })}
+          </div>
+        )}
       </div>
     </ThreadContextProvider>
   );
