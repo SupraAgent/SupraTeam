@@ -24,8 +24,14 @@ export default function TMAAIChatPage() {
   const [loading, setLoading] = React.useState(false);
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
+  const abortRef = React.useRef<AbortController | null>(null);
 
   useTelegramWebApp();
+
+  // Cancel any in-flight streaming request on unmount
+  React.useEffect(() => {
+    return () => { abortRef.current?.abort(); };
+  }, []);
 
   React.useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -41,6 +47,11 @@ export default function TMAAIChatPage() {
     setLoading(true);
 
     try {
+      // Cancel previous stream if still running
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
       const res = await fetch("/api/ai-chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -48,6 +59,7 @@ export default function TMAAIChatPage() {
           messages: newMessages,
           page_context: "/tma",
         }),
+        signal: controller.signal,
       });
 
       if (!res.ok) {

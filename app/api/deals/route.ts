@@ -164,6 +164,7 @@ export async function POST(request: Request) {
           .update({ assigned_to: result.userId, assignment_reason: result.reason })
           .eq("id", deal.id);
         deal.assigned_to = result.userId;
+        deal.assignment_reason = result.reason;
       }
     } catch (err) {
       console.error("[api/deals] auto-assign error:", err);
