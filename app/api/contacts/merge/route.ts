@@ -23,7 +23,7 @@ export async function POST(request: Request) {
 
   // fieldOverrides: optional { field: value } to explicitly set on primary (from merge preview)
   const ALLOWED_OVERRIDE_FIELDS = new Set([
-    "name", "company", "email", "phone", "telegram_user_id", "telegram_username",
+    "name", "company", "company_id", "email", "phone", "telegram_user_id", "telegram_username",
     "notes", "source", "tags", "title", "custom_fields",
   ]);
   const rawOverrides: Record<string, unknown> = body.fieldOverrides ?? {};
@@ -48,7 +48,7 @@ export async function POST(request: Request) {
       .in("id", mergeIds);
 
     if (mergedContacts) {
-      const fillFields = ["email", "phone", "telegram_username", "telegram_user_id", "company", "title"];
+      const fillFields = ["email", "phone", "telegram_username", "telegram_user_id", "company", "company_id", "title"];
       const updates: Record<string, unknown> = {};
 
       // Apply explicit field overrides first

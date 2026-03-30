@@ -12,7 +12,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "ids[] required" }, { status: 400 });
   }
 
-  const ALLOWED = ["lifecycle_stage", "stage_id", "source"];
+  const ALLOWED = ["lifecycle_stage", "stage_id", "source", "company_id"];
   const body: Record<string, unknown> = { updated_at: new Date().toISOString() };
   for (const key of ALLOWED) {
     if (key in updates) body[key] = updates[key];

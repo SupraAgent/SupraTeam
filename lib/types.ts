@@ -9,6 +9,23 @@ export type PipelineStage = {
 export type LifecycleStage = "prospect" | "lead" | "opportunity" | "customer" | "churned" | "inactive";
 export type ContactSource = "manual" | "telegram_import" | "telegram_bot" | "csv_import" | "referral" | "event" | "inbound" | "outbound";
 
+export interface Company {
+  id: string;
+  name: string;
+  domain: string | null;
+  industry: string | null;
+  website: string | null;
+  description: string | null;
+  logo_url: string | null;
+  employee_count: number | null;
+  location: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  // Joined
+  contact_count?: number;
+}
+
 export type Contact = {
   id: string;
   name: string;
@@ -17,6 +34,7 @@ export type Contact = {
   telegram_username: string | null;
   telegram_user_id: number | null;
   company: string | null;
+  company_id: string | null;
   title: string | null;
   notes: string | null;
   stage_id: string | null;
@@ -41,6 +59,7 @@ export type Contact = {
   updated_at: string;
   // Joined
   stage?: PipelineStage | null;
+  linked_company?: Company | null;
 };
 
 export type DealOutcome = "open" | "won" | "lost";
