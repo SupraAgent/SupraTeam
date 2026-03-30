@@ -13,6 +13,7 @@ import { FollowupTrackerPanel } from "@/components/email/dashboard/followup-trac
 import { AISummaryPanel } from "@/components/email/dashboard/ai-summary-panel";
 import { DealSpotlightPanel } from "@/components/email/dashboard/deal-spotlight-panel";
 import { EmailTagsPanel } from "@/components/email/dashboard/email-tags-panel";
+import { OutreachQueuePanel } from "@/components/email/dashboard/outreach-queue-panel";
 import { Mail, LayoutDashboard, Plus, ArrowLeft } from "lucide-react";
 import type { PanelId } from "@/lib/plugins/types";
 
@@ -48,6 +49,8 @@ export default function EmailDashboardPage() {
         return <DealSpotlightPanel />;
       case "email-tags":
         return <EmailTagsPanel threadId={null} />;
+      case "outreach-queue":
+        return <OutreachQueuePanel />;
       default:
         return <PlaceholderPanel panelId={panelId} />;
     }
