@@ -32,7 +32,7 @@ export default function TMAHomePage() {
 
   const fetchData = React.useCallback(async () => {
     const [dealsData, statsData] = await Promise.all([
-      fetch("/api/deals").then((r) => r.json()).catch(() => ({ deals: [] })),
+      fetch("/api/deals").then((r) => r.ok ? r.json() : { deals: [] }).catch(() => ({ deals: [] })),
       fetch("/api/stats").then((r) => r.ok ? r.json() : null).catch(() => null),
     ]);
     setDeals(dealsData.deals ?? []);

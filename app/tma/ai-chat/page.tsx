@@ -64,6 +64,7 @@ export default function TMAAIChatPage() {
 
       let assistantContent = "";
       const decoder = new TextDecoder();
+      let lineBuffer = ""; // Buffer for partial lines split across TCP chunks
       setMessages([...newMessages, { role: "assistant", content: "" }]);
 
       while (true) {
@@ -71,7 +72,10 @@ export default function TMAAIChatPage() {
         if (done) break;
 
         const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n");
+        lineBuffer += chunk;
+        const lines = lineBuffer.split("\n");
+        // Last element may be incomplete — keep it in buffer
+        lineBuffer = lines.pop() ?? "";
 
         for (const line of lines) {
           if (line.startsWith("data: ")) {
@@ -84,7 +88,7 @@ export default function TMAAIChatPage() {
                 setMessages([...newMessages, { role: "assistant", content: assistantContent }]);
               }
             } catch {
-              // Some responses are plain text
+              // Non-JSON data lines are plain text
               assistantContent += data;
               setMessages([...newMessages, { role: "assistant", content: assistantContent }]);
             }

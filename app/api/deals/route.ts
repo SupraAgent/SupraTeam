@@ -74,14 +74,19 @@ export async function POST(request: Request) {
   if ("error" in auth) return auth.error;
   const { user, supabase } = auth;
 
-  const body = await request.json();
-  const { deal_name, board_type, stage_id, contact_id, assigned_to, value, probability, telegram_chat_id, telegram_chat_name, telegram_chat_link, custom_fields } = body;
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+  const { deal_name, board_type, stage_id, contact_id, assigned_to, value, probability, telegram_chat_id, telegram_chat_name, telegram_chat_link, custom_fields } = body as Record<string, unknown>;
 
   if (!deal_name || !board_type || !stage_id) {
     return NextResponse.json({ error: "deal_name, board_type, and stage_id are required" }, { status: 400 });
   }
 
-  if (!["BD", "Marketing", "Admin", "Applications"].includes(board_type)) {
+  if (!["BD", "Marketing", "Admin", "Applications"].includes(board_type as string)) {
     return NextResponse.json({ error: "board_type must be BD, Marketing, Admin, or Applications" }, { status: 400 });
   }
 
@@ -92,13 +97,13 @@ export async function POST(request: Request) {
       deal_name,
       board_type,
       stage_id,
-      contact_id: contact_id || null,
-      assigned_to: assigned_to || null,
-      value: value || null,
-      probability: probability || null,
-      telegram_chat_id: telegram_chat_id || null,
-      telegram_chat_name: telegram_chat_name || null,
-      telegram_chat_link: telegram_chat_link || null,
+      contact_id: contact_id ?? null,
+      assigned_to: assigned_to ?? null,
+      value: value ?? null,
+      probability: probability ?? null,
+      telegram_chat_id: telegram_chat_id ?? null,
+      telegram_chat_name: telegram_chat_name ?? null,
+      telegram_chat_link: telegram_chat_link ?? null,
       created_by: user.id,
       stage_changed_at: new Date().toISOString(),
     })

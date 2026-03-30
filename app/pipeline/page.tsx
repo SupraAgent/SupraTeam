@@ -72,9 +72,11 @@ export default function PipelinePage() {
   const [deals, setDeals] = React.useState<Deal[]>([]);
   const [contacts, setContacts] = React.useState<Contact[]>([]);
   const [board, setBoard] = React.useState<BoardType>("All");
-  const [viewMode, setViewMode] = React.useState<"kanban" | "list">(
-    typeof window !== "undefined" && window.innerWidth < 640 ? "list" : "kanban"
-  );
+  const [viewMode, setViewMode] = React.useState<"kanban" | "list">("kanban");
+  // Sync view mode to screen width after mount to avoid SSR hydration mismatch
+  React.useEffect(() => {
+    if (window.innerWidth < 640) setViewMode("list");
+  }, []);
   const [createOpen, setCreateOpen] = React.useState(false);
   const [selectedDeal, setSelectedDeal] = React.useState<Deal | null>(null);
   const [search, setSearch] = React.useState("");
