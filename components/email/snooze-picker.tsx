@@ -87,12 +87,12 @@ export function SnoozePicker({ open, onClose, threadId, onSnoozed, connectionId 
   }, [open, selectedIndex]);
 
   async function handleQuickSnooze(option: typeof QUICK_OPTIONS[number]) {
-    if (!threadId) return;
+    if (!threadIdRef.current) return;
     const time = getSnoozeTime(option);
-    await scheduleSnooze(threadId, time.toISOString(), connectionId);
+    await scheduleSnooze(threadIdRef.current, time.toISOString(), connectionId);
     toast(`Snoozed until ${formatFriendlyTime(time)}`);
-    onSnoozed?.();
-    onClose();
+    onSnoozedRef.current?.();
+    onCloseRef.current();
   }
 
   async function handleCustomSnooze() {

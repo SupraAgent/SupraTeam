@@ -169,10 +169,10 @@ export class ImapDriver implements MailDriver {
       return result;
     } catch (err) {
       // On error, destroy — don't return to pool
+      // Always clean up the client directly (pool entry may already be gone)
       destroyPoolEntry(poolKey);
-      if (!fromPool) {
-        client.logout().catch(() => {});
-      }
+      client.logout().catch(() => {});
+      try { client.close(); } catch { /* already closed */ }
       throw err;
     }
   }
@@ -782,7 +782,16 @@ export class ImapDriver implements MailDriver {
 
   private async modifyFlags(threadId: string, flag: string, add: boolean): Promise<void> {
     await this.withImap(async (client) => {
-      const lock = await client.getMailboxLock("INBOX");
+      // Try [Gmail]/All Mail first (contains all messages regardless of folder),
+      // fall back to INBOX if that fails.
+      let folder = "[Gmail]/All Mail";
+      let lock;
+      try {
+        lock = await client.getMailboxLock(folder);
+      } catch {
+        folder = "INBOX";
+        lock = await client.getMailboxLock(folder);
+      }
       try {
         const uids = await this.findThreadUids(client, threadId);
         if (uids.length === 0) return;

@@ -3,10 +3,14 @@
 import * as React from "react";
 
 // ---------------------------------------------------------------------------
-// Module-level cache: threadId -> draft text
+// Module-level cache: connectionId:threadId -> draft text
 // Persists across re-renders / re-mounts within the same session.
 // ---------------------------------------------------------------------------
 const draftCache = new Map<string, string>();
+
+function draftCacheKey(threadId: string, connectionId?: string): string {
+  return connectionId ? `${connectionId}:${threadId}` : threadId;
+}
 
 // ---------------------------------------------------------------------------
 // Hook: useAutoDraft
@@ -22,9 +26,10 @@ export function useAutoDraft(threadId: string | null, connectionId?: string) {
 
   const fetchDraft = React.useCallback(
     async (tid: string, skipCache = false) => {
+      const cacheKey = draftCacheKey(tid, connectionId);
       // Return cached result if available and not forcing refresh
-      if (!skipCache && draftCache.has(tid)) {
-        setDraft(draftCache.get(tid)!);
+      if (!skipCache && draftCache.has(cacheKey)) {
+        setDraft(draftCache.get(cacheKey)!);
         setLoading(false);
         setError(null);
         return;
@@ -56,7 +61,7 @@ export function useAutoDraft(threadId: string | null, connectionId?: string) {
           throw new Error("Empty draft returned");
         }
 
-        draftCache.set(tid, text);
+        draftCache.set(cacheKey, text);
         setDraft(text);
       } catch (err: unknown) {
         if (activeThreadRef.current !== tid) return;
@@ -88,8 +93,9 @@ export function useAutoDraft(threadId: string | null, connectionId?: string) {
     }
 
     // If cached, show immediately (no debounce needed)
-    if (draftCache.has(threadId)) {
-      setDraft(draftCache.get(threadId)!);
+    const cacheKey = draftCacheKey(threadId, connectionId);
+    if (draftCache.has(cacheKey)) {
+      setDraft(draftCache.get(cacheKey)!);
       setLoading(false);
       setError(null);
       return;
