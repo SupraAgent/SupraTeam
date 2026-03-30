@@ -139,7 +139,7 @@ function translateNodes(nodes: FlowNode[]): FlowNode[] {
             continueOnError: data.continueOnError !== false,
           },
         },
-      } as FlowNode;
+      } as unknown as FlowNode;
     }
 
     if (node.type === "crmSubworkflowNode") {
@@ -155,7 +155,7 @@ function translateNodes(nodes: FlowNode[]): FlowNode[] {
             waitForCompletion: data.waitForCompletion !== false,
           },
         },
-      } as FlowNode;
+      } as unknown as FlowNode;
     }
 
     // Non-CRM nodes (delay, etc.) pass through unchanged
