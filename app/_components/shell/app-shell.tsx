@@ -30,7 +30,7 @@ function TelegramLoginButton({ size = "sm" }: { size?: "sm" | "md" }) {
 
 function AppShellInner({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  const { sidebarCollapsed, viewDensity, setCrmRole } = useShell();
+  const { sidebarCollapsed, viewDensity, setCrmRole, setCrmRoleLoaded } = useShell();
   const pathname = usePathname();
 
   // TMA and public routes render without the CRM shell (sidebar, topbar, etc.)
@@ -45,8 +45,10 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
       .then((res) => {
         if (res?.data?.crm_role) setCrmRole(res.data.crm_role);
       })
-      .catch(() => {});
-  }, [user, setCrmRole]);
+      .catch(() => {})
+      .finally(() => setCrmRoleLoaded(true));
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- setCrmRole/setCrmRoleLoaded are stable state setters
+  }, [user]);
 
   // Apply density data attribute to html element
   React.useEffect(() => {

@@ -13,6 +13,8 @@ type ShellContextValue = {
   setViewDensity: (v: ViewDensity) => void;
   crmRole: string | null;
   setCrmRole: (v: string | null) => void;
+  crmRoleLoaded: boolean;
+  setCrmRoleLoaded: (v: boolean) => void;
 };
 
 const ShellContext = React.createContext<ShellContextValue | null>(null);
@@ -22,6 +24,7 @@ export function ShellProvider({ children }: { children: React.ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsedState] = React.useState(false);
   const [viewDensity, setViewDensityState] = React.useState<ViewDensity>("comfortable");
   const [crmRole, setCrmRole] = React.useState<string | null>(null);
+  const [crmRoleLoaded, setCrmRoleLoaded] = React.useState(false);
 
   // Hydrate from localStorage
   React.useEffect(() => {
@@ -44,8 +47,8 @@ export function ShellProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = React.useMemo(
-    () => ({ mobileNavOpen, setMobileNavOpen, sidebarCollapsed, setSidebarCollapsed, viewDensity, setViewDensity, crmRole, setCrmRole }),
-    [mobileNavOpen, sidebarCollapsed, viewDensity, setViewDensity, crmRole]
+    () => ({ mobileNavOpen, setMobileNavOpen, sidebarCollapsed, setSidebarCollapsed, viewDensity, setViewDensity, crmRole, setCrmRole, crmRoleLoaded, setCrmRoleLoaded }),
+    [mobileNavOpen, sidebarCollapsed, viewDensity, setViewDensity, crmRole, crmRoleLoaded]
   );
   return (
     <ShellContext.Provider value={value}>{children}</ShellContext.Provider>
