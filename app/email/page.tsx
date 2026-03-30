@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { ThreadList } from "@/components/email/thread-list";
 import { ThreadView } from "@/components/email/thread-view";
@@ -17,6 +18,7 @@ import { EmailErrorBoundary } from "@/components/email/error-boundary";
 import { toast } from "sonner";
 import { CommandPalette } from "@/components/email/command-palette";
 import { AutoDraftBanner } from "@/components/email/auto-draft";
+import { LayoutDashboard } from "lucide-react";
 
 export default function EmailPage() {
   return (
@@ -393,6 +395,13 @@ function EmailPageInner() {
             )}
           </div>
           <div className="flex items-center gap-1">
+            <Link
+              href="/email/dashboard"
+              className="rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-white/5 transition"
+              title="Dashboard (d)"
+            >
+              <LayoutDashboard className="h-4 w-4" />
+            </Link>
             <button
               onClick={() => setAdvancedSearchOpen(true)}
               className="rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-white/5 transition"

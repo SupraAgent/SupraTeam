@@ -1,7 +1,7 @@
 import {
   Home,
   KanbanSquare,
-  CheckSquare,
+
   Inbox,
   Mail,
   Users,
@@ -36,7 +36,6 @@ export interface NavSection {
 export const TOP_ITEMS: NavItem[] = [
   { href: "/", label: "Dashboard", icon: Home },
   { href: "/pipeline", label: "Pipeline", icon: KanbanSquare },
-  { href: "/tasks", label: "Tasks", icon: CheckSquare },
   { href: "/inbox", label: "Inbox", icon: Inbox },
   { href: "/email", label: "Email", icon: Mail },
 ];
@@ -71,7 +70,7 @@ export const NAV_SECTIONS: NavSection[] = [
     key: "tools",
     label: "Tools",
     items: [
-      { href: "/calendar", label: "Calendar", icon: Calendar },
+      { href: "/calendar", label: "Calendar & Tasks", icon: Calendar },
       { href: "/reports", label: "Reports", icon: BarChart3, requiredRole: ["admin_lead"] },
       { href: "/access", label: "Access Control", icon: Shield, requiredRole: ["admin_lead"] },
       { href: "/suggestions", label: "Suggestions", icon: Lightbulb },
