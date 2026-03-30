@@ -6,7 +6,7 @@
 
 // ── Node data types ─────────────────────────────────────────────
 
-export type WorkflowNodeType = "trigger" | "action" | "condition" | "delay";
+export type WorkflowNodeType = "trigger" | "action" | "condition" | "delay" | "loop" | "merge" | "subworkflow";
 
 export interface TriggerNodeData {
   nodeType: "trigger";
@@ -15,11 +15,18 @@ export interface TriggerNodeData {
   config: Record<string, unknown>;
 }
 
+export interface NodeRetryConfig {
+  maxRetries?: number;     // 0-5, overrides engine default
+  retryDelay?: number;     // ms, overrides exponential backoff
+  retryOn?: string[];      // error types to retry: ["timeout", "rate_limit", "server", "unknown"]
+}
+
 export interface ActionNodeData {
   nodeType: "action";
   actionType: string;
   label: string;
   config: Record<string, unknown>;
+  retryConfig?: NodeRetryConfig;
 }
 
 export interface ConditionOperator {
@@ -66,11 +73,43 @@ export interface DelayNodeData {
   config: DelayConfig;
 }
 
+export interface LoopNodeData {
+  nodeType: "loop";
+  label: string;
+  config: {
+    sourceVariable: string;    // Template var containing the array
+    itemVariable: string;      // Variable name for current item, default "item"
+    maxIterations: number;     // Safety limit, default 100
+    continueOnError: boolean;  // Continue loop if one iteration fails
+  };
+}
+
+export interface MergeNodeData {
+  nodeType: "merge";
+  label: string;
+  config: {
+    mode: "all" | "any"; // "all" = wait for all branches, "any" = continue when first arrives
+  };
+}
+
+export interface SubworkflowNodeData {
+  nodeType: "subworkflow";
+  label: string;
+  config: {
+    workflowId: string;         // ID of the workflow to execute
+    passVars?: boolean;         // Pass current vars to sub-workflow (default true)
+    waitForCompletion: boolean; // Wait for sub-workflow to finish before continuing
+  };
+}
+
 export type WorkflowNodeData =
   | TriggerNodeData
   | ActionNodeData
   | ConditionNodeData
-  | DelayNodeData;
+  | DelayNodeData
+  | LoopNodeData
+  | MergeNodeData
+  | SubworkflowNodeData;
 
 // ── Node palette (what shows in the sidebar) ────────────────────
 
@@ -182,6 +221,8 @@ export interface ActionResult {
   success: boolean;
   output?: Record<string, unknown>;
   error?: string;
+  /** Structured error type for retry filtering. Falls back to string classification if absent. */
+  errorType?: "timeout" | "rate_limit" | "server" | "auth" | "validation" | "unknown";
 }
 
 /**
@@ -207,6 +248,8 @@ export interface PersistenceAdapter {
     error?: string,
     currentNodeId?: string
   ): Promise<void>;
+  /** Record that a node has started executing (for live overlay "running" status) */
+  recordNodeStart?(runId: string, nodeId: string): Promise<void>;
   scheduleResume?(
     runId: string,
     workflowId: string,

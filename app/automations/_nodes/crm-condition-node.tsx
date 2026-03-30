@@ -2,12 +2,21 @@
 
 import React from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { NodeExecutionOverlay } from "../_lib/execution-overlay";
+
+export interface CrmConditionRule {
+  field: string;
+  operator: string;
+  value: string;
+}
 
 export interface CrmConditionNodeData {
   label: string;
   field: "board_type" | "stage" | "value" | "assigned_to" | "company" | "tags" | "lifecycle_stage" | "quality_score";
-  operator: "equals" | "not_equals" | "contains" | "gt" | "lt" | "is_empty";
+  operator: "equals" | "not_equals" | "contains" | "not_contains" | "starts_with" | "gt" | "lt" | "gte" | "lte" | "is_empty" | "is_not_empty";
   value: string;
+  conditions?: CrmConditionRule[];
+  logic?: "and" | "or";
 }
 
 function getCrmConditionData(data: Record<string, unknown>): CrmConditionNodeData {
@@ -16,13 +25,16 @@ function getCrmConditionData(data: Record<string, unknown>): CrmConditionNodeDat
     field: (data.field as CrmConditionNodeData["field"]) || "stage",
     operator: (data.operator as CrmConditionNodeData["operator"]) || "equals",
     value: (data.value as string) || "",
+    conditions: (data.conditions as CrmConditionRule[]) || undefined,
+    logic: (data.logic as "and" | "or") || undefined,
   };
 }
 
-export const CrmConditionNode = React.memo(function CrmConditionNode({ data }: NodeProps) {
+export const CrmConditionNode = React.memo(function CrmConditionNode({ id, data }: NodeProps) {
   const d = getCrmConditionData(data as Record<string, unknown>);
 
   return (
+    <NodeExecutionOverlay nodeId={id}>
     <div className="rounded-xl border-2 border-yellow-500/40 bg-yellow-500/10 px-4 py-3 min-w-[180px] max-w-[240px]">
       <Handle type="target" position={Position.Left} className="!bg-yellow-400 !w-2.5 !h-2.5" />
       <Handle
@@ -49,6 +61,9 @@ export const CrmConditionNode = React.memo(function CrmConditionNode({ data }: N
       {d.field && (
         <div className="text-[11px] text-muted-foreground">
           {d.field} {d.operator} {d.value}
+          {d.conditions && d.conditions.length > 0 && (
+            <span className="opacity-60"> +{d.conditions.length} ({d.logic ?? "and"})</span>
+          )}
         </div>
       )}
       <div className="flex justify-between mt-1.5 text-[9px]">
@@ -56,5 +71,6 @@ export const CrmConditionNode = React.memo(function CrmConditionNode({ data }: N
         <span className="text-red-400">False</span>
       </div>
     </div>
+    </NodeExecutionOverlay>
   );
 });

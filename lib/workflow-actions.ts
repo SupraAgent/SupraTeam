@@ -9,6 +9,7 @@ import { getDriverForUser } from "@/lib/email/driver";
 // Config types are now simple Record<string, unknown> from the generic builder.
 // We define local interfaces for type safety in the executor functions.
 import { getSlackToken, sendSlackMessage } from "@/lib/slack";
+import { checkTgRateLimit, recordTgMessage } from "@/lib/tg-rate-limit";
 
 interface ActionSendTelegramConfig {
   message: string;
@@ -92,6 +93,26 @@ export async function executeSendTelegram(
     return { success: false, error: "No chat ID available" };
   }
 
+  // Check workflow-level rate limit before attempting send
+  const botId = process.env.TELEGRAM_BOT_TOKEN?.slice(0, 10) || "default";
+  const chatIdStr = String(chatId);
+  const MAX_WAIT_MS = 5_000;
+
+  let rl = checkTgRateLimit(botId, chatIdStr);
+  if (!rl.allowed) {
+    // Wait up to MAX_WAIT_MS then retry the check once
+    const waitMs = Math.min(rl.retryAfterMs, MAX_WAIT_MS);
+    await new Promise((r) => setTimeout(r, waitMs));
+    rl = checkTgRateLimit(botId, chatIdStr);
+    if (!rl.allowed) {
+      return {
+        success: false,
+        error: `Telegram rate limit exceeded for chat ${chatId}. Retry after ${rl.retryAfterMs}ms`,
+        output: { type: "rate_limit", retryAfterMs: rl.retryAfterMs },
+      };
+    }
+  }
+
   const message = renderTemplate(config.message || "{{deal_name}}", ctx.vars);
 
   const result = await sendTelegramWithTracking({
@@ -100,6 +121,11 @@ export async function executeSendTelegram(
     notificationType: "workflow",
     dealId: ctx.dealId,
   });
+
+  // Record successful send for rate limit tracking
+  if (result.success) {
+    recordTgMessage(botId, chatIdStr);
+  }
 
   return {
     success: result.success,

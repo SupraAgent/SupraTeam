@@ -9,6 +9,7 @@ import {
   Webhook,
   Link2,
   Key,
+  Brain,
   ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -72,6 +73,15 @@ export default function IntegrationsOverviewPage() {
       connected: null,
     },
     {
+      key: "anthropic",
+      label: "AI (Claude)",
+      description: "Add your Anthropic API key to power AI features — summaries, sentiment, chat",
+      href: "/settings/integrations/ai",
+      icon: <Brain className="h-5 w-5 text-orange-400" />,
+      iconBg: "bg-orange-500/10",
+      connected: null,
+    },
+    {
       key: "api-keys",
       label: "API Keys",
       description: "Generate keys for the public REST API",
@@ -111,6 +121,14 @@ export default function IntegrationsOverviewPage() {
     // TG Connect + Webhooks — mark as configured (no API check needed)
     updateStatus("tg-connect", false);
     updateStatus("webhooks", false);
+
+    // Check Anthropic AI key
+    fetch("/api/tokens?provider=anthropic")
+      .then((r) => (r.ok ? r.json() : { data: null }))
+      .then(({ data }) => {
+        updateStatus("anthropic", !!data, data ? `Key: ${data.masked}` : undefined);
+      })
+      .catch(() => updateStatus("anthropic", false));
 
     // Check API Keys
     fetch("/api/api-keys")

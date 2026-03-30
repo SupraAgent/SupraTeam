@@ -8,18 +8,24 @@ import { Node, Edge, NodeTypes, NodeProps } from '@xyflow/react';
  * All types are generic — consuming apps provide their own
  * trigger/action types via the NodeRegistry plugin system.
  */
-type WorkflowNodeType = "trigger" | "action" | "condition" | "delay";
+type WorkflowNodeType = "trigger" | "action" | "condition" | "delay" | "loop" | "merge" | "subworkflow";
 interface TriggerNodeData {
     nodeType: "trigger";
     triggerType: string;
     label: string;
     config: Record<string, unknown>;
 }
+interface NodeRetryConfig {
+    maxRetries?: number;
+    retryDelay?: number;
+    retryOn?: string[];
+}
 interface ActionNodeData {
     nodeType: "action";
     actionType: string;
     label: string;
     config: Record<string, unknown>;
+    retryConfig?: NodeRetryConfig;
 }
 interface ConditionOperator {
     value: string;
@@ -51,7 +57,33 @@ interface DelayNodeData {
     label: string;
     config: DelayConfig;
 }
-type WorkflowNodeData = TriggerNodeData | ActionNodeData | ConditionNodeData | DelayNodeData;
+interface LoopNodeData {
+    nodeType: "loop";
+    label: string;
+    config: {
+        sourceVariable: string;
+        itemVariable: string;
+        maxIterations: number;
+        continueOnError: boolean;
+    };
+}
+interface MergeNodeData {
+    nodeType: "merge";
+    label: string;
+    config: {
+        mode: "all" | "any";
+    };
+}
+interface SubworkflowNodeData {
+    nodeType: "subworkflow";
+    label: string;
+    config: {
+        workflowId: string;
+        passVars?: boolean;
+        waitForCompletion: boolean;
+    };
+}
+type WorkflowNodeData = TriggerNodeData | ActionNodeData | ConditionNodeData | DelayNodeData | LoopNodeData | MergeNodeData | SubworkflowNodeData;
 interface NodePaletteItem {
     type: WorkflowNodeType;
     subType: string;
@@ -163,6 +195,8 @@ interface ActionResult {
     success: boolean;
     output?: Record<string, unknown>;
     error?: string;
+    /** Structured error type for retry filtering. Falls back to string classification if absent. */
+    errorType?: "timeout" | "rate_limit" | "server" | "auth" | "validation" | "unknown";
 }
 /**
  * Action executor function — provided by consuming apps.
@@ -176,6 +210,8 @@ type ActionExecutor = (actionType: string, config: Record<string, unknown>, cont
 interface PersistenceAdapter {
     createRun(workflowId: string, event: WorkflowEvent): Promise<string>;
     updateRun(runId: string, status: string, nodeOutputs: Record<string, unknown>, error?: string, currentNodeId?: string): Promise<void>;
+    /** Record that a node has started executing (for live overlay "running" status) */
+    recordNodeStart?(runId: string, nodeId: string): Promise<void>;
     scheduleResume?(runId: string, workflowId: string, resumeAt: string, event: WorkflowEvent): Promise<void>;
     onWorkflowComplete?(workflowId: string): Promise<void>;
 }
@@ -201,6 +237,9 @@ interface EngineConfig {
     renderTemplate?: (template: string, vars: Record<string, string | number | undefined>) => string;
     /** Max retries for failed actions. Default: 2 */
     maxRetries?: number;
+    /** Dry-run mode: traverses the graph, evaluates conditions, but skips actual action execution.
+     *  Actions return simulated success with `{ dryRun: true }` output. */
+    dryRun?: boolean;
 }
 /**
  * Simple {{var}} template renderer.
@@ -270,4 +309,4 @@ declare function ConditionNode({ data, selected }: NodeProps): react_jsx_runtime
 
 declare function DelayNode({ data, selected }: NodeProps): react_jsx_runtime.JSX.Element;
 
-export { type ActionContext, type ActionExecutor, ActionNode, type ActionNodeData, type ActionResult, BuilderProvider, type ConditionConfig, ConditionNode, type ConditionNodeData, type ConditionOperator, type ConfigFieldDef, DEFAULT_OPERATORS, type DelayConfig, DelayNode, type DelayNodeData, type EngineConfig, FlowCanvas, type FlowEdge, type FlowNode, NodeConfigPanel, type NodePaletteItem, type NodeRegistry, NodeSidebar, type NodeTypeRegistration, type PersistenceAdapter, type RunResult, TriggerNode, type TriggerNodeData, type WorkflowData, type WorkflowEvent, type WorkflowNodeData, cn, defaultRenderTemplate, evaluateCondition, executeWorkflow, resumeWorkflow, useBuilderContext };
+export { type ActionContext, type ActionExecutor, ActionNode, type ActionNodeData, type ActionResult, BuilderProvider, type ConditionConfig, ConditionNode, type ConditionNodeData, type ConditionOperator, type ConfigFieldDef, DEFAULT_OPERATORS, type DelayConfig, DelayNode, type DelayNodeData, type EngineConfig, FlowCanvas, type FlowEdge, type FlowNode, type LoopNodeData, type MergeNodeData, NodeConfigPanel, type NodePaletteItem, type NodeRegistry, type NodeRetryConfig, NodeSidebar, type NodeTypeRegistration, type PersistenceAdapter, type RunResult, type SubworkflowNodeData, TriggerNode, type TriggerNodeData, type WorkflowData, type WorkflowEvent, type WorkflowNodeData, cn, defaultRenderTemplate, evaluateCondition, executeWorkflow, resumeWorkflow, useBuilderContext };

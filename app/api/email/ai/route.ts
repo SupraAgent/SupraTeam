@@ -4,6 +4,7 @@ import { getDriverForUser } from "@/lib/email/driver";
 import { logEmailAction } from "@/lib/email/audit";
 import { rateLimit } from "@/lib/rate-limit";
 import { sanitizeEmailError } from "@/lib/email/errors";
+import { getAnthropicKey } from "@/lib/ai-key";
 
 /**
  * POST: AI email features
@@ -19,10 +20,10 @@ export async function POST(request: Request) {
   const rl = rateLimit(`email-ai:${auth.user.id}`, { max: 20, windowSec: 60 });
   if (rl) return rl;
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = await getAnthropicKey(auth.user.id);
   if (!apiKey) {
     return NextResponse.json(
-      { error: "AI not configured. Set ANTHROPIC_API_KEY." },
+      { error: "No API key configured. Add your Anthropic key in Settings > Integrations." },
       { status: 503 }
     );
   }

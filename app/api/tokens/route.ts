@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseAdmin } from "@/lib/supabase";
 import { createClient } from "@/lib/supabase/server";
 import { encryptToken, decryptToken } from "@/lib/crypto";
+import { isValidAnthropicKey, invalidateAnthropicKeyCache } from "@/lib/ai-key";
 
 export async function GET(request: Request) {
   const supabase = (await createClient()) ?? createSupabaseAdmin();
@@ -93,6 +94,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "token is required" }, { status: 400 });
   }
 
+  // Validate Anthropic API key format
+  if (provider.trim() === "anthropic" && !isValidAnthropicKey(token)) {
+    return NextResponse.json({ error: "Invalid Anthropic API key format. Keys start with sk-ant-" }, { status: 400 });
+  }
+
   const encrypted = encryptToken(token.trim());
   const admin = createSupabaseAdmin();
   if (!admin) return NextResponse.json({ error: "Supabase admin not configured" }, { status: 500 });
@@ -112,6 +118,56 @@ export async function POST(request: Request) {
   if (error) {
     console.error("[api/tokens] upsert error:", error);
     return NextResponse.json({ error: "Failed to save token" }, { status: 500 });
+  }
+
+  // Invalidate cache so the new key takes effect immediately
+  if (provider.trim() === "anthropic") {
+    invalidateAnthropicKeyCache(user.id);
+  }
+
+  return NextResponse.json({ ok: true, source: "supabase" });
+}
+
+export async function DELETE(request: Request) {
+  const supabase = (await createClient()) ?? createSupabaseAdmin();
+  if (!supabase) {
+    return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
+  }
+
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+  }
+
+  const { provider } = body;
+  if (typeof provider !== "string" || !provider.trim()) {
+    return NextResponse.json({ error: "provider is required" }, { status: 400 });
+  }
+
+  const admin = createSupabaseAdmin();
+  if (!admin) return NextResponse.json({ error: "Supabase admin not configured" }, { status: 500 });
+
+  const { error } = await admin
+    .from("user_tokens")
+    .delete()
+    .eq("user_id", user.id)
+    .eq("provider", provider.trim());
+
+  if (error) {
+    console.error("[api/tokens] delete error:", error);
+    return NextResponse.json({ error: "Failed to delete token" }, { status: 500 });
+  }
+
+  // Invalidate cache
+  if (provider.trim() === "anthropic") {
+    invalidateAnthropicKeyCache(user.id);
   }
 
   return NextResponse.json({ ok: true, source: "supabase" });
