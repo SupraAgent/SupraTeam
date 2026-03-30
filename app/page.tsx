@@ -5,8 +5,8 @@ import Link from "next/link";
 import { timeAgo, cn } from "@/lib/utils";
 import {
   MessageCircle, GitBranch, ExternalLink, UserPlus, AtSign, Bell,
-  AlertTriangle, Clock, TrendingUp, Flame, Zap, DollarSign, BarChart3, Pin, Plus, Download, Users,
-  ChevronDown, ChevronRight, Radio, Send, Settings, FileText,
+  AlertTriangle, Clock, TrendingUp, Zap, DollarSign, BarChart3, Pin, Plus, Users,
+  ChevronDown, ChevronRight, Radio, Send, Settings,
 } from "lucide-react";
 import { SetupChecklist } from "@/components/onboarding/setup-checklist";
 import { ActionableNotificationWidget } from "@/components/notifications/actionable-notification-widget";
@@ -45,14 +45,6 @@ type Analytics = {
   totalOpen: number;
 };
 
-type TeamStat = {
-  id: string;
-  display_name: string;
-  avatar_url: string | null;
-  deal_count: number;
-  total_value: number;
-};
-
 type Notification = {
   id: string; type: string; title: string; body: string | null;
   tg_deep_link: string | null; pipeline_link: string | null; is_read: boolean; created_at: string;
@@ -87,7 +79,6 @@ const NOTIF_COLORS: Record<string, string> = {
 export default function HomePage() {
   const [stats, setStats] = React.useState<Stats | null>(null);
   const [analytics, setAnalytics] = React.useState<Analytics | null>(null);
-  const [teamStats, setTeamStats] = React.useState<TeamStat[]>([]);
   const [notifications, setNotifications] = React.useState<Notification[]>([]);
   const [reminders, setReminders] = React.useState<{ id: string; deal_id: string; reminder_type: string; message: string; due_at: string; deal?: { deal_name: string; board_type: string } }[]>([]);
   const [highlights, setHighlights] = React.useState<{ id: string; deal_id: string | null; sender_name: string | null; message_preview: string | null; tg_deep_link: string | null; highlight_type: string; created_at: string; triage_category?: string | null; triage_urgency?: string | null; triage_summary?: string | null; triaged_at?: string | null }[]>([]);
@@ -123,17 +114,15 @@ export default function HomePage() {
       fetch("/api/notifications?limit=10").then((r) => (r.ok ? r.json() : null)),
       fetch("/api/reminders").then((r) => (r.ok ? r.json() : null)).catch(() => null),
       fetch(`/api/analytics${rangeParam}`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
-      fetch("/api/stats/team").then((r) => (r.ok ? r.json() : null)).catch(() => null),
       fetch("/api/highlights").then((r) => (r.ok ? r.json() : null)).catch(() => null),
       fetch(`/api/dashboard/extras${rangeParam}`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
       fetch("/api/dashboard/activity?limit=30").then((r) => (r.ok ? r.json() : null)).catch(() => null),
     ])
-      .then(([statsData, notifData, reminderData, analyticsData, teamData, highlightsData, extrasData, activityData]) => {
+      .then(([statsData, notifData, reminderData, analyticsData, highlightsData, extrasData, activityData]) => {
         if (statsData) setStats(statsData);
         if (notifData) setNotifications(notifData.notifications ?? []);
         if (reminderData) setReminders(reminderData.reminders ?? []);
         if (analyticsData) setAnalytics(analyticsData);
-        if (teamData) setTeamStats(teamData.team ?? []);
         if (highlightsData) setHighlights(highlightsData.highlights ?? []);
         if (extrasData) setExtras(extrasData);
         if (activityData) setActivityFeed(activityData.events ?? []);
@@ -189,8 +178,8 @@ export default function HomePage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-foreground">Dashboard</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Command center for your CRM pipeline.</p>
+          <h1 className="text-xl font-semibold text-foreground">My Dashboard</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Your personal CRM overview.</p>
         </div>
         <div className="flex items-center gap-3">
           {lastUpdated && (
@@ -232,17 +221,8 @@ export default function HomePage() {
         <Link href="/contacts" className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2 text-xs font-medium text-foreground transition hover:bg-white/[0.06]">
           <Users className="h-3.5 w-3.5 text-blue-400" /> New Contact
         </Link>
-        <a href="/api/deals/export" className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2 text-xs font-medium text-foreground transition hover:bg-white/[0.06]">
-          <Download className="h-3.5 w-3.5 text-purple-400" /> Export Deals
-        </a>
-        <a href="/api/contacts/export" className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2 text-xs font-medium text-foreground transition hover:bg-white/[0.06]">
-          <Download className="h-3.5 w-3.5 text-orange-400" /> Export Contacts
-        </a>
         <Link href="/broadcasts" className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2 text-xs font-medium text-foreground transition hover:bg-white/[0.06]">
           <Send className="h-3.5 w-3.5 text-green-400" /> Broadcast
-        </Link>
-        <Link href="/workflows" className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2 text-xs font-medium text-foreground transition hover:bg-white/[0.06]">
-          <Radio className="h-3.5 w-3.5 text-cyan-400" /> Workflows
         </Link>
         <Link href="/settings" className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2 text-xs font-medium text-foreground transition hover:bg-white/[0.06]">
           <Settings className="h-3.5 w-3.5 text-muted-foreground" /> Settings
@@ -394,27 +374,6 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* Revenue by board + Win rate by board */}
-      {analytics && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {(["BD", "Marketing", "Admin"] as const).map((board) => {
-            const boardColors = { BD: "blue", Marketing: "purple", Admin: "orange" };
-            const c = boardColors[board];
-            const wr = analytics.winRateByBoard[board];
-            const bv = s.valueByBoard[board];
-            return (
-              <div key={board} className="rounded-xl border border-white/10 bg-white/[0.035] p-3">
-                <div className="flex items-center justify-between">
-                  <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", `bg-${c}-500/20 text-${c}-400`)}>{board}</span>
-                  {wr !== null && <span className="text-xs text-muted-foreground">{wr}% win rate</span>}
-                </div>
-                <p className="mt-1.5 text-sm font-semibold text-foreground">${Math.round(bv).toLocaleString()}</p>
-                <p className="text-[11px] text-muted-foreground">{s.byBoard[board]} deal{s.byBoard[board] !== 1 ? "s" : ""}</p>
-              </div>
-            );
-          })}
-        </div>
-      )}
 
       {/* Monthly forecast */}
       {analytics && Object.keys(analytics.monthlyForecast).length > 0 && (
@@ -435,26 +394,6 @@ export default function HomePage() {
         </Widget>
       )}
 
-      {/* Team leaderboard */}
-      {teamStats.length > 0 && (
-        <Widget title="Team Leaderboard" icon={Users} iconColor="text-blue-400" subtitle="Deals by assignee" collapsible isCollapsed={collapsed["team"]} onToggle={() => toggleCollapse("team")}>
-          {teamStats.slice(0, 8).map((m, i) => (
-            <div key={m.id} className="flex items-center gap-3 py-1.5">
-              <span className="text-xs text-muted-foreground/70 w-4">{i + 1}</span>
-              <div className="h-6 w-6 rounded-full bg-white/10 overflow-hidden shrink-0 flex items-center justify-center">
-                {m.avatar_url ? (
-                  <img src={m.avatar_url} alt="" className="h-full w-full object-cover" />
-                ) : (
-                  <span className="text-[11px] font-semibold text-muted-foreground">{m.display_name?.charAt(0)?.toUpperCase() ?? "?"}</span>
-                )}
-              </div>
-              <span className="text-xs text-foreground flex-1 truncate">{m.display_name}</span>
-              <span className="text-[11px] text-muted-foreground">{m.deal_count} deal{m.deal_count !== 1 ? "s" : ""}</span>
-              <span className="text-xs font-medium text-foreground w-20 text-right">${Math.round(m.total_value).toLocaleString()}</span>
-            </div>
-          ))}
-        </Widget>
-      )}
 
       {/* Lost reasons */}
       {analytics && analytics.lostReasons.length > 0 && (
@@ -504,23 +443,6 @@ export default function HomePage() {
             })}
           </Widget>
 
-          {/* Hot conversations */}
-          <Widget title="Hot Conversations" icon={Flame} iconColor="text-orange-400" subtitle="Most active TG groups in last 24h" empty={s.hotConversations.length === 0} emptyText="No Telegram activity in the last 24h." collapsible isCollapsed={collapsed["hot"]} onToggle={() => toggleCollapse("hot")}>
-            {s.hotConversations.map((c, i) => (
-              <Link key={i} href={c.deal_id ? `/pipeline?highlight=${c.deal_id}` : "/groups"} className="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-white/[0.03] transition">
-                <div className="flex items-center gap-2">
-                  <MessageCircle className="h-3.5 w-3.5 text-blue-400" />
-                  <div>
-                    <p className="text-sm text-foreground">{c.name}</p>
-                    <p className="text-[11px] text-muted-foreground">{c.deal_name}</p>
-                  </div>
-                </div>
-                <span className="rounded-full bg-blue-500/20 px-2 py-0.5 text-[11px] font-medium text-blue-400">
-                  {c.count} msg{c.count !== 1 ? "s" : ""}
-                </span>
-              </Link>
-            ))}
-          </Widget>
 
           {/* Pinned deals */}
           {s.pinnedDeals.length > 0 && (
@@ -605,76 +527,8 @@ export default function HomePage() {
           {/* Actionable notifications */}
           <ActionableNotificationWidget />
 
-          {/* TG Group Health */}
-          {extras && extras.groups.length > 0 && (
-            <Widget title="TG Group Health" icon={Radio} iconColor="text-blue-400" subtitle={`${extras.groupHealthSummary.total} groups · ${extras.groupHealthSummary.total_messages_7d} msgs/7d`} collapsible isCollapsed={collapsed["tghealth"]} onToggle={() => toggleCollapse("tghealth")}>
-              {/* Health summary badges */}
-              <div className="flex gap-2 mb-2 flex-wrap">
-                {extras.groupHealthSummary.active > 0 && <span className="rounded-full bg-green-500/20 px-2 py-0.5 text-[11px] font-medium text-green-400">{extras.groupHealthSummary.active} active</span>}
-                {extras.groupHealthSummary.quiet > 0 && <span className="rounded-full bg-yellow-500/20 px-2 py-0.5 text-[11px] font-medium text-yellow-400">{extras.groupHealthSummary.quiet} quiet</span>}
-                {extras.groupHealthSummary.stale > 0 && <span className="rounded-full bg-orange-500/20 px-2 py-0.5 text-[11px] font-medium text-orange-400">{extras.groupHealthSummary.stale} stale</span>}
-                {extras.groupHealthSummary.dead > 0 && <span className="rounded-full bg-red-500/20 px-2 py-0.5 text-[11px] font-medium text-red-400">{extras.groupHealthSummary.dead} dead</span>}
-              </div>
-              {extras.groups.slice(0, 8).map((g) => {
-                const healthColors: Record<string, string> = { active: "bg-green-400", quiet: "bg-yellow-400", stale: "bg-orange-400", dead: "bg-red-400", unknown: "bg-gray-400" };
-                return (
-                  <Link key={g.id} href="/groups" className="flex items-center justify-between py-1.5 px-1 rounded-lg hover:bg-white/[0.03] transition">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className={cn("h-2 w-2 rounded-full shrink-0", healthColors[g.health] ?? "bg-gray-400")} />
-                      <span className="text-xs text-foreground truncate">{g.name}</span>
-                    </div>
-                    <div className="flex items-center gap-3 shrink-0">
-                      <span className="text-[11px] text-muted-foreground">{g.member_count} members</span>
-                      <span className="text-[11px] text-muted-foreground">{g.messages_7d} msgs</span>
-                      {!g.bot_admin && <span className="text-[11px] text-red-400">No bot</span>}
-                    </div>
-                  </Link>
-                );
-              })}
-            </Widget>
-          )}
 
-          {/* Workflow Stats */}
-          {extras && extras.workflowStats.active_count > 0 && (
-            <Widget title="Workflows" icon={Radio} iconColor="text-cyan-400" subtitle={`${extras.workflowStats.active_count} active`} collapsible isCollapsed={collapsed["workflows"]} onToggle={() => toggleCollapse("workflows")}>
-              <div className="grid grid-cols-3 gap-2">
-                <div className="rounded-lg bg-white/5 p-2 text-center">
-                  <p className="text-sm font-semibold text-foreground">{extras.workflowStats.runs_7d}</p>
-                  <p className="text-[11px] text-muted-foreground">Runs (7d)</p>
-                </div>
-                <div className="rounded-lg bg-white/5 p-2 text-center">
-                  <p className="text-sm font-semibold text-green-400">{extras.workflowStats.completed}</p>
-                  <p className="text-[11px] text-muted-foreground">Completed</p>
-                </div>
-                <div className="rounded-lg bg-white/5 p-2 text-center">
-                  <p className="text-sm font-semibold text-red-400">{extras.workflowStats.failed}</p>
-                  <p className="text-[11px] text-muted-foreground">Failed</p>
-                </div>
-              </div>
-            </Widget>
-          )}
 
-          {/* Top Suggestions */}
-          {extras && extras.suggestions.length > 0 && (
-            <Widget title="Top Suggestions" icon={FileText} iconColor="text-amber-400" subtitle={`${extras.suggestions.length} rated`} collapsible isCollapsed={collapsed["suggestions"]} onToggle={() => toggleCollapse("suggestions")}>
-              {extras.suggestions.slice(0, 3).map((sg) => (
-                <Link key={sg.id} href="/suggestions" className="flex items-center justify-between py-1.5 px-1 rounded-lg hover:bg-white/[0.03] transition">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs text-foreground truncate">{sg.title}</p>
-                    <p className="text-[11px] text-muted-foreground">{sg.category} · {sg.upvotes} upvote{sg.upvotes !== 1 ? "s" : ""}</p>
-                  </div>
-                  {sg.score != null && (
-                    <span className={cn(
-                      "rounded-full px-2 py-0.5 text-[11px] font-medium shrink-0 ml-2",
-                      sg.score >= 70 ? "bg-green-500/20 text-green-400" : sg.score >= 40 ? "bg-yellow-500/20 text-yellow-400" : "bg-red-500/20 text-red-400",
-                    )}>
-                      {sg.score}
-                    </span>
-                  )}
-                </Link>
-              ))}
-            </Widget>
-          )}
 
         </div>
       </div>

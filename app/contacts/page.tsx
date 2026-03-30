@@ -37,6 +37,7 @@ export default function ContactsPage() {
   const [stageFilter, setStageFilter] = React.useState<string>("all");
   const [lifecycleFilter, setLifecycleFilter] = React.useState<string>("all");
   const [showAdvanced, setShowAdvanced] = React.useState(false);
+  const [companyFilter, setCompanyFilter] = React.useState<string>("all"); // "all" | "linked" | "unlinked"
   const [filterHasEmail, setFilterHasEmail] = React.useState(false);
   const [filterHasTg, setFilterHasTg] = React.useState(false);
   const [filterHasDeals, setFilterHasDeals] = React.useState(false);
@@ -122,6 +123,8 @@ export default function ContactsPage() {
     if (stageFilter === "unassigned" && c.stage_id) return false;
     if (stageFilter !== "all" && stageFilter !== "unassigned" && c.stage_id !== stageFilter) return false;
     if (lifecycleFilter !== "all" && c.lifecycle_stage !== lifecycleFilter) return false;
+    if (companyFilter === "linked" && !c.company_id) return false;
+    if (companyFilter === "unlinked" && c.company_id) return false;
     if (filterHasEmail && !c.email) return false;
     if (filterHasTg && !c.telegram_username) return false;
     if (filterHasDeals && !dealCountMap[c.id]) return false;
@@ -265,7 +268,7 @@ export default function ContactsPage() {
     return counts;
   }, [contactsWithScore]);
 
-  const hasAdvancedFilters = filterHasEmail || filterHasTg || filterHasDeals || lifecycleFilter !== "all";
+  const hasAdvancedFilters = filterHasEmail || filterHasTg || filterHasDeals || lifecycleFilter !== "all" || companyFilter !== "all";
 
   if (loading) {
     return (
@@ -365,6 +368,25 @@ export default function ContactsPage() {
               {lifecycleCounts[ls.value] ? (
                 <span className="ml-1 text-muted-foreground/60">({lifecycleCounts[ls.value]})</span>
               ) : null}
+            </button>
+          ))}
+        </div>
+        <span className="text-white/10">|</span>
+        <div className="flex gap-1">
+          {([
+            { value: "all", label: "All" },
+            { value: "linked", label: "Company" },
+            { value: "unlinked", label: "Personal" },
+          ] as const).map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => setCompanyFilter(opt.value)}
+              className={cn(
+                "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                companyFilter === opt.value ? "bg-white/10 text-foreground" : "text-muted-foreground hover:bg-white/5"
+              )}
+            >
+              {opt.label}
             </button>
           ))}
         </div>

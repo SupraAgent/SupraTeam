@@ -4,7 +4,7 @@ import { logEnrichment } from "@/lib/enrichment-log";
 import { computeQualityScore } from "@/lib/quality-score";
 
 // on_chain_score excluded — only set via enrichment endpoints, not generic PATCH
-const CONTACT_FIELDS = ["name", "email", "phone", "telegram_username", "telegram_user_id", "company", "title", "notes", "stage_id", "tg_group_link", "lifecycle_stage", "source", "quality_score", "x_handle", "wallet_address", "wallet_chain"];
+const CONTACT_FIELDS = ["name", "email", "phone", "telegram_username", "telegram_user_id", "company", "company_id", "title", "notes", "stage_id", "tg_group_link", "lifecycle_stage", "source", "quality_score", "x_handle", "wallet_address", "wallet_chain"];
 
 const QUALITY_SCORE_FIELDS = ["name", "email", "telegram_username", "company", "phone", "title", "x_handle", "wallet_address", "on_chain_score"];
 
@@ -16,7 +16,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 
   const { data: contact, error } = await supabase
     .from("crm_contacts")
-    .select("*, stage:pipeline_stages(*)")
+    .select("*, stage:pipeline_stages(*), linked_company:crm_companies(*)")
     .eq("id", id)
     .single();
 

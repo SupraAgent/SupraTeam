@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
-import type { Contact, PipelineStage, LifecycleStage, ContactSource } from "@/lib/types";
+import type { Contact, Company, PipelineStage, LifecycleStage, ContactSource } from "@/lib/types";
 import { timeAgo, cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Save, Trash2, MessageCircle, FileText, GitMerge, AlertTriangle, Twitter, Loader2, ChevronDown, ChevronRight, RefreshCw, Wallet } from "lucide-react";
@@ -49,6 +49,10 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
 
   const [name, setName] = React.useState("");
   const [company, setCompany] = React.useState("");
+  const [companyId, setCompanyId] = React.useState<string | null>(null);
+  const [companySuggestions, setCompanySuggestions] = React.useState<Company[]>([]);
+  const [showCompanyDropdown, setShowCompanyDropdown] = React.useState(false);
+  const companyDropdownRef = React.useRef<HTMLDivElement>(null);
   const [title, setTitle] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [phone, setPhone] = React.useState("");
@@ -89,6 +93,8 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
     if (contact && open) {
       setName(contact.name);
       setCompany(contact.company ?? "");
+      setCompanyId(contact.company_id ?? null);
+      companyUserEdited.current = false;
       setTitle(contact.title ?? "");
       setEmail(contact.email ?? "");
       setPhone(contact.phone ?? "");
@@ -129,6 +135,32 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
     }
   }, [contact, open]);
 
+  // Company autocomplete (skip initial load from contact data)
+  const companyUserEdited = React.useRef(false);
+  React.useEffect(() => {
+    if (!companyUserEdited.current) return;
+    if (!company || company.length < 2) { setCompanySuggestions([]); return; }
+    const timer = setTimeout(async () => {
+      const res = await fetch(`/api/companies?search=${encodeURIComponent(company)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setCompanySuggestions(data.companies ?? []);
+        setShowCompanyDropdown(true);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [company]);
+
+  React.useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (companyDropdownRef.current && !companyDropdownRef.current.contains(e.target as Node)) {
+        setShowCompanyDropdown(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
   if (!contact) return null;
 
   async function handleSave() {
@@ -141,6 +173,7 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
         body: JSON.stringify({
           name,
           company: company || null,
+          company_id: companyId,
           title: title || null,
           email: email || null,
           phone: phone || null,
@@ -412,9 +445,35 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <div>
+          <div className="relative" ref={companyDropdownRef}>
             <label className="text-[11px] font-medium text-muted-foreground">Company</label>
-            <Input value={company} onChange={(e) => setCompany(e.target.value)} className="mt-1" />
+            <Input
+              value={company}
+              onChange={(e) => { companyUserEdited.current = true; setCompany(e.target.value); setCompanyId(null); }}
+              onFocus={() => companySuggestions.length > 0 && setShowCompanyDropdown(true)}
+              placeholder="Search or type company"
+              className="mt-1"
+            />
+            {companyId && (
+              <span className="absolute right-2 top-[22px] text-[10px] text-green-400 bg-green-500/10 rounded px-1.5 py-0.5">Linked</span>
+            )}
+            {showCompanyDropdown && companySuggestions.length > 0 && (
+              <div className="absolute z-50 mt-1 w-full rounded-lg border border-white/10 bg-[hsl(var(--background))] shadow-lg max-h-40 overflow-y-auto">
+                {companySuggestions.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-white/[0.05] transition flex items-center justify-between"
+                    onClick={() => { setCompany(c.name); setCompanyId(c.id); setShowCompanyDropdown(false); }}
+                  >
+                    <span className="text-foreground">{c.name}</span>
+                    {c.contact_count != null && c.contact_count > 0 && (
+                      <span className="text-[10px] text-muted-foreground">{c.contact_count} contact{c.contact_count !== 1 ? "s" : ""}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <div>
             <label className="text-[11px] font-medium text-muted-foreground">Title</label>
