@@ -84,6 +84,21 @@ export async function POST(request: NextRequest, ctx: RouteCtx) {
       saved_by: auth.user.id,
       note: `Auto-snapshot before restoring to v${revision.version}`,
     });
+
+    // Prune old revisions — keep only the most recent 50
+    const { data: allRevisions } = await supabase
+      .from("crm_workflow_revisions")
+      .select("id")
+      .eq("workflow_id", id)
+      .order("version", { ascending: false });
+
+    if (allRevisions && allRevisions.length > 50) {
+      const idsToDelete = allRevisions.slice(50).map((r) => r.id);
+      await supabase
+        .from("crm_workflow_revisions")
+        .delete()
+        .in("id", idsToDelete);
+    }
   }
 
   // Restore the revision's nodes/edges to the workflow

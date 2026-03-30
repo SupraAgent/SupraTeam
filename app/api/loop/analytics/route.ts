@@ -125,18 +125,24 @@ export async function GET(request: Request) {
     }))
     .sort((a, b) => b.runs - a.runs);
 
-  // ── Hourly activity ──────────────────────────────────────────
-  const hourlyMap = new Map<string, { count: number; failed: number }>();
+  // ── Time-bucketed activity ─────────────────────────────────
+  // Use daily buckets for 7d+ ranges to avoid overwhelming the chart
+  const useDailyBuckets = hours !== null && hours >= 168;
+  const bucketMap = new Map<string, { count: number; failed: number }>();
   for (const run of allRuns) {
     const d = new Date(run.started_at);
-    d.setMinutes(0, 0, 0);
+    if (useDailyBuckets) {
+      d.setHours(0, 0, 0, 0);
+    } else {
+      d.setMinutes(0, 0, 0);
+    }
     const key = d.toISOString();
-    const existing = hourlyMap.get(key) ?? { count: 0, failed: 0 };
+    const existing = bucketMap.get(key) ?? { count: 0, failed: 0 };
     existing.count++;
     if (run.status === "failed") existing.failed++;
-    hourlyMap.set(key, existing);
+    bucketMap.set(key, existing);
   }
-  const hourlyRuns = [...hourlyMap.entries()]
+  const hourlyRuns = [...bucketMap.entries()]
     .map(([hour, stats]) => ({ hour, count: stats.count, failed: stats.failed }))
     .sort((a, b) => a.hour.localeCompare(b.hour));
 
@@ -149,5 +155,6 @@ export async function GET(request: Request) {
     topErrors,
     runsByWorkflow,
     hourlyRuns,
+    truncated: allRuns.length >= 5000,
   });
 }

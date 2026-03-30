@@ -7,12 +7,15 @@ import { NodeExecutionOverlay } from "../_lib/execution-overlay";
 export interface CrmMergeNodeData {
   label: string;
   mode: "all" | "any";
+  inputCount: number;
 }
 
 function getCrmMergeData(data: Record<string, unknown>): CrmMergeNodeData {
+  const raw = typeof data.inputCount === "number" ? data.inputCount : 2;
   return {
     label: (data.label as string) || "Merge",
     mode: (data.mode as "all" | "any") || "all",
+    inputCount: Math.max(2, Math.min(raw, 8)),
   };
 }
 
@@ -23,21 +26,20 @@ export const CrmMergeNode = React.memo(function CrmMergeNode({ id, data }: NodeP
   return (
     <NodeExecutionOverlay nodeId={id}>
       <div className="rounded-xl border-2 border-indigo-500/40 bg-indigo-500/10 px-4 py-3 min-w-[180px] max-w-[240px]">
-        {/* Multiple target handles on the left */}
-        <Handle
-          type="target"
-          position={Position.Left}
-          id="in-0"
-          className="!bg-indigo-400 !w-2.5 !h-2.5"
-          style={{ top: "35%" }}
-        />
-        <Handle
-          type="target"
-          position={Position.Left}
-          id="in-1"
-          className="!bg-indigo-400 !w-2.5 !h-2.5"
-          style={{ top: "65%" }}
-        />
+        {/* Dynamic target handles on the left */}
+        {Array.from({ length: d.inputCount }).map((_, i) => {
+          const pct = ((i + 1) / (d.inputCount + 1)) * 100;
+          return (
+            <Handle
+              key={`in-${i}`}
+              type="target"
+              position={Position.Left}
+              id={`in-${i}`}
+              className="!bg-indigo-400 !w-2.5 !h-2.5"
+              style={{ top: `${pct}%` }}
+            />
+          );
+        })}
         {/* Single source handle on the right */}
         <Handle
           type="source"

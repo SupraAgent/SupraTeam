@@ -65,7 +65,6 @@ import { MobileToolbar } from "./mobile-toolbar";
 import { NodeContextMenu } from "./node-context-menu";
 import { TemplateManager } from "./template-manager";
 import { TemplateSidebar } from "./template-sidebar";
-import { BridgeWalkthroughTour, useBridgeTour } from "./bridge-walkthrough-tour";
 import type { FlowTemplate } from "../lib/flow-templates";
 import {
   builderTemplateToFlowNodes,
@@ -366,15 +365,8 @@ function FlowCanvasInner({
   );
   const [showTemplates, setShowTemplates] = React.useState(!initialTemplate);
   const [showTemplateSidebar, setShowTemplateSidebar] = React.useState(false);
-  const {
-    showBridgeTour,
-    startBridgeTour,
-    completeBridgeTour,
-    skipBridgeTour,
-  } = useBridgeTour();
   const [isDragOver, setIsDragOver] = React.useState(false);
   const [pendingTemplate, setPendingTemplate] = React.useState<FlowTemplate | null>(null);
-  const pendingBridgeTourRef = React.useRef(false);
   const [showShortcuts, setShowShortcuts] = React.useState(false);
   const [showMobilePalette, setShowMobilePalette] = React.useState(false);
   const [snapToGrid, setSnapToGrid] = React.useState(true);
@@ -1045,11 +1037,6 @@ function FlowCanvasInner({
     setNeedsPostRenderLayout(true);
     setPendingTemplate(null);
 
-    // If a bridge tour was requested, start it after DOM renders the new nodes
-    if (pendingBridgeTourRef.current) {
-      pendingBridgeTourRef.current = false;
-      setTimeout(() => startBridgeTour(), 300);
-    }
   }
 
   // ── Check if context menu target is locked ───────────────────
@@ -1450,18 +1437,6 @@ function FlowCanvasInner({
           onSelectGroup={handleSelectGroup}
           onUnlockGroup={handleUnlockGroup}
           onClose={() => setShowTemplateSidebar(false)}
-          onStartBridgeTour={() => {
-            setShowTemplateSidebar(false);
-            pendingBridgeTourRef.current = true;
-          }}
-        />
-      )}
-
-      {/* Bridge Walkthrough Tour */}
-      {showBridgeTour && (
-        <BridgeWalkthroughTour
-          onComplete={completeBridgeTour}
-          onSkip={skipBridgeTour}
         />
       )}
 

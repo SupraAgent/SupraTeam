@@ -151,6 +151,8 @@ export function BroadcastCompose({
   }
 
   function updateInlineButton(idx: number, field: "text" | "url", value: string) {
+    // Telegram callback_data/URL button text is limited to 64 bytes
+    if (field === "text" && new TextEncoder().encode(value).length > 64) return;
     setInlineButtons((prev) => prev.map((b, i) => i === idx ? { ...b, [field]: value } : b));
   }
 

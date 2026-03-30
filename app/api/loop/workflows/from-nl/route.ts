@@ -158,32 +158,46 @@ export async function POST(request: Request) {
       );
     }
 
-    // Validate: must have nodes array with at least one trigger
+    // Validate schema
     if (!Array.isArray(parsed.nodes) || parsed.nodes.length === 0) {
-      return NextResponse.json(
-        { error: "AI generated an empty workflow" },
-        { status: 502 }
-      );
+      return NextResponse.json({ error: "AI generated an empty workflow" }, { status: 502 });
     }
+    if (!Array.isArray(parsed.edges)) parsed.edges = [];
+
+    // Ensure unique node IDs
+    const nodeIds = new Set<string>();
+    for (const n of parsed.nodes) {
+      if (!n.id || typeof n.id !== "string") {
+        return NextResponse.json({ error: "Generated node missing valid id" }, { status: 502 });
+      }
+      if (nodeIds.has(n.id)) {
+        return NextResponse.json({ error: `Duplicate node id: ${n.id}` }, { status: 502 });
+      }
+      nodeIds.add(n.id);
+      // Validate position
+      if (!n.position || typeof n.position.x !== "number" || typeof n.position.y !== "number") {
+        n.position = { x: 100, y: 200 };
+      }
+      // Validate data has nodeType
+      if (!n.data?.nodeType) {
+        return NextResponse.json({ error: `Node ${n.id} missing data.nodeType` }, { status: 502 });
+      }
+    }
+
+    // Validate edges reference valid nodes
+    parsed.edges = parsed.edges.filter((e) => {
+      if (!e.id || !e.source || !e.target) return false;
+      return nodeIds.has(e.source) && nodeIds.has(e.target);
+    });
 
     const hasTrigger = parsed.nodes.some(
-      (n) => n.type === "crmTriggerNode" || (n.data?.nodeType === "trigger")
+      (n) => n.type === "crmTriggerNode" || n.data?.nodeType === "trigger"
     );
     if (!hasTrigger) {
-      return NextResponse.json(
-        { error: "Generated workflow has no trigger node" },
-        { status: 502 }
-      );
+      return NextResponse.json({ error: "Generated workflow has no trigger node" }, { status: 502 });
     }
 
-    if (!Array.isArray(parsed.edges)) {
-      parsed.edges = [];
-    }
-
-    return NextResponse.json({
-      nodes: parsed.nodes,
-      edges: parsed.edges,
-    });
+    return NextResponse.json({ nodes: parsed.nodes, edges: parsed.edges });
   } catch (err) {
     console.error("[from-nl] AI generation failed:", err);
     return NextResponse.json(

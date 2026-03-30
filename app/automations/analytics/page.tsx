@@ -32,6 +32,7 @@ interface AnalyticsData {
     avgDurationMs: number;
   }[];
   hourlyRuns: { hour: string; count: number; failed: number }[];
+  truncated?: boolean;
 }
 
 const PERIODS: { value: Period; label: string }[] = [
@@ -280,7 +281,15 @@ export default function WorkflowAnalyticsPage() {
           </div>
         ) : null}
 
-        {/* Hourly chart */}
+        {/* Truncation warning */}
+        {data?.truncated && (
+          <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-300 flex items-center gap-2">
+            <AlertTriangle className="h-3 w-3 shrink-0" />
+            Results limited to 5,000 runs. Select a shorter period for complete data.
+          </div>
+        )}
+
+        {/* Activity chart */}
         {loading ? (
           <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 h-48 animate-pulse" />
         ) : data && data.hourlyRuns.length > 0 ? (
