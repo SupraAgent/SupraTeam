@@ -99,6 +99,7 @@ const LABEL_TO_FOLDER: Record<string, string> = {
 
 export class ImapDriver implements MailDriver {
   private config: ImapDriverConfig;
+  private _destroyed = false;
   public connectionId: string | null = null;
   public userId: string | null = null;
 
@@ -160,8 +161,12 @@ export class ImapDriver implements MailDriver {
 
     try {
       const result = await fn(client);
-      // Return to pool on success if still usable
-      if (client.usable) {
+      // Return to pool on success if still usable and not destroyed
+      if (this._destroyed) {
+        // Driver was cleaned up while we were working — close instead of pooling
+        client.logout().catch(() => {});
+        try { client.close(); } catch { /* already closed */ }
+      } else if (client.usable) {
         returnToPool(poolKey, client);
       } else {
         client.logout().catch(() => {});
@@ -179,6 +184,7 @@ export class ImapDriver implements MailDriver {
 
   /** Destroy the pooled connection for this driver (use after one-off verification) */
   async cleanup(): Promise<void> {
+    this._destroyed = true;
     const poolKey = `${this.userId ?? "anon"}:${this.config.email}`;
     destroyPoolEntry(poolKey);
   }
@@ -208,16 +214,20 @@ export class ImapDriver implements MailDriver {
             .then((r) => (r as number[]).slice(-maxResults * 2).reverse())
             .catch(() => []);
         } else {
-          // Fetch the most recent messages by sequence number
+          // Fetch the most recent messages by sequence number range
           const mailbox = client.mailbox;
           const total = mailbox && typeof mailbox === "object" && "exists" in mailbox
             ? (mailbox as { exists: number }).exists
             : 0;
           if (total === 0) return { threads: [] };
           const start = Math.max(1, total - maxResults * 2 + 1);
-          uids = await client.search({ uid: `${start}:*` } as Record<string, unknown>)
-            .then((r) => (r as number[]).reverse())
-            .catch(() => []);
+          // Collect UIDs by fetching the sequence range directly (not UID-based search)
+          const seqRange = `${start}:*`;
+          const collectedUids: number[] = [];
+          for await (const msg of client.fetch(seqRange, { uid: true }, { uid: false })) {
+            collectedUids.push(msg.uid);
+          }
+          uids = collectedUids.reverse();
         }
 
         if (uids.length === 0) return { threads: [] };
@@ -320,7 +330,7 @@ export class ImapDriver implements MailDriver {
           }, { uid: true })) {
             const parsed = await this.parseSource(msg.source);
             const flags = (msg.flags ?? new Set<string>()) as Set<string>;
-            messages.push(this.parsedMailToMessage(parsed, String(msg.uid), threadId, flags));
+            messages.push(this.parsedMailToMessage(parsed, String(msg.uid), threadId, flags, "[Gmail]/All Mail"));
           }
         }
       } finally {
@@ -386,7 +396,7 @@ export class ImapDriver implements MailDriver {
             threadId: true,
           }, { uid: true })) {
             const parsed = await this.parseSource(msg.source);
-            messages.push(this.parsedMailToMessage(parsed, String(msg.uid), threadId, (msg.flags ?? new Set<string>()) as Set<string>));
+            messages.push(this.parsedMailToMessage(parsed, String(msg.uid), threadId, (msg.flags ?? new Set<string>()) as Set<string>, folder));
           }
 
           if (messages.length === 0) continue;
@@ -426,11 +436,14 @@ export class ImapDriver implements MailDriver {
 
   async archive(threadId: string): Promise<void> {
     await this.withImap(async (client) => {
-      const lock = await client.getMailboxLock("INBOX");
+      // Search in All Mail to find messages regardless of current folder,
+      // then move from All Mail (Gmail removes INBOX label)
+      const lock = await client.getMailboxLock("[Gmail]/All Mail");
       try {
         const uids = await this.findThreadUids(client, threadId);
         if (uids.length > 0) {
-          // Move to All Mail (removes from INBOX)
+          // Gmail IMAP: moving from All Mail to All Mail removes other labels (like INBOX)
+          // This effectively archives the message
           await client.messageMove(uids, "[Gmail]/All Mail", { uid: true });
         }
       } finally {
@@ -441,7 +454,8 @@ export class ImapDriver implements MailDriver {
 
   async trash(threadId: string): Promise<void> {
     await this.withImap(async (client) => {
-      const lock = await client.getMailboxLock("INBOX");
+      // Search in All Mail to find messages regardless of which folder they're in
+      const lock = await client.getMailboxLock("[Gmail]/All Mail");
       try {
         const uids = await this.findThreadUids(client, threadId);
         if (uids.length > 0) {
@@ -456,9 +470,9 @@ export class ImapDriver implements MailDriver {
   async toggleStar(threadId: string, currentlyStarred?: boolean): Promise<void> {
     const shouldStar = currentlyStarred !== undefined ? !currentlyStarred : undefined;
     if (shouldStar === undefined) {
-      // Need to check current state
+      // Need to check current state — use All Mail to find messages in any folder
       await this.withImap(async (client) => {
-        const lock = await client.getMailboxLock("INBOX");
+        const lock = await client.getMailboxLock("[Gmail]/All Mail");
         try {
           const uids = await this.findThreadUids(client, threadId);
           if (uids.length === 0) return;
@@ -545,8 +559,14 @@ export class ImapDriver implements MailDriver {
       ? lastMsg.subject
       : `Re: ${lastMsg.subject}`;
 
-    // Use RFC822 Message-ID for threading headers (not IMAP UID)
-    const rfc822Id = lastMsg.messageId ?? lastMsg.id;
+    // Build proper References chain from all messages in the thread
+    const allMessageIds = messages
+      .map((m) => m.messageId)
+      .filter((id): id is string => !!id);
+    const inReplyTo = allMessageIds[allMessageIds.length - 1] ?? lastMsg.id;
+    const references = allMessageIds.length > 0
+      ? allMessageIds.join(" ")
+      : lastMsg.id;
 
     return this.send({
       to,
@@ -556,29 +576,39 @@ export class ImapDriver implements MailDriver {
       body: params.body,
       bodyText: params.bodyText,
       attachments: params.attachments,
-      inReplyTo: rfc822Id,
-      references: rfc822Id,
+      inReplyTo,
+      references,
     });
   }
 
   async forward(messageId: string, params: ForwardParams): Promise<Message> {
-    // Fetch the specific message by UID, not the whole thread
+    // Fetch the specific message by UID from its source folder
+    // The messageId here is a UID scoped to a specific folder, so we need
+    // to find the right folder. Try params or fall back to searching folders.
     const original = await this.withImap(async (client) => {
-      const lock = await client.getMailboxLock("[Gmail]/All Mail");
-      try {
-        for await (const msg of client.fetch([parseInt(messageId, 10)], {
-          uid: true,
-          envelope: true,
-          flags: true,
-          source: true,
-        }, { uid: true })) {
-          const parsed = await this.parseSource(msg.source);
-          return this.parsedMailToMessage(parsed, String(msg.uid), "", (msg.flags ?? new Set<string>()) as Set<string>);
+      // Try folders in order: All Mail first (most likely), then INBOX, then Sent
+      const foldersToTry = ["[Gmail]/All Mail", "INBOX", "[Gmail]/Sent Mail"];
+      for (const folder of foldersToTry) {
+        try {
+          const lock = await client.getMailboxLock(folder);
+          try {
+            for await (const msg of client.fetch([parseInt(messageId, 10)], {
+              uid: true,
+              envelope: true,
+              flags: true,
+              source: true,
+            }, { uid: true })) {
+              const parsed = await this.parseSource(msg.source);
+              return this.parsedMailToMessage(parsed, String(msg.uid), "", (msg.flags ?? new Set<string>()) as Set<string>, folder);
+            }
+          } finally {
+            lock.release();
+          }
+        } catch {
+          continue;
         }
-        throw new Error("Message not found");
-      } finally {
-        lock.release();
       }
+      throw new Error("Message not found");
     });
 
     const { sanitizeTemplateHtml } = await import("./sanitize");
@@ -665,27 +695,35 @@ export class ImapDriver implements MailDriver {
 
   async getAttachment(messageId: string, attachmentId: string): Promise<Attachment> {
     return this.withImap(async (client) => {
-      const lock = await client.getMailboxLock("[Gmail]/All Mail");
-      try {
-        const uid = parseInt(messageId, 10);
-        for await (const msg of client.fetch([uid], { source: true }, { uid: true })) {
-          const parsed = await this.parseSource(msg.source);
-          const att = parsed.attachments?.find(
-            (a) => a.checksum === attachmentId || a.filename === attachmentId
-          );
-          if (att) {
-            return {
-              data: att.content,
-              filename: att.filename ?? "attachment",
-              mimeType: att.contentType ?? "application/octet-stream",
-              size: att.size,
-            };
+      // Try folders in order: All Mail first, then INBOX, then Sent
+      const foldersToTry = ["[Gmail]/All Mail", "INBOX", "[Gmail]/Sent Mail"];
+      for (const folder of foldersToTry) {
+        try {
+          const lock = await client.getMailboxLock(folder);
+          try {
+            const uid = parseInt(messageId, 10);
+            for await (const msg of client.fetch([uid], { source: true }, { uid: true })) {
+              const parsed = await this.parseSource(msg.source);
+              const att = parsed.attachments?.find(
+                (a) => a.checksum === attachmentId || a.filename === attachmentId
+              );
+              if (att) {
+                return {
+                  data: att.content,
+                  filename: att.filename ?? "attachment",
+                  mimeType: att.contentType ?? "application/octet-stream",
+                  size: att.size,
+                };
+              }
+            }
+          } finally {
+            lock.release();
           }
+        } catch {
+          continue;
         }
-        throw new Error("Attachment not found");
-      } finally {
-        lock.release();
       }
+      throw new Error("Attachment not found");
     });
   }
 
@@ -741,7 +779,8 @@ export class ImapDriver implements MailDriver {
     parsed: ParsedMail,
     uid: string,
     threadId: string,
-    flags: Set<string>
+    flags: Set<string>,
+    sourceFolder?: string
   ): Message {
     const getAddresses = (field: AddressObject | AddressObject[] | undefined): EmailAddress[] => {
       if (!field) return [];
@@ -773,6 +812,7 @@ export class ImapDriver implements MailDriver {
       date: parsed.date?.toISOString() ?? new Date().toISOString(),
       attachments,
       isUnread: !flags.has("\\Seen"),
+      _sourceFolder: sourceFolder,
     };
   }
 

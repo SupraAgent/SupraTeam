@@ -28,6 +28,8 @@ export type Message = {
   date: string; // ISO
   attachments: AttachmentMeta[];
   isUnread: boolean;
+  /** IMAP folder where this message's UID is valid (internal use) */
+  _sourceFolder?: string;
 };
 
 export type Thread = {
