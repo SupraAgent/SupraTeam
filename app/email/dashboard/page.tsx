@@ -9,6 +9,7 @@ import { PanelCard } from "@/components/email/dashboard/panel-card";
 import { PanelPicker } from "@/components/email/dashboard/panel-picker";
 import { PlaceholderPanel } from "@/components/email/dashboard/placeholder-panel";
 import { ContactCardPanel } from "@/components/email/dashboard/contact-card-panel";
+import { FollowupTrackerPanel } from "@/components/email/dashboard/followup-tracker-panel";
 import { Mail, LayoutDashboard, Plus, ArrowLeft } from "lucide-react";
 import type { PanelId } from "@/lib/plugins/types";
 
@@ -33,6 +34,8 @@ export default function EmailDashboardPage() {
     switch (panelId) {
       case "contact-card":
         return <ContactCardPanel email={selectedEmail} senderName={selectedSenderName} />;
+      case "followup-tracker":
+        return <FollowupTrackerPanel />;
       default:
         return <PlaceholderPanel panelId={panelId} />;
     }
