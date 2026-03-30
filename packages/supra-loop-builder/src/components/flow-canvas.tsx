@@ -561,13 +561,30 @@ function FlowCanvasInner({
         e.preventDefault();
         const ids = selected.map((n) => n.id);
         const deletable = ids.filter((id) => !isNodeInLockedGroupRef.current(id));
-        if (deletable.length === 0) {
+
+        // Allow deleting entire locked groups when all members are selected
+        const lockedIds = ids.filter((id) => isNodeInLockedGroupRef.current(id));
+        const groupsToDelete = new Set<string>();
+        for (const id of lockedIds) {
+          const gid = nodesRef.current.find((n) => n.id === id)?.data?.groupId as string | undefined;
+          if (gid) groupsToDelete.add(gid);
+        }
+        // Check if all members of each group are selected — if so, allow deletion
+        const fullySelectedGroupMembers: string[] = [];
+        for (const gid of groupsToDelete) {
+          const members = lockedGroupsRef.current.get(gid);
+          if (members && [...members].every((mid) => ids.includes(mid))) {
+            fullySelectedGroupMembers.push(...members);
+          }
+        }
+
+        const allDeletable = new Set([...deletable, ...fullySelectedGroupMembers]);
+        if (allDeletable.size === 0) {
           showToast("All selected nodes are in locked groups. Unlock first.");
           return;
         }
-        const idSet = new Set(deletable);
-        setNodes((nds) => nds.filter((n) => !idSet.has(n.id)));
-        setEdges((eds) => eds.filter((e) => !idSet.has(e.source) && !idSet.has(e.target)));
+        setNodes((nds) => nds.filter((n) => !allDeletable.has(n.id)));
+        setEdges((eds) => eds.filter((e) => !allDeletable.has(e.source) && !allDeletable.has(e.target)));
         setSelectedNodeId(null);
       }
     }
@@ -921,6 +938,22 @@ function FlowCanvasInner({
       : selectedNodeId ? [selectedNodeId] : [];
     if (toDelete.length > 0) handleDeleteSelection(toDelete);
   }, [selectedNodeId, selectedNodeIds, handleDeleteSelection]);
+
+  // ── Delete an entire group (all member nodes + their edges) ──
+  const handleDeleteGroup = React.useCallback(
+    (groupId: string) => {
+      const members = lockedGroups.get(groupId);
+      if (!members) return;
+      const idSet = new Set(members);
+      setNodes((nds) => nds.filter((n) => !idSet.has(n.id)));
+      setEdges((eds) =>
+        eds.filter((e) => !idSet.has(e.source) && !idSet.has(e.target))
+      );
+      setSelectedNodeId(null);
+      setSelectedNodeIds([]);
+    },
+    [lockedGroups, setNodes, setEdges]
+  );
 
   // ── Lock / Unlock groups ─────────────────────────────────────
   const handleLockGroup = React.useCallback(
@@ -1340,6 +1373,7 @@ function FlowCanvasInner({
           nodes={nodes}
           lockedGroups={lockedGroups}
           onUnlock={handleUnlockGroup}
+          onDeleteGroup={handleDeleteGroup}
           onSelectGroup={handleSelectGroup}
           containerRef={containerRef}
         />
@@ -1597,12 +1631,14 @@ function GroupOverlays({
   nodes,
   lockedGroups,
   onUnlock,
+  onDeleteGroup,
   onSelectGroup,
   containerRef,
 }: {
   nodes: Node[];
   lockedGroups: Map<string, Set<string>>;
   onUnlock: (nodeIds: string[]) => void;
+  onDeleteGroup: (groupId: string) => void;
   onSelectGroup: (groupId: string) => void;
   containerRef: React.RefObject<HTMLDivElement | null>;
 }) {
@@ -1691,6 +1727,26 @@ function GroupOverlays({
           </svg>
           {groupLabel}
         </div>
+
+        {/* Delete button — top-left (after label), opposite of Unlock */}
+        <button
+          className="absolute left-2 bottom-2 flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-semibold backdrop-blur-sm transition hover:brightness-125 hover:scale-105 pointer-events-auto shadow-sm"
+          style={{
+            backgroundColor: "rgba(239, 68, 68, 0.8)",
+            color: "#fff",
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDeleteGroup(groupId);
+          }}
+          title="Delete this group and all its nodes"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="3 6 5 6 21 6" />
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+          </svg>
+          Delete
+        </button>
 
         {/* Unlock button — top-right, sized for easy click target */}
         <button
