@@ -2,12 +2,11 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { cn } from "@/lib/utils";
+import { useRouter } from "next/navigation";
 import { useDashboardLayout, useEmailDashboardKeys } from "@/lib/plugins/hooks";
-import { getPanelById, PANELS } from "@/lib/plugins/registry";
+import { getPanelById } from "@/lib/plugins/registry";
 import { PanelCard } from "@/components/email/dashboard/panel-card";
 import { PanelPicker } from "@/components/email/dashboard/panel-picker";
-import { PlaceholderPanel } from "@/components/email/dashboard/placeholder-panel";
 import { ContactCardPanel } from "@/components/email/dashboard/contact-card-panel";
 import { FollowupTrackerPanel } from "@/components/email/dashboard/followup-tracker-panel";
 import { AISummaryPanel } from "@/components/email/dashboard/ai-summary-panel";
@@ -20,48 +19,83 @@ import { BroadcastComposerPanel } from "@/components/email/dashboard/broadcast-c
 import { Mail, LayoutDashboard, Plus, ArrowLeft } from "lucide-react";
 import type { PanelId } from "@/lib/plugins/types";
 
+/** Combined state for the currently selected thread context */
+interface ThreadContext {
+  email: string | null;
+  senderName?: string;
+  threadId: string | null;
+  messages: { from: string; date: string; body: string }[] | null;
+  subject?: string;
+  dealId: string | null;
+}
+
+const EMPTY_CONTEXT: ThreadContext = {
+  email: null,
+  threadId: null,
+  messages: null,
+  dealId: null,
+};
+
 export default function EmailDashboardPage() {
+  const router = useRouter();
   const { layout, togglePanel, resetLayout } = useDashboardLayout();
   const [pickerOpen, setPickerOpen] = React.useState(false);
+  const [ctx, setCtx] = React.useState<ThreadContext>(EMPTY_CONTEXT);
+
+  // Refresh counter — passed to panels so `r` key triggers re-fetch
   const [refreshKey, setRefreshKey] = React.useState(0);
 
   const keyHandlers = React.useMemo(() => ({
-    onToggleDashboard: () => {},
+    onToggleDashboard: () => router.push("/email"),
     onRefresh: () => setRefreshKey((k) => k + 1),
-  }), []);
+  }), [router]);
 
   useEmailDashboardKeys(keyHandlers, !pickerOpen);
 
-  const [selectedEmail, setSelectedEmail] = React.useState<string | null>(null);
-  const [selectedSenderName, setSelectedSenderName] = React.useState<string | undefined>();
-  const [threadMessages, setThreadMessages] = React.useState<{ from: string; date: string; body: string }[] | null>(null);
-  const [threadSubject, setThreadSubject] = React.useState<string | undefined>();
-  const [linkedDealId, setLinkedDealId] = React.useState<string | null>(null);
-
   const enabledPanels = layout.enabledPanels;
+
+  /** Called by Deal Spotlight or Follow-up Tracker when a thread is clicked */
+  function handleSelectThread(threadId: string, email?: string, senderName?: string) {
+    setCtx((prev) => ({
+      ...prev,
+      threadId,
+      email: email ?? prev.email,
+      senderName: senderName ?? prev.senderName,
+    }));
+  }
+
+  /** Called by Deal Spotlight when a deal-linked thread is clicked */
+  function handleSelectDealThread(threadId: string, dealId: string, email?: string) {
+    setCtx((prev) => ({
+      ...prev,
+      threadId,
+      dealId,
+      email: email ?? prev.email,
+    }));
+  }
 
   function renderPanel(panelId: PanelId) {
     switch (panelId) {
       case "contact-card":
-        return <ContactCardPanel email={selectedEmail} senderName={selectedSenderName} />;
+        return <ContactCardPanel email={ctx.email} senderName={ctx.senderName} />;
       case "followup-tracker":
-        return <FollowupTrackerPanel />;
+        return <FollowupTrackerPanel key={refreshKey} onSelectThread={(id) => handleSelectThread(id)} />;
       case "ai-summary":
-        return <AISummaryPanel messages={threadMessages} subject={threadSubject} dealId={linkedDealId} />;
+        return <AISummaryPanel messages={ctx.messages} subject={ctx.subject} dealId={ctx.dealId} />;
       case "deal-spotlight":
-        return <DealSpotlightPanel />;
+        return <DealSpotlightPanel key={refreshKey} onSelectThread={(id) => handleSelectThread(id)} />;
       case "email-tags":
-        return <EmailTagsPanel threadId={null} />;
+        return <EmailTagsPanel threadId={ctx.threadId} />;
       case "outreach-queue":
-        return <OutreachQueuePanel />;
+        return <OutreachQueuePanel key={refreshKey} />;
       case "metrics-strip":
-        return <MetricsStripPanel />;
+        return <MetricsStripPanel key={refreshKey} />;
       case "activity-feed":
-        return <ActivityFeedPanel />;
+        return <ActivityFeedPanel key={refreshKey} />;
       case "broadcast-composer":
         return <BroadcastComposerPanel />;
       default:
-        return <PlaceholderPanel panelId={panelId} />;
+        return null;
     }
   }
 
@@ -94,7 +128,7 @@ export default function EmailDashboardPage() {
           </button>
           <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
             <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5">d</kbd>
-            <span>email</span>
+            <span>back</span>
             <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 ml-1">r</kbd>
             <span>refresh</span>
           </div>
@@ -116,7 +150,7 @@ export default function EmailDashboardPage() {
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" key={refreshKey}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {enabledPanels.map((panelId) => {
               const panel = getPanelById(panelId);
               if (!panel) return null;

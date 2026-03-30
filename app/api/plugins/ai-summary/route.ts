@@ -86,14 +86,23 @@ Return ONLY valid JSON, no markdown.`;
     const content = data.content?.[0]?.text ?? "";
 
     // Parse JSON from response
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    const jsonMatch = content.match(/\{[\s\S]*?\}(?=[^}]*$)/) ?? content.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       return NextResponse.json({ error: "Failed to parse AI response" }, { status: 500 });
     }
 
     const parsed = JSON.parse(jsonMatch[0]);
 
-    return NextResponse.json({ data: parsed });
+    // Validate expected shape — coerce to safe defaults if AI returns unexpected types
+    const validated = {
+      summary: typeof parsed.summary === "string" ? parsed.summary : "",
+      actionItems: Array.isArray(parsed.actionItems) ? parsed.actionItems.filter((i: unknown) => typeof i === "string").slice(0, 5) : [],
+      sentiment: ["positive", "neutral", "negative", "mixed"].includes(parsed.sentiment) ? parsed.sentiment : "neutral",
+      keyDecisions: Array.isArray(parsed.keyDecisions) ? parsed.keyDecisions.filter((d: unknown) => typeof d === "string").slice(0, 3) : [],
+      suggestedTags: Array.isArray(parsed.suggestedTags) ? parsed.suggestedTags.filter((t: unknown) => typeof t === "string") : [],
+    };
+
+    return NextResponse.json({ data: validated });
   } catch (err) {
     console.error("AI summary error:", err);
     return NextResponse.json({ error: "AI processing failed" }, { status: 500 });

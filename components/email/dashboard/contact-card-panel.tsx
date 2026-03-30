@@ -66,7 +66,10 @@ export function ContactCardPanel({ email, senderName }: ContactCardPanelProps) {
     setNotFound(false);
 
     fetch(`/api/plugins/contact-card?email=${encodeURIComponent(email)}`)
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
       .then((json) => {
         if (json.data?.contact) {
           setData(json.data);

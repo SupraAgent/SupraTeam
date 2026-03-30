@@ -43,6 +43,9 @@ export function useEmailDashboardKeys(handlers: {
   onToggleDashboard: () => void;
   onRefresh: () => void;
 }, enabled: boolean) {
+  const handlersRef = React.useRef(handlers);
+  handlersRef.current = handlers;
+
   React.useEffect(() => {
     if (!enabled) return;
     function handleKey(e: KeyboardEvent) {
@@ -52,15 +55,15 @@ export function useEmailDashboardKeys(handlers: {
       switch (e.key) {
         case "d":
           e.preventDefault();
-          handlers.onToggleDashboard();
+          handlersRef.current.onToggleDashboard();
           break;
         case "r":
           e.preventDefault();
-          handlers.onRefresh();
+          handlersRef.current.onRefresh();
           break;
       }
     }
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [enabled, handlers]);
+  }, [enabled]);
 }

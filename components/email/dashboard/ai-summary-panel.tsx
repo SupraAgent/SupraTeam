@@ -36,7 +36,7 @@ export function AISummaryPanel({ messages, subject, threadId, dealId }: AISummar
   const [error, setError] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
 
-  const canSummarize = messages && messages.length >= 3;
+  const canSummarize = messages && messages.length >= 1;
 
   async function handleSummarize() {
     if (!messages || messages.length === 0) return;
@@ -107,17 +107,7 @@ export function AISummaryPanel({ messages, subject, threadId, dealId }: AISummar
     return (
       <div className="flex flex-col items-center justify-center py-6 text-muted-foreground gap-2">
         <Sparkles className="h-8 w-8 opacity-20" />
-        <p className="text-xs">Select a thread with 3+ messages to generate an AI summary</p>
-      </div>
-    );
-  }
-
-  if (!canSummarize) {
-    return (
-      <div className="flex flex-col items-center justify-center py-6 text-muted-foreground gap-2">
-        <Sparkles className="h-8 w-8 opacity-20" />
-        <p className="text-xs">Thread needs at least 3 messages for a useful summary</p>
-        <span className="text-[10px]">Currently {messages.length} message{messages.length !== 1 ? "s" : ""}</span>
+        <p className="text-xs">Select a thread to generate an AI summary</p>
       </div>
     );
   }

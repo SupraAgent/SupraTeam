@@ -30,7 +30,38 @@ export async function GET(req: NextRequest) {
     .order("next_send_at", { ascending: true })
     .limit(20);
 
-  // Get the step templates for each enrollment
+  // Collect sequence IDs and current steps to bulk-fetch in one query
+  const seqStepPairs: { seqId: string; stepNum: number }[] = [];
+  const seqIds = new Set<string>();
+
+  for (const enrollment of enrollments ?? []) {
+    const seqRaw = enrollment.crm_outreach_sequences as unknown;
+    const seq = (Array.isArray(seqRaw) ? seqRaw[0] : seqRaw) as {
+      id: string; name: string; description: string | null; status: string;
+    } | null;
+    if (seq) {
+      seqIds.add(seq.id);
+      seqStepPairs.push({ seqId: seq.id, stepNum: enrollment.current_step });
+    }
+  }
+
+  // Bulk fetch all steps for all relevant sequences (single query)
+  const { data: allSteps } = seqIds.size > 0
+    ? await supabase
+        .from("crm_outreach_steps")
+        .select("id, sequence_id, step_number, message_template, step_type, delay_hours")
+        .in("sequence_id", Array.from(seqIds))
+    : { data: [] };
+
+  // Build lookup maps
+  interface StepRecord { id: string; sequence_id: string; step_number: number; message_template: string | null; step_type: string; delay_hours: number; }
+  const stepMap = new Map<string, StepRecord>();
+  const stepCountMap = new Map<string, number>();
+  for (const step of (allSteps ?? []) as StepRecord[]) {
+    stepMap.set(`${step.sequence_id}:${step.step_number}`, step);
+    stepCountMap.set(step.sequence_id, (stepCountMap.get(step.sequence_id) ?? 0) + 1);
+  }
+
   const queueItems = [];
 
   for (const enrollment of enrollments ?? []) {
@@ -51,20 +82,8 @@ export async function GET(req: NextRequest) {
 
     if (!seq) continue;
 
-    // Get the current step template
-    const { data: step } = await supabase
-      .from("crm_outreach_steps")
-      .select("id, step_number, message_template, step_type, delay_hours")
-      .eq("sequence_id", seq.id)
-      .eq("step_number", enrollment.current_step)
-      .maybeSingle();
-
-    // Get total step count
-    const { count: totalSteps } = await supabase
-      .from("crm_outreach_steps")
-      .select("id", { count: "exact", head: true })
-      .eq("sequence_id", seq.id);
-
+    const step = stepMap.get(`${seq.id}:${enrollment.current_step}`);
+    const totalSteps = stepCountMap.get(seq.id) ?? 0;
     const isPastDue = enrollment.next_send_at && new Date(enrollment.next_send_at) < now;
 
     queueItems.push({
@@ -72,7 +91,7 @@ export async function GET(req: NextRequest) {
       sequenceName: seq.name,
       sequenceId: seq.id,
       currentStep: enrollment.current_step,
-      totalSteps: totalSteps ?? 0,
+      totalSteps,
       stepType: step?.step_type ?? "message",
       messagePreview: step?.message_template?.slice(0, 120) ?? "",
       nextSendAt: enrollment.next_send_at,

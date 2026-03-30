@@ -52,12 +52,16 @@ export function FollowupTrackerPanel({ onSelectThread }: FollowupTrackerPanelPro
   }, [fetchFollowups]);
 
   async function handleDismiss(id: string) {
-    setFollowups((prev) => prev.filter((f) => f.id !== id));
-    await fetch(`/api/email/scheduled/${id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "cancelled" }),
-    }).catch(() => {});
+    const prev = followups;
+    setFollowups((f) => f.filter((x) => x.id !== id));
+    try {
+      const res = await fetch(`/api/email/scheduled?id=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error();
+    } catch {
+      setFollowups(prev);
+    }
   }
 
   if (loading) {

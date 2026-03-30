@@ -22,6 +22,7 @@ export function BroadcastComposerPanel() {
   const [sent, setSent] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
   const [showGroups, setShowGroups] = React.useState(false);
+  const [confirming, setConfirming] = React.useState(false);
 
   // Fetch groups and slugs
   React.useEffect(() => {
@@ -54,12 +55,16 @@ export function BroadcastComposerPanel() {
       .catch(() => {});
   }, [selectedSlug]);
 
-  async function handleSend() {
+  function handleSendClick() {
     if (!message.trim() || selectedGroupIds.size === 0) {
       toast.error("Write a message and select groups");
       return;
     }
+    setConfirming(true);
+  }
 
+  async function handleConfirmedSend() {
+    setConfirming(false);
     setSending(true);
     try {
       const res = await fetch("/api/broadcasts/send", {
@@ -196,33 +201,61 @@ export function BroadcastComposerPanel() {
         </div>
       </div>
 
-      {/* Send button */}
-      <div className="flex items-center justify-between">
-        <div className="text-[10px] text-muted-foreground">
-          {selectedGroupIds.size > 0
-            ? `Sending to ${selectedGroupIds.size} group${selectedGroupIds.size !== 1 ? "s" : ""}`
-            : "No groups selected"}
+      {/* Confirmation dialog */}
+      {confirming && (
+        <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 px-4 py-3 space-y-2">
+          <p className="text-xs text-yellow-300 font-medium">
+            Send broadcast to {selectedGroupIds.size} group{selectedGroupIds.size !== 1 ? "s" : ""}?
+          </p>
+          <p className="text-[10px] text-muted-foreground line-clamp-2">{message.trim()}</p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleConfirmedSend}
+              disabled={sending}
+              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium bg-primary text-white hover:bg-primary/90 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Send className="h-3 w-3" />
+              Confirm Send
+            </button>
+            <button
+              onClick={() => setConfirming(false)}
+              className="rounded-lg px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-white/5 transition"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
-        <button
-          onClick={handleSend}
-          disabled={sending || !message.trim() || selectedGroupIds.size === 0}
-          className={cn(
-            "flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-medium transition",
-            sent
-              ? "bg-green-500/20 text-green-400"
-              : "bg-primary text-white hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
-          )}
-        >
-          {sending ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : sent ? (
-            <CheckCircle className="h-3.5 w-3.5" />
-          ) : (
-            <Send className="h-3.5 w-3.5" />
-          )}
-          {sent ? "Sent!" : sending ? "Sending..." : "Send Broadcast"}
-        </button>
-      </div>
+      )}
+
+      {/* Send button */}
+      {!confirming && (
+        <div className="flex items-center justify-between">
+          <div className="text-[10px] text-muted-foreground">
+            {selectedGroupIds.size > 0
+              ? `Sending to ${selectedGroupIds.size} group${selectedGroupIds.size !== 1 ? "s" : ""}`
+              : "No groups selected"}
+          </div>
+          <button
+            onClick={handleSendClick}
+            disabled={sending || !message.trim() || selectedGroupIds.size === 0}
+            className={cn(
+              "flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-medium transition",
+              sent
+                ? "bg-green-500/20 text-green-400"
+                : "bg-primary text-white hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+            )}
+          >
+            {sending ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : sent ? (
+              <CheckCircle className="h-3.5 w-3.5" />
+            ) : (
+              <Send className="h-3.5 w-3.5" />
+            )}
+            {sent ? "Sent!" : sending ? "Sending..." : "Send Broadcast"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

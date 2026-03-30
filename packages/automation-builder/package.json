@@ -11,6 +11,10 @@
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
+    "./engine": {
+      "import": "./dist/engine.js",
+      "types": "./dist/engine.d.ts"
+    },
     "./styles.css": "./dist/styles.css",
     "./tailwind": "./tailwind.config.ts"
   },

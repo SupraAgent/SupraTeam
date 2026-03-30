@@ -10,10 +10,6 @@ interface PanelCardProps {
   onRemove: () => void;
   children: React.ReactNode;
   className?: string;
-  /** If provided, shows a badge count in header */
-  badgeCount?: number;
-  /** Loading state */
-  loading?: boolean;
 }
 
 export function PanelCard({
@@ -21,8 +17,6 @@ export function PanelCard({
   onRemove,
   children,
   className,
-  badgeCount,
-  loading,
 }: PanelCardProps) {
   const [collapsed, setCollapsed] = React.useState(false);
   const Icon = panel.icon;
@@ -51,11 +45,6 @@ export function PanelCard({
         </button>
         <Icon className="h-4 w-4 text-muted-foreground" />
         <span className="text-xs font-semibold text-foreground">{panel.title}</span>
-        {typeof badgeCount === "number" && badgeCount > 0 && (
-          <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold text-primary">
-            {badgeCount}
-          </span>
-        )}
         <div className="ml-auto">
           <button
             onClick={onRemove}
@@ -70,15 +59,7 @@ export function PanelCard({
       {/* Content */}
       {!collapsed && (
         <div className="p-4">
-          {loading ? (
-            <div className="space-y-2">
-              <div className="h-4 w-3/4 rounded bg-white/5 animate-pulse" />
-              <div className="h-4 w-1/2 rounded bg-white/5 animate-pulse" />
-              <div className="h-4 w-2/3 rounded bg-white/5 animate-pulse" />
-            </div>
-          ) : (
-            children
-          )}
+          {children}
         </div>
       )}
     </div>

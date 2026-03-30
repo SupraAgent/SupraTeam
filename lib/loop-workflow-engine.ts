@@ -18,7 +18,7 @@ import {
   type FlowNode,
   type FlowEdge,
   type WorkflowEvent,
-} from "@supra/automation-builder";
+} from "@supra/automation-builder/engine";
 import { createSupabaseAdmin } from "@/lib/supabase";
 import { createSupabasePersistence } from "@/lib/workflow-persistence";
 import { renderTemplate } from "@/lib/telegram-templates";

@@ -62,5 +62,5 @@ DROP TRIGGER IF EXISTS trg_deal_last_activity ON crm_deals;
 CREATE TRIGGER trg_deal_last_activity
   BEFORE UPDATE ON crm_deals
   FOR EACH ROW
-  WHEN (OLD.stage_id IS DISTINCT FROM NEW.stage_id OR OLD.updated_at IS DISTINCT FROM NEW.updated_at)
+  WHEN (OLD.stage_id IS DISTINCT FROM NEW.stage_id OR OLD.outcome IS DISTINCT FROM NEW.outcome OR OLD.contact_id IS DISTINCT FROM NEW.contact_id)
   EXECUTE FUNCTION update_deal_last_activity();
