@@ -4,6 +4,8 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 import { Sparkles, Save, Tag, AlertTriangle, CheckCircle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { useThreadContext } from "@/lib/plugins/thread-context";
+import { EmailTagsPanel } from "./email-tags-panel";
 
 interface AISummaryData {
   summary: string;
@@ -13,16 +15,6 @@ interface AISummaryData {
   suggestedTags: string[];
 }
 
-interface AISummaryPanelProps {
-  /** Thread messages for summarization */
-  messages: { from: string; date: string; body: string }[] | null;
-  subject?: string;
-  /** Thread ID for saving to deal notes */
-  threadId?: string;
-  /** Linked deal ID for saving notes */
-  dealId?: string | null;
-}
-
 const SENTIMENT_CONFIG = {
   positive: { color: "text-green-400", bg: "bg-green-500/10", label: "Positive" },
   neutral: { color: "text-blue-400", bg: "bg-blue-500/10", label: "Neutral" },
@@ -30,13 +22,30 @@ const SENTIMENT_CONFIG = {
   mixed: { color: "text-yellow-400", bg: "bg-yellow-500/10", label: "Mixed" },
 };
 
-export function AISummaryPanel({ messages, subject, threadId, dealId }: AISummaryPanelProps) {
+export function AISummaryPanel() {
+  const { messages, subject, threadId, dealId } = useThreadContext();
   const [data, setData] = React.useState<AISummaryData | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
 
   const canSummarize = messages && messages.length >= 1;
+
+  // Auto-trigger summary when messages change (new thread selected)
+  const prevMessagesRef = React.useRef(messages);
+  React.useEffect(() => {
+    if (messages && messages.length >= 1 && messages !== prevMessagesRef.current) {
+      prevMessagesRef.current = messages;
+      setData(null);
+      setError(null);
+      // Trigger summarize after a short debounce
+      const timer = setTimeout(() => {
+        handleSummarize();
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages]);
 
   async function handleSummarize() {
     if (!messages || messages.length === 0) return;
@@ -238,6 +247,13 @@ export function AISummaryPanel({ messages, subject, threadId, dealId }: AISummar
             </button>
           </div>
         </>
+      )}
+
+      {/* Tags section (merged from email-tags panel) */}
+      {threadId && (
+        <div className="border-t border-white/5 pt-3 mt-1">
+          <EmailTagsPanel />
+        </div>
       )}
     </div>
   );

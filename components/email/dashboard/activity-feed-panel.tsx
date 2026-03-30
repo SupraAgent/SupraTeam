@@ -106,7 +106,7 @@ export function ActivityFeedPanel() {
                   {event.description}
                 </p>
               )}
-              <span className="text-[9px] text-muted-foreground/60">
+              <span className="text-[10px] text-muted-foreground/60">
                 {timeAgo(event.timestamp)}
               </span>
             </div>

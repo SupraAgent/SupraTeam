@@ -50,6 +50,7 @@ export function useEmailDashboardKeys(handlers: {
     if (!enabled) return;
     function handleKey(e: KeyboardEvent) {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if ((e.target as HTMLElement).isContentEditable) return;
       if (e.metaKey || e.ctrlKey) return;
 
       switch (e.key) {

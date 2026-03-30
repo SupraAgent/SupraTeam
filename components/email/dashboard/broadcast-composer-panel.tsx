@@ -183,10 +183,10 @@ export function BroadcastComposerPanel() {
           className="w-full rounded-lg px-3 py-2 text-xs bg-white/5 border border-white/10 text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 resize-none"
         />
         <div className="flex items-center justify-between mt-1">
-          <span className="text-[9px] text-muted-foreground">
+          <span className="text-[10px] text-muted-foreground">
             {message.length} chars
           </span>
-          <div className="flex items-center gap-1 text-[9px] text-muted-foreground">
+          <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
             <span>Merge vars:</span>
             {["{name}", "{deal_name}"].map((v) => (
               <button
@@ -212,7 +212,7 @@ export function BroadcastComposerPanel() {
             <button
               onClick={handleConfirmedSend}
               disabled={sending}
-              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium bg-primary text-white hover:bg-primary/90 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium bg-red-600 text-white hover:bg-red-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Send className="h-3 w-3" />
               Confirm Send

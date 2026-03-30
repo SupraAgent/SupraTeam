@@ -123,7 +123,7 @@ export function OutreachQueuePanel() {
               <span className="text-xs font-medium text-foreground truncate">
                 {item.contactName || item.contactEmail || "Unknown"}
               </span>
-              <span className="text-[9px] text-muted-foreground shrink-0">
+              <span className="text-[10px] text-muted-foreground shrink-0">
                 Step {item.currentStep}/{item.totalSteps}
               </span>
             </div>

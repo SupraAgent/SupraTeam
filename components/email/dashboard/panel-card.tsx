@@ -2,8 +2,38 @@
 
 import * as React from "react";
 import { cn } from "@/lib/utils";
-import { ChevronDown, ChevronRight, X } from "lucide-react";
+import { ChevronDown, ChevronRight, X, AlertTriangle } from "lucide-react";
 import type { DashboardPanel } from "@/lib/plugins/types";
+
+class PanelErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex flex-col items-center justify-center py-6 text-muted-foreground gap-2">
+          <AlertTriangle className="h-6 w-6 opacity-40" />
+          <p className="text-xs">Something went wrong</p>
+          <button
+            onClick={() => this.setState({ hasError: false })}
+            className="text-[10px] text-primary hover:underline"
+          >
+            Retry
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 interface PanelCardProps {
   panel: DashboardPanel;
@@ -59,7 +89,9 @@ export function PanelCard({
       {/* Content */}
       {!collapsed && (
         <div className="p-4">
-          {children}
+          <PanelErrorBoundary>
+            {children}
+          </PanelErrorBoundary>
         </div>
       )}
     </div>

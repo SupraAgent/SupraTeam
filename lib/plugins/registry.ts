@@ -5,13 +5,20 @@ import {
   Clock,
   Sparkles,
   Target,
-  Tag,
   Send,
   BarChart3,
   Activity,
   Radio,
 } from "lucide-react";
 import type { DashboardPanel, PanelId } from "./types";
+import { ContactCardPanel } from "@/components/email/dashboard/contact-card-panel";
+import { FollowupTrackerPanel } from "@/components/email/dashboard/followup-tracker-panel";
+import { AISummaryPanel } from "@/components/email/dashboard/ai-summary-panel";
+import { DealSpotlightPanel } from "@/components/email/dashboard/deal-spotlight-panel";
+import { OutreachQueuePanel } from "@/components/email/dashboard/outreach-queue-panel";
+import { MetricsStripPanel } from "@/components/email/dashboard/metrics-strip-panel";
+import { ActivityFeedPanel } from "@/components/email/dashboard/activity-feed-panel";
+import { BroadcastComposerPanel } from "@/components/email/dashboard/broadcast-composer-panel";
 
 export const PANELS: DashboardPanel[] = [
   {
@@ -21,6 +28,7 @@ export const PANELS: DashboardPanel[] = [
     description: "Emails sent/received, response rate, avg reply time",
     size: "full",
     defaultEnabled: true,
+    component: MetricsStripPanel,
   },
   {
     id: "deal-spotlight",
@@ -29,6 +37,7 @@ export const PANELS: DashboardPanel[] = [
     description: "Emails linked to active deals, color-coded by stage",
     size: "2x1",
     defaultEnabled: true,
+    component: DealSpotlightPanel,
   },
   {
     id: "followup-tracker",
@@ -37,6 +46,7 @@ export const PANELS: DashboardPanel[] = [
     description: "Emails awaiting reply, grouped by age",
     size: "2x1",
     defaultEnabled: true,
+    component: FollowupTrackerPanel,
   },
   {
     id: "contact-card",
@@ -45,6 +55,7 @@ export const PANELS: DashboardPanel[] = [
     description: "CRM profile for selected sender",
     size: "1x1",
     defaultEnabled: false,
+    component: ContactCardPanel,
   },
   {
     id: "outreach-queue",
@@ -53,22 +64,16 @@ export const PANELS: DashboardPanel[] = [
     description: "Today's scheduled outreach sequence steps",
     size: "1x1",
     defaultEnabled: true,
+    component: OutreachQueuePanel,
   },
   {
     id: "ai-summary",
-    title: "AI Summary",
+    title: "AI Summary & Tags",
     icon: Sparkles,
-    description: "Claude-generated thread summaries with action items",
+    description: "Claude-generated thread summaries with action items and tags",
     size: "2x1",
     defaultEnabled: false,
-  },
-  {
-    id: "email-tags",
-    title: "Tags",
-    icon: Tag,
-    description: "Auto and manual email thread tags",
-    size: "1x1",
-    defaultEnabled: false,
+    component: AISummaryPanel,
   },
   {
     id: "activity-feed",
@@ -77,6 +82,7 @@ export const PANELS: DashboardPanel[] = [
     description: "Cross-channel feed: emails, deals, TG messages",
     size: "1x1",
     defaultEnabled: true,
+    component: ActivityFeedPanel,
   },
   {
     id: "broadcast-composer",
@@ -85,6 +91,7 @@ export const PANELS: DashboardPanel[] = [
     description: "Draft and send broadcasts to slug-tagged groups",
     size: "full",
     defaultEnabled: false,
+    component: BroadcastComposerPanel,
   },
 ];
 
