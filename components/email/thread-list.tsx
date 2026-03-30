@@ -6,22 +6,84 @@ import { timeAgo } from "@/lib/utils";
 import type { ThreadListItem } from "@/lib/email/types";
 import { ContactAvatar } from "./contact-avatar";
 
+export type ContextMenuAction = "archive" | "trash" | "star" | "read" | "unread" | "snooze" | "spam" | "block";
+
+interface ContextMenuState {
+  x: number;
+  y: number;
+  threadIds: string[];
+}
+
 type ThreadListProps = {
   threads: ThreadListItem[];
   selectedId: string | null;
   selectedIds?: Set<string>;
   onSelect: (id: string) => void;
   onToggleSelect?: (id: string) => void;
+  onRangeSelect?: (fromIndex: number, toIndex: number) => void;
   loading: boolean;
   onLoadMore?: () => void;
   hasMore?: boolean;
   onPrefetch?: (id: string) => void;
   onSwipeArchive?: (id: string) => void;
   onSwipeSnooze?: (id: string) => void;
+  onContextAction?: (threadIds: string[], action: ContextMenuAction) => void;
 };
 
-export function ThreadList({ threads, selectedId, selectedIds, onSelect, onToggleSelect, loading, onLoadMore, hasMore, onPrefetch, onSwipeArchive, onSwipeSnooze }: ThreadListProps) {
+export function ThreadList({ threads, selectedId, selectedIds, onSelect, onToggleSelect, onRangeSelect, loading, onLoadMore, hasMore, onPrefetch, onSwipeArchive, onSwipeSnooze, onContextAction }: ThreadListProps) {
   const listRef = React.useRef<HTMLDivElement>(null);
+  const lastClickedIndexRef = React.useRef<number>(-1);
+  const [contextMenu, setContextMenu] = React.useState<ContextMenuState | null>(null);
+
+  // Close context menu on click outside or scroll
+  React.useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    window.addEventListener("click", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [contextMenu]);
+
+  // Close on Escape
+  React.useEffect(() => {
+    if (!contextMenu) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setContextMenu(null);
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [contextMenu]);
+
+  function handleClick(index: number, e: React.MouseEvent) {
+    const thread = threads[index];
+    if (e.shiftKey && lastClickedIndexRef.current >= 0 && onRangeSelect) {
+      e.preventDefault();
+      onRangeSelect(lastClickedIndexRef.current, index);
+    } else {
+      onSelect(thread.id);
+    }
+    lastClickedIndexRef.current = index;
+  }
+
+  function handleContextMenu(index: number, e: React.MouseEvent) {
+    e.preventDefault();
+    const thread = threads[index];
+    const hasMultiSelect = selectedIds && selectedIds.size > 0;
+    const threadIds = hasMultiSelect && selectedIds.has(thread.id)
+      ? Array.from(selectedIds)
+      : [thread.id];
+    setContextMenu({ x: e.clientX, y: e.clientY, threadIds });
+  }
+
+  function handleContextAction(action: ContextMenuAction) {
+    if (contextMenu && onContextAction) {
+      onContextAction(contextMenu.threadIds, action);
+    }
+    setContextMenu(null);
+  }
 
   if (loading && threads.length === 0) {
     return (
@@ -40,16 +102,19 @@ export function ThreadList({ threads, selectedId, selectedIds, onSelect, onToggl
     );
   }
 
+  const isMultiContext = contextMenu && contextMenu.threadIds.length > 1;
+
   return (
-    <div ref={listRef} className="flex-1 overflow-y-auto thin-scroll">
-      {threads.map((thread) => (
+    <div ref={listRef} className="flex-1 overflow-y-auto thin-scroll relative">
+      {threads.map((thread, index) => (
         <ThreadRow
           key={thread.id}
           thread={thread}
           isSelected={thread.id === selectedId}
           isChecked={selectedIds?.has(thread.id) ?? false}
           showCheckbox={!!selectedIds && selectedIds.size > 0}
-          onClick={() => onSelect(thread.id)}
+          onClick={(e) => handleClick(index, e)}
+          onContextMenu={(e) => handleContextMenu(index, e)}
           onToggleSelect={() => onToggleSelect?.(thread.id)}
           onMouseEnter={() => onPrefetch?.(thread.id)}
           onSwipeLeft={() => onSwipeArchive?.(thread.id)}
@@ -64,6 +129,35 @@ export function ThreadList({ threads, selectedId, selectedIds, onSelect, onToggl
           Load more
         </button>
       )}
+
+      {/* Right-click context menu */}
+      {contextMenu && (
+        <div
+          className="fixed z-[100] min-w-[180px] rounded-lg border border-white/10 shadow-2xl py-1 overflow-hidden"
+          style={{
+            left: contextMenu.x,
+            top: contextMenu.y,
+            backgroundColor: "hsl(var(--surface-3))",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {isMultiContext && (
+            <div className="px-3 py-1.5 text-[10px] text-muted-foreground border-b border-white/5">
+              {contextMenu.threadIds.length} threads selected
+            </div>
+          )}
+          <ContextMenuItem icon={<ArchiveIcon />} label="Archive" shortcut="e" onClick={() => handleContextAction("archive")} />
+          <ContextMenuItem icon={<TrashIcon />} label="Delete" shortcut="#" onClick={() => handleContextAction("trash")} />
+          <ContextMenuItem icon={<StarOutlineIcon />} label="Star" shortcut="s" onClick={() => handleContextAction("star")} />
+          <div className="h-px bg-white/5 my-1" />
+          <ContextMenuItem icon={<MailReadIcon />} label="Mark as read" onClick={() => handleContextAction("read")} />
+          <ContextMenuItem icon={<MailUnreadIcon />} label="Mark as unread" shortcut="u" onClick={() => handleContextAction("unread")} />
+          <ContextMenuItem icon={<ClockIcon />} label="Snooze" shortcut="h" onClick={() => handleContextAction("snooze")} />
+          <div className="h-px bg-white/5 my-1" />
+          <ContextMenuItem icon={<SpamIcon />} label="Report spam" onClick={() => handleContextAction("spam")} destructive />
+          <ContextMenuItem icon={<BlockIcon />} label="Block sender" onClick={() => handleContextAction("block")} destructive />
+        </div>
+      )}
     </div>
   );
 }
@@ -74,6 +168,7 @@ function ThreadRow({
   isChecked,
   showCheckbox,
   onClick,
+  onContextMenu,
   onToggleSelect,
   onMouseEnter,
   onSwipeLeft,
@@ -83,7 +178,8 @@ function ThreadRow({
   isSelected: boolean;
   isChecked: boolean;
   showCheckbox: boolean;
-  onClick: () => void;
+  onClick: (e: React.MouseEvent) => void;
+  onContextMenu: (e: React.MouseEvent) => void;
   onToggleSelect?: () => void;
   onMouseEnter?: () => void;
   onSwipeLeft?: () => void;
@@ -137,6 +233,7 @@ function ThreadRow({
       )}
     <button
       onClick={onClick}
+      onContextMenu={onContextMenu}
       onMouseEnter={onMouseEnter}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
@@ -243,4 +340,72 @@ function StarFilledIcon({ className }: { className?: string }) {
       <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
     </svg>
   );
+}
+
+// ── Context menu item ──────────────────────────────────────
+
+function ContextMenuItem({
+  icon,
+  label,
+  shortcut,
+  onClick,
+  destructive,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  shortcut?: string;
+  onClick: () => void;
+  destructive?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "w-full flex items-center gap-2.5 px-3 py-1.5 text-xs transition-colors",
+        destructive
+          ? "text-red-400 hover:bg-red-500/10"
+          : "text-foreground/90 hover:bg-white/5"
+      )}
+    >
+      <span className="h-3.5 w-3.5 shrink-0 opacity-70">{icon}</span>
+      <span className="flex-1 text-left">{label}</span>
+      {shortcut && (
+        <kbd className="text-[9px] text-muted-foreground/50 ml-2">{shortcut}</kbd>
+      )}
+    </button>
+  );
+}
+
+// ── Context menu icons ─────────────────────────────────────
+
+function ArchiveIcon() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5"><polyline points="21 8 21 21 3 21 3 8" /><rect x="1" y="3" width="22" height="5" /><line x1="10" y1="12" x2="14" y2="12" /></svg>;
+}
+
+function TrashIcon() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>;
+}
+
+function StarOutlineIcon() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>;
+}
+
+function MailReadIcon() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5"><path d="M22 13V6a2 2 0 00-2-2H4a2 2 0 00-2 2v12c0 1.1.9 2 2 2h8" /><polyline points="22 6 12 13 2 6" /></svg>;
+}
+
+function MailUnreadIcon() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22 6 12 13 2 6" /><circle cx="19" cy="5" r="3" fill="currentColor" /></svg>;
+}
+
+function ClockIcon() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>;
+}
+
+function SpamIcon() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>;
+}
+
+function BlockIcon() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5"><circle cx="12" cy="12" r="10" /><line x1="4.93" y1="4.93" x2="19.07" y2="19.07" /></svg>;
 }

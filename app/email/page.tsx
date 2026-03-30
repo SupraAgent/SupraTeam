@@ -4,7 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { ThreadList } from "@/components/email/thread-list";
+import { ThreadList, type ContextMenuAction } from "@/components/email/thread-list";
 import { ThreadView } from "@/components/email/thread-view";
 import { ComposeModal } from "@/components/email/compose-modal";
 import { LabelSidebar } from "@/components/email/label-sidebar";
@@ -194,6 +194,83 @@ function EmailPageInner() {
   function handleBulkRead() {
     for (const id of selectedIds) performAction(id, "read");
     setSelectedIds(new Set());
+  }
+
+  function handleBulkSpam() {
+    const ids = Array.from(selectedIds);
+    for (const id of ids) {
+      performAction(id, "labels", { labelIds: { add: ["SPAM"], remove: ["INBOX"] } });
+    }
+    setThreads((prev) => prev.filter((t) => !selectedIds.has(t.id)));
+    toast(`Reported ${ids.length} as spam`);
+    setSelectedIds(new Set());
+    setSelectedThreadId(null);
+  }
+
+  // Right-click context menu handler
+  function handleContextAction(threadIds: string[], action: ContextMenuAction) {
+    const isBulk = threadIds.length > 1;
+    switch (action) {
+      case "archive":
+        if (isBulk) {
+          performBulkAction(threadIds, "archive");
+          toast(`Archived ${threadIds.length} threads`, {
+            action: { label: "Undo", onClick: () => undoActionRef.current?.undo() },
+          });
+        } else {
+          performAction(threadIds[0], "archive");
+          toast("Archived", {
+            action: { label: "Undo", onClick: () => undoActionRef.current?.undo() },
+          });
+        }
+        break;
+      case "trash":
+        if (isBulk) {
+          performBulkAction(threadIds, "trash");
+          toast(`Trashed ${threadIds.length} threads`);
+        } else {
+          performAction(threadIds[0], "trash");
+          toast("Moved to trash");
+        }
+        break;
+      case "star":
+        for (const id of threadIds) performAction(id, "star");
+        break;
+      case "read":
+        for (const id of threadIds) performAction(id, "read");
+        break;
+      case "unread":
+        for (const id of threadIds) performAction(id, "unread");
+        break;
+      case "snooze":
+        if (threadIds.length === 1) {
+          setSnoozeThreadId(threadIds[0]);
+          setSnoozeOpen(true);
+        } else {
+          toast("Snooze one thread at a time");
+        }
+        return; // don't clear selection for snooze
+      case "spam":
+        for (const id of threadIds) {
+          performAction(id, "labels", { labelIds: { add: ["SPAM"], remove: ["INBOX"] } });
+        }
+        setThreads((prev) => prev.filter((t) => !threadIds.includes(t.id)));
+        toast(isBulk ? `Reported ${threadIds.length} as spam` : "Reported as spam");
+        break;
+      case "block":
+        // Block = spam + toast (Gmail doesn't have a separate block API, spam is closest)
+        for (const id of threadIds) {
+          performAction(id, "labels", { labelIds: { add: ["SPAM"], remove: ["INBOX"] } });
+        }
+        setThreads((prev) => prev.filter((t) => !threadIds.includes(t.id)));
+        toast(isBulk ? `Blocked ${threadIds.length} senders` : "Sender blocked");
+        break;
+    }
+    // Clear selection after context action
+    setSelectedIds(new Set());
+    if (threadIds.includes(selectedThreadId ?? "")) {
+      setSelectedThreadId(null);
+    }
   }
 
   function handleCommandAction(action: string) {
@@ -537,6 +614,7 @@ function EmailPageInner() {
               <BulkButton label="Trash" onClick={handleBulkTrash} />
               <BulkButton label="Star" onClick={handleBulkStar} />
               <BulkButton label="Read" onClick={handleBulkRead} />
+              <BulkButton label="Spam" onClick={handleBulkSpam} />
               <button onClick={() => setSelectedIds(new Set())} className="text-[10px] text-muted-foreground hover:text-foreground ml-1">
                 Clear
               </button>
@@ -564,6 +642,17 @@ function EmailPageInner() {
               return next;
             });
           }}
+          onRangeSelect={(fromIndex, toIndex) => {
+            const start = Math.min(fromIndex, toIndex);
+            const end = Math.max(fromIndex, toIndex);
+            setSelectedIds((prev) => {
+              const next = new Set(prev);
+              for (let i = start; i <= end; i++) {
+                if (visibleThreads[i]) next.add(visibleThreads[i].id);
+              }
+              return next;
+            });
+          }}
           loading={loading}
           onLoadMore={activeCategory === "all" ? loadMore : undefined}
           hasMore={activeCategory === "all" && !!nextPageToken}
@@ -576,6 +665,7 @@ function EmailPageInner() {
             setSnoozeThreadId(id);
             setSnoozeOpen(true);
           }}
+          onContextAction={handleContextAction}
         />
       </div>
 
