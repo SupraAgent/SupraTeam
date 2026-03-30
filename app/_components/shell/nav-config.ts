@@ -57,7 +57,6 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { href: "/broadcasts", label: "Broadcasts", icon: Bell, requiredRole: ["admin_lead"] },
       { href: "/outreach", label: "Outreach", icon: Send, requiredRole: ["admin_lead"] },
-      { href: "/drip", label: "Drip Sequences", icon: Droplet, requiredRole: ["admin_lead"] },
     ],
   },
   {

@@ -115,8 +115,10 @@ These are real gaps that we **intentionally deprioritize** because they don't se
 
 ## Sources
 
-- `cpo-persona-ratings.md` — v1 baseline (32.5/100, 5 CPO personas)
-- `cpo-persona-ratings-v2.md` — v2 post-improvement (64/100, consensus)
-- `dmitry-r-fresh-review.md` — Harshest reviewer (58.1/100), identifies structural gaps
-- `persona-improvement-research.md` — Improvement loop methodology
+All reviews live in `docs/reviews/` — see `docs/reviews/README.md` for the index and naming convention.
+
+- `docs/reviews/cpo-review-v3.md` — v3 review (73.4/100, 3 CPO personas, 20 functions rated 1-100, 2026-03-30)
+- `docs/reviews/cpo-review-2026-03-28.md` — v2 feature maturity table (8.3/10, 50+ line items)
+- `docs/reviews/cpo-review-post-4c.md` — Sarah Chen CPO directive ("3 things that matter")
+- `persona-improvement-research.md` — Improvement loop methodology (in SupraLoop/Persona Builder/)
 - `plan.md` — Knowledge Graph plan (ships independently)
