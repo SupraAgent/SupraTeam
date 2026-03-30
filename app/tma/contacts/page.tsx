@@ -5,6 +5,8 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Users, ChevronRight, Zap, Search } from "lucide-react";
 import { BottomTabBar } from "@/components/tma/bottom-tab-bar";
+import { PullToRefresh } from "@/components/tma/pull-to-refresh";
+import { useTelegramWebApp } from "@/components/tma/use-telegram";
 
 type Contact = {
   id: string;
@@ -20,18 +22,23 @@ export default function TMAContactsPage() {
   const [loading, setLoading] = React.useState(true);
   const [search, setSearch] = React.useState("");
 
-  React.useEffect(() => {
-    if (typeof window !== "undefined" && (window as unknown as Record<string, unknown>).Telegram) {
-      const tg = (window as unknown as { Telegram: { WebApp: { ready: () => void; expand: () => void } } }).Telegram.WebApp;
-      tg.ready();
-      tg.expand();
-    }
+  useTelegramWebApp();
 
-    fetch("/api/contacts")
-      .then((r) => r.json())
-      .then((d) => setContacts(d.contacts ?? []))
-      .finally(() => setLoading(false));
+  const fetchContacts = React.useCallback(async () => {
+    try {
+      const res = await fetch("/api/contacts");
+      if (res.ok) {
+        const d = await res.json();
+        setContacts(d.contacts ?? []);
+      }
+    } catch {
+      // silent
+    }
   }, []);
+
+  React.useEffect(() => {
+    fetchContacts().finally(() => setLoading(false));
+  }, [fetchContacts]);
 
   const filtered = search
     ? contacts.filter((c) =>
@@ -51,6 +58,7 @@ export default function TMAContactsPage() {
 
   return (
     <div className="pb-20">
+      <PullToRefresh onRefresh={fetchContacts}>
       <div className="px-4 pt-4 pb-1 flex items-center justify-between">
         <h1 className="text-lg font-semibold text-foreground">Contacts</h1>
         <span className="text-xs text-muted-foreground">{contacts.length} total</span>
@@ -120,6 +128,7 @@ export default function TMAContactsPage() {
           </div>
         )}
       </div>
+      </PullToRefresh>
 
       <BottomTabBar active="more" />
     </div>

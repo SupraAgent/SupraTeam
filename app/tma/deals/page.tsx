@@ -9,6 +9,7 @@ import { PullToRefresh } from "@/components/tma/pull-to-refresh";
 import { SwipeableDealCard } from "@/components/tma/swipeable-deal-card";
 import { QuickActionMenu } from "@/components/tma/quick-action-menu";
 import { hapticImpact } from "@/components/tma/haptic";
+import { useTelegramWebApp } from "@/components/tma/use-telegram";
 
 type Deal = {
   id: string;
@@ -34,14 +35,7 @@ export default function TMADealsPage() {
     position: { top: number; left: number };
   } | null>(null);
 
-  // Telegram WebApp init
-  React.useEffect(() => {
-    if (typeof window !== "undefined" && (window as unknown as Record<string, unknown>).Telegram) {
-      const tg = (window as unknown as { Telegram: { WebApp: { ready: () => void; expand: () => void } } }).Telegram.WebApp;
-      tg.ready();
-      tg.expand();
-    }
-  }, []);
+  useTelegramWebApp();
 
   // Data fetching
   const fetchData = React.useCallback(async () => {

@@ -4,6 +4,7 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 import { Send, Loader2, Sparkles, Bot, User } from "lucide-react";
 import { BottomTabBar } from "@/components/tma/bottom-tab-bar";
+import { useTelegramWebApp } from "@/components/tma/use-telegram";
 
 type Message = {
   role: "user" | "assistant";
@@ -24,13 +25,7 @@ export default function TMAAIChatPage() {
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
 
-  React.useEffect(() => {
-    if (typeof window !== "undefined" && (window as unknown as Record<string, unknown>).Telegram) {
-      const tg = (window as unknown as { Telegram: { WebApp: { ready: () => void; expand: () => void } } }).Telegram.WebApp;
-      tg.ready();
-      tg.expand();
-    }
-  }, []);
+  useTelegramWebApp();
 
   React.useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -212,7 +207,7 @@ export default function TMAAIChatPage() {
         </div>
       </div>
 
-      <BottomTabBar active="chat" />
+      <BottomTabBar active="more" />
     </div>
   );
 }

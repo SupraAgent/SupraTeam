@@ -5,6 +5,8 @@ import Link from "next/link";
 import { cn, timeAgo } from "@/lib/utils";
 import { CheckSquare, Plus, Clock, AlertTriangle, Loader2, X } from "lucide-react";
 import { BottomTabBar } from "@/components/tma/bottom-tab-bar";
+import { PullToRefresh } from "@/components/tma/pull-to-refresh";
+import { useTelegramWebApp } from "@/components/tma/use-telegram";
 
 type Task = {
   id: string;
@@ -29,12 +31,9 @@ export default function TMATasksPage() {
   const [newDue, setNewDue] = React.useState("");
   const [creating, setCreating] = React.useState(false);
 
+  useTelegramWebApp();
+
   React.useEffect(() => {
-    if (typeof window !== "undefined" && (window as unknown as Record<string, unknown>).Telegram) {
-      const tg = (window as unknown as { Telegram: { WebApp: { ready: () => void; expand: () => void } } }).Telegram.WebApp;
-      tg.ready();
-      tg.expand();
-    }
     fetchTasks();
   }, []);
 
@@ -110,8 +109,13 @@ export default function TMATasksPage() {
     );
   }
 
+  const handleRefresh = React.useCallback(async () => {
+    await fetchTasks();
+  }, []);
+
   return (
     <div className="pb-20">
+      <PullToRefresh onRefresh={handleRefresh}>
       {/* Header */}
       <div className="px-4 pt-4 pb-3 flex items-center justify-between">
         <div>
@@ -241,6 +245,7 @@ export default function TMATasksPage() {
           })
         )}
       </div>
+      </PullToRefresh>
 
       <BottomTabBar active="tasks" />
     </div>

@@ -2,8 +2,9 @@
 
 import * as React from "react";
 import { useParams, useRouter } from "next/navigation";
-import { cn } from "@/lib/utils";
+import { cn, timeAgo } from "@/lib/utils";
 import { ArrowLeft, MessageCircle, Send, GitBranch, StickyNote, ExternalLink } from "lucide-react";
+import { useTelegramWebApp } from "@/components/tma/use-telegram";
 
 type Deal = {
   id: string;
@@ -24,16 +25,6 @@ type Stage = { id: string; name: string; position: number; color: string };
 type Note = { id: string; text: string; created_at: string };
 type Activity = { id: string; type: string; title: string; body?: string; tg_deep_link?: string; created_at: string };
 
-function timeAgo(d: string) {
-  const ms = Date.now() - new Date(d).getTime();
-  const m = Math.floor(ms / 60000);
-  if (m < 1) return "now";
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h`;
-  return `${Math.floor(h / 24)}d`;
-}
-
 export default function TMADealDetailPage() {
   const { id } = useParams();
   const router = useRouter();
@@ -47,13 +38,10 @@ export default function TMADealDetailPage() {
   const [sending, setSending] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
 
-  React.useEffect(() => {
-    if (typeof window !== "undefined" && (window as unknown as Record<string, unknown>).Telegram) {
-      const tg = (window as unknown as { Telegram: { WebApp: { ready: () => void; expand: () => void } } }).Telegram.WebApp;
-      tg.ready();
-      tg.expand();
-    }
+  const goBack = React.useCallback(() => router.back(), [router]);
+  useTelegramWebApp({ onBack: goBack });
 
+  React.useEffect(() => {
     Promise.all([
       fetch(`/api/deals/${id}`).then((r) => r.json()),
       fetch(`/api/deals/${id}/notes`).then((r) => r.json()),
@@ -158,7 +146,7 @@ export default function TMADealDetailPage() {
         <div className="px-4 pb-3">
           <p className="text-[10px] text-muted-foreground mb-1.5">Move to stage</p>
           <div className="flex gap-1 overflow-x-auto thin-scroll pb-1">
-            {stages.sort((a, b) => a.position - b.position).map((s) => (
+            {[...stages].sort((a, b) => a.position - b.position).map((s) => (
               <button
                 key={s.id}
                 onClick={() => handleMoveStage(s.id)}
