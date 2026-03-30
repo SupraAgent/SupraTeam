@@ -5,6 +5,7 @@ import { ThemeProvider } from "@/app/_components/shell/theme-provider";
 import { AuthProvider } from "@/lib/auth";
 import { Suspense } from "react";
 import { Toaster } from "sonner";
+import { ErrorReporterInit } from "@/components/error-reporter-init";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +34,7 @@ export default function RootLayout({
             <Suspense fallback={null}>
               <AppShell>{children}</AppShell>
             </Suspense>
+            <ErrorReporterInit />
             <Toaster
               position="bottom-right"
               theme="dark"
