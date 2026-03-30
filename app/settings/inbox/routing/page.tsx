@@ -13,8 +13,6 @@ import {
   ToggleLeft,
   ToggleRight,
   Route,
-  ChevronDown,
-  ChevronUp,
   Lightbulb,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -57,7 +55,6 @@ export default function RoutingPage() {
   const [formValue, setFormValue] = React.useState("");
   const [formAssignTo, setFormAssignTo] = React.useState("");
   const [formTeamPool, setFormTeamPool] = React.useState<string[]>([]);
-  const [showExplainer, setShowExplainer] = React.useState(false);
 
   const fetchData = React.useCallback(async () => {
     try {
@@ -216,7 +213,6 @@ export default function RoutingPage() {
           <h2 className="text-lg font-semibold text-foreground">Assignment Rules</h2>
           <p className="text-sm text-muted-foreground">
             Auto-assign incoming conversations based on group tags, keywords, or round-robin.
-            Rules are evaluated in priority order — first match wins. Manual assignments are never overridden.
           </p>
         </div>
         <Button size="sm" onClick={startCreate} disabled={creating}>
@@ -226,51 +222,42 @@ export default function RoutingPage() {
       </div>
 
       {/* Explainer */}
-      <div className="rounded-xl border border-white/10 bg-white/[0.02]">
-        <button
-          onClick={() => setShowExplainer(!showExplainer)}
-          className="w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-white/[0.02] transition-colors rounded-xl"
-        >
+      <details className="group rounded-xl border border-white/10 bg-white/[0.02]">
+        <summary className="flex items-center gap-2 px-4 py-2.5 cursor-pointer list-none hover:bg-white/5 transition-colors rounded-xl [&::-webkit-details-marker]:hidden">
           <Lightbulb className="h-3.5 w-3.5 text-amber-400/70 shrink-0" />
           <span className="text-xs text-muted-foreground">How do assignment rules work?</span>
-          {showExplainer ? (
-            <ChevronUp className="h-3 w-3 text-muted-foreground/50 ml-auto" />
-          ) : (
-            <ChevronDown className="h-3 w-3 text-muted-foreground/50 ml-auto" />
-          )}
-        </button>
-        {showExplainer && (
-          <div className="px-4 pb-4 space-y-3 border-t border-white/5 pt-3">
-            <p className="text-xs text-muted-foreground">
-              Rules auto-assign new conversations to team members so nothing sits in &quot;Unassigned&quot;. Each incoming conversation is checked against your rules top-to-bottom — the first match wins. If no rule matches, the conversation stays unassigned for manual pickup.
-            </p>
-            <div className="space-y-2">
-              <p className="text-[11px] font-medium text-foreground/80">Examples</p>
-              <div className="grid gap-2 text-[11px] text-muted-foreground">
-                <div className="flex gap-2 items-start">
-                  <span className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-muted-foreground">Group Slug</span>
-                  <span>&quot;DeFi leads to Alice&quot; — any conversation from a group tagged <span className="text-primary/70">defi</span> gets assigned to Alice automatically.</span>
-                </div>
-                <div className="flex gap-2 items-start">
-                  <span className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-muted-foreground">Keyword</span>
-                  <span>&quot;Pricing inquiries&quot; — messages containing <span className="text-primary/70">pricing</span> get routed to your sales lead.</span>
-                </div>
-                <div className="flex gap-2 items-start">
-                  <span className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-muted-foreground">Contact Tag</span>
-                  <span>&quot;VIP fast-track&quot; — conversations from contacts tagged <span className="text-primary/70">vip</span> go straight to a senior team member.</span>
-                </div>
-                <div className="flex gap-2 items-start">
-                  <span className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-muted-foreground">Round Robin</span>
-                  <span>&quot;General support&quot; — distribute all unmatched conversations evenly across a team pool.</span>
-                </div>
+          <svg className="h-3 w-3 text-muted-foreground/50 ml-auto transition-transform group-open:rotate-180" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 4.5l3 3 3-3" /></svg>
+        </summary>
+        <div className="px-4 pb-4 space-y-3 border-t border-white/5 pt-3">
+          <p className="text-xs text-muted-foreground">
+            Rules are evaluated top-to-bottom — first match wins. If no rule matches, the conversation stays unassigned for manual pickup. Manual assignments are never overridden.
+          </p>
+          <div className="space-y-2">
+            <p className="text-[11px] font-medium text-foreground/80">Examples</p>
+            <div className="grid gap-2 text-[11px] text-muted-foreground">
+              <div className="flex gap-2 items-start">
+                <span className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-muted-foreground">Group Slug</span>
+                <span>&quot;DeFi leads to Alice&quot; — any conversation from a group tagged <span className="text-primary/70">defi</span> gets assigned to Alice automatically.</span>
+              </div>
+              <div className="flex gap-2 items-start">
+                <span className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-muted-foreground">Keyword</span>
+                <span>&quot;Pricing inquiries&quot; — messages containing <span className="text-primary/70">pricing</span> get routed to your sales lead.</span>
+              </div>
+              <div className="flex gap-2 items-start">
+                <span className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-muted-foreground">Contact Tag</span>
+                <span>&quot;VIP fast-track&quot; — conversations from contacts tagged <span className="text-primary/70">vip</span> go straight to a senior team member.</span>
+              </div>
+              <div className="flex gap-2 items-start">
+                <span className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-muted-foreground">Round Robin</span>
+                <span>&quot;General support&quot; — distribute all unmatched conversations evenly across a team pool.</span>
               </div>
             </div>
-            <p className="text-[10px] text-muted-foreground/50">
-              Tip: Put specific rules (Group Slug, Keyword) above catch-all rules (Round Robin). Manual assignments are never overridden.
-            </p>
           </div>
-        )}
-      </div>
+          <p className="text-[10px] text-muted-foreground/50">
+            Tip: Put specific rules (Group Slug, Keyword) above catch-all rules (Round Robin).
+          </p>
+        </div>
+      </details>
 
       {/* Create / Edit form */}
       {(creating || editing) && (
