@@ -49,6 +49,13 @@ interface TelegramWebApp {
     onClick: (cb: () => void) => void;
     offClick: (cb: () => void) => void;
   };
+  SettingsButton: {
+    isVisible: boolean;
+    show: () => void;
+    hide: () => void;
+    onClick: (cb: () => void) => void;
+    offClick: (cb: () => void) => void;
+  };
 }
 
 function getWebApp(): TelegramWebApp | null {
@@ -67,11 +74,14 @@ interface UseTelegramOptions {
   mainButtonDisabled?: boolean;
   /** Show spinner on MainButton. */
   mainButtonLoading?: boolean;
+  /** Show SettingsButton and call this on tap. Omit to hide. */
+  onSettings?: () => void;
 }
 
 export function useTelegramWebApp(options: UseTelegramOptions = {}) {
-  const { onBack, mainButtonText, onMainButton, mainButtonDisabled, mainButtonLoading } = options;
+  const { onBack, mainButtonText, onMainButton, mainButtonDisabled, mainButtonLoading, onSettings } = options;
   const [tgUser, setTgUser] = React.useState<{ id: number; first_name: string; username?: string } | null>(null);
+  const [isValidated, setIsValidated] = React.useState(false);
   const webAppRef = React.useRef<TelegramWebApp | null>(null);
 
   // Store callbacks in refs to avoid re-subscription on every render
@@ -79,10 +89,13 @@ export function useTelegramWebApp(options: UseTelegramOptions = {}) {
   onBackRef.current = onBack;
   const onMainButtonRef = React.useRef(onMainButton);
   onMainButtonRef.current = onMainButton;
+  const onSettingsRef = React.useRef(onSettings);
+  onSettingsRef.current = onSettings;
 
   // Stable callback wrappers
   const backHandler = React.useRef(() => onBackRef.current?.());
   const mainHandler = React.useRef(() => onMainButtonRef.current?.());
+  const settingsHandler = React.useRef(() => onSettingsRef.current?.());
 
   // Init on mount
   React.useEffect(() => {
@@ -101,7 +114,30 @@ export function useTelegramWebApp(options: UseTelegramOptions = {}) {
       // Some older clients don't support these
     }
 
-    if (tg.initDataUnsafe?.user) {
+    // Validate initData server-side before trusting user identity
+    if (tg.initData) {
+      fetch("/api/tma/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ initData: tg.initData }),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.valid && data.user) {
+            setTgUser(data.user);
+            setIsValidated(true);
+          } else {
+            console.warn("[TMA] initData validation failed:", data.error);
+            // Fall back to unsigned data for display only (not for auth)
+            if (tg.initDataUnsafe?.user) setTgUser(tg.initDataUnsafe.user);
+          }
+        })
+        .catch(() => {
+          // Network error — fall back to unsigned data
+          if (tg.initDataUnsafe?.user) setTgUser(tg.initDataUnsafe.user);
+        });
+    } else if (tg.initDataUnsafe?.user) {
+      // No initData available (e.g. dev mode) — use unsigned data
       setTgUser(tg.initDataUnsafe.user);
     }
   }, []);
@@ -156,5 +192,23 @@ export function useTelegramWebApp(options: UseTelegramOptions = {}) {
     }
   }, [hasMainButton, mainButtonText, mainButtonDisabled, mainButtonLoading]);
 
-  return { tgUser, webApp: webAppRef.current };
+  // SettingsButton
+  const hasSettings = !!onSettings;
+  React.useEffect(() => {
+    const tg = webAppRef.current;
+    if (!tg?.SettingsButton) return;
+
+    if (hasSettings) {
+      tg.SettingsButton.show();
+      tg.SettingsButton.onClick(settingsHandler.current);
+      return () => {
+        tg.SettingsButton.offClick(settingsHandler.current);
+        tg.SettingsButton.hide();
+      };
+    } else {
+      tg.SettingsButton.hide();
+    }
+  }, [hasSettings]);
+
+  return { tgUser, isValidated, webApp: webAppRef.current };
 }

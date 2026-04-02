@@ -10,7 +10,7 @@ import type { Bot } from "grammy";
 import { InlineKeyboard } from "grammy";
 import { supabase } from "../lib/supabase.js";
 
-const TMA_BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3002";
+const TMA_BASE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3002";
 
 // Rate limit: max 1 push per trigger type per deal per user per 5 minutes
 const RATE_LIMIT_MS = 5 * 60 * 1000;

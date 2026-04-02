@@ -125,6 +125,46 @@ async function acquireRateLimit(chatId: number): Promise<void> {
   return rateLimitQueue;
 }
 
+// ── Per-DM rate limit (Telegram: 1 msg/sec to same user) ──
+const dmLastSent = new Map<number, number>();
+
+async function acquireDmRateLimit(chatId: number): Promise<void> {
+  const last = dmLastSent.get(chatId) ?? 0;
+  const elapsed = Date.now() - last;
+  if (elapsed < 1000) {
+    await new Promise((r) => setTimeout(r, 1000 - elapsed));
+  }
+  dmLastSent.set(chatId, Date.now());
+  // Evict old entries
+  if (dmLastSent.size > 1000) {
+    const cutoff = Date.now() - 60000;
+    for (const [id, t] of dmLastSent) {
+      if (t < cutoff) dmLastSent.delete(id);
+    }
+  }
+}
+
+// ── Message length splitting ──────────────────────────────
+const TG_MAX_MESSAGE_LENGTH = 4096;
+
+function splitMessage(text: string): string[] {
+  if (text.length <= TG_MAX_MESSAGE_LENGTH) return [text];
+  const chunks: string[] = [];
+  let remaining = text;
+  while (remaining.length > 0) {
+    if (remaining.length <= TG_MAX_MESSAGE_LENGTH) {
+      chunks.push(remaining);
+      break;
+    }
+    // Try to split at last newline before limit
+    let splitAt = remaining.lastIndexOf("\n", TG_MAX_MESSAGE_LENGTH);
+    if (splitAt < TG_MAX_MESSAGE_LENGTH * 0.5) splitAt = TG_MAX_MESSAGE_LENGTH;
+    chunks.push(remaining.slice(0, splitAt));
+    remaining = remaining.slice(splitAt).replace(/^\n/, "");
+  }
+  return chunks;
+}
+
 export interface SendResult {
   success: boolean;
   messageId?: number;
@@ -140,24 +180,59 @@ export async function sendTelegramWithTracking(params: {
   scheduledMessageId?: string;
   parseMode?: string;
   replyMarkup?: object;
+  sendTypingIndicator?: boolean;
+  messageThreadId?: number;
+  disableNotification?: boolean;
+  /** Set true for private/DM chats to enforce 1 msg/sec per-user limit */
+  isDirectMessage?: boolean;
 }): Promise<SendResult> {
-  const body: Record<string, unknown> = {
-    chat_id: params.chatId,
-    text: params.text,
-    parse_mode: params.parseMode ?? "HTML",
-  };
-  if (params.replyMarkup) body.reply_markup = params.replyMarkup;
+  // Enforce per-DM rate limit (Telegram limits: 1 msg/sec to same user in DMs)
+  if (params.isDirectMessage) {
+    await acquireDmRateLimit(params.chatId);
+  }
 
-  const preview = params.text.length > 200 ? params.text.slice(0, 200) + "..." : params.text;
+  // Send typing indicator for long operations
+  if (params.sendTypingIndicator && BOT_TOKEN) {
+    const actionBody: Record<string, unknown> = { chat_id: params.chatId, action: "typing" };
+    if (params.messageThreadId) actionBody.message_thread_id = params.messageThreadId;
+    fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendChatAction`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(actionBody),
+    }).catch(() => {});
+  }
 
-  return executeWithTracking("sendMessage", body, {
-    chatId: params.chatId,
-    preview,
-    notificationType: params.notificationType,
-    dealId: params.dealId,
-    automationRuleId: params.automationRuleId,
-    scheduledMessageId: params.scheduledMessageId,
-  });
+  // Split long messages
+  const chunks = splitMessage(params.text);
+  let lastResult: SendResult = { success: false };
+
+  for (let i = 0; i < chunks.length; i++) {
+    const body: Record<string, unknown> = {
+      chat_id: params.chatId,
+      text: chunks[i],
+      parse_mode: params.parseMode ?? "HTML",
+    };
+    // Only attach reply_markup to the last chunk
+    if (params.replyMarkup && i === chunks.length - 1) body.reply_markup = params.replyMarkup;
+    if (params.messageThreadId) body.message_thread_id = params.messageThreadId;
+    if (params.disableNotification) body.disable_notification = true;
+
+    const preview = chunks[i].length > 200 ? chunks[i].slice(0, 200) + "..." : chunks[i];
+
+    lastResult = await executeWithTracking("sendMessage", body, {
+      chatId: params.chatId,
+      preview,
+      fullText: chunks[i],
+      notificationType: params.notificationType,
+      dealId: params.dealId,
+      automationRuleId: params.automationRuleId,
+      scheduledMessageId: i === 0 ? params.scheduledMessageId : undefined,
+    });
+
+    if (!lastResult.success) break;
+  }
+
+  return lastResult;
 }
 
 /**
@@ -166,7 +241,7 @@ export async function sendTelegramWithTracking(params: {
 async function executeWithTracking(
   method: string,
   body: Record<string, unknown>,
-  meta: { chatId: number; preview: string; notificationType: string; dealId?: string; automationRuleId?: string; scheduledMessageId?: string }
+  meta: { chatId: number; preview: string; fullText?: string; notificationType: string; dealId?: string; automationRuleId?: string; scheduledMessageId?: string }
 ): Promise<SendResult> {
   if (!BOT_TOKEN) return { success: false, error: "No bot token configured" };
   const supabase = createSupabaseAdmin();
@@ -187,6 +262,7 @@ async function executeWithTracking(
           deal_id: meta.dealId ?? null,
           tg_chat_id: meta.chatId,
           message_preview: meta.preview,
+          message_full_text: meta.fullText ?? null,
           status: "sent",
           tg_message_id: data.result?.message_id ?? null,
           automation_rule_id: meta.automationRuleId ?? null,
@@ -198,16 +274,57 @@ async function executeWithTracking(
     }
 
     const errMsg = data.description ?? "Unknown Telegram error";
+    const errorCode = data.error_code;
+
+    // Handle 429 Flood Wait — retry after the specified delay
+    if (errorCode === 429 && data.parameters?.retry_after) {
+      const retryAfterSec = data.parameters.retry_after;
+      if (retryAfterSec <= 30) {
+        await new Promise((r) => setTimeout(r, retryAfterSec * 1000));
+        // One retry
+        const retryRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const retryData = await retryRes.json();
+        if (retryData.ok) {
+          if (supabase) {
+            await supabase.from("crm_notification_log").insert({
+              notification_type: meta.notificationType,
+              deal_id: meta.dealId ?? null,
+              tg_chat_id: meta.chatId,
+              message_preview: meta.preview,
+          message_full_text: meta.fullText ?? null,
+              status: "sent",
+              tg_message_id: retryData.result?.message_id ?? null,
+              automation_rule_id: meta.automationRuleId ?? null,
+              scheduled_message_id: meta.scheduledMessageId ?? null,
+              sent_at: new Date().toISOString(),
+            });
+          }
+          return { success: true, messageId: retryData.result?.message_id };
+        }
+      }
+    }
+
+    // Detect permanently undeliverable errors — mark as dead_letter immediately
+    const isPermFailure =
+      errMsg.includes("user is deactivated") ||
+      errMsg.includes("bot was blocked by the user") ||
+      errMsg.includes("chat not found") ||
+      errMsg.includes("PEER_ID_INVALID");
+
     if (supabase) {
       await supabase.from("crm_notification_log").insert({
         notification_type: meta.notificationType,
         deal_id: meta.dealId ?? null,
         tg_chat_id: meta.chatId,
         message_preview: meta.preview,
-        status: "failed",
+        status: isPermFailure ? "dead_letter" : "failed",
         last_error: errMsg,
-        retry_count: 0,
-        next_retry_at: new Date(Date.now() + 60_000).toISOString(),
+        retry_count: isPermFailure ? 3 : 0,
+        next_retry_at: isPermFailure ? null : new Date(Date.now() + 60_000).toISOString(),
         automation_rule_id: meta.automationRuleId ?? null,
         scheduled_message_id: meta.scheduledMessageId ?? null,
       });
@@ -265,6 +382,71 @@ export async function sendTelegramMediaWithTracking(params: {
     notificationType: params.notificationType,
     dealId: params.dealId,
   });
+}
+
+/**
+ * Send a message and pin it in the chat. Used for deal status summaries.
+ * Unpins any previous bot-pinned status message first (best-effort).
+ */
+export async function sendAndPinMessage(params: {
+  chatId: number;
+  text: string;
+  notificationType: string;
+  dealId?: string;
+  disableNotification?: boolean;
+}): Promise<SendResult> {
+  if (!BOT_TOKEN) return { success: false, error: "No bot token configured" };
+
+  await acquireRateLimit(params.chatId);
+  const body = {
+    chat_id: params.chatId,
+    text: params.text,
+    parse_mode: "HTML",
+    disable_notification: params.disableNotification ?? true,
+  };
+
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!data.ok) return { success: false, error: data.description ?? "Send failed" };
+
+    const messageId = data.result?.message_id;
+    if (messageId) {
+      // Pin the message (silently)
+      fetch(`https://api.telegram.org/bot${BOT_TOKEN}/pinChatMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: params.chatId,
+          message_id: messageId,
+          disable_notification: true,
+        }),
+      }).catch(() => {});
+    }
+
+    // Log delivery
+    const supabase = createSupabaseAdmin();
+    if (supabase) {
+      const { error: logErr } = await supabase.from("crm_notification_log").insert({
+        notification_type: params.notificationType,
+        deal_id: params.dealId ?? null,
+        tg_chat_id: params.chatId,
+        message_preview: params.text.slice(0, 200),
+        status: "sent",
+        tg_message_id: messageId ?? null,
+        sent_at: new Date().toISOString(),
+      });
+      if (logErr) console.error("[telegram-send] delivery log error:", logErr.message);
+    }
+
+    return { success: true, messageId };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Network error" };
+  }
 }
 
 /**

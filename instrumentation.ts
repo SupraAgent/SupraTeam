@@ -14,17 +14,20 @@ export async function register() {
     console.log(`[startup] Node.js ${process.version}, uptime: ${process.uptime().toFixed(1)}s`);
 
     // Auto-setup Telegram webhook on Railway deploy
+    // NOTE: When webhook is active, the bot/ long-polling process must NOT run.
+    // Set USE_WEBHOOK=true in production. In dev, leave unset and use bot/index.ts polling.
     const baseUrl = process.env.NEXT_PUBLIC_SITE_URL;
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    const useWebhook = process.env.USE_WEBHOOK === "true" || !!process.env.RAILWAY_ENVIRONMENT;
 
-    if (baseUrl && botToken) {
+    if (baseUrl && botToken && useWebhook) {
       // Delay slightly to let the HTTP server bind first
       setTimeout(async () => {
         try {
           const webhookUrl = `${baseUrl}/api/bot/webhook`;
           const payload: Record<string, unknown> = {
             url: webhookUrl,
-            allowed_updates: ["message", "my_chat_member"],
+            allowed_updates: ["message", "my_chat_member", "chat_member", "callback_query", "inline_query", "chat_join_request"],
             drop_pending_updates: false,
           };
 

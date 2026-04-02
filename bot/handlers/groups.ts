@@ -126,8 +126,31 @@ export function registerGroupHandlers(bot: Bot) {
       } else {
         console.log(`[bot/groups] ${isAdmin ? "Admin" : "Member"} in: ${chatTitle} (${chatId})`);
 
-        // When bot is made admin: generate invite link + send welcome
+        // When bot is made admin: check specific permissions and generate invite link
         if (isAdmin) {
+          // Check admin permissions granularity
+          const member = ctx.myChatMember.new_chat_member;
+          if ("can_invite_users" in member || "can_pin_messages" in member) {
+            const perms = {
+              can_invite_users: (member as Record<string, unknown>).can_invite_users ?? false,
+              can_pin_messages: (member as Record<string, unknown>).can_pin_messages ?? false,
+              can_delete_messages: (member as Record<string, unknown>).can_delete_messages ?? false,
+              can_restrict_members: (member as Record<string, unknown>).can_restrict_members ?? false,
+            };
+            await supabase
+              .from("tg_groups")
+              .update({ admin_permissions: perms, updated_at: new Date().toISOString() })
+              .eq("telegram_group_id", chatId);
+
+            // Warn if missing critical permissions
+            const missing: string[] = [];
+            if (!perms.can_invite_users) missing.push("invite users");
+            if (!perms.can_pin_messages) missing.push("pin messages");
+            if (missing.length > 0) {
+              console.warn(`[bot/groups] Missing permissions in ${chatTitle}: ${missing.join(", ")}`);
+            }
+          }
+
           // Generate invite link and save to DB
           try {
             const inviteLink = await ctx.api.exportChatInviteLink(chatId);

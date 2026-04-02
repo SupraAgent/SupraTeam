@@ -5,6 +5,7 @@
 
 import type { Bot } from "grammy";
 import { supabase } from "../lib/supabase.js";
+import { executeDealMove } from "../../lib/deal-move.js";
 
 export function registerCallbackHandler(bot: Bot) {
   bot.on("callback_query:data", async (ctx) => {
@@ -24,7 +25,7 @@ export function registerCallbackHandler(bot: Bot) {
     // Resolve CRM user from telegram_id
     const { data: profile } = await supabase
       .from("profiles")
-      .select("id, crm_role")
+      .select("id, crm_role, display_name")
       .eq("telegram_id", telegramUserId)
       .single();
 
@@ -57,6 +58,8 @@ export function registerCallbackHandler(bot: Bot) {
       callback_data: data,
     });
 
+    const changedByName = profile.display_name ?? `User ${profile.id.slice(0, 8)}`;
+
     try {
       switch (action) {
         case "followup": {
@@ -72,48 +75,23 @@ export function registerCallbackHandler(bot: Bot) {
             return;
           }
 
-          const { data: deal } = await supabase
-            .from("crm_deals")
-            .select("id, deal_name, stage_id")
-            .eq("id", dealId)
-            .single();
-
-          if (!deal) {
-            await ctx.answerCallbackQuery({ text: "Deal not found" });
-            return;
-          }
-
-          if (deal.stage_id === followUpStage.id) {
-            await ctx.answerCallbackQuery({ text: `Already at ${followUpStage.name}` });
-            return;
-          }
-
-          await supabase
-            .from("crm_deals")
-            .update({
-              stage_id: followUpStage.id,
-              stage_changed_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", dealId);
-
-          // Log stage change
-          // TODO: Add evaluateAutomationRules, dispatchWebhook, and logAudit calls
-          // when the bot has access to those functions (requires architectural refactor
-          // to share server-side libs with the bot process).
-          await supabase.from("crm_deal_stage_history").insert({
-            deal_id: dealId,
-            from_stage_id: deal.stage_id,
-            to_stage_id: followUpStage.id,
-            changed_by: profile.id,
+          const result = await executeDealMove({
+            dealId,
+            toStageId: followUpStage.id,
+            changedByUserId: profile.id,
+            changedByName,
           });
 
-          await ctx.answerCallbackQuery({ text: `✅ ${deal.deal_name} → ${followUpStage.name}` });
+          if (!result.success) {
+            await ctx.answerCallbackQuery({ text: result.error ?? "Move failed" });
+            return;
+          }
 
-          // Update the message to show the action was taken
+          await ctx.answerCallbackQuery({ text: `Moved to ${followUpStage.name}` });
+
           try {
             await ctx.editMessageText(
-              ctx.callbackQuery.message?.text + `\n\n✅ Moved to ${followUpStage.name}`,
+              ctx.callbackQuery.message?.text + `\n\nMoved to ${followUpStage.name}`,
             );
           } catch {
             // Message might be too old to edit
@@ -153,7 +131,6 @@ export function registerCallbackHandler(bot: Bot) {
             .order("position")
             .limit(1);
 
-          // Filter by board_type if the current stage has one
           if (currentStage.board_type) {
             nextStageQuery = nextStageQuery.eq("board_type", currentStage.board_type);
           }
@@ -165,29 +142,23 @@ export function registerCallbackHandler(bot: Bot) {
             return;
           }
 
-          await supabase
-            .from("crm_deals")
-            .update({
-              stage_id: nextStage.id,
-              stage_changed_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", dealId);
-
-          // TODO: Add evaluateAutomationRules, dispatchWebhook, and logAudit calls
-          // when the bot has access to those functions (see followup action above).
-          await supabase.from("crm_deal_stage_history").insert({
-            deal_id: dealId,
-            from_stage_id: deal.stage_id,
-            to_stage_id: nextStage.id,
-            changed_by: profile.id,
+          const result = await executeDealMove({
+            dealId,
+            toStageId: nextStage.id,
+            changedByUserId: profile.id,
+            changedByName,
           });
 
-          await ctx.answerCallbackQuery({ text: `⏩ ${deal.deal_name} → ${nextStage.name}` });
+          if (!result.success) {
+            await ctx.answerCallbackQuery({ text: result.error ?? "Move failed" });
+            return;
+          }
+
+          await ctx.answerCallbackQuery({ text: `Skipped to ${nextStage.name}` });
 
           try {
             await ctx.editMessageText(
-              ctx.callbackQuery.message?.text + `\n\n⏩ Skipped to ${nextStage.name}`,
+              ctx.callbackQuery.message?.text + `\n\nSkipped to ${nextStage.name}`,
             );
           } catch {
             // Message might be too old to edit
