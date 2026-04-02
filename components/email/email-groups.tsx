@@ -570,7 +570,7 @@ export function EmailGroupPanel({
 
 // ── GroupRow ──────────────────────────────────────────────────
 
-function GroupRow({
+const GroupRow = React.memo(function GroupRow({
   group,
   isLoadingThreads,
   onToggle,
@@ -763,11 +763,11 @@ function GroupRow({
       )}
     </div>
   );
-}
+});
 
 // ── GroupThreadItem ──────────────────────────────────────────
 
-function GroupThreadItem({
+const GroupThreadItem = React.memo(function GroupThreadItem({
   thread,
   onSelect,
   onRemove,
@@ -802,4 +802,4 @@ function GroupThreadItem({
       </button>
     </div>
   );
-}
+});

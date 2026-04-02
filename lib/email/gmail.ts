@@ -131,10 +131,9 @@ export class GmailDriver implements MailDriver {
       pageToken: params.pageToken,
     }));
 
-    // Fetch threads in batches of 10 to avoid hitting Gmail rate limits
-    // HTTP/2 multiplexes these over a single TCP connection on Railway
+    // Fetch all threads in a single Promise.all — HTTP/2 multiplexes over one TCP connection.
+    // Default page size is 25, well within Gmail's per-user rate limit (250 quota units/sec).
     const rawThreads = (res.data.threads ?? []).filter((t) => t.id);
-    const BATCH_SIZE = 10;
     const fetchThread = (id: string) =>
       withBackoff(() => this.gmail.users.threads.get({
         userId: "me",
@@ -143,13 +142,9 @@ export class GmailDriver implements MailDriver {
         metadataHeaders: ["Subject", "From", "To", "Date"],
         fields: "id,snippet,messages(id,labelIds,internalDate,payload/headers)",
       }));
-    const threadData: Awaited<ReturnType<typeof fetchThread>>[] = [];
-    for (let i = 0; i < rawThreads.length; i += BATCH_SIZE) {
-      const batch = await Promise.all(
-        rawThreads.slice(i, i + BATCH_SIZE).map((t) => fetchThread(t.id!))
-      );
-      threadData.push(...batch);
-    }
+    const threadData = await Promise.all(
+      rawThreads.map((t) => fetchThread(t.id!))
+    );
     const threads: ThreadListItem[] = threadData.map((full) =>
       this.parseThreadListItem(full.data)
     );

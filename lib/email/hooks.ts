@@ -334,24 +334,20 @@ export function useBatchPrefetch(threads: { id: string }[], connectionId?: strin
         return !(entry && entry.data.messages?.length > 0 && Date.now() - entry.ts < CACHE_TTL);
       });
 
-    // Stagger prefetches to avoid request burst
-    const timers: ReturnType<typeof setTimeout>[] = [];
-    toPrefetch.forEach((t, i) => {
-      timers.push(setTimeout(() => {
-        prefetchedRef.current.add(t.id);
-        const url = connectionId
-          ? `/api/email/threads/${t.id}?connection_id=${connectionId}`
-          : `/api/email/threads/${t.id}`;
-        fetch(url)
-          .then((r) => r.json())
-          .then((json) => {
-            if (json.data) setCachedThread(t.id, json.data, connectionId);
-          })
-          .catch(() => {});
-      }, i * 200));
+    // Fire all prefetches simultaneously — HTTP/2 multiplexes them over a single connection
+    toPrefetch.forEach((t) => {
+      prefetchedRef.current.add(t.id);
+      const url = connectionId
+        ? `/api/email/threads/${t.id}?connection_id=${connectionId}`
+        : `/api/email/threads/${t.id}`;
+      fetch(url)
+        .then((r) => r.json())
+        .then((json) => {
+          if (json.data) setCachedThread(t.id, json.data, connectionId);
+        })
+        .catch(() => {});
     });
 
-    return () => { timers.forEach(clearTimeout); };
   }, [depKey, connectionId]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 

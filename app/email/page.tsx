@@ -123,14 +123,20 @@ function EmailPageInner() {
   // Dashboard layout — shared between DashboardBar and InlineDashboardPanels
   const { layout: dashboardLayout, togglePanel: dashboardTogglePanel, resetLayout: dashboardResetLayout } = useDashboardLayout();
 
-  // Visible threads based on active category
-  const visibleThreads = activeCategory === "all" ? threads : split[activeCategory];
+  // Visible threads based on active category (memoized to prevent ThreadList re-renders)
+  const visibleThreads = React.useMemo(
+    () => activeCategory === "all" ? threads : split[activeCategory],
+    [activeCategory, threads, split]
+  );
 
-  // Unread counts from labels
-  const unreadCounts: Record<string, number> = {};
-  for (const l of labels) {
-    if (l.unreadCount) unreadCounts[l.id] = l.unreadCount;
-  }
+  // Unread counts from labels (memoized — labels rarely change)
+  const unreadCounts = React.useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const l of labels) {
+      if (l.unreadCount) counts[l.id] = l.unreadCount;
+    }
+    return counts;
+  }, [labels]);
 
   // No connection flag (render handled after all hooks)
   const router = useRouter();
