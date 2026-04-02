@@ -1427,7 +1427,7 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
     id: "workflow-bridge",
     name: "Gap-to-Improvement Bridge",
     description: "Connect your improvement loop to the builder: identify top gaps, generate fixes with AI, run CPO reviews, and re-score automatically",
-    category: "improve" as const,
+    category: "improve",
     isBuiltIn: true,
     createdAt: "2026-03-27",
     nodes: [
@@ -1468,13 +1468,22 @@ export function getCustomTemplates(): FlowTemplate[] {
   if (typeof window === "undefined") return [];
   try {
     const raw = syncStorage.getItem(templateStorageKey());
-    return raw ? JSON.parse(raw) : [];
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (t): t is FlowTemplate =>
+        t != null &&
+        typeof t === "object" &&
+        typeof (t as FlowTemplate).id === "string" &&
+        Array.isArray((t as FlowTemplate).nodes)
+    );
   } catch {
     return [];
   }
 }
 
-export function saveCustomTemplate(template: FlowTemplate): void {
+export function saveCustomTemplate(template: FlowTemplate): boolean {
   const existing = getCustomTemplates();
   const idx = existing.findIndex((t) => t.id === template.id);
   if (idx >= 0) {
@@ -1484,8 +1493,10 @@ export function saveCustomTemplate(template: FlowTemplate): void {
   }
   try {
     syncStorage.setItem(templateStorageKey(), JSON.stringify(existing));
+    return true;
   } catch (e) {
-    console.warn(`[${getBuilderConfig().logPrefix}] Failed to save template — localStorage may be full:`, e);
+    console.error(`[${getBuilderConfig().logPrefix}] Failed to save template — localStorage may be full:`, e);
+    return false;
   }
 }
 
@@ -1518,6 +1529,7 @@ export const DOMAIN_TEMPLATE_IDS = new Set([
   "workflow-my-personas",
   "workflow-bridge",
   "workflow-improvement-loop",
+  "workflow-claude-project-setup",
 ]);
 
 /** Templates that use only generic node types — safe without domain nodes. */
@@ -1579,7 +1591,10 @@ export function getStarredTemplateIds(): Set<string> {
   if (typeof window === "undefined") return new Set();
   try {
     const raw = syncStorage.getItem(starredStorageKey());
-    return raw ? new Set(JSON.parse(raw)) : new Set();
+    if (!raw) return new Set();
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((v): v is string => typeof v === "string"));
   } catch {
     return new Set();
   }

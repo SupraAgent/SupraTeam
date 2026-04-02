@@ -24,6 +24,10 @@ type TemplateManagerProps = {
 
 type Tab = "browse" | "create";
 
+const CATEGORIES: FlowTemplate["category"][] = [
+  "crm", "telegram", "email", "custom",
+];
+
 export function TemplateManager({
   category,
   currentNodes,
@@ -36,10 +40,7 @@ export function TemplateManager({
   const [newDesc, setNewDesc] = React.useState("");
   const [selectedCategory, setSelectedCategory] = React.useState<FlowTemplate["category"]>(category);
   const [customTemplates, setCustomTemplates] = React.useState(getCustomTemplates);
-
-  const CATEGORIES: FlowTemplate["category"][] = [
-    "crm", "telegram", "email", "custom",
-  ];
+  const [confirmDeleteId, setConfirmDeleteId] = React.useState<string | null>(null);
 
   const templates = selectedCategory === "custom"
     ? customTemplates
@@ -52,8 +53,8 @@ export function TemplateManager({
       name: newName.trim(),
       description: newDesc.trim(),
       category: "custom",
-      nodes: currentNodes.map((n) => ({ ...n, data: { ...n.data } })),
-      edges: currentEdges.map((e) => ({ ...e, ...(e.style ? { style: { ...e.style } } : {}) })),
+      nodes: JSON.parse(JSON.stringify(currentNodes)),
+      edges: JSON.parse(JSON.stringify(currentEdges)),
       createdAt: new Date().toISOString().split("T")[0],
       isBuiltIn: false,
     };
@@ -67,22 +68,26 @@ export function TemplateManager({
 
   function handleUseTemplate(template: FlowTemplate) {
     if (template.isBuiltIn) {
-      // Create a copy — never edit the original built-in
       const copy = copyTemplate(template);
       setCustomTemplates(getCustomTemplates());
       onSelect(copy);
     } else {
-      // For custom templates, pass a shallow copy so consumers don't mutate state
       onSelect({
         ...template,
-        nodes: template.nodes.map((n) => ({ ...n, data: { ...n.data } })),
-        edges: template.edges.map((e) => ({ ...e, ...(e.style ? { style: { ...e.style } } : {}) })),
+        nodes: JSON.parse(JSON.stringify(template.nodes)),
+        edges: JSON.parse(JSON.stringify(template.edges)),
       });
     }
+    onClose();
   }
 
   function handleDelete(id: string) {
+    if (confirmDeleteId !== id) {
+      setConfirmDeleteId(id);
+      return;
+    }
     deleteCustomTemplate(id);
+    setConfirmDeleteId(null);
     setCustomTemplates(getCustomTemplates());
   }
 
@@ -159,9 +164,13 @@ export function TemplateManager({
                           e.stopPropagation();
                           handleDelete(template.id);
                         }}
-                        className="text-xs text-muted-foreground hover:text-red-400 transition cursor-pointer"
+                        className={`text-xs transition cursor-pointer ${
+                          confirmDeleteId === template.id
+                            ? "text-red-400 font-medium"
+                            : "text-muted-foreground hover:text-red-400"
+                        }`}
                       >
-                        ✕
+                        {confirmDeleteId === template.id ? "Confirm?" : "✕"}
                       </span>
                     )}
                   </div>

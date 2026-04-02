@@ -79,6 +79,11 @@ export function TemplateSidebar({
   const [confirmDeleteId, setConfirmDeleteId] = React.useState<string | null>(null);
   const [saveFlash, setSaveFlash] = React.useState(false);
 
+  const switchTab = (t: Tab) => {
+    setTab(t);
+    setConfirmDeleteId(null);
+  };
+
   const refresh = React.useCallback(() => {
     setStarred(getStarredTemplateIds());
     setCustomFlowTemplates(getCustomTemplates());
@@ -146,17 +151,6 @@ export function TemplateSidebar({
     } else {
       deleteBuilderTemplate(item.id);
     }
-    setConfirmDeleteId(null);
-    refresh();
-  };
-
-  const handleDeleteBuiltInCopy = (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    if (confirmDeleteId !== id) {
-      setConfirmDeleteId(id);
-      return;
-    }
-    deleteCustomTemplate(id);
     setConfirmDeleteId(null);
     refresh();
   };
@@ -308,7 +302,7 @@ export function TemplateSidebar({
       {/* Tabs */}
       <div className="flex border-b border-white/10">
         <button
-          onClick={() => setTab("templates")}
+          onClick={() => switchTab("templates")}
           className={`flex-1 px-3 py-2 text-xs font-medium transition ${
             tab === "templates"
               ? "text-primary border-b-2 border-primary"
@@ -318,7 +312,7 @@ export function TemplateSidebar({
           Templates
         </button>
         <button
-          onClick={() => setTab("my-templates")}
+          onClick={() => switchTab("my-templates")}
           className={`flex-1 px-3 py-2 text-xs font-medium transition ${
             tab === "my-templates"
               ? "text-primary border-b-2 border-primary"
@@ -334,7 +328,7 @@ export function TemplateSidebar({
         </button>
         {lockedGroups && lockedGroups.size > 0 && (
           <button
-            onClick={() => setTab("groups")}
+            onClick={() => switchTab("groups")}
             className={`flex-1 px-3 py-2 text-xs font-medium transition ${
               tab === "groups"
                 ? "text-primary border-b-2 border-primary"
@@ -349,8 +343,8 @@ export function TemplateSidebar({
         )}
       </div>
 
-      {/* Search */}
-      <div className="border-b border-white/10 px-3 py-2">
+      {/* Search (hidden on groups tab where it has no effect) */}
+      {tab !== "groups" && <div className="border-b border-white/10 px-3 py-2">
         <div className="relative">
           <svg
             className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
@@ -367,7 +361,7 @@ export function TemplateSidebar({
             className="w-full rounded-lg border border-white/10 bg-white/5 py-1.5 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary/30 focus:outline-none transition"
           />
         </div>
-      </div>
+      </div>}
 
       {/* Template list */}
       <div className="flex-1 overflow-y-auto p-3 space-y-1">
