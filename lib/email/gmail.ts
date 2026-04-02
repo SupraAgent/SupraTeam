@@ -181,22 +181,32 @@ export class GmailDriver implements MailDriver {
       pageToken: params.pageToken,
     }));
 
-    // Fetch all threads in a single Promise.all — HTTP/2 multiplexes over one TCP connection.
-    // Default page size is 25, well within Gmail's per-user rate limit (250 quota units/sec).
     const rawThreads = (res.data.threads ?? []).filter((t) => t.id);
-    const fetchThread = (id: string) =>
-      withBackoff(() => this.gmail.users.threads.get({
-        userId: "me",
-        id,
-        format: "METADATA",
-        metadataHeaders: ["Subject", "From", "To", "Date"],
-        fields: "id,snippet,messages(id,labelIds,internalDate,payload/headers)",
-      }));
-    const threadData = await Promise.all(
-      rawThreads.map((t) => fetchThread(t.id!))
-    );
-    const threads: ThreadListItem[] = threadData.map((full) =>
-      this.parseThreadListItem(full.data)
+    const threadIds = rawThreads.map((t) => t.id!);
+
+    // Use Gmail Batch API: 1 HTTP request for all thread metadata instead of N individual calls.
+    // Falls back to parallel individual requests if batch fails.
+    let threadData: gmail_v1.Schema$Thread[];
+    try {
+      threadData = await this.batchGetThreadMetadata(threadIds);
+    } catch {
+      // Fallback: individual requests with HTTP/2 multiplexing
+      const results = await Promise.all(
+        threadIds.map((id) =>
+          withBackoff(() => this.gmail.users.threads.get({
+            userId: "me",
+            id,
+            format: "METADATA",
+            metadataHeaders: ["Subject", "From", "To", "Date"],
+            fields: "id,snippet,messages(id,labelIds,internalDate,payload/headers)",
+          })).then((r) => r.data)
+        )
+      );
+      threadData = results;
+    }
+
+    const threads: ThreadListItem[] = threadData.map((data) =>
+      this.parseThreadListItem(data)
     );
 
     return {
@@ -204,6 +214,74 @@ export class GmailDriver implements MailDriver {
       nextPageToken: res.data.nextPageToken ?? undefined,
       resultSizeEstimate: res.data.resultSizeEstimate ?? undefined,
     };
+  }
+
+  /** Fetch multiple threads in a single HTTP request via Gmail's batch endpoint.
+   *  Reduces N+1 → 1 call (max 100 per batch). Quota cost per thread is the same,
+   *  but HTTP overhead drops from 25 round-trips to 1. */
+  private async batchGetThreadMetadata(threadIds: string[]): Promise<gmail_v1.Schema$Thread[]> {
+    if (threadIds.length === 0) return [];
+
+    const token = await this.getAccessToken();
+    const boundary = `batch_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const fields = encodeURIComponent("id,snippet,messages(id,labelIds,internalDate,payload/headers)");
+
+    const parts = threadIds.map((id, i) =>
+      [
+        `--${boundary}`,
+        "Content-Type: application/http",
+        `Content-ID: <item${i}>`,
+        "",
+        `GET /gmail/v1/users/me/threads/${id}?format=METADATA&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Date&fields=${fields}`,
+        "",
+      ].join("\r\n")
+    );
+
+    const body = parts.join("\r\n") + `\r\n--${boundary}--`;
+
+    const response = await withBackoff(() =>
+      fetch("https://www.googleapis.com/batch/gmail/v1", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": `multipart/mixed; boundary=${boundary}`,
+        },
+        body,
+      }).then((r) => {
+        if (!r.ok) throw Object.assign(new Error(`Batch API ${r.status}`), { code: r.status });
+        return r;
+      })
+    );
+
+    const responseText = await response.text();
+    const respBoundary = response.headers.get("content-type")?.match(/boundary=(.+)/)?.[1];
+    if (!respBoundary) throw new Error("No boundary in batch response");
+
+    // Parse multipart response — each part contains an HTTP response with JSON body
+    const respParts = responseText.split(`--${respBoundary}`).slice(1, -1);
+    const threads: gmail_v1.Schema$Thread[] = [];
+
+    for (const part of respParts) {
+      // Find the JSON body after the double CRLF separating headers from body
+      // Structure: MIME headers \r\n\r\n HTTP status line \r\n HTTP headers \r\n\r\n JSON body
+      const jsonStart = part.indexOf("{");
+      const jsonEnd = part.lastIndexOf("}");
+      if (jsonStart === -1 || jsonEnd === -1) continue;
+
+      try {
+        const data = JSON.parse(part.slice(jsonStart, jsonEnd + 1)) as gmail_v1.Schema$Thread;
+        if (data.id) threads.push(data);
+      } catch {
+        // Skip malformed individual responses — don't fail the whole batch
+      }
+    }
+
+    // If batch returned significantly fewer threads than requested, something went wrong
+    if (threads.length < threadIds.length * 0.5 && threadIds.length > 2) {
+      throw new Error(`Batch returned ${threads.length}/${threadIds.length} threads`);
+    }
+
+    return threads;
   }
 
   async getThread(threadId: string): Promise<Thread> {

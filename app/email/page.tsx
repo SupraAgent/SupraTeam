@@ -12,7 +12,7 @@ import { UndoSendProvider, UndoSendBar } from "@/components/email/undo-send-bar"
 import { SnoozePicker } from "@/components/email/snooze-picker";
 import { AdvancedSearch } from "@/components/email/advanced-search";
 import { KeyboardHelp } from "@/components/email/keyboard-help";
-import { useThreads, useThread, useLabels, useEmailActions, useEmailKeyboard, useEmailConnections, useSplitInbox, useAICategories, usePrefetchThread, useBatchPrefetch, useGmailPush } from "@/lib/email/hooks";
+import { useThreads, useThread, useLabels, useEmailActions, useEmailKeyboard, useEmailConnections, useSplitInbox, useAICategories, usePrefetchThread, useBatchPrefetch, useGmailPush, useEmailServiceWorker } from "@/lib/email/hooks";
 import { INBOX_CATEGORIES, type InboxCategory } from "@/lib/email/types";
 import { EmailErrorBoundary } from "@/components/email/error-boundary";
 import { toast } from "sonner";
@@ -35,6 +35,7 @@ export default function EmailPage() {
 }
 
 function EmailPageInner() {
+  useEmailServiceWorker();
   const { connections, loading: connectionsLoading, refresh: refreshConnections } = useEmailConnections();
   const [activeConnectionId, setActiveConnectionId] = React.useState<string | undefined>(undefined);
   const [activeLabel, setActiveLabel] = React.useState("INBOX");

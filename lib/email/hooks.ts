@@ -1003,3 +1003,33 @@ export function useEmailKeyboard(actions: KeyboardActions, enabled = true) {
     };
   }, [enabled]);
 }
+
+// ── Service Worker Registration ────────────────────────────────
+
+/** Register the email service worker for offline caching.
+ *  Network-first with cache fallback — users see cached data on flaky connections
+ *  instead of blank screens. Call once in the email page root. */
+export function useEmailServiceWorker() {
+  React.useEffect(() => {
+    if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
+
+    navigator.serviceWorker
+      .register("/email-sw.js", { scope: "/email" })
+      .catch((err) => {
+        console.warn("[email-sw] Registration failed:", err);
+      });
+
+    return () => {
+      // Don't unregister on unmount — SW should persist across navigations
+    };
+  }, []);
+}
+
+/** Invalidate specific cache patterns in the service worker (e.g., after send/archive) */
+export function invalidateSwCache(pattern: string) {
+  if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
+  navigator.serviceWorker.controller?.postMessage({
+    type: "INVALIDATE_CACHE",
+    pattern,
+  });
+}
