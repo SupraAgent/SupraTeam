@@ -38,6 +38,47 @@ function isLightColor(hex: string): boolean {
   return (r * 299 + g * 587 + b * 114) / 1000 > 150;
 }
 
+/** Gmail's allowed label background colors — arbitrary hex values are silently rejected. */
+const GMAIL_LABEL_COLORS = [
+  "#000000", "#434343", "#666666", "#999999", "#cccccc", "#efefef", "#f3f3f3", "#ffffff",
+  "#fb4c2f", "#ffad47", "#fad165", "#16a766", "#43d692", "#4a86e8", "#a479e2", "#f691b3",
+  "#f6c5be", "#ffe6c7", "#fef1d1", "#b9e4d0", "#c6f3de", "#c9daf8", "#e4d7f5", "#fcdee8",
+  "#efa093", "#ffd6a2", "#fce8b3", "#89d3b2", "#a0eac9", "#a4c2f4", "#d0bcf1", "#fbc8d9",
+  "#e66550", "#ffbc6b", "#fcda83", "#68dfa9", "#7ae7bf", "#6d9eeb", "#b694e8", "#f7a7c0",
+  "#cc3a21", "#eaa041", "#f2c960", "#149e60", "#44b984", "#3c78d8", "#8e63ce", "#e07798",
+  "#ac2b16", "#cf8933", "#d5ae49", "#0b804b", "#2a9c68", "#285bac", "#653e9b", "#b65775",
+  "#822111", "#a46a21", "#aa8831", "#076239", "#1a764d", "#1c4587", "#41236d", "#83334c",
+  "#464646", "#e7e7e7", "#0d3472", "#b6cff5", "#0d3b44", "#98d7e4", "#3d188e", "#e3d7ff",
+  "#711a36", "#fbd3e0", "#8a1c0a", "#f2b2a8", "#7a2e0b", "#ffc8af", "#7a4706", "#ffdeb5",
+  "#594c05", "#fbe983", "#684e07", "#fdedc1", "#0b4f30", "#b3efd3", "#04502e", "#a2dcc1",
+  "#c2c2c2", "#4986e7", "#2da2bb", "#b99aff", "#994a64", "#f691b2", "#ff7537", "#ffad46",
+  "#ebdbde", "#cca6ac", "#b7e1cd", "#8fcaca", "#d2e7fe", "#aecbfa", "#d7aefb", "#e8a0bf",
+];
+
+/** Find the nearest Gmail-allowed color to an arbitrary hex value */
+function nearestGmailColor(hex: string): string {
+  const h = hex.replace("#", "");
+  const tr = parseInt(h.substring(0, 2), 16);
+  const tg = parseInt(h.substring(2, 4), 16);
+  const tb = parseInt(h.substring(4, 6), 16);
+
+  let bestColor = GMAIL_LABEL_COLORS[0];
+  let bestDist = Infinity;
+  for (const c of GMAIL_LABEL_COLORS) {
+    const ch = c.replace("#", "");
+    const cr = parseInt(ch.substring(0, 2), 16);
+    const cg = parseInt(ch.substring(2, 4), 16);
+    const cb = parseInt(ch.substring(4, 6), 16);
+    // Weighted Euclidean distance (human perception weights)
+    const dist = 2 * (tr - cr) ** 2 + 4 * (tg - cg) ** 2 + 3 * (tb - cb) ** 2;
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestColor = c;
+    }
+  }
+  return bestColor;
+}
+
 /** Retry Gmail API calls on 429/5xx with exponential backoff (Google requirement) */
 async function withBackoff<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -68,6 +109,15 @@ export class GmailDriver implements MailDriver {
 
   public connectionId: string | null = null;
   public userId: string | null = null;
+
+  /** Invalidate thread list cache after mutations (send/reply/archive/trash/read/star) */
+  private invalidateThreadCache(): void {
+    if (!this.userId) return;
+    // Lazy import to avoid circular dependency at module load time
+    import("./server-cache").then(({ serverCache }) => {
+      serverCache.invalidatePrefix(`threads:${this.userId}:`);
+    }).catch(() => { /* best effort */ });
+  }
 
   constructor(config: GmailConfig) {
     this.auth = new google.auth.OAuth2(config.clientId, config.clientSecret);
@@ -131,27 +181,32 @@ export class GmailDriver implements MailDriver {
       pageToken: params.pageToken,
     }));
 
-    // Fetch threads in batches of 10 to avoid hitting Gmail rate limits
-    // HTTP/2 multiplexes these over a single TCP connection on Railway
     const rawThreads = (res.data.threads ?? []).filter((t) => t.id);
-    const BATCH_SIZE = 10;
-    const fetchThread = (id: string) =>
-      withBackoff(() => this.gmail.users.threads.get({
-        userId: "me",
-        id,
-        format: "METADATA",
-        metadataHeaders: ["Subject", "From", "To", "Date"],
-        fields: "id,snippet,messages(id,labelIds,internalDate,payload/headers)",
-      }));
-    const threadData: Awaited<ReturnType<typeof fetchThread>>[] = [];
-    for (let i = 0; i < rawThreads.length; i += BATCH_SIZE) {
-      const batch = await Promise.all(
-        rawThreads.slice(i, i + BATCH_SIZE).map((t) => fetchThread(t.id!))
+    const threadIds = rawThreads.map((t) => t.id!);
+
+    // Use Gmail Batch API: 1 HTTP request for all thread metadata instead of N individual calls.
+    // Falls back to parallel individual requests if batch fails.
+    let threadData: gmail_v1.Schema$Thread[];
+    try {
+      threadData = await this.batchGetThreadMetadata(threadIds);
+    } catch {
+      // Fallback: individual requests with HTTP/2 multiplexing
+      const results = await Promise.all(
+        threadIds.map((id) =>
+          withBackoff(() => this.gmail.users.threads.get({
+            userId: "me",
+            id,
+            format: "METADATA",
+            metadataHeaders: ["Subject", "From", "To", "Date"],
+            fields: "id,snippet,messages(id,labelIds,internalDate,payload/headers)",
+          })).then((r) => r.data)
+        )
       );
-      threadData.push(...batch);
+      threadData = results;
     }
-    const threads: ThreadListItem[] = threadData.map((full) =>
-      this.parseThreadListItem(full.data)
+
+    const threads: ThreadListItem[] = threadData.map((data) =>
+      this.parseThreadListItem(data)
     );
 
     return {
@@ -159,6 +214,74 @@ export class GmailDriver implements MailDriver {
       nextPageToken: res.data.nextPageToken ?? undefined,
       resultSizeEstimate: res.data.resultSizeEstimate ?? undefined,
     };
+  }
+
+  /** Fetch multiple threads in a single HTTP request via Gmail's batch endpoint.
+   *  Reduces N+1 → 1 call (max 100 per batch). Quota cost per thread is the same,
+   *  but HTTP overhead drops from 25 round-trips to 1. */
+  private async batchGetThreadMetadata(threadIds: string[]): Promise<gmail_v1.Schema$Thread[]> {
+    if (threadIds.length === 0) return [];
+
+    const token = await this.getAccessToken();
+    const boundary = `batch_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const fields = encodeURIComponent("id,snippet,messages(id,labelIds,internalDate,payload/headers)");
+
+    const parts = threadIds.map((id, i) =>
+      [
+        `--${boundary}`,
+        "Content-Type: application/http",
+        `Content-ID: <item${i}>`,
+        "",
+        `GET /gmail/v1/users/me/threads/${id}?format=METADATA&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Date&fields=${fields}`,
+        "",
+      ].join("\r\n")
+    );
+
+    const body = parts.join("\r\n") + `\r\n--${boundary}--`;
+
+    const response = await withBackoff(() =>
+      fetch("https://www.googleapis.com/batch/gmail/v1", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": `multipart/mixed; boundary=${boundary}`,
+        },
+        body,
+      }).then((r) => {
+        if (!r.ok) throw Object.assign(new Error(`Batch API ${r.status}`), { code: r.status });
+        return r;
+      })
+    );
+
+    const responseText = await response.text();
+    const respBoundary = response.headers.get("content-type")?.match(/boundary=(.+)/)?.[1];
+    if (!respBoundary) throw new Error("No boundary in batch response");
+
+    // Parse multipart response — each part contains an HTTP response with JSON body
+    const respParts = responseText.split(`--${respBoundary}`).slice(1, -1);
+    const threads: gmail_v1.Schema$Thread[] = [];
+
+    for (const part of respParts) {
+      // Find the JSON body after the double CRLF separating headers from body
+      // Structure: MIME headers \r\n\r\n HTTP status line \r\n HTTP headers \r\n\r\n JSON body
+      const jsonStart = part.indexOf("{");
+      const jsonEnd = part.lastIndexOf("}");
+      if (jsonStart === -1 || jsonEnd === -1) continue;
+
+      try {
+        const data = JSON.parse(part.slice(jsonStart, jsonEnd + 1)) as gmail_v1.Schema$Thread;
+        if (data.id) threads.push(data);
+      } catch {
+        // Skip malformed individual responses — don't fail the whole batch
+      }
+    }
+
+    // If batch returned significantly fewer threads than requested, something went wrong
+    if (threads.length < threadIds.length * 0.5 && threadIds.length > 2) {
+      throw new Error(`Batch returned ${threads.length}/${threadIds.length} threads`);
+    }
+
+    return threads;
   }
 
   async getThread(threadId: string): Promise<Thread> {
@@ -176,6 +299,7 @@ export class GmailDriver implements MailDriver {
       id: threadId,
       requestBody: { removeLabelIds: ["UNREAD"] },
     }));
+    this.invalidateThreadCache();
   }
 
   async markAsUnread(threadId: string): Promise<void> {
@@ -184,6 +308,7 @@ export class GmailDriver implements MailDriver {
       id: threadId,
       requestBody: { addLabelIds: ["UNREAD"] },
     }));
+    this.invalidateThreadCache();
   }
 
   async archive(threadId: string): Promise<void> {
@@ -192,10 +317,12 @@ export class GmailDriver implements MailDriver {
       id: threadId,
       requestBody: { removeLabelIds: ["INBOX"] },
     }));
+    this.invalidateThreadCache();
   }
 
   async trash(threadId: string): Promise<void> {
     await withBackoff(() => this.gmail.users.threads.trash({ userId: "me", id: threadId }));
+    this.invalidateThreadCache();
   }
 
   async toggleStar(threadId: string, currentlyStarred?: boolean): Promise<void> {
@@ -240,11 +367,49 @@ export class GmailDriver implements MailDriver {
   }
 
   async modifyLabels(threadId: string, add: string[], remove: string[]): Promise<void> {
-    await this.gmail.users.threads.modify({
+    await withBackoff(() => this.gmail.users.threads.modify({
       userId: "me",
       id: threadId,
       requestBody: { addLabelIds: add, removeLabelIds: remove },
-    });
+    }));
+  }
+
+  /** Bulk apply/remove labels across multiple threads in a single API call per unique label set.
+   *  Uses messages.batchModify which is far more efficient than per-thread modify calls. */
+  async batchModifyLabels(threadIds: string[], add: string[], remove: string[]): Promise<void> {
+    if (threadIds.length === 0) return;
+    // Get message IDs for all threads (batchModify works on messages, not threads)
+    const msgIds: string[] = [];
+    const BATCH = 10;
+    for (let i = 0; i < threadIds.length; i += BATCH) {
+      const batch = threadIds.slice(i, i + BATCH);
+      const results = await Promise.all(
+        batch.map((tid) =>
+          withBackoff(() => this.gmail.users.threads.get({
+            userId: "me",
+            id: tid,
+            format: "MINIMAL",
+            fields: "messages(id)",
+          })).catch(() => null)
+        )
+      );
+      for (const r of results) {
+        if (r?.data?.messages) {
+          for (const m of r.data.messages) {
+            if (m.id) msgIds.push(m.id);
+          }
+        }
+      }
+    }
+    if (msgIds.length === 0) return;
+    await withBackoff(() => this.gmail.users.messages.batchModify({
+      userId: "me",
+      requestBody: {
+        ids: msgIds,
+        addLabelIds: add.length > 0 ? add : undefined,
+        removeLabelIds: remove.length > 0 ? remove : undefined,
+      },
+    }));
   }
 
   async send(params: SendParams): Promise<Message> {
@@ -259,6 +424,7 @@ export class GmailDriver implements MailDriver {
       id: res.data.id!,
       format: "FULL",
     }));
+    this.invalidateThreadCache();
     return this.parseMessage(msg.data);
   }
 
@@ -326,6 +492,7 @@ export class GmailDriver implements MailDriver {
       id: res.data.id!,
       format: "FULL",
     }));
+    this.invalidateThreadCache();
     return this.parseMessage(msg.data);
   }
 
@@ -436,8 +603,8 @@ export class GmailDriver implements MailDriver {
       throw new Error(`Invalid label name: must be 1-225 characters (got ${name.length})`);
     }
 
-    const bgColor = color ?? "#4986e7"; // Default Gmail blue
-    // Map light backgrounds to dark text for readability in Gmail
+    // Map to nearest Gmail-allowed color — arbitrary hex values are silently rejected
+    const bgColor = nearestGmailColor(color ?? "#4986e7");
     const textColor = isLightColor(bgColor) ? "#000000" : "#ffffff";
     const res = await withBackoff(() =>
       this.gmail.users.labels.create({
@@ -734,12 +901,20 @@ export class GmailDriver implements MailDriver {
 
     function walk(part: gmail_v1.Schema$MessagePart) {
       if (part.filename && part.body?.attachmentId) {
-        attachments.push({
-          id: part.body.attachmentId,
-          filename: part.filename,
-          mimeType: part.mimeType ?? "application/octet-stream",
-          size: part.body.size ?? 0,
-        });
+        // Skip inline images (signature logos, embedded images) — they have Content-ID
+        // and Content-Disposition: inline, and clutter the attachment list
+        const headers = part.headers ?? [];
+        const contentDisposition = headers.find((h) => h.name?.toLowerCase() === "content-disposition")?.value ?? "";
+        const contentId = headers.find((h) => h.name?.toLowerCase() === "content-id")?.value;
+        const isInline = contentDisposition.toLowerCase().startsWith("inline") && !!contentId;
+        if (!isInline) {
+          attachments.push({
+            id: part.body.attachmentId,
+            filename: part.filename,
+            mimeType: part.mimeType ?? "application/octet-stream",
+            size: part.body.size ?? 0,
+          });
+        }
       }
       for (const p of part.parts ?? []) walk(p);
     }

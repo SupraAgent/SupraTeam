@@ -34,6 +34,18 @@ async function verifyPubSubToken(request: Request): Promise<boolean> {
 
 // Cap auto-routing to avoid blowing past Pub/Sub's 10s ack deadline
 const MAX_AUTO_ROUTE_THREADS = 20;
+// Hard timeout for per-connection processing — Pub/Sub redelivers after ~10s
+const CONNECTION_TIMEOUT_MS = 8_000;
+
+/** Race a promise against a timeout */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`[gmail-webhook] ${label} timed out after ${ms}ms`)), ms)
+    ),
+  ]);
+}
 
 export async function POST(request: Request) {
   // Verify the request is from Google Pub/Sub
@@ -84,7 +96,7 @@ export async function POST(request: Request) {
 
   // Process all connections in parallel to stay within Pub/Sub's 10s ack deadline.
   // Sequential processing with shared inboxes (N users × driver init × API call) would exceed it.
-  await Promise.allSettled(connections.map(async (conn) => {
+  await Promise.allSettled(connections.map((conn) => withTimeout(async function processConnection() {
     const previousHistoryId = conn.watch_history_id;
 
     // Validate historyId is monotonically increasing to prevent replay attacks
@@ -161,13 +173,16 @@ export async function POST(request: Request) {
 
             if (driver) {
               const capped = threadIds.slice(0, MAX_AUTO_ROUTE_THREADS);
+              const routeDriver = driver; // Capture non-null reference for closure
+
+              // Phase 1: Fetch thread details to determine contact matches
               const BATCH_SIZE = 5;
+              const threadDetails: { threadId: string; matchedGroupIds: Set<string>; fromEmail: string; fromName: string; subject: string; snippet: string; date: string }[] = [];
               for (let i = 0; i < capped.length; i += BATCH_SIZE) {
                 const batch = capped.slice(i, i + BATCH_SIZE);
-                const routeDriver = driver; // Capture non-null reference for closure
-                await Promise.allSettled(batch.map(async (threadId) => {
+                const results = await Promise.allSettled(batch.map(async (threadId) => {
                   const thread = await routeDriver.getThread(threadId);
-                  if (!thread?.messages?.length) return;
+                  if (!thread?.messages?.length) return null;
 
                   const fromEmails = [...new Set(
                     thread.messages
@@ -180,35 +195,62 @@ export async function POST(request: Request) {
                     const gids = contactMap.get(email);
                     if (gids) gids.forEach((id) => matchedGroupIds.add(id));
                   }
-
-                  if (matchedGroupIds.size === 0) return;
+                  if (matchedGroupIds.size === 0) return null;
 
                   const lastMsg = thread.messages[thread.messages.length - 1];
-                  const fromEmail = lastMsg?.from?.email ?? "";
-                  const fromName = lastMsg?.from?.name ?? "";
-                  await Promise.allSettled([...matchedGroupIds].map((groupId) => {
-                    const labelId = gmailLabelMap.get(groupId);
-                    if (labelId) {
-                      return routeDriver.modifyLabels(threadId, [labelId], []);
-                    }
-                    return admin
-                      .from("crm_email_group_threads")
-                      .upsert(
-                        {
-                          group_id: groupId,
-                          thread_id: threadId,
-                          subject: thread.subject ?? null,
-                          snippet: thread.snippet ?? null,
-                          from_email: fromEmail,
-                          from_name: fromName,
-                          last_message_at: lastMsg?.date ?? new Date().toISOString(),
-                          auto_added: true,
-                        },
-                        { onConflict: "group_id,thread_id" }
-                      );
-                  }));
+                  return {
+                    threadId,
+                    matchedGroupIds,
+                    fromEmail: lastMsg?.from?.email ?? "",
+                    fromName: lastMsg?.from?.name ?? "",
+                    subject: thread.subject ?? "",
+                    snippet: thread.snippet ?? "",
+                    date: lastMsg?.date ?? new Date().toISOString(),
+                  };
                 }));
+                for (const r of results) {
+                  if (r.status === "fulfilled" && r.value) threadDetails.push(r.value);
+                }
               }
+
+              // Phase 2: Batch label operations — group threads by label for batchModifyLabels
+              const labelToThreads = new Map<string, string[]>();
+              const imapUpserts: { group_id: string; thread_id: string; subject: string | null; snippet: string | null; from_email: string; from_name: string; last_message_at: string; auto_added: boolean }[] = [];
+
+              for (const td of threadDetails) {
+                for (const groupId of td.matchedGroupIds) {
+                  const labelId = gmailLabelMap.get(groupId);
+                  if (labelId) {
+                    const list = labelToThreads.get(labelId) ?? [];
+                    list.push(td.threadId);
+                    labelToThreads.set(labelId, list);
+                  } else {
+                    imapUpserts.push({
+                      group_id: groupId,
+                      thread_id: td.threadId,
+                      subject: td.subject || null,
+                      snippet: td.snippet || null,
+                      from_email: td.fromEmail,
+                      from_name: td.fromName,
+                      last_message_at: td.date,
+                      auto_added: true,
+                    });
+                  }
+                }
+              }
+
+              // Use batchModifyLabels for Gmail groups (1 API call per label vs N per thread)
+              const hasBatchModify = "batchModifyLabels" in routeDriver && typeof routeDriver.batchModifyLabels === "function";
+              await Promise.allSettled([
+                ...Array.from(labelToThreads.entries()).map(([labelId, tids]) =>
+                  hasBatchModify
+                    ? (routeDriver as { batchModifyLabels: (ids: string[], add: string[], remove: string[]) => Promise<void> }).batchModifyLabels(tids, [labelId], [])
+                    : Promise.allSettled(tids.map((tid) => routeDriver.modifyLabels(tid, [labelId], [])))
+                ),
+                ...(imapUpserts.length > 0
+                  ? [admin.from("crm_email_group_threads").upsert(imapUpserts, { onConflict: "group_id,thread_id" })]
+                  : []),
+              ]);
             }
           }
         }
@@ -236,7 +278,7 @@ export async function POST(request: Request) {
       .update({ watch_history_id: newHistoryId })
       .eq("id", conn.id)
       .eq("user_id", conn.user_id);
-  })).then((results) => {
+  }(), CONNECTION_TIMEOUT_MS, `conn:${conn.id}`))).then((results) => {
     for (const r of results) {
       if (r.status === "rejected") {
         console.error("[gmail-webhook] Connection processing failed:", r.reason);
