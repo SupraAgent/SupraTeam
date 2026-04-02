@@ -1,10 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { cn } from "@/lib/utils";
-import { timeAgo } from "@/lib/utils";
+import { cn, timeAgo } from "@/lib/utils";
 import type { ThreadListItem } from "@/lib/email/types";
 import { ContactAvatar } from "./contact-avatar";
+import Link from "next/link";
+import { Mail, Building2, Phone } from "lucide-react";
 
 export type ContextMenuAction = "archive" | "trash" | "star" | "read" | "unread" | "snooze" | "spam" | "block";
 
@@ -284,17 +285,12 @@ function ThreadRow({
         </div>
       )}
 
-      {/* Contact avatar */}
-      <div className="pt-0.5 shrink-0 relative">
-        <ContactAvatar
-          email={thread.from[0]?.email ?? ""}
-          name={thread.from[0]?.name}
-          size={28}
-        />
-        {thread.isStarred && (
-          <StarFilledIcon className="h-2.5 w-2.5 text-yellow-400 absolute -bottom-0.5 -right-0.5" />
-        )}
-      </div>
+      {/* Contact avatar with popover */}
+      <AvatarWithPopover
+        email={thread.from[0]?.email ?? ""}
+        name={thread.from[0]?.name}
+        isStarred={thread.isStarred}
+      />
 
       <div className="flex-1 min-w-0">
         {/* Sender + time */}
@@ -342,6 +338,183 @@ function ThreadRow({
     </button>
     </div>
   );
+}
+
+// ── Avatar with contact popover ───────────────────────────
+
+interface ContactPopoverData {
+  contact: {
+    id: string;
+    name: string;
+    email: string;
+    phone: string | null;
+    company: string | null;
+    title: string | null;
+    telegram_username: string | null;
+  } | null;
+}
+
+function AvatarWithPopover({ email, name, isStarred }: { email: string; name?: string; isStarred?: boolean }) {
+  const [open, setOpen] = React.useState(false);
+  const [data, setData] = React.useState<ContactPopoverData | null>(null);
+  const [loading, setLoading] = React.useState(false);
+  const [fetchError, setFetchError] = React.useState(false);
+  const popoverRef = React.useRef<HTMLDivElement>(null);
+  const avatarRef = React.useRef<HTMLDivElement>(null);
+
+  // Fetch contact data on open
+  React.useEffect(() => {
+    if (!open || !email) return;
+    const controller = new AbortController();
+    setLoading(true);
+    setFetchError(false);
+    fetch(`/api/plugins/contact-card?email=${encodeURIComponent(email)}`, { signal: controller.signal })
+      .then((r) => r.ok ? r.json() : Promise.reject())
+      .then((json) => setData({ contact: json.data?.contact ?? null }))
+      .catch((err) => {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setFetchError(true);
+        setData(null);
+      })
+      .finally(() => setLoading(false));
+    return () => controller.abort();
+  }, [open, email]);
+
+  // Close on click outside
+  React.useEffect(() => {
+    if (!open) return;
+    const handleClick = (e: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node) &&
+          avatarRef.current && !avatarRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const handleEsc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    window.addEventListener("mousedown", handleClick);
+    window.addEventListener("keydown", handleEsc);
+    return () => {
+      window.removeEventListener("mousedown", handleClick);
+      window.removeEventListener("keydown", handleEsc);
+    };
+  }, [open]);
+
+  return (
+    <div className="pt-0.5 shrink-0 relative">
+      <div
+        ref={avatarRef}
+        className="cursor-pointer rounded-full hover:ring-2 hover:ring-primary/40 transition-shadow"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => {
+            if (!v) { setData(null); setFetchError(false); }
+            return !v;
+          });
+        }}
+      >
+        <ContactAvatar email={email} name={name} size={28} />
+      </div>
+      {isStarred && (
+        <StarFilledIcon className="h-2.5 w-2.5 text-yellow-400 absolute -bottom-0.5 -right-0.5 pointer-events-none" />
+      )}
+
+      {open && (
+        <div
+          ref={popoverRef}
+          className="absolute left-0 top-full mt-1 z-[80] min-w-[220px] rounded-lg border border-white/10 shadow-2xl p-3 space-y-2"
+          style={{ backgroundColor: "hsl(var(--surface-3))" }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {loading && (
+            <div className="space-y-1.5">
+              <div className="h-4 w-28 rounded bg-white/5 animate-pulse" />
+              <div className="h-3 w-36 rounded bg-white/5 animate-pulse" />
+            </div>
+          )}
+          {!loading && fetchError && (
+            <div className="text-xs text-muted-foreground">
+              <p>Could not load contact info</p>
+              <button
+                onClick={() => { setFetchError(false); setData(null); }}
+                className="text-primary hover:text-primary/80 text-[10px] mt-1"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+          {!loading && !fetchError && data?.contact && (
+            <>
+              <div className="flex items-center gap-2">
+                <ContactAvatar email={data.contact.email} name={data.contact.name} size={32} />
+                <div className="min-w-0">
+                  <Link
+                    href={`/contacts/${data.contact.id}`}
+                    className="text-sm font-medium text-foreground hover:text-primary transition-colors block truncate"
+                  >
+                    {data.contact.name}
+                  </Link>
+                  {data.contact.title && (
+                    <span className="text-[10px] text-muted-foreground block truncate">{data.contact.title}</span>
+                  )}
+                </div>
+              </div>
+              <div className="space-y-1 text-xs text-muted-foreground">
+                <div className="flex items-center gap-1.5 truncate">
+                  <Mail className="h-3 w-3 shrink-0" />
+                  <span className="truncate">{data.contact.email}</span>
+                </div>
+                {data.contact.company && (
+                  <div className="flex items-center gap-1.5 truncate">
+                    <Building2 className="h-3 w-3 shrink-0" />
+                    <span className="truncate">{data.contact.company}</span>
+                  </div>
+                )}
+                {data.contact.phone && (
+                  <div className="flex items-center gap-1.5 truncate">
+                    <Phone className="h-3 w-3 shrink-0" />
+                    <span className="truncate">{data.contact.phone}</span>
+                  </div>
+                )}
+                {data.contact.telegram_username && (
+                  <div className="flex items-center gap-1.5 truncate">
+                    <TelegramMiniIcon />
+                    <span className="truncate">@{data.contact.telegram_username}</span>
+                  </div>
+                )}
+              </div>
+              <Link
+                href={`/contacts/${data.contact.id}`}
+                className="block text-center text-[10px] text-primary hover:text-primary/80 pt-1 border-t border-white/5 transition-colors"
+              >
+                View full profile
+              </Link>
+            </>
+          )}
+          {!loading && !fetchError && data && !data.contact && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <ContactAvatar email={email} name={name} size={32} />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground truncate">{name || email}</p>
+                  <p className="text-[10px] text-muted-foreground truncate">{email}</p>
+                </div>
+              </div>
+              <p className="text-[10px] text-muted-foreground">Not in CRM</p>
+              <Link
+                href={`/contacts?action=create&email=${encodeURIComponent(email)}&name=${encodeURIComponent(name || "")}`}
+                className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium bg-primary/10 text-primary hover:bg-primary/20 transition"
+              >
+                + Add to CRM
+              </Link>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TelegramMiniIcon() {
+  return <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 000 12a12 12 0 0012 12 12 12 0 0012-12A12 12 0 0012 0h-.056zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 01.171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.479.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" /></svg>;
 }
 
 function InboxIcon({ className }: { className?: string }) {
