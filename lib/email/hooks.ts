@@ -358,7 +358,7 @@ export function useLabels(connectionId?: string) {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string>();
 
-  React.useEffect(() => {
+  const fetchLabels = React.useCallback(() => {
     const labelsUrl = connectionId
       ? `/api/email/labels?connectionId=${connectionId}`
       : "/api/email/labels";
@@ -377,7 +377,11 @@ export function useLabels(connectionId?: string) {
       .finally(() => setLoading(false));
   }, [connectionId]);
 
-  return { labels, loading, error };
+  React.useEffect(() => {
+    fetchLabels();
+  }, [fetchLabels]);
+
+  return { labels, loading, error, refreshLabels: fetchLabels };
 }
 
 // ── Split inbox categorization ──────────────────────────────

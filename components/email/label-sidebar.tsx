@@ -53,7 +53,7 @@ export function LabelSidebar({ labels, activeLabel, onSelectLabel, unreadCounts 
         <>
           <div className="pt-2 pb-1 px-2.5">
             <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">
-              Labels
+              Groups
             </span>
           </div>
           {userLabels.map((label) => (

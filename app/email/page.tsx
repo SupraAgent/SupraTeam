@@ -98,7 +98,7 @@ function EmailPageInner() {
     connectionId: activeConnectionId,
   });
   const { thread: activeThread, loading: threadLoading } = useThread(selectedThreadId, activeConnectionId);
-  const { labels, loading: labelsLoading } = useLabels(activeConnectionId);
+  const { labels, loading: labelsLoading, refreshLabels } = useLabels(activeConnectionId);
   const { performAction, performBulkAction, undoAction } = useEmailActions(setThreads, activeConnectionId);
   const undoActionRef = React.useRef(undoAction);
   undoActionRef.current = undoAction;
@@ -813,6 +813,7 @@ function EmailPageInner() {
               setActiveCategory("all");
             }}
             onSelectThread={(threadId) => setSelectedThreadId(threadId)}
+            onLabelsRefresh={refreshLabels}
           />
         </div>
       )}
