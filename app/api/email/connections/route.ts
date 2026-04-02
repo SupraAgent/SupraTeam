@@ -10,8 +10,9 @@ export async function GET() {
 
   const { data, error } = await auth.admin
     .from("crm_email_connections")
-    .select("id, provider, email, is_default, connected_at, last_sync_at")
+    .select("id, provider, email, is_default, sort_order, connected_at, last_sync_at")
     .eq("user_id", auth.user.id)
+    .order("sort_order", { ascending: true })
     .order("connected_at", { ascending: false });
 
   if (error) {
@@ -81,6 +82,40 @@ export async function DELETE(request: Request) {
   serverCache.invalidatePrefix(`threads:${auth.user.id}:`);
   serverCache.invalidatePrefix(`thread:${auth.user.id}:`);
   serverCache.invalidatePrefix(`labels:${auth.user.id}:`);
+
+  return NextResponse.json({ ok: true, source: "supabase" });
+}
+
+/** PUT: Reorder connections — leftmost tab is default */
+export async function PUT(request: Request) {
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+
+  let body: { orderedIds: string[] };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid body" }, { status: 400 });
+  }
+
+  if (!Array.isArray(body.orderedIds) || body.orderedIds.length === 0) {
+    return NextResponse.json({ error: "orderedIds array is required" }, { status: 400 });
+  }
+
+  // Update sort_order for each connection and set leftmost as default
+  const updates = body.orderedIds.map((id, index) =>
+    auth.admin
+      .from("crm_email_connections")
+      .update({ sort_order: index, is_default: index === 0 })
+      .eq("id", id)
+      .eq("user_id", auth.user.id)
+  );
+
+  const results = await Promise.all(updates);
+  const failed = results.find((r) => r.error);
+  if (failed?.error) {
+    return NextResponse.json({ error: "Failed to reorder" }, { status: 500 });
+  }
 
   return NextResponse.json({ ok: true, source: "supabase" });
 }

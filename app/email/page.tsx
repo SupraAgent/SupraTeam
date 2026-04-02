@@ -48,7 +48,7 @@ function EmailPageInner() {
   // Set default connection as active when connections load
   React.useEffect(() => {
     if (!activeConnectionId && connections.length > 0) {
-      const defaultConn = connections.find((c) => c.is_default) ?? connections[0];
+      const defaultConn = connections[0];
       setActiveConnectionId(defaultConn.id);
     }
   }, [connections, activeConnectionId]);
@@ -439,6 +439,49 @@ function EmailPageInner() {
     },
   }, !composeOpen && !inlineCompose && !snoozeOpen && !advancedSearchOpen && !keyboardHelpOpen && !commandPaletteOpen && !labelPickerOpen);
 
+  // ── Account tab drag-and-drop reorder ───────────────────
+  const [tabDragId, setTabDragId] = React.useState<string | null>(null);
+  const [tabDragOverId, setTabDragOverId] = React.useState<string | null>(null);
+
+  function handleTabDragStart(e: React.DragEvent, connId: string) {
+    setTabDragId(connId);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", connId);
+  }
+
+  function handleTabDragOver(e: React.DragEvent, connId: string) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (connId !== tabDragId) setTabDragOverId(connId);
+  }
+
+  function handleTabDrop(e: React.DragEvent, targetId: string) {
+    e.preventDefault();
+    setTabDragOverId(null);
+    if (!tabDragId || tabDragId === targetId) { setTabDragId(null); return; }
+
+    const oldOrder = connections.map((c) => c.id);
+    const fromIdx = oldOrder.indexOf(tabDragId);
+    const toIdx = oldOrder.indexOf(targetId);
+    if (fromIdx === -1 || toIdx === -1) { setTabDragId(null); return; }
+
+    const newOrder = [...oldOrder];
+    newOrder.splice(fromIdx, 1);
+    newOrder.splice(toIdx, 0, tabDragId);
+
+    // Optimistic reorder — mutate the connections array in hook via refresh after API call
+    fetch("/api/email/connections", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orderedIds: newOrder }),
+    }).then((res) => {
+      if (res.ok) refreshConnections();
+      else toast.error("Failed to reorder accounts");
+    });
+
+    setTabDragId(null);
+  }
+
   // Active connection for display
   const activeConnection = connections.find((c) => c.id === activeConnectionId);
 
@@ -565,15 +608,24 @@ function EmailPageInner() {
             const emailLabel = conn.email.split("@")[0];
             const domain = conn.email.split("@")[1];
             const isPersonal = conn.provider === "gmail_app_password";
+            const isDragOver = tabDragOverId === conn.id && tabDragId !== conn.id;
             return (
               <button
                 key={conn.id}
+                draggable
+                onDragStart={(e) => handleTabDragStart(e, conn.id)}
+                onDragOver={(e) => handleTabDragOver(e, conn.id)}
+                onDragLeave={() => setTabDragOverId(null)}
+                onDrop={(e) => handleTabDrop(e, conn.id)}
+                onDragEnd={() => { setTabDragId(null); setTabDragOverId(null); }}
                 onClick={() => switchAccount(conn.id)}
                 className={cn(
-                  "group relative flex items-center gap-2 px-3 py-2 text-xs font-medium transition-colors max-w-[200px] min-w-0",
+                  "group relative flex items-center gap-2 px-3 py-2 text-xs font-medium transition-colors max-w-[200px] min-w-0 cursor-grab active:cursor-grabbing",
                   isActive
                     ? "text-foreground"
-                    : "text-muted-foreground hover:text-foreground hover:bg-white/[0.03]"
+                    : "text-muted-foreground hover:text-foreground hover:bg-white/[0.03]",
+                  tabDragId === conn.id && "opacity-40",
+                  isDragOver && "border-l-2 border-primary"
                 )}
               >
                 {isActive && (
