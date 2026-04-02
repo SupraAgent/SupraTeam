@@ -102,7 +102,7 @@ export const PANELS: DashboardPanel[] = [
     icon: Calendar,
     description: "Upcoming Google Calendar events and meetings",
     size: "full",
-    defaultEnabled: true,
+    defaultEnabled: false,
     component: CalendarPanel,
   },
   {

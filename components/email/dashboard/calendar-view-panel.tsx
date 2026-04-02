@@ -14,7 +14,7 @@ export function CalendarViewPanel() {
   const [view, setView] = React.useState<ViewMode>("month");
   const [currentDate, setCurrentDate] = React.useState(new Date());
   const [events, setEvents] = React.useState<CalendarEventItem[]>([]);
-  const [connected, setConnected] = React.useState(true);
+  const [connected, setConnected] = React.useState<boolean | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [selectedEvent, setSelectedEvent] = React.useState<CalendarEventItem | null>(null);
   const abortRef = React.useRef<AbortController | null>(null);
@@ -51,9 +51,8 @@ export function CalendarViewPanel() {
 
     fetch(`/api/calendar/google/events?${params}`, { signal: controller.signal })
       .then((r) => {
-        if (r.status === 500) {
-          setConnected(false);
-          return { data: [] };
+        if (!r.ok) {
+          return r.json().catch(() => ({ error: `HTTP ${r.status}` }));
         }
         return r.json();
       })
@@ -63,12 +62,17 @@ export function CalendarViewPanel() {
           setConnected(false);
           return;
         }
+        if (json.error) {
+          // Server error but calendar is connected — don't show connect CTA
+          setEvents([]);
+          return;
+        }
         setEvents(json.data ?? []);
         setConnected(true);
       })
       .catch((err) => {
         if (err instanceof DOMException && err.name === "AbortError") return;
-        if (!controller.signal.aborted) setConnected(false);
+        // Network error — don't assume disconnected
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
@@ -103,7 +107,7 @@ export function CalendarViewPanel() {
     }
   }
 
-  if (!connected) {
+  if (connected === false) {
     return (
       <div className="text-center py-6">
         <Calendar className="mx-auto h-8 w-8 text-muted-foreground/30" />
@@ -122,30 +126,33 @@ export function CalendarViewPanel() {
     );
   }
 
-  // Group events by date string
-  const eventsByDate = new Map<string, CalendarEventItem[]>();
-  for (const ev of events) {
-    const dateStr = (ev.start_at ?? ev.start_date ?? "").substring(0, 10);
-    if (!dateStr) continue;
-    const existing = eventsByDate.get(dateStr) ?? [];
-    existing.push(ev);
-    eventsByDate.set(dateStr, existing);
-  }
+  // Group events by local date string (memoized)
+  const eventsByDate = React.useMemo(() => {
+    const map = new Map<string, CalendarEventItem[]>();
+    for (const ev of events) {
+      const dateStr = (ev.start_at ?? ev.start_date ?? "").substring(0, 10);
+      if (!dateStr) continue;
+      const existing = map.get(dateStr) ?? [];
+      existing.push(ev);
+      map.set(dateStr, existing);
+    }
+    return map;
+  }, [events]);
 
-  const todayStr = new Date().toISOString().substring(0, 10);
+  const todayStr = toDateStr(new Date());
 
-  const title =
-    view === "month"
-      ? currentDate.toLocaleString("en-US", { month: "long", year: "numeric" })
-      : (() => {
-          const weekStart = new Date(currentDate);
-          weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-          const weekEnd = new Date(weekStart);
-          weekEnd.setDate(weekEnd.getDate() + 6);
-          const fmt = (d: Date) =>
-            d.toLocaleString("en-US", { month: "short", day: "numeric" });
-          return `${fmt(weekStart)} – ${fmt(weekEnd)}`;
-        })();
+  const title = React.useMemo(() => {
+    if (view === "month") {
+      return currentDate.toLocaleString("en-US", { month: "long", year: "numeric" });
+    }
+    const weekStart = new Date(currentDate);
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 6);
+    const fmt = (d: Date) =>
+      d.toLocaleString("en-US", { month: "short", day: "numeric" });
+    return `${fmt(weekStart)} – ${fmt(weekEnd)}`;
+  }, [currentDate, view]);
 
   return (
     <div>
@@ -217,9 +224,9 @@ export function CalendarViewPanel() {
         <MonthGrid
           rangeStart={rangeStart}
           currentMonth={currentDate.getMonth()}
+          currentYear={currentDate.getFullYear()}
           todayStr={todayStr}
           eventsByDate={eventsByDate}
-          loading={loading}
           onEventClick={setSelectedEvent}
         />
       ) : (
@@ -247,21 +254,21 @@ export function CalendarViewPanel() {
 function MonthGrid({
   rangeStart,
   currentMonth,
+  currentYear,
   todayStr,
   eventsByDate,
-  loading,
   onEventClick,
 }: {
   rangeStart: Date;
   currentMonth: number;
+  currentYear: number;
   todayStr: string;
   eventsByDate: Map<string, CalendarEventItem[]>;
-  loading: boolean;
   onEventClick: (e: CalendarEventItem) => void;
 }) {
   const weeks: Date[][] = [];
   const d = new Date(rangeStart);
-  const lastDay = new Date(rangeStart.getFullYear(), currentMonth + 1, 0);
+  const lastDay = new Date(currentYear, currentMonth + 1, 0);
   while (weeks.length < 6) {
     const week: Date[] = [];
     for (let i = 0; i < 7; i++) {
@@ -269,7 +276,6 @@ function MonthGrid({
       d.setDate(d.getDate() + 1);
     }
     weeks.push(week);
-    // Stop once we've included the last day of the month
     if (week[6] >= lastDay) break;
   }
 
