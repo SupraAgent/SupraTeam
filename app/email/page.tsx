@@ -457,9 +457,9 @@ function EmailPageInner() {
   // ── Delete label handler ──────────────────────────────────
   async function handleDeleteLabel(labelId: string) {
     try {
-      const params = new URLSearchParams({ labelId });
+      const params = new URLSearchParams({ id: labelId });
       if (activeConnectionId) params.set("connectionId", activeConnectionId);
-      const res = await fetch(`/api/email/labels?${params}`, { method: "DELETE" });
+      const res = await fetch(`/api/email/groups?${params}`, { method: "DELETE" });
       if (!res.ok) {
         const json = await res.json();
         toast.error(json.error ?? "Failed to delete group");
