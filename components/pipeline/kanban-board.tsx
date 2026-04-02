@@ -1,10 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { DragDropContext, type DropResult } from "@hello-pangea/dnd";
+import { DragDropContext, Droppable, type DropResult } from "@hello-pangea/dnd";
 import type { Deal, PipelineStage, BoardType } from "@/lib/types";
 import { KanbanColumn } from "./kanban-column";
 import { cn } from "@/lib/utils";
+import { Zap } from "lucide-react";
 
 type KanbanBoardProps = {
   stages: PipelineStage[];
@@ -22,6 +23,7 @@ type KanbanBoardProps = {
   highlightedDealIds?: Set<string>;
   highlightDetails?: Record<string, { priority?: string; sentiment?: string; message_count?: number; sender_name?: string }>;
   unreadCounts?: Record<string, number>;
+  onAutomateDeal?: (deal: Deal) => void;
 };
 
 export function KanbanBoard({
@@ -29,18 +31,37 @@ export function KanbanBoard({
   onQuickMove, onQuickOutcome, onInlineEdit,
   selectedDealIds, onToggleSelect,
   highlightDealId, highlightedDealIds, highlightDetails,
-  unreadCounts,
+  unreadCounts, onAutomateDeal,
 }: KanbanBoardProps) {
   const filteredDeals = board === "All" ? deals : deals.filter((d) => d.board_type === board);
   const allFilteredDeals = board === "All" ? allDeals : allDeals.filter((d) => d.board_type === board);
   const [collapsedColumns, setCollapsedColumns] = React.useState<Set<string>>(new Set());
+  const [isDragging, setIsDragging] = React.useState(false);
+  const [draggingDealName, setDraggingDealName] = React.useState<string | null>(null);
+
+  function handleDragStart(start: { draggableId: string }) {
+    setIsDragging(true);
+    const deal = filteredDeals.find((d) => d.id === start.draggableId);
+    setDraggingDealName(deal?.deal_name ?? null);
+  }
 
   function handleDragEnd(result: DropResult) {
+    setIsDragging(false);
+    setDraggingDealName(null);
     if (!result.destination) return;
     const dealId = result.draggableId;
-    const newStageId = result.destination.droppableId;
-    if (result.source.droppableId === newStageId) return;
-    onMoveDeal(dealId, newStageId);
+    const destId = result.destination.droppableId;
+
+    // Dropped on automation zone
+    if (destId === "__automate__") {
+      if (dealId.startsWith("sample-")) return;
+      const deal = filteredDeals.find((d) => d.id === dealId);
+      if (deal && onAutomateDeal) onAutomateDeal(deal);
+      return;
+    }
+
+    if (result.source.droppableId === destId) return;
+    onMoveDeal(dealId, destId);
   }
 
   function toggleCollapse(stageId: string) {
@@ -99,7 +120,7 @@ export function KanbanBoard({
         </div>
       )}
 
-      <DragDropContext onDragEnd={handleDragEnd}>
+      <DragDropContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         <div className="flex gap-3 overflow-x-auto pb-4 thin-scroll">
           {stages.map((stage) => {
             const stageDeals = filteredDeals.filter((d) => d.stage_id === stage.id);
@@ -128,6 +149,44 @@ export function KanbanBoard({
             );
           })}
         </div>
+
+        {/* Automation drop zone — visible only while dragging */}
+        {onAutomateDeal && (
+          <div className={cn(
+            "transition-all duration-200 overflow-hidden",
+            isDragging ? "max-h-32 opacity-100 mt-2" : "max-h-0 opacity-0"
+          )}>
+            <Droppable droppableId="__automate__">
+              {(provided, snapshot) => (
+                <div
+                  ref={provided.innerRef}
+                  {...provided.droppableProps}
+                  className={cn(
+                    "flex items-center justify-center gap-3 rounded-xl border-2 border-dashed py-8 transition-all duration-200",
+                    snapshot.isDraggingOver
+                      ? "border-primary bg-primary/10 scale-[1.01]"
+                      : "border-white/20 bg-white/[0.02]"
+                  )}
+                >
+                  <Zap className={cn(
+                    "h-5 w-5 transition-colors",
+                    snapshot.isDraggingOver ? "text-primary" : "text-muted-foreground/60"
+                  )} />
+                  <span className={cn(
+                    "text-sm font-medium transition-colors",
+                    snapshot.isDraggingOver ? "text-primary" : "text-muted-foreground/60"
+                  )}>
+                    {snapshot.isDraggingOver
+                      ? `Release to automate "${draggingDealName}"`
+                      : "Drop here to automate"}
+                  </span>
+                  {/* Placeholder kept in flow but visually collapsed for correct drop calculations */}
+                  <div style={{ height: 0, overflow: "hidden" }}>{provided.placeholder}</div>
+                </div>
+              )}
+            </Droppable>
+          </div>
+        )}
       </DragDropContext>
     </div>
   );

@@ -17,19 +17,36 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "connection_id required" }, { status: 400 });
   }
 
+  // Skip eager thread load for Gmail-backed groups (threads are lazy-loaded from Gmail API)
+  // Only load junction threads for IMAP groups
   const { data, error } = await supabase
     .from("crm_email_groups")
-    .select("*, crm_email_group_threads(*), crm_email_group_contacts(*)")
+    .select("*, crm_email_group_contacts(*)")
     .eq("connection_id", connectionId)
     .eq("user_id", user.id)
     .order("position", { ascending: true });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Ensure nested arrays exist for every group
+  // For IMAP groups (no gmail_label_id), also fetch junction threads
+  const imapGroups = (data ?? []).filter((g) => !g.gmail_label_id);
+  let threadsByGroup: Record<string, unknown[]> = {};
+  if (imapGroups.length > 0) {
+    const { data: threads } = await supabase
+      .from("crm_email_group_threads")
+      .select("*")
+      .in("group_id", imapGroups.map((g) => g.id))
+      .order("last_message_at", { ascending: false });
+
+    for (const t of threads ?? []) {
+      (threadsByGroup[t.group_id] ??= []).push(t);
+    }
+  }
+
   const groups = (data ?? []).map((g) => ({
     ...g,
-    crm_email_group_threads: g.crm_email_group_threads ?? [],
+    // Gmail groups: null signals "lazy-load from Gmail API", IMAP groups get their junction threads
+    crm_email_group_threads: g.gmail_label_id ? null : (threadsByGroup[g.id] ?? []),
     crm_email_group_contacts: g.crm_email_group_contacts ?? [],
   }));
 

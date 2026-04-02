@@ -396,27 +396,37 @@ export class GmailDriver implements MailDriver {
     const res = await withBackoff(() => this.gmail.users.labels.list({ userId: "me" }));
     const labels = res.data.labels ?? [];
 
-    // Fetch label details in batches of 10 to avoid hammering the API
+    // System labels don't need detail fetch — use list response directly
+    const systemLabels: Label[] = labels
+      .filter((l) => l.type === "system")
+      .map((l) => ({
+        id: l.id!,
+        name: l.name!,
+        type: "system" as const,
+      }));
+
+    // Only fetch details for user labels (need color, counts) — batch to avoid rate limits
+    const userLabels = labels.filter((l) => l.type === "user");
     const BATCH_SIZE = 10;
-    const details: { l: typeof labels[number]; d: gmail_v1.Schema$Label }[] = [];
-    for (let i = 0; i < labels.length; i += BATCH_SIZE) {
-      const batch = labels.slice(i, i + BATCH_SIZE);
+    const userDetails: Label[] = [];
+    for (let i = 0; i < userLabels.length; i += BATCH_SIZE) {
+      const batch = userLabels.slice(i, i + BATCH_SIZE);
       const batchResults = await Promise.all(
         batch.map((l) =>
-          withBackoff(() => this.gmail.users.labels.get({ userId: "me", id: l.id! })).then((d) => ({ l, d: d.data }))
+          withBackoff(() => this.gmail.users.labels.get({ userId: "me", id: l.id! })).then((d) => ({
+            id: l.id!,
+            name: l.name!,
+            type: "user" as const,
+            messageCount: d.data.messagesTotal ?? undefined,
+            unreadCount: d.data.messagesUnread ?? undefined,
+            color: d.data.color?.backgroundColor ?? undefined,
+          }))
         )
       );
-      details.push(...batchResults);
+      userDetails.push(...batchResults);
     }
 
-    return details.map(({ l, d }) => ({
-      id: l.id!,
-      name: l.name!,
-      type: l.type === "system" ? "system" as const : "user" as const,
-      messageCount: d.messagesTotal ?? undefined,
-      unreadCount: d.messagesUnread ?? undefined,
-      color: d.color?.backgroundColor ?? undefined,
-    }));
+    return [...systemLabels, ...userDetails];
   }
 
   async createLabel(name: string, color?: string): Promise<Label> {

@@ -418,11 +418,13 @@ export function EmailGroupPanel({
   }
 
   return (
-    <div className="border-b border-white/10 shrink-0" style={{ backgroundColor: "hsl(var(--surface-1))" }}>
+    <div className="border-b border-white/10 shrink-0" role="region" aria-label="Email groups" style={{ backgroundColor: "hsl(var(--surface-1))" }}>
       {/* Panel header — always visible */}
       <div className="flex items-center justify-between px-4 py-2">
         <button
           onClick={onTogglePanel}
+          aria-expanded={!panelCollapsed}
+          aria-controls="email-groups-body"
           className="flex items-center gap-2 text-xs font-medium text-foreground hover:text-foreground/80 transition"
         >
           <ChevronDown className={cn("h-3 w-3 transition-transform", panelCollapsed && "-rotate-90")} />
@@ -486,7 +488,7 @@ export function EmailGroupPanel({
 
       {/* Collapsible body */}
       {!panelCollapsed && (
-        <div className="max-h-[320px] overflow-y-auto thin-scroll">
+        <div id="email-groups-body" role="tree" className="max-h-[320px] overflow-y-auto thin-scroll">
           {loading ? (
             <div className="px-4 py-3 text-xs text-muted-foreground">Loading groups...</div>
           ) : groups.length === 0 && !creating ? (
@@ -652,6 +654,8 @@ function GroupRow({
 
   return (
     <div
+      role="treeitem"
+      aria-expanded={!group.is_collapsed}
       onDragOver={handleDragOver}
       onDragLeave={() => setDragOver(false)}
       onDrop={handleDrop}
@@ -662,12 +666,13 @@ function GroupRow({
     >
       {/* Group header */}
       <div className="flex items-center gap-2 px-4 py-1.5 group/row">
-        <button onClick={onToggle} className="shrink-0">
+        <button onClick={onToggle} aria-expanded={!group.is_collapsed} aria-label={`${group.is_collapsed ? "Expand" : "Collapse"} ${group.name}`} className="shrink-0">
           <ChevronDown className={cn("h-2.5 w-2.5 text-muted-foreground transition-transform", group.is_collapsed && "-rotate-90")} />
         </button>
         <div
           className="h-2.5 w-2.5 rounded-sm shrink-0"
           style={{ backgroundColor: group.color }}
+          aria-hidden="true"
         />
 
         {editing ? (
