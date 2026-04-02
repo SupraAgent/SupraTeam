@@ -206,6 +206,12 @@ body {
 .ice-stage-7::before { background-image: url("/frost-6.png"); }
 .ice-stage-8::before { background-image: url("/frost-6.png"); }
 
+/* Ice overlay for table rows — repeat across full width */
+tr[class*="ice-stage"]::before {
+  background-size: auto 100%;
+  background-repeat: repeat-x;
+}
+
 /* View density system */
 [data-density="compact"] {
   --density-py: 0.25rem;
