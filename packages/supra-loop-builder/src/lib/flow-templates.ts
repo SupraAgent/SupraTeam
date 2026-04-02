@@ -145,6 +145,11 @@ export type HttpRequestNodeData = {
   timeout: number;
 };
 
+export type DelayNodeData = {
+  label: string;
+  duration: number;
+};
+
 // ── Bridge Node Data Types (Sprint 2) ────────────────────────────
 
 export type CpoReviewNodeData = {
@@ -440,7 +445,7 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
   {
     id: "crm-outreach-sequence",
     name: "Outreach Sequence",
-    description: "Multi-step outreach: new deal -> send intro -> wait -> follow up -> check response -> escalate or close",
+    description: "Multi-step outreach: new deal -> send intro -> wait -> follow up (max 3 attempts) -> escalate or close",
     category: "crm",
     isBuiltIn: true,
     createdAt: "2026-03-30",
@@ -450,8 +455,10 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
       { id: "send-intro", type: "outputNode", position: { x: 600, y: 100 }, data: { label: "Send Intro", outputType: "notify", destination: "telegram://contact_dm" } },
       { id: "wait", type: "conditionNode", position: { x: 600, y: 330 }, data: { label: "Response in 48h?", condition: "has_reply AND hours_elapsed < 48" } },
       { id: "followup", type: "llmNode", position: { x: 900, y: 330 }, data: { label: "Draft Follow-up", provider: "claude", model: "claude-sonnet-4-5-20250514", systemPrompt: "Draft a polite follow-up message. Reference the original intro and add value (mention a relevant case study or partnership).", temperature: 0.5, maxTokens: 512 } },
+      { id: "max-check", type: "conditionNode", position: { x: 900, y: 530 }, data: { label: "Attempt < 3?", condition: "attempt_count < 3" } },
       { id: "advance", type: "outputNode", position: { x: 900, y: 100 }, data: { label: "Move to Calendly Sent", outputType: "api", destination: "PUT /api/deals/{id}/stage" } },
-      { id: "note", type: "noteNode", position: { x: 0, y: 420 }, data: { label: "Sequence", content: "Automated outreach: sends intro, waits for response, follows up if no reply, advances deal stage on engagement." } },
+      { id: "close-cold", type: "outputNode", position: { x: 1200, y: 530 }, data: { label: "Mark Cold", outputType: "notify", destination: "telegram://deal_owner_dm" } },
+      { id: "note", type: "noteNode", position: { x: 0, y: 420 }, data: { label: "Sequence", content: "Automated outreach: sends intro, waits for response, follows up if no reply (max 3 attempts), then marks deal cold." } },
     ],
     edges: [
       { id: "e1", source: "trigger", target: "intro", type: "smoothstep", animated: true },
@@ -459,14 +466,16 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
       { id: "e3", source: "send-intro", target: "wait", type: "smoothstep", animated: true },
       { id: "e4", source: "wait", target: "advance", type: "smoothstep", animated: true, sourceHandle: "true", label: "replied" },
       { id: "e5", source: "wait", target: "followup", type: "smoothstep", animated: true, sourceHandle: "false", label: "no reply" },
-      { id: "e6", source: "followup", target: "wait", type: "smoothstep", animated: true, style: { strokeDasharray: "5 5" } },
+      { id: "e6", source: "followup", target: "max-check", type: "smoothstep", animated: true },
+      { id: "e7", source: "max-check", target: "wait", type: "smoothstep", animated: true, sourceHandle: "true", label: "retry", style: { strokeDasharray: "5 5" } },
+      { id: "e8", source: "max-check", target: "close-cold", type: "smoothstep", animated: true, sourceHandle: "false", label: "give up" },
     ],
   },
   {
     id: "crm-slug-access",
     name: "Slug Access Control",
     description: "Automate TG group access: deal stage change -> check slug permissions -> bulk add/remove users -> audit log",
-    category: "crm",
+    category: "telegram",
     isBuiltIn: true,
     createdAt: "2026-03-30",
     nodes: [
@@ -476,14 +485,16 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
       { id: "add-access", type: "outputNode", position: { x: 900, y: 100 }, data: { label: "Grant TG Access", outputType: "api", destination: "POST /api/groups/bulk-add" } },
       { id: "audit", type: "outputNode", position: { x: 900, y: 300 }, data: { label: "Audit Log", outputType: "log", destination: "crm_slug_access_log" } },
       { id: "notify-team", type: "outputNode", position: { x: 1200, y: 100 }, data: { label: "Notify Team", outputType: "notify", destination: "telegram://admin_chat" } },
+      { id: "skip-log", type: "outputNode", position: { x: 600, y: 350 }, data: { label: "Log Skipped Stage", outputType: "log", destination: "crm_slug_access_log" } },
       { id: "note", type: "noteNode", position: { x: 0, y: 400 }, data: { label: "Access Control", content: "When a deal reaches MOU Signed, auto-grants the contact access to all TG groups tagged with the deal's slugs." } },
     ],
     edges: [
       { id: "e1", source: "trigger", target: "check-stage", type: "smoothstep", animated: true },
       { id: "e2", source: "check-stage", target: "get-slugs", type: "smoothstep", animated: true, sourceHandle: "true", label: "yes" },
-      { id: "e3", source: "get-slugs", target: "add-access", type: "smoothstep", animated: true },
-      { id: "e4", source: "add-access", target: "audit", type: "smoothstep", animated: true },
-      { id: "e5", source: "add-access", target: "notify-team", type: "smoothstep", animated: true },
+      { id: "e3", source: "check-stage", target: "skip-log", type: "smoothstep", animated: true, sourceHandle: "false", label: "other stage" },
+      { id: "e4", source: "get-slugs", target: "add-access", type: "smoothstep", animated: true },
+      { id: "e5", source: "add-access", target: "audit", type: "smoothstep", animated: true },
+      { id: "e6", source: "add-access", target: "notify-team", type: "smoothstep", animated: true },
     ],
   },
   {
@@ -510,6 +521,137 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
     ],
   },
 
+  // ── CRM templates (CPO review additions) ──
+  {
+    id: "crm-sla-breach",
+    name: "SLA Breach Escalation",
+    description: "Stale deal alerts: daily check -> AI triage severity -> warn owner or escalate critical to manager -> auto-reassign",
+    category: "crm",
+    isBuiltIn: true,
+    createdAt: "2026-04-02",
+    nodes: [
+      { id: "trigger", type: "triggerNode", position: { x: 0, y: 200 }, data: { label: "Daily 8am Check", triggerType: "schedule", config: "0 8 * * *" } },
+      { id: "query", type: "transformNode", position: { x: 300, y: 200 }, data: { label: "Find Stale Deals", transformType: "filter", expression: "deals WHERE days_in_stage > sla_threshold AND stage NOT IN ('MOU Signed','First Check Received')" } },
+      { id: "check", type: "conditionNode", position: { x: 600, y: 200 }, data: { label: "Any Breaches?", condition: "stale_deals.length > 0" } },
+      { id: "classify", type: "llmNode", position: { x: 900, y: 200 }, data: { label: "Triage Severity", provider: "claude", model: "claude-sonnet-4-5-20250514", systemPrompt: "Classify each stale deal by severity: WARNING (1-2x SLA), BREACH (2-3x SLA), CRITICAL (3x+ SLA). For each, suggest: keep owner, reassign, or archive. Return JSON array with deal_id, severity, recommendation, reason.", temperature: 0.3, maxTokens: 1024 } },
+      { id: "severity-check", type: "conditionNode", position: { x: 1200, y: 200 }, data: { label: "Critical Severity?", condition: "severity = 'CRITICAL'" } },
+      { id: "alert-owner", type: "outputNode", position: { x: 1500, y: 0 }, data: { label: "Alert Deal Owner", outputType: "notify", destination: "telegram://deal_owner_dm" } },
+      { id: "alert-manager", type: "outputNode", position: { x: 1500, y: 200 }, data: { label: "Escalate to Manager", outputType: "notify", destination: "telegram://board_lead" } },
+      { id: "reassign", type: "conditionNode", position: { x: 1500, y: 400 }, data: { label: "No Owner Action 24h?", condition: "last_owner_activity > 24h" } },
+      { id: "auto-reassign", type: "outputNode", position: { x: 1800, y: 400 }, data: { label: "Auto-Reassign Deal", outputType: "api", destination: "PUT /api/deals/{id}/assign?strategy=round_robin" } },
+      { id: "log", type: "outputNode", position: { x: 1800, y: 200 }, data: { label: "Log SLA Event", outputType: "log", destination: "crm_sla_breach_log" } },
+      { id: "note", type: "noteNode", position: { x: 0, y: 430 }, data: { label: "SLA Escalation", content: "Runs daily. Finds deals stuck past SLA thresholds, triages severity with AI. Warnings alert owner only. Critical deals escalate to manager and auto-reassign if ignored." } },
+    ],
+    edges: [
+      { id: "e1", source: "trigger", target: "query", type: "smoothstep", animated: true },
+      { id: "e2", source: "query", target: "check", type: "smoothstep", animated: true },
+      { id: "e3", source: "check", target: "classify", type: "smoothstep", animated: true, sourceHandle: "true", label: "breaches found" },
+      { id: "e4", source: "classify", target: "severity-check", type: "smoothstep", animated: true },
+      { id: "e5", source: "severity-check", target: "alert-owner", type: "smoothstep", animated: true, sourceHandle: "false", label: "warning/breach" },
+      { id: "e6", source: "severity-check", target: "alert-manager", type: "smoothstep", animated: true, sourceHandle: "true", label: "critical" },
+      { id: "e7", source: "severity-check", target: "reassign", type: "smoothstep", animated: true, sourceHandle: "true" },
+      { id: "e8", source: "reassign", target: "auto-reassign", type: "smoothstep", animated: true, sourceHandle: "true", label: "yes" },
+      { id: "e9", source: "severity-check", target: "log", type: "smoothstep", animated: true },
+    ],
+  },
+  {
+    id: "crm-meeting-followup",
+    name: "Meeting Follow-Up Flow",
+    description: "Two-phase: Video Call stage -> send prep doc, Follow Up stage -> generate follow-up + create tasks",
+    category: "crm",
+    isBuiltIn: true,
+    createdAt: "2026-04-02",
+    nodes: [
+      { id: "trigger", type: "triggerNode", position: { x: 0, y: 200 }, data: { label: "Deal Stage Changed", triggerType: "event", config: "crm_deal_stage_history.INSERT" } },
+      { id: "which-stage", type: "conditionNode", position: { x: 300, y: 200 }, data: { label: "Video Call Stage?", condition: "new_stage = 'Video Call'" } },
+      { id: "prep", type: "llmNode", position: { x: 600, y: 100 }, data: { label: "Generate Prep Doc", provider: "claude", model: "claude-sonnet-4-5-20250514", systemPrompt: "Create a meeting prep doc for this deal. Include: contact background, company info, deal history, talking points, and questions to ask. Pull from CRM contact and deal data. Format as bullet points.", temperature: 0.5, maxTokens: 1024 } },
+      { id: "send-prep", type: "outputNode", position: { x: 900, y: 100 }, data: { label: "Send Prep to Owner", outputType: "notify", destination: "telegram://deal_owner_dm" } },
+      { id: "is-followup", type: "conditionNode", position: { x: 600, y: 350 }, data: { label: "Follow Up Stage?", condition: "new_stage = 'Follow Up'" } },
+      { id: "post-call", type: "llmNode", position: { x: 900, y: 350 }, data: { label: "Generate Follow-Up", provider: "claude", model: "claude-sonnet-4-5-20250514", systemPrompt: "Draft a professional follow-up message to send after the call with {{contact.name}} from {{contact.company}}. Reference Supra partnership opportunities discussed, propose next steps, and suggest a timeline. Keep concise for Telegram.", temperature: 0.6, maxTokens: 512 } },
+      { id: "send-followup", type: "outputNode", position: { x: 1200, y: 250 }, data: { label: "Send Follow-Up", outputType: "notify", destination: "telegram://contact_dm" } },
+      { id: "create-tasks", type: "outputNode", position: { x: 1200, y: 450 }, data: { label: "Create Follow-Up Tasks", outputType: "api", destination: "POST /api/tasks?deal_id={id}&type=post_call" } },
+      { id: "note", type: "noteNode", position: { x: 0, y: 430 }, data: { label: "Meeting Flow", content: "Two-phase: triggers on Video Call to send prep doc, then on Follow Up to auto-generate follow-up message and create tasks. No hardcoded delays." } },
+    ],
+    edges: [
+      { id: "e1", source: "trigger", target: "which-stage", type: "smoothstep", animated: true },
+      { id: "e2", source: "which-stage", target: "prep", type: "smoothstep", animated: true, sourceHandle: "true", label: "Video Call" },
+      { id: "e3", source: "prep", target: "send-prep", type: "smoothstep", animated: true },
+      { id: "e4", source: "which-stage", target: "is-followup", type: "smoothstep", animated: true, sourceHandle: "false" },
+      { id: "e5", source: "is-followup", target: "post-call", type: "smoothstep", animated: true, sourceHandle: "true", label: "Follow Up" },
+      { id: "e6", source: "post-call", target: "send-followup", type: "smoothstep", animated: true },
+      { id: "e7", source: "post-call", target: "create-tasks", type: "smoothstep", animated: true },
+    ],
+  },
+  {
+    id: "crm-multichannel-outreach",
+    name: "Multi-Channel Sequence",
+    description: "Cross-channel outreach: TG intro -> 24h wait -> email -> 48h wait -> check max touches -> nudge or close",
+    category: "crm",
+    isBuiltIn: true,
+    createdAt: "2026-04-02",
+    nodes: [
+      { id: "trigger", type: "triggerNode", position: { x: 0, y: 250 }, data: { label: "Deal -> Outreach", triggerType: "event", config: "crm_deal_stage_history.INSERT WHERE new_stage = 'Outreach'" } },
+      { id: "tg-intro", type: "llmNode", position: { x: 300, y: 150 }, data: { label: "Draft TG Intro", provider: "claude", model: "claude-sonnet-4-5-20250514", systemPrompt: "Draft a concise, professional Telegram intro message to {{contact.name}} at {{contact.company}}. Mention Supra L1 blockchain, their specific use case, and propose a quick call. Max 300 chars.", temperature: 0.6, maxTokens: 256 } },
+      { id: "send-tg", type: "outputNode", position: { x: 600, y: 150 }, data: { label: "Send TG Message", outputType: "notify", destination: "telegram://contact_dm" } },
+      { id: "wait-tg", type: "delayNode", position: { x: 600, y: 350 }, data: { label: "Wait 24 Hours", duration: 86400 } },
+      { id: "check-tg", type: "conditionNode", position: { x: 900, y: 350 }, data: { label: "TG Reply?", condition: "has_tg_reply == true" } },
+      { id: "email-followup", type: "llmNode", position: { x: 1200, y: 450 }, data: { label: "Draft Email", provider: "claude", model: "claude-sonnet-4-5-20250514", systemPrompt: "Draft a professional follow-up email to {{contact.name}} at {{contact.company}}. Reference the Telegram message sent yesterday. Add more detail about Supra's value prop for their use case. Include a Calendly link.", temperature: 0.5, maxTokens: 512 } },
+      { id: "send-email", type: "outputNode", position: { x: 1500, y: 450 }, data: { label: "Send Email", outputType: "notify", destination: "email://contact" } },
+      { id: "wait-email", type: "delayNode", position: { x: 1500, y: 600 }, data: { label: "Wait 48 Hours", duration: 172800 } },
+      { id: "check-email", type: "conditionNode", position: { x: 1800, y: 600 }, data: { label: "Any Reply?", condition: "has_email_reply OR has_tg_reply" } },
+      { id: "max-touches", type: "conditionNode", position: { x: 2100, y: 600 }, data: { label: "3rd Touch?", condition: "touch_count >= 3" } },
+      { id: "tg-nudge", type: "outputNode", position: { x: 2400, y: 700 }, data: { label: "Final TG Nudge", outputType: "notify", destination: "telegram://contact_dm" } },
+      { id: "advance", type: "outputNode", position: { x: 1200, y: 200 }, data: { label: "Move to Calendly Sent", outputType: "api", destination: "PUT /api/deals/{id}/stage?stage=Calendly Sent" } },
+      { id: "close", type: "outputNode", position: { x: 2400, y: 500 }, data: { label: "Mark Cold -- Notify Owner", outputType: "notify", destination: "telegram://deal_owner_dm" } },
+      { id: "note", type: "noteNode", position: { x: 0, y: 500 }, data: { label: "Multi-Channel", content: "TG first, then email, then final TG nudge. Advances deal on any reply. Marks cold after 3 touches with no response." } },
+    ],
+    edges: [
+      { id: "e1", source: "trigger", target: "tg-intro", type: "smoothstep", animated: true },
+      { id: "e2", source: "tg-intro", target: "send-tg", type: "smoothstep", animated: true },
+      { id: "e3", source: "send-tg", target: "wait-tg", type: "smoothstep", animated: true },
+      { id: "e4", source: "wait-tg", target: "check-tg", type: "smoothstep", animated: true },
+      { id: "e5", source: "check-tg", target: "advance", type: "smoothstep", animated: true, sourceHandle: "true", label: "replied" },
+      { id: "e6", source: "check-tg", target: "email-followup", type: "smoothstep", animated: true, sourceHandle: "false", label: "no reply" },
+      { id: "e7", source: "email-followup", target: "send-email", type: "smoothstep", animated: true },
+      { id: "e8", source: "send-email", target: "wait-email", type: "smoothstep", animated: true },
+      { id: "e9", source: "wait-email", target: "check-email", type: "smoothstep", animated: true },
+      { id: "e10", source: "check-email", target: "advance", type: "smoothstep", animated: true, sourceHandle: "true", label: "replied" },
+      { id: "e11", source: "check-email", target: "max-touches", type: "smoothstep", animated: true, sourceHandle: "false", label: "no reply" },
+      { id: "e12", source: "max-touches", target: "close", type: "smoothstep", animated: true, sourceHandle: "true", label: "max reached" },
+      { id: "e13", source: "max-touches", target: "tg-nudge", type: "smoothstep", animated: true, sourceHandle: "false", label: "nudge" },
+    ],
+  },
+  {
+    id: "crm-webhook-inbound",
+    name: "Webhook Inbound Router",
+    description: "External events: webhook -> validate -> AI enrich -> route by deal value -> create contact or deal+contact",
+    category: "crm",
+    isBuiltIn: true,
+    createdAt: "2026-04-02",
+    nodes: [
+      { id: "trigger", type: "triggerNode", position: { x: 0, y: 250 }, data: { label: "Webhook Received", triggerType: "webhook", config: "POST /api/webhooks/inbound/{workflow_id}" } },
+      { id: "validate", type: "transformNode", position: { x: 300, y: 250 }, data: { label: "Validate & Parse", transformType: "extract", expression: "{ event_type, payload, source, timestamp } FROM request.body" } },
+      { id: "route", type: "conditionNode", position: { x: 600, y: 250 }, data: { label: "Known Event Type?", condition: "event_type IN ('form_submit','payment','calendar_booking','stripe_event')" } },
+      { id: "enrich", type: "llmNode", position: { x: 900, y: 100 }, data: { label: "Enrich Payload", provider: "claude", model: "claude-sonnet-4-5-20250514", systemPrompt: "Parse this webhook payload and extract: contact_name, contact_email, company, intent, deal_value. Normalize into CRM-ready JSON regardless of source format.", temperature: 0.2, maxTokens: 512 } },
+      { id: "action-route", type: "conditionNode", position: { x: 1200, y: 100 }, data: { label: "Has Deal Value?", condition: "deal_value != null AND deal_value > 0" } },
+      { id: "create-contact", type: "outputNode", position: { x: 1500, y: 0 }, data: { label: "Create/Update Contact", outputType: "api", destination: "POST /api/contacts?upsert=true" } },
+      { id: "create-deal", type: "outputNode", position: { x: 1500, y: 200 }, data: { label: "Create Deal + Contact", outputType: "api", destination: "POST /api/deals?with_contact=true" } },
+      { id: "notify", type: "outputNode", position: { x: 1800, y: 200 }, data: { label: "Notify Team", outputType: "notify", destination: "telegram://bd_team" } },
+      { id: "log", type: "outputNode", position: { x: 900, y: 450 }, data: { label: "Log Rejected", outputType: "log", destination: "webhook_event_log" } },
+      { id: "note", type: "noteNode", position: { x: 0, y: 480 }, data: { label: "Webhook Router", content: "Receives events from external services (Stripe, Calendly, Typeform, etc). Validates, enriches with AI, routes to contact-only or deal+contact based on deal value." } },
+    ],
+    edges: [
+      { id: "e1", source: "trigger", target: "validate", type: "smoothstep", animated: true },
+      { id: "e2", source: "validate", target: "route", type: "smoothstep", animated: true },
+      { id: "e3", source: "route", target: "enrich", type: "smoothstep", animated: true, sourceHandle: "true", label: "known type" },
+      { id: "e4", source: "route", target: "log", type: "smoothstep", animated: true, sourceHandle: "false", label: "unknown" },
+      { id: "e5", source: "enrich", target: "action-route", type: "smoothstep", animated: true },
+      { id: "e6", source: "action-route", target: "create-deal", type: "smoothstep", animated: true, sourceHandle: "true", label: "deal" },
+      { id: "e7", source: "action-route", target: "create-contact", type: "smoothstep", animated: true, sourceHandle: "false", label: "contact only" },
+      { id: "e8", source: "create-deal", target: "notify", type: "smoothstep", animated: true },
+    ],
+  },
+
   // ── TELEGRAM templates ──
   {
     id: "tg-new-member-welcome",
@@ -529,8 +671,8 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
     edges: [
       { id: "e1", source: "trigger", target: "lookup", type: "smoothstep", animated: true },
       { id: "e2", source: "lookup", target: "condition", type: "smoothstep", animated: true },
-      { id: "e3", source: "condition", target: "personalize", type: "smoothstep", animated: true, label: "Yes" },
-      { id: "e4", source: "condition", target: "generic", type: "smoothstep", animated: true, label: "No" },
+      { id: "e3", source: "condition", target: "personalize", type: "smoothstep", animated: true, sourceHandle: "true", label: "Yes" },
+      { id: "e4", source: "condition", target: "generic", type: "smoothstep", animated: true, sourceHandle: "false", label: "No" },
       { id: "e5", source: "personalize", target: "send", type: "smoothstep", animated: true },
     ],
   },
@@ -550,7 +692,7 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
     ],
     edges: [
       { id: "e1", source: "trigger", target: "filter", type: "smoothstep", animated: true },
-      { id: "e2", source: "filter", target: "extract", type: "smoothstep", animated: true, label: "Match" },
+      { id: "e2", source: "filter", target: "extract", type: "smoothstep", animated: true, sourceHandle: "true", label: "Match" },
       { id: "e3", source: "extract", target: "create", type: "smoothstep", animated: true },
       { id: "e4", source: "extract", target: "notify", type: "smoothstep", animated: true },
     ],
@@ -564,7 +706,7 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
     createdAt: "2026-03-30",
     nodes: [
       { id: "trigger", type: "triggerNode", position: { x: 0, y: 200 }, data: { label: "Every 4 Hours", triggerType: "schedule", config: "0 */4 * * *" } },
-      { id: "fetch", type: "transformNode", position: { x: 300, y: 200 }, data: { label: "Recent Messages", transformType: "extract", expression: "tg_messages WHERE created_at > now() - 4h GROUP BY group_id" } },
+      { id: "fetch", type: "transformNode", position: { x: 300, y: 200 }, data: { label: "Recent Messages", transformType: "extract", expression: "tg_groups.last_activity_summary WHERE updated_at > now() - 4h" } },
       { id: "analyze", type: "llmNode", position: { x: 600, y: 200 }, data: { label: "Sentiment Analysis", provider: "claude", model: "claude-sonnet-4-5-20250514", systemPrompt: "Analyze sentiment of these TG messages. Return: overall_score (-1 to 1), negative_topics[], requires_attention (bool), suggested_response if negative.", temperature: 0.3, maxTokens: 1024 } },
       { id: "check", type: "conditionNode", position: { x: 900, y: 200 }, data: { label: "Needs Attention?", condition: "requires_attention == true" } },
       { id: "alert", type: "outputNode", position: { x: 1200, y: 100 }, data: { label: "Alert Team", outputType: "notify", destination: "telegram://admin_group" } },
@@ -574,8 +716,34 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
       { id: "e1", source: "trigger", target: "fetch", type: "smoothstep", animated: true },
       { id: "e2", source: "fetch", target: "analyze", type: "smoothstep", animated: true },
       { id: "e3", source: "analyze", target: "check", type: "smoothstep", animated: true },
-      { id: "e4", source: "check", target: "alert", type: "smoothstep", animated: true, label: "Yes" },
-      { id: "e5", source: "check", target: "log", type: "smoothstep", animated: true, label: "No" },
+      { id: "e4", source: "check", target: "alert", type: "smoothstep", animated: true, sourceHandle: "true", label: "Yes" },
+      { id: "e5", source: "check", target: "log", type: "smoothstep", animated: true, sourceHandle: "false", label: "No" },
+    ],
+  },
+  {
+    id: "tg-group-health",
+    name: "Group Health Monitor",
+    description: "Monitor TG group activity: daily check -> flag quiet groups (no activity >7d) -> AI diagnose -> alert admin",
+    category: "telegram",
+    isBuiltIn: true,
+    createdAt: "2026-04-02",
+    nodes: [
+      { id: "trigger", type: "triggerNode", position: { x: 0, y: 200 }, data: { label: "Daily 10am Check", triggerType: "schedule", config: "0 10 * * *" } },
+      { id: "query", type: "transformNode", position: { x: 300, y: 200 }, data: { label: "Group Activity Stats", transformType: "extract", expression: "tg_groups: { group_id, title, last_activity_at, member_count, linked_deal_count }" } },
+      { id: "classify", type: "conditionNode", position: { x: 600, y: 200 }, data: { label: "Any Quiet >7d?", condition: "groups WHERE last_activity_at < now() - 7d" } },
+      { id: "analyze", type: "llmNode", position: { x: 900, y: 100 }, data: { label: "Diagnose & Suggest", provider: "claude", model: "claude-sonnet-4-5-20250514", systemPrompt: "Analyze these quiet TG groups. For each group provide: 1) Likely cause of inactivity (deal stalled, wrong members, topic exhausted), 2) Re-engagement suggestion (conversation starter, poll, announcement, or archive recommendation), 3) Priority (high/medium/low based on linked deal value). Return JSON array.", temperature: 0.4, maxTokens: 1024 } },
+      { id: "alert", type: "outputNode", position: { x: 1200, y: 0 }, data: { label: "Alert Admin", outputType: "notify", destination: "telegram://admin_group" } },
+      { id: "log-unhealthy", type: "outputNode", position: { x: 1200, y: 200 }, data: { label: "Log Diagnosis", outputType: "log", destination: "tg_group_health_log" } },
+      { id: "log-healthy", type: "outputNode", position: { x: 900, y: 400 }, data: { label: "Log All Healthy", outputType: "log", destination: "tg_group_health_log" } },
+      { id: "note", type: "noteNode", position: { x: 0, y: 430 }, data: { label: "Group Health", content: "Daily check on TG group activity. Flags quiet groups (no activity >7d), uses AI to diagnose causes and suggest re-engagement. Alerts admin for high-priority groups." } },
+    ],
+    edges: [
+      { id: "e1", source: "trigger", target: "query", type: "smoothstep", animated: true },
+      { id: "e2", source: "query", target: "classify", type: "smoothstep", animated: true },
+      { id: "e3", source: "classify", target: "analyze", type: "smoothstep", animated: true, sourceHandle: "true", label: "unhealthy" },
+      { id: "e4", source: "classify", target: "log-healthy", type: "smoothstep", animated: true, sourceHandle: "false", label: "all healthy" },
+      { id: "e5", source: "analyze", target: "alert", type: "smoothstep", animated: true },
+      { id: "e6", source: "analyze", target: "log-unhealthy", type: "smoothstep", animated: true },
     ],
   },
 
@@ -624,8 +792,8 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
     ],
     edges: [
       { id: "e1", source: "trigger", target: "check", type: "smoothstep", animated: true },
-      { id: "e2", source: "check", target: "compose-high", type: "smoothstep", animated: true, label: "Advanced" },
-      { id: "e3", source: "check", target: "compose-update", type: "smoothstep", animated: true, label: "Early" },
+      { id: "e2", source: "check", target: "compose-high", type: "smoothstep", animated: true, sourceHandle: "true", label: "Advanced" },
+      { id: "e3", source: "check", target: "compose-update", type: "smoothstep", animated: true, sourceHandle: "false", label: "Early" },
       { id: "e4", source: "compose-high", target: "send-leadership", type: "smoothstep", animated: true },
       { id: "e5", source: "compose-update", target: "send-team", type: "smoothstep", animated: true },
     ],
@@ -639,7 +807,7 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
     createdAt: "2026-03-30",
     nodes: [
       { id: "trigger", type: "triggerNode", position: { x: 0, y: 200 }, data: { label: "Every Monday 8am", triggerType: "schedule", config: "0 8 * * 1" } },
-      { id: "metrics", type: "transformNode", position: { x: 300, y: 200 }, data: { label: "Pipeline Metrics", transformType: "extract", expression: "deals GROUP BY stage, board — count, total_value, avg_days_in_stage" } },
+      { id: "metrics", type: "transformNode", position: { x: 300, y: 200 }, data: { label: "Pipeline Metrics", transformType: "extract", expression: "deals GROUP BY stage, board -- count, total_value, avg_days_in_stage" } },
       { id: "compose", type: "llmNode", position: { x: 600, y: 200 }, data: { label: "AI Report Writer", provider: "claude", model: "claude-sonnet-4-5-20250514", systemPrompt: "Generate a professional weekly pipeline report email. Include: executive summary, deals by stage, week-over-week changes, top deals to watch, and recommended actions. Use tables and bullet points.", temperature: 0.4, maxTokens: 2048 } },
       { id: "send", type: "outputNode", position: { x: 900, y: 200 }, data: { label: "Email Report", outputType: "notify", destination: "email://weekly_report_list" } },
       { id: "archive", type: "outputNode", position: { x: 900, y: 400 }, data: { label: "Archive Report", outputType: "file", destination: "reports/weekly/" } },
@@ -1259,7 +1427,7 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
     id: "workflow-bridge",
     name: "Gap-to-Improvement Bridge",
     description: "Connect your improvement loop to the builder: identify top gaps, generate fixes with AI, run CPO reviews, and re-score automatically",
-    category: "improve" as const,
+    category: "improve",
     isBuiltIn: true,
     createdAt: "2026-03-27",
     nodes: [
@@ -1300,13 +1468,22 @@ export function getCustomTemplates(): FlowTemplate[] {
   if (typeof window === "undefined") return [];
   try {
     const raw = syncStorage.getItem(templateStorageKey());
-    return raw ? JSON.parse(raw) : [];
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (t): t is FlowTemplate =>
+        t != null &&
+        typeof t === "object" &&
+        typeof (t as FlowTemplate).id === "string" &&
+        Array.isArray((t as FlowTemplate).nodes)
+    );
   } catch {
     return [];
   }
 }
 
-export function saveCustomTemplate(template: FlowTemplate): void {
+export function saveCustomTemplate(template: FlowTemplate): boolean {
   const existing = getCustomTemplates();
   const idx = existing.findIndex((t) => t.id === template.id);
   if (idx >= 0) {
@@ -1316,8 +1493,10 @@ export function saveCustomTemplate(template: FlowTemplate): void {
   }
   try {
     syncStorage.setItem(templateStorageKey(), JSON.stringify(existing));
+    return true;
   } catch (e) {
-    console.warn(`[${getBuilderConfig().logPrefix}] Failed to save template — localStorage may be full:`, e);
+    console.error(`[${getBuilderConfig().logPrefix}] Failed to save template — localStorage may be full:`, e);
+    return false;
   }
 }
 
@@ -1350,6 +1529,7 @@ export const DOMAIN_TEMPLATE_IDS = new Set([
   "workflow-my-personas",
   "workflow-bridge",
   "workflow-improvement-loop",
+  "workflow-claude-project-setup",
 ]);
 
 /** Templates that use only generic node types — safe without domain nodes. */
@@ -1411,7 +1591,10 @@ export function getStarredTemplateIds(): Set<string> {
   if (typeof window === "undefined") return new Set();
   try {
     const raw = syncStorage.getItem(starredStorageKey());
-    return raw ? new Set(JSON.parse(raw)) : new Set();
+    if (!raw) return new Set();
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((v): v is string => typeof v === "string"));
   } catch {
     return new Set();
   }
