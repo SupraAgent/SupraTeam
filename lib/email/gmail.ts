@@ -171,31 +171,31 @@ export class GmailDriver implements MailDriver {
   }
 
   async markAsRead(threadId: string): Promise<void> {
-    await this.gmail.users.threads.modify({
+    await withBackoff(() => this.gmail.users.threads.modify({
       userId: "me",
       id: threadId,
       requestBody: { removeLabelIds: ["UNREAD"] },
-    });
+    }));
   }
 
   async markAsUnread(threadId: string): Promise<void> {
-    await this.gmail.users.threads.modify({
+    await withBackoff(() => this.gmail.users.threads.modify({
       userId: "me",
       id: threadId,
       requestBody: { addLabelIds: ["UNREAD"] },
-    });
+    }));
   }
 
   async archive(threadId: string): Promise<void> {
-    await this.gmail.users.threads.modify({
+    await withBackoff(() => this.gmail.users.threads.modify({
       userId: "me",
       id: threadId,
       requestBody: { removeLabelIds: ["INBOX"] },
-    });
+    }));
   }
 
   async trash(threadId: string): Promise<void> {
-    await this.gmail.users.threads.trash({ userId: "me", id: threadId });
+    await withBackoff(() => this.gmail.users.threads.trash({ userId: "me", id: threadId }));
   }
 
   async toggleStar(threadId: string, currentlyStarred?: boolean): Promise<void> {
@@ -320,6 +320,7 @@ export class GmailDriver implements MailDriver {
       userId: "me",
       requestBody: { raw, threadId },
     }));
+    if (!res.data.id) throw new Error("Gmail reply returned no message ID");
     const msg = await withBackoff(() => this.gmail.users.messages.get({
       userId: "me",
       id: res.data.id!,

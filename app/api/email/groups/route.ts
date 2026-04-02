@@ -84,26 +84,36 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 
-  // Insert group in DB with gmail_label_id
-  const { data, error } = await supabase.rpc("insert_email_group_atomic", {
-    p_user_id: user.id,
-    p_connection_id: body.connection_id,
-    p_name: trimmedName,
-    p_color: body.color ?? "#3b82f6",
-    p_gmail_label_id: gmailLabelId,
-  });
+  // Insert group in DB with gmail_label_id — wrapped in try/catch so Gmail label
+  // gets cleaned up even if the RPC throws (network timeout, Supabase outage).
+  let data: { id: string } & Record<string, unknown>;
+  try {
+    const result = await supabase.rpc("insert_email_group_atomic", {
+      p_user_id: user.id,
+      p_connection_id: body.connection_id,
+      p_name: trimmedName,
+      p_color: body.color ?? "#3b82f6",
+      p_gmail_label_id: gmailLabelId,
+    });
 
-  if (error) {
-    // Clean up Gmail label if DB insert fails (reuse cached driver)
+    if (result.error) {
+      // Clean up Gmail label if DB insert fails (reuse cached driver)
+      if (gmailLabelId && cachedDriver?.deleteLabel) {
+        try { await cachedDriver.deleteLabel(gmailLabelId); } catch { /* best effort */ }
+      }
+      if (result.error.message.includes("duplicate") || result.error.code === "23505") {
+        return NextResponse.json({ error: `Group "${trimmedName}" already exists` }, { status: 409 });
+      }
+      return NextResponse.json({ error: result.error.message }, { status: 500 });
+    }
+    data = result.data;
+  } catch (rpcErr) {
+    // RPC threw — clean up orphaned Gmail label
     if (gmailLabelId && cachedDriver?.deleteLabel) {
-      try {
-        await cachedDriver.deleteLabel(gmailLabelId);
-      } catch { /* best effort cleanup */ }
+      try { await cachedDriver.deleteLabel(gmailLabelId); } catch { /* best effort */ }
     }
-    if (error.message.includes("duplicate") || error.code === "23505") {
-      return NextResponse.json({ error: `Group "${trimmedName}" already exists` }, { status: 409 });
-    }
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const msg = rpcErr instanceof Error ? rpcErr.message : "Failed to create group";
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 
   // Fetch full group with nested relations

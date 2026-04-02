@@ -84,8 +84,12 @@ function EmailPageInner() {
   // Email groups state
   const { groups, loading: groupsLoading, loadingThreads, createGroup, deleteGroup, toggleCollapse, renameGroup, addThreadToGroup, removeThreadFromGroup } = useEmailGroups(activeConnectionId);
   const [groupPanelCollapsed, setGroupPanelCollapsed] = React.useState(() => {
-    if (typeof window !== "undefined") return localStorage.getItem("email-group-panel-collapsed") === "true";
-    return false;
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("email-group-panel-collapsed");
+      // Default to collapsed if never set (new users) — expanded only if explicitly set to "false"
+      return stored !== "false";
+    }
+    return true;
   });
 
   // Snooze state
@@ -713,7 +717,7 @@ function EmailPageInner() {
             });
           }}
           onToggleGroup={toggleCollapse}
-          onCreateGroup={(name, color) => createGroup(name, color)}
+          onCreateGroup={createGroup}
           onDeleteGroup={deleteGroup}
           onRenameGroup={renameGroup}
           onDropThread={(groupId, data) => addThreadToGroup(groupId, data)}

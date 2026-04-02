@@ -120,8 +120,105 @@ export async function POST(request: Request) {
       return;
     }
 
-    // Insert push event first — if this fails, don't advance historyId
-    // so the next push notification can retry from the same position.
+    // ── Auto-route new threads to email groups ──────────────
+    if (threadIds.length > 0) {
+      try {
+        const { data: connGroups } = await admin
+          .from("crm_email_groups")
+          .select("id, gmail_label_id")
+          .eq("connection_id", conn.id)
+          .eq("user_id", conn.user_id);
+
+        if (connGroups?.length) {
+          const groupIds = connGroups.map((g) => g.id);
+          const gmailLabelMap = new Map<string, string>();
+          for (const g of connGroups) {
+            if (g.gmail_label_id) gmailLabelMap.set(g.id, g.gmail_label_id);
+          }
+
+          const { data: groupContacts } = await admin
+            .from("crm_email_group_contacts")
+            .select("group_id, email")
+            .in("group_id", groupIds);
+
+          if (groupContacts?.length) {
+            const contactMap = new Map<string, string[]>();
+            for (const gc of groupContacts) {
+              const groups = contactMap.get(gc.email) ?? [];
+              groups.push(gc.group_id);
+              contactMap.set(gc.email, groups);
+            }
+
+            // Ensure driver is available for auto-routing
+            if (!driver) {
+              try {
+                const result_driver = await getDriverForUser(conn.user_id, conn.id);
+                driver = result_driver.driver;
+              } catch (driverErr) {
+                console.error("[gmail-webhook] Failed to init driver for auto-routing:", driverErr);
+              }
+            }
+
+            if (driver) {
+              const capped = threadIds.slice(0, MAX_AUTO_ROUTE_THREADS);
+              const BATCH_SIZE = 5;
+              for (let i = 0; i < capped.length; i += BATCH_SIZE) {
+                const batch = capped.slice(i, i + BATCH_SIZE);
+                const routeDriver = driver; // Capture non-null reference for closure
+                await Promise.allSettled(batch.map(async (threadId) => {
+                  const thread = await routeDriver.getThread(threadId);
+                  if (!thread?.messages?.length) return;
+
+                  const fromEmails = [...new Set(
+                    thread.messages
+                      .filter((m) => m.from?.email)
+                      .map((m) => m.from.email.toLowerCase())
+                  )];
+
+                  const matchedGroupIds = new Set<string>();
+                  for (const email of fromEmails) {
+                    const gids = contactMap.get(email);
+                    if (gids) gids.forEach((id) => matchedGroupIds.add(id));
+                  }
+
+                  if (matchedGroupIds.size === 0) return;
+
+                  const lastMsg = thread.messages[thread.messages.length - 1];
+                  const fromEmail = lastMsg?.from?.email ?? "";
+                  const fromName = lastMsg?.from?.name ?? "";
+                  await Promise.allSettled([...matchedGroupIds].map((groupId) => {
+                    const labelId = gmailLabelMap.get(groupId);
+                    if (labelId) {
+                      return routeDriver.modifyLabels(threadId, [labelId], []);
+                    }
+                    return admin
+                      .from("crm_email_group_threads")
+                      .upsert(
+                        {
+                          group_id: groupId,
+                          thread_id: threadId,
+                          subject: thread.subject ?? null,
+                          snippet: thread.snippet ?? null,
+                          from_email: fromEmail,
+                          from_name: fromName,
+                          last_message_at: lastMsg?.date ?? new Date().toISOString(),
+                          auto_added: true,
+                        },
+                        { onConflict: "group_id,thread_id" }
+                      );
+                  }));
+                }));
+              }
+            }
+          }
+        }
+      } catch (autoRouteErr) {
+        console.error("[gmail-webhook] Auto-routing error:", autoRouteErr);
+      }
+    }
+
+    // Persist push event + advance historyId AFTER auto-routing completes
+    // so threads aren't lost if auto-routing fails partway through.
     const { error: pushErr } = await admin.from("crm_email_push_events").insert({
       user_id: conn.user_id,
       email: payload.emailAddress,
@@ -134,108 +231,18 @@ export async function POST(request: Request) {
       return; // Don't advance historyId — retry on next push
     }
 
-    // Only advance historyId after push event is persisted
     await admin
       .from("crm_email_connections")
       .update({ watch_history_id: newHistoryId })
       .eq("id", conn.id)
       .eq("user_id", conn.user_id);
-
-    // ── Auto-route new threads to email groups ──────────────
-    if (threadIds.length > 0) {
-      try {
-        // Step 1: Get groups for this connection (include gmail_label_id for label-based routing)
-        const { data: connGroups } = await admin
-          .from("crm_email_groups")
-          .select("id, gmail_label_id")
-          .eq("connection_id", conn.id)
-          .eq("user_id", conn.user_id);
-
-        if (!connGroups?.length) return;
-
-        const groupIds = connGroups.map((g) => g.id);
-        const gmailLabelMap = new Map<string, string>();
-        for (const g of connGroups) {
-          if (g.gmail_label_id) gmailLabelMap.set(g.id, g.gmail_label_id);
-        }
-
-        // Step 2: Get contacts for those groups
-        const { data: groupContacts } = await admin
-          .from("crm_email_group_contacts")
-          .select("group_id, email")
-          .in("group_id", groupIds);
-
-        if (!groupContacts?.length) return;
-
-        const contactMap = new Map<string, string[]>();
-        for (const gc of groupContacts) {
-          const groups = contactMap.get(gc.email) ?? [];
-          groups.push(gc.group_id);
-          contactMap.set(gc.email, groups);
-        }
-
-        // Reuse driver from history fetch, or init if we didn't have one
-        if (!driver) {
-          const result_driver = await getDriverForUser(conn.user_id, conn.id);
-          driver = result_driver.driver;
-        }
-
-        // Cap threads to avoid timeout, then process in batches of 5 to avoid Gmail rate limits
-        const capped = threadIds.slice(0, MAX_AUTO_ROUTE_THREADS);
-        const BATCH_SIZE = 5;
-        for (let i = 0; i < capped.length; i += BATCH_SIZE) {
-          const batch = capped.slice(i, i + BATCH_SIZE);
-          await Promise.allSettled(batch.map(async (threadId) => {
-            const thread = await driver!.getThread(threadId);
-            if (!thread?.messages?.length) return;
-
-            const fromEmails = [...new Set(
-              thread.messages
-                .filter((m) => m.from?.email)
-                .map((m) => m.from.email.toLowerCase())
-            )];
-
-            const matchedGroupIds = new Set<string>();
-            for (const email of fromEmails) {
-              const gids = contactMap.get(email);
-              if (gids) gids.forEach((id) => matchedGroupIds.add(id));
-            }
-
-            if (matchedGroupIds.size === 0) return;
-
-            const lastMsg = thread.messages[thread.messages.length - 1];
-            const fromEmail = lastMsg?.from?.email ?? "";
-            const fromName = lastMsg?.from?.name ?? "";
-            // Route to matched groups: Gmail labels for Gmail groups, junction table for IMAP
-            await Promise.allSettled([...matchedGroupIds].map((groupId) => {
-              const labelId = gmailLabelMap.get(groupId);
-              if (labelId) {
-                return driver!.modifyLabels(threadId, [labelId], []);
-              }
-              return admin
-                .from("crm_email_group_threads")
-                .upsert(
-                  {
-                    group_id: groupId,
-                    thread_id: threadId,
-                    subject: thread.subject ?? null,
-                    snippet: thread.snippet ?? null,
-                    from_email: fromEmail,
-                    from_name: fromName,
-                    last_message_at: lastMsg?.date ?? new Date().toISOString(),
-                    auto_added: true,
-                  },
-                  { onConflict: "group_id,thread_id" }
-                );
-            }));
-          }));
-        }
-      } catch (autoRouteErr) {
-        // Non-critical — don't fail the webhook for auto-routing errors
-        console.error("[gmail-webhook] Auto-routing error:", autoRouteErr);
+  })).then((results) => {
+    for (const r of results) {
+      if (r.status === "rejected") {
+        console.error("[gmail-webhook] Connection processing failed:", r.reason);
       }
     }
-  }));
+  });
 
   return NextResponse.json({ ok: true });
 }

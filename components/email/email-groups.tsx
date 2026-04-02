@@ -252,10 +252,11 @@ export function useEmailGroups(connectionId: string | undefined) {
       added_at: new Date().toISOString(),
     };
 
+    // Auto-expand group if collapsed, and ensure threads array exists
     setGroups((prev) =>
       prev.map((g) =>
         g.id === groupId
-          ? { ...g, crm_email_group_threads: [newThread, ...(g.crm_email_group_threads ?? [])] }
+          ? { ...g, is_collapsed: false, crm_email_group_threads: [newThread, ...(g.crm_email_group_threads ?? [])] }
           : g
       )
     );
@@ -287,13 +288,15 @@ export function useEmailGroups(connectionId: string | undefined) {
           )
         );
       } else if (json.data) {
+        // Match by thread_id (not id) because Gmail returns synthetic IDs like "gmail-..."
+        // that won't match the temp UUID we assigned optimistically
         setGroups((prev) =>
           prev.map((g) =>
             g.id === groupId
               ? {
                   ...g,
                   crm_email_group_threads: (g.crm_email_group_threads ?? []).map((t) =>
-                    t.id === tempId ? { ...t, id: json.data.id } : t
+                    t.thread_id === data.threadId && t.id === tempId ? { ...t, id: json.data.id } : t
                   ),
                 }
               : g
@@ -367,7 +370,7 @@ interface EmailGroupPanelProps {
   panelCollapsed: boolean;
   onTogglePanel: () => void;
   onToggleGroup: (id: string) => void;
-  onCreateGroup: (name: string, color?: string) => void;
+  onCreateGroup: (name: string, color?: string) => Promise<EmailGroup | null>;
   onDeleteGroup: (id: string) => void;
   onRenameGroup: (id: string, name: string) => void;
   onDropThread: (groupId: string, data: DragThreadData) => void;
@@ -401,14 +404,17 @@ export function EmailGroupPanel({
     if (creating) inputRef.current?.focus();
   }, [creating]);
 
-  function handleCreateSubmit(e: React.FormEvent) {
+  async function handleCreateSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (newName.trim()) {
-      onCreateGroup(newName.trim(), newColor);
+    if (!newName.trim()) return;
+    const result = await onCreateGroup(newName.trim(), newColor);
+    if (result !== null) {
+      // Success — close form
       setNewName("");
       setNewColor(GROUP_COLORS[Math.floor(Math.random() * GROUP_COLORS.length)]);
       setCreating(false);
     }
+    // On failure (null), keep form open with input preserved
   }
 
   return (
