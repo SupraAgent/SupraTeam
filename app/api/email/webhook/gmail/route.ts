@@ -169,14 +169,17 @@ export async function POST(request: Request) {
           driver = result_driver.driver;
         }
 
-        // Cap threads to avoid timeout
+        // Cap threads to avoid timeout, then process in parallel
         const capped = threadIds.slice(0, MAX_AUTO_ROUTE_THREADS);
-        for (const threadId of capped) {
-          const thread = await driver.getThread(threadId);
-          if (!thread?.messages?.length) continue;
+        await Promise.allSettled(capped.map(async (threadId) => {
+          const thread = await driver!.getThread(threadId);
+          if (!thread?.messages?.length) return;
 
+          // Safely extract from emails with null checks
           const fromEmails = [...new Set(
-            thread.messages.map((m: { from: { email: string } }) => m.from.email.toLowerCase())
+            thread.messages
+              .filter((m: { from?: { email?: string } }) => m.from?.email)
+              .map((m: { from: { email: string } }) => m.from.email.toLowerCase())
           )];
 
           const matchedGroupIds = new Set<string>();
@@ -185,28 +188,30 @@ export async function POST(request: Request) {
             if (gids) gids.forEach((id) => matchedGroupIds.add(id));
           }
 
-          if (matchedGroupIds.size === 0) continue;
+          if (matchedGroupIds.size === 0) return;
 
           const lastMsg = thread.messages[thread.messages.length - 1];
-          // Upsert per group — atomic, no TOCTOU race
-          for (const groupId of matchedGroupIds) {
-            await admin
+          const fromEmail = lastMsg?.from?.email ?? "";
+          const fromName = lastMsg?.from?.name ?? "";
+          // Batch upserts for all matched groups in parallel
+          await Promise.allSettled([...matchedGroupIds].map((groupId) =>
+            admin
               .from("crm_email_group_threads")
               .upsert(
                 {
                   group_id: groupId,
                   thread_id: threadId,
-                  subject: thread.subject,
+                  subject: thread.subject ?? null,
                   snippet: thread.snippet ?? null,
-                  from_email: lastMsg.from.email,
-                  from_name: lastMsg.from.name,
-                  last_message_at: lastMsg.date,
+                  from_email: fromEmail,
+                  from_name: fromName,
+                  last_message_at: lastMsg?.date ?? new Date().toISOString(),
                   auto_added: true,
                 },
                 { onConflict: "group_id,thread_id" }
-              );
-          }
-        }
+              )
+          ));
+        }));
       } catch (autoRouteErr) {
         // Non-critical — don't fail the webhook for auto-routing errors
         console.error("[gmail-webhook] Auto-routing error:", autoRouteErr);

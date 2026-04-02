@@ -92,35 +92,31 @@ export function useEmailGroups(connectionId: string | undefined) {
   }, [connectionId]);
 
   const deleteGroup = React.useCallback(async (id: string) => {
-    let removed: EmailGroup | undefined;
-    setGroups((prev) => {
-      removed = prev.find((g) => g.id === id);
-      return prev.filter((g) => g.id !== id);
-    });
+    // Snapshot before optimistic remove (read outside updater to avoid Strict Mode double-invoke bug)
+    const snapshot = groups;
+    const removed = snapshot.find((g) => g.id === id);
+    setGroups((prev) => prev.filter((g) => g.id !== id));
 
     try {
       const res = await globalThis.fetch(`/api/email/groups?id=${id}`, { method: "DELETE" });
       const json = await res.json();
       if (json.error) {
         toast.error(json.error);
-        if (removed) setGroups((prev) => [...prev, removed!].sort((a, b) => a.position - b.position));
+        if (removed) setGroups((prev) => [...prev, removed].sort((a, b) => a.position - b.position));
       }
     } catch {
       toast.error("Failed to delete group");
-      if (removed) setGroups((prev) => [...prev, removed!].sort((a, b) => a.position - b.position));
+      if (removed) setGroups((prev) => [...prev, removed].sort((a, b) => a.position - b.position));
     }
-  }, []);
+  }, [groups]);
 
   const toggleCollapse = React.useCallback(async (id: string) => {
-    let newCollapsed = false;
+    // Read current value from snapshot to avoid Strict Mode double-invoke bug
+    const current = groups.find((g) => g.id === id);
+    if (!current) return;
+    const newCollapsed = !current.is_collapsed;
     setGroups((prev) =>
-      prev.map((g) => {
-        if (g.id === id) {
-          newCollapsed = !g.is_collapsed;
-          return { ...g, is_collapsed: newCollapsed };
-        }
-        return g;
-      })
+      prev.map((g) => (g.id === id ? { ...g, is_collapsed: newCollapsed } : g))
     );
 
     try {
@@ -140,19 +136,13 @@ export function useEmailGroups(connectionId: string | undefined) {
         prev.map((g) => (g.id === id ? { ...g, is_collapsed: !newCollapsed } : g))
       );
     }
-  }, []);
+  }, [groups]);
 
   const renameGroup = React.useCallback(async (id: string, name: string) => {
     if (!name.trim()) return;
-    let oldName = "";
+    const oldName = groups.find((g) => g.id === id)?.name ?? "";
     setGroups((prev) =>
-      prev.map((g) => {
-        if (g.id === id) {
-          oldName = g.name;
-          return { ...g, name: name.trim() };
-        }
-        return g;
-      })
+      prev.map((g) => (g.id === id ? { ...g, name: name.trim() } : g))
     );
 
     try {
@@ -170,7 +160,7 @@ export function useEmailGroups(connectionId: string | undefined) {
       toast.error("Failed to rename group");
       setGroups((prev) => prev.map((g) => (g.id === id ? { ...g, name: oldName } : g)));
     }
-  }, []);
+  }, [groups]);
 
   const addThreadToGroup = React.useCallback(async (groupId: string, data: DragThreadData) => {
     const tempId = crypto.randomUUID();
@@ -247,13 +237,15 @@ export function useEmailGroups(connectionId: string | undefined) {
   }, []);
 
   const removeThreadFromGroup = React.useCallback(async (groupId: string, threadId: string) => {
-    let removed: EmailGroupThread | undefined;
+    // Snapshot removed thread outside updater to avoid Strict Mode double-invoke bug
+    const group = groups.find((g) => g.id === groupId);
+    const removed = group?.crm_email_group_threads.find((t) => t.thread_id === threadId);
     setGroups((prev) =>
-      prev.map((g) => {
-        if (g.id !== groupId) return g;
-        removed = g.crm_email_group_threads.find((t) => t.thread_id === threadId);
-        return { ...g, crm_email_group_threads: g.crm_email_group_threads.filter((t) => t.thread_id !== threadId) };
-      })
+      prev.map((g) =>
+        g.id === groupId
+          ? { ...g, crm_email_group_threads: g.crm_email_group_threads.filter((t) => t.thread_id !== threadId) }
+          : g
+      )
     );
 
     try {
@@ -268,7 +260,7 @@ export function useEmailGroups(connectionId: string | undefined) {
           setGroups((prev) =>
             prev.map((g) =>
               g.id === groupId
-                ? { ...g, crm_email_group_threads: [...g.crm_email_group_threads, removed!] }
+                ? { ...g, crm_email_group_threads: [...g.crm_email_group_threads, removed] }
                 : g
             )
           );
@@ -280,13 +272,13 @@ export function useEmailGroups(connectionId: string | undefined) {
         setGroups((prev) =>
           prev.map((g) =>
             g.id === groupId
-              ? { ...g, crm_email_group_threads: [...g.crm_email_group_threads, removed!] }
+              ? { ...g, crm_email_group_threads: [...g.crm_email_group_threads, removed] }
               : g
           )
         );
       }
     }
-  }, []);
+  }, [groups]);
 
   return { groups, loading, createGroup, deleteGroup, toggleCollapse, renameGroup, addThreadToGroup, removeThreadFromGroup, refresh: fetchGroups };
 }
@@ -488,6 +480,7 @@ function GroupRow({
   const [editName, setEditName] = React.useState(group.name);
   const [confirmDelete, setConfirmDelete] = React.useState(false);
   const editRef = React.useRef<HTMLInputElement>(null);
+  const recentDropsRef = React.useRef(new Set<string>());
   const threads = group.crm_email_group_threads;
 
   React.useEffect(() => {
@@ -516,10 +509,13 @@ function GroupRow({
     if (!raw) return;
     try {
       const data: DragThreadData = JSON.parse(raw);
-      if (threads.some((t) => t.thread_id === data.threadId)) {
+      if (threads.some((t) => t.thread_id === data.threadId) || recentDropsRef.current.has(data.threadId)) {
         toast("Thread already in this group");
         return;
       }
+      // Debounce: block rapid duplicate drops for 2s
+      recentDropsRef.current.add(data.threadId);
+      setTimeout(() => recentDropsRef.current.delete(data.threadId), 2000);
       onDrop(data);
       toast(`Added to "${group.name}"`);
     } catch (err) {
@@ -610,16 +606,20 @@ function GroupRow({
       </div>
 
       {/* Thread items */}
-      {!group.is_collapsed && threads.length > 0 && (
+      {!group.is_collapsed && (
         <div className="pl-9 pr-4">
-          {threads.map((t) => (
-            <GroupThreadItem
-              key={t.id}
-              thread={t}
-              onSelect={() => onSelectThread(t.thread_id)}
-              onRemove={() => onRemoveThread(t.thread_id)}
-            />
-          ))}
+          {threads.length > 0 ? (
+            threads.map((t) => (
+              <GroupThreadItem
+                key={t.id}
+                thread={t}
+                onSelect={() => onSelectThread(t.thread_id)}
+                onRemove={() => onRemoveThread(t.thread_id)}
+              />
+            ))
+          ) : (
+            <p className="text-[10px] text-muted-foreground/50 py-1.5 italic">Drag emails here</p>
+          )}
         </div>
       )}
     </div>

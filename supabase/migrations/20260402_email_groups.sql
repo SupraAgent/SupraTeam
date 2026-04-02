@@ -126,6 +126,11 @@ begin
     raise exception 'Unauthorized: user_id mismatch';
   end if;
 
+  -- Lock existing rows to prevent TOCTOU race on position calculation
+  perform 1 from crm_email_groups
+    where connection_id = p_connection_id and user_id = p_user_id
+    for update;
+
   insert into crm_email_groups (user_id, connection_id, name, color, position)
   values (
     p_user_id,

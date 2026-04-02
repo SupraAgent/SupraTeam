@@ -136,8 +136,8 @@ export function ThreadList({ threads, selectedId, selectedIds, onSelect, onToggl
         <div
           className="fixed z-[100] min-w-[180px] rounded-lg border border-white/10 shadow-2xl py-1 overflow-hidden"
           style={{
-            left: contextMenu.x,
-            top: contextMenu.y,
+            left: Math.min(contextMenu.x, typeof window !== "undefined" ? window.innerWidth - 200 : contextMenu.x),
+            top: Math.min(contextMenu.y, typeof window !== "undefined" ? window.innerHeight - 320 : contextMenu.y),
             backgroundColor: "hsl(var(--surface-3))",
           }}
           onClick={(e) => e.stopPropagation()}

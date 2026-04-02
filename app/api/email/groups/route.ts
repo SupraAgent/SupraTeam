@@ -41,6 +41,9 @@ export async function POST(req: NextRequest) {
   if (!body.name?.trim()) {
     return NextResponse.json({ error: "Group name is required" }, { status: 400 });
   }
+  if (body.name.trim().length > 100) {
+    return NextResponse.json({ error: "Group name too long (max 100 chars)" }, { status: 400 });
+  }
   if (!body.connection_id) {
     return NextResponse.json({ error: "connection_id is required" }, { status: 400 });
   }
@@ -70,7 +73,9 @@ export async function POST(req: NextRequest) {
     .eq("id", data.id)
     .single();
 
-  return NextResponse.json({ data: full ?? data }, { status: 201 });
+  // Guarantee nested arrays exist so client .map() never crashes
+  const result = full ?? { ...data, crm_email_group_threads: [], crm_email_group_contacts: [] };
+  return NextResponse.json({ data: result }, { status: 201 });
 }
 
 /** DELETE /api/email/groups?id=... */
@@ -82,13 +87,15 @@ export async function DELETE(req: NextRequest) {
   const id = req.nextUrl.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
-  const { error } = await supabase
+  const { data: deleted, error } = await supabase
     .from("crm_email_groups")
     .delete()
     .eq("id", id)
-    .eq("user_id", user.id);
+    .eq("user_id", user.id)
+    .select("id");
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!deleted?.length) return NextResponse.json({ error: "Group not found" }, { status: 404 });
   return NextResponse.json({ data: { deleted: true } });
 }
 
