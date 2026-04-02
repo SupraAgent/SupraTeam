@@ -8,15 +8,25 @@ export async function GET() {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
 
-  const { data, error } = await auth.admin
+  let { data, error } = await auth.admin
     .from("crm_email_connections")
     .select("id, provider, email, is_default, sort_order, connected_at, last_sync_at")
     .eq("user_id", auth.user.id)
     .order("sort_order", { ascending: true })
     .order("connected_at", { ascending: false });
 
+  // Fallback if sort_order column doesn't exist yet (migration not applied)
   if (error) {
-    return NextResponse.json({ error: "Failed to fetch connections" }, { status: 500 });
+    const fallback = await auth.admin
+      .from("crm_email_connections")
+      .select("id, provider, email, is_default, connected_at, last_sync_at")
+      .eq("user_id", auth.user.id)
+      .order("connected_at", { ascending: false });
+
+    if (fallback.error) {
+      return NextResponse.json({ error: "Failed to fetch connections" }, { status: 500 });
+    }
+    data = (fallback.data ?? []).map((c: Record<string, unknown>, i: number) => ({ ...c, sort_order: i }));
   }
 
   return NextResponse.json({ data, source: "supabase" });
