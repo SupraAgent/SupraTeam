@@ -24,6 +24,7 @@ import { getPanelById } from "@/lib/plugins/registry";
 import { ThreadContextProvider } from "@/lib/plugins/thread-context";
 import { PanelCard } from "@/components/email/dashboard/panel-card";
 import { PanelPicker } from "@/components/email/dashboard/panel-picker";
+import { EmailGroupPanel, useEmailGroups, type DragThreadData } from "@/components/email/email-groups";
 
 export default function EmailPage() {
   return (
@@ -80,6 +81,13 @@ function EmailPageInner() {
   // Command palette state
   const [commandPaletteOpen, setCommandPaletteOpen] = React.useState(false);
 
+  // Email groups state
+  const { groups, loading: groupsLoading, createGroup, deleteGroup, toggleCollapse, renameGroup, addThreadToGroup, removeThreadFromGroup } = useEmailGroups(activeConnectionId);
+  const [groupPanelCollapsed, setGroupPanelCollapsed] = React.useState(() => {
+    if (typeof window !== "undefined") return localStorage.getItem("email-group-panel-collapsed") === "true";
+    return false;
+  });
+
   // Snooze state
   const [snoozeOpen, setSnoozeOpen] = React.useState(false);
   const [snoozeThreadId, setSnoozeThreadId] = React.useState<string | null>(null);
@@ -104,6 +112,9 @@ function EmailPageInner() {
 
   // Gmail Pub/Sub push — refresh on new mail
   useGmailPush(refresh);
+
+  // Dashboard layout — shared between DashboardBar and InlineDashboardPanels
+  const { layout: dashboardLayout, togglePanel: dashboardTogglePanel, resetLayout: dashboardResetLayout } = useDashboardLayout();
 
   // Visible threads based on active category
   const visibleThreads = activeCategory === "all" ? threads : split[activeCategory];
@@ -674,11 +685,55 @@ function EmailPageInner() {
         />
       </div>
 
-      {/* Thread view */}
+      {/* Thread view / Dashboard */}
       <div className={cn(
         "flex-1 flex flex-col",
         !selectedThreadId && "hidden md:flex"
       )}>
+        {/* Persistent dashboard bar — always visible */}
+        <DashboardBar
+          isThreadView={!!activeThread}
+          onBackToDashboard={() => setSelectedThreadId(null)}
+          enabledPanels={dashboardLayout.enabledPanels}
+          togglePanel={dashboardTogglePanel}
+          resetLayout={dashboardResetLayout}
+        />
+
+        {/* Email groups panel — drag threads here */}
+        <EmailGroupPanel
+          groups={groups}
+          loading={groupsLoading}
+          panelCollapsed={groupPanelCollapsed}
+          onTogglePanel={() => {
+            setGroupPanelCollapsed((v) => {
+              const next = !v;
+              localStorage.setItem("email-group-panel-collapsed", String(next));
+              return next;
+            });
+          }}
+          onToggleGroup={toggleCollapse}
+          onCreateGroup={(name) => createGroup(name)}
+          onDeleteGroup={deleteGroup}
+          onRenameGroup={renameGroup}
+          onDropThread={(groupId, data) => addThreadToGroup(groupId, data)}
+          onRemoveThread={removeThreadFromGroup}
+          onSelectThread={(threadId) => {
+            setSelectedThreadId(threadId);
+            setThreads((prev) =>
+              prev.map((t) => (t.id === threadId && t.isUnread ? { ...t, isUnread: false } : t))
+            );
+          }}
+          onArchiveThread={(threadId) => {
+            performAction(threadId, "archive");
+            toast("Archived", {
+              action: { label: "Undo", onClick: () => undoActionRef.current?.undo() },
+            });
+            if (selectedThreadId === threadId) {
+              setSelectedThreadId(null);
+            }
+          }}
+        />
+
         {activeThread ? (
           <>
             <ThreadView
@@ -692,7 +747,6 @@ function EmailPageInner() {
               onStar={handleStar}
               onMarkUnread={handleMarkUnread}
               onBack={() => setSelectedThreadId(null)}
-              onDashboard={() => setSelectedThreadId(null)}
             />
             <AutoDraftBanner
               threadId={selectedThreadId}
@@ -707,7 +761,10 @@ function EmailPageInner() {
             />
           </>
         ) : (
-          <InlineDashboard />
+          <InlineDashboardPanels
+            enabledPanels={dashboardLayout.enabledPanels}
+            togglePanel={dashboardTogglePanel}
+          />
         )}
       </div>
 
@@ -874,72 +931,95 @@ function PlusIcon({ className }: { className?: string }) {
   return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>;
 }
 
-// ── Inline Dashboard (shown when no thread is selected) ────
+// ── Persistent Dashboard Bar (always visible at top of right panel) ────
 
-function InlineDashboard() {
-  const { layout, togglePanel, resetLayout } = useDashboardLayout();
+function DashboardBar({
+  isThreadView,
+  onBackToDashboard,
+  enabledPanels,
+  togglePanel,
+  resetLayout,
+}: {
+  isThreadView: boolean;
+  onBackToDashboard: () => void;
+  enabledPanels: import("@/lib/plugins/types").PanelId[];
+  togglePanel: (id: import("@/lib/plugins/types").PanelId) => void;
+  resetLayout: () => void;
+}) {
   const [pickerOpen, setPickerOpen] = React.useState(false);
-  const enabledPanels = layout.enabledPanels;
 
   return (
-    <ThreadContextProvider>
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="px-4 py-2.5 border-b border-white/10 flex items-center justify-between shrink-0">
+    <>
+      <div className="px-4 py-2 border-b border-white/10 flex items-center justify-between shrink-0">
+        {isThreadView ? (
+          <button
+            onClick={onBackToDashboard}
+            className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+          >
+            <LayoutDashboard className="h-3.5 w-3.5 text-primary" />
+            <span className="text-xs font-medium text-foreground">Dashboard</span>
+          </button>
+        ) : (
           <div className="flex items-center gap-2">
             <LayoutDashboard className="h-3.5 w-3.5 text-primary" />
             <span className="text-xs font-medium text-foreground">Dashboard</span>
           </div>
-          <button
-            onClick={() => setPickerOpen(true)}
-            className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-white/5 border border-white/10 transition"
-          >
-            <Plus className="h-3 w-3" />
-            Panels
-          </button>
-        </div>
+        )}
+        <button
+          onClick={() => setPickerOpen(true)}
+          className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-white/5 border border-white/10 transition"
+        >
+          <Plus className="h-3 w-3" />
+          Panels
+        </button>
+      </div>
+      <PanelPicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        enabledPanels={enabledPanels}
+        onToggle={togglePanel}
+        onReset={resetLayout}
+      />
+    </>
+  );
+}
 
-        {/* Panel grid */}
-        <div className="flex-1 overflow-y-auto p-3 thin-scroll">
-          {enabledPanels.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-3">
-              <LayoutDashboard className="h-10 w-10 opacity-20" />
-              <p className="text-xs">No panels enabled</p>
-              <button
-                onClick={() => setPickerOpen(true)}
-                className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium bg-primary text-white hover:bg-primary/90 transition"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Add Panels
-              </button>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-3">
-              {enabledPanels.map((panelId) => {
-                const panel = getPanelById(panelId);
-                if (!panel) return null;
-                const PanelComponent = panel.component;
-                return (
-                  <PanelCard
-                    key={panelId}
-                    panel={panel}
-                    onRemove={() => togglePanel(panelId)}
-                  >
-                    <PanelComponent />
-                  </PanelCard>
-                );
-              })}
-            </div>
-          )}
-        </div>
+// ── Inline Dashboard Panels (shown when no thread is selected) ────
 
-        <PanelPicker
-          open={pickerOpen}
-          onClose={() => setPickerOpen(false)}
-          enabledPanels={enabledPanels}
-          onToggle={togglePanel}
-          onReset={resetLayout}
-        />
+function InlineDashboardPanels({
+  enabledPanels,
+  togglePanel,
+}: {
+  enabledPanels: import("@/lib/plugins/types").PanelId[];
+  togglePanel: (id: import("@/lib/plugins/types").PanelId) => void;
+}) {
+  return (
+    <ThreadContextProvider>
+      <div className="flex-1 overflow-y-auto p-3 thin-scroll">
+        {enabledPanels.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-3">
+            <LayoutDashboard className="h-10 w-10 opacity-20" />
+            <p className="text-xs">No panels enabled</p>
+            <p className="text-[10px] text-muted-foreground">Click + Panels above to add</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-3">
+            {enabledPanels.map((panelId) => {
+              const panel = getPanelById(panelId);
+              if (!panel) return null;
+              const PanelComponent = panel.component;
+              return (
+                <PanelCard
+                  key={panelId}
+                  panel={panel}
+                  onRemove={() => togglePanel(panelId)}
+                >
+                  <PanelComponent />
+                </PanelCard>
+              );
+            })}
+          </div>
+        )}
       </div>
     </ThreadContextProvider>
   );

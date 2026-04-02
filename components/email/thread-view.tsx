@@ -20,7 +20,6 @@ type ThreadViewProps = {
   onStar: () => void;
   onMarkUnread: () => void;
   onBack: () => void;
-  onDashboard?: () => void;
 };
 
 export function ThreadView({
@@ -34,7 +33,6 @@ export function ThreadView({
   onStar,
   onMarkUnread,
   onBack,
-  onDashboard,
 }: ThreadViewProps) {
   if (loading) {
     return (
@@ -81,14 +79,6 @@ export function ThreadView({
           <ActionButton title="Mark unread (u)" onClick={onMarkUnread}>
             <MailIcon className="h-4 w-4" />
           </ActionButton>
-          {onDashboard && (
-            <>
-              <div className="h-4 w-px bg-white/10 mx-0.5" />
-              <ActionButton title="Back to dashboard" onClick={onDashboard}>
-                <DashboardIcon className="h-4 w-4" />
-              </ActionButton>
-            </>
-          )}
         </div>
       </div>
 
@@ -314,6 +304,3 @@ function PaperclipIcon({ className }: { className?: string }) {
   return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" /></svg>;
 }
 
-function DashboardIcon({ className }: { className?: string }) {
-  return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg>;
-}
