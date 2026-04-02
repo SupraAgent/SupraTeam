@@ -162,22 +162,7 @@ body {
 }
 
 /* ── Ice Cold Deal Cards ── */
-/* Progressive frost effect for stale deals (1-6 weeks without activity).
- * Each stage uses its own PNG: /ice-1.png through /ice-6.png
- * Each image should have MORE ice coverage than the previous:
- *   ice-1.png — light frost at corners only
- *   ice-2.png — frost spreading along edges
- *   ice-3.png — ice crystals creeping inward, edges covered
- *   ice-4.png — half the card covered in ice
- *   ice-5.png — mostly frozen, content barely visible
- *   ice-6.png — fully encased in ice block (Hearthstone style)
- * All PNGs should be transparent with ice detail painted in. */
-
-/* Shimmer animation for heavy frost (stages 5-6) */
-@keyframes ice-shimmer {
-  0%   { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
-}
+/* Progressive frost effect using PNG overlays for stale deals (1-8 weeks) */
 
 /* Base for all ice stages */
 .ice-stage-1,
@@ -185,7 +170,9 @@ body {
 .ice-stage-3,
 .ice-stage-4,
 .ice-stage-5,
-.ice-stage-6 {
+.ice-stage-6,
+.ice-stage-7,
+.ice-stage-8 {
   position: relative;
   overflow: hidden;
   transition: border-color 0.3s ease, box-shadow 0.3s ease, background-color 0.3s ease;
@@ -197,7 +184,9 @@ body {
 .ice-stage-3::before,
 .ice-stage-4::before,
 .ice-stage-5::before,
-.ice-stage-6::before {
+.ice-stage-6::before,
+.ice-stage-7::before,
+.ice-stage-8::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -210,9 +199,11 @@ body {
   mix-blend-mode: multiply;
 }
 
-/* ::after — shimmer highlight layer (stages 5-6 only) */
+/* ::after — shimmer highlight layer (stages 5+ only) */
 .ice-stage-5::after,
-.ice-stage-6::after {
+.ice-stage-6::after,
+.ice-stage-7::after,
+.ice-stage-8::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -229,6 +220,11 @@ body {
   );
   background-size: 200% 100%;
   animation: ice-shimmer 4s ease-in-out infinite;
+}
+
+@keyframes ice-shimmer {
+  0%, 100% { background-position: 200% 0; }
+  50% { background-position: -200% 0; }
 }
 
 /* ── Stage 1: Frost at corners ── */
@@ -284,8 +280,37 @@ body {
   background-image: url("/ice-5.png");
 }
 
-/* ── Stage 6: Fully frozen — Hearthstone ice block ── */
+/* ── Stage 6: Heavily frozen ── */
 .ice-stage-6 {
+  border-color: rgba(56, 189, 248, 0.6) !important;
+  box-shadow:
+    inset 0 0 35px rgba(125, 211, 252, 0.16),
+    inset 0 0 10px rgba(56, 189, 248, 0.12),
+    0 0 15px rgba(56, 189, 248, 0.1),
+    0 0 3px rgba(184, 228, 240, 0.15);
+}
+.ice-stage-6::before {
+  background-image: url("/ice-6.png");
+}
+
+/* ── Stage 7: Nearly frozen solid ── */
+.ice-stage-7 {
+  border-color: rgba(56, 189, 248, 0.65) !important;
+  box-shadow:
+    inset 0 0 38px rgba(125, 211, 252, 0.17),
+    inset 0 0 12px rgba(56, 189, 248, 0.13),
+    0 0 18px rgba(56, 189, 248, 0.11),
+    0 0 4px rgba(184, 228, 240, 0.18);
+}
+.ice-stage-7::before {
+  background-image: url("/ice-6.png");
+}
+.ice-stage-7::after {
+  animation-duration: 3s;
+}
+
+/* ── Stage 8: Fully frozen — maximum ice ── */
+.ice-stage-8 {
   border-color: rgba(56, 189, 248, 0.7) !important;
   box-shadow:
     inset 0 0 40px rgba(125, 211, 252, 0.18),
@@ -294,10 +319,10 @@ body {
     0 0 4px rgba(184, 228, 240, 0.2),
     0 0 1px rgba(255, 255, 255, 0.1);
 }
-.ice-stage-6::before {
+.ice-stage-8::before {
   background-image: url("/ice-6.png");
 }
-.ice-stage-6::after {
+.ice-stage-8::after {
   animation-duration: 2.5s;
   background: linear-gradient(
     105deg,
@@ -340,41 +365,6 @@ body {
 }
 .animate-slide-up {
   animation: slide-up-fade 200ms ease-out;
-}
-
-/* Focus ring for keyboard navigation */
-.focus-ring:focus-visible {
-  outline: 2px solid hsl(var(--primary));
-  outline-offset: 2px;
-  border-radius: var(--radius);
-}
-
-/* Pull to refresh indicator */
-@keyframes ptr-spin {
-  to { transform: rotate(360deg); }
-}
-.ptr-spinner {
-  animation: ptr-spin 0.8s linear infinite;
-}
-
-/* Haptic feedback on tap (visual) */
-.tap-highlight {
-  -webkit-tap-highlight-color: rgba(255, 255, 255, 0.05);
-}
-
-/* Safe area bottom padding for fixed bottom bars */
-.safe-area-bottom {
-  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
-}
-
-/* Ice tooltip badge */
-.ice-badge {
-  font-size: 9px;
-  padding: 1px 5px;
-  border-radius: 9999px;
-  background: rgba(56, 189, 248, 0.15);
-  color: rgba(125, 211, 252, 0.9);
-  white-space: nowrap;
 }
 
 /* ── Golden Shimmer for Hot Deals ── */
@@ -426,7 +416,6 @@ body {
 }
 
 /* ── Response Timer Bar ── */
-/* Thin bar at bottom of deal card showing response wait time */
 @keyframes response-urgency-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
@@ -436,7 +425,6 @@ body {
 }
 
 /* ── Drop Slam Animation ── */
-/* Plays when a deal card is dropped into a new column */
 @keyframes drop-slam {
   0%   { transform: scale(1.06); opacity: 0.7; box-shadow: 0 0 0 0 rgba(124, 58, 237, 0); }
   30%  { transform: scale(0.96); box-shadow: 0 0 20px 4px rgba(124, 58, 237, 0.15); }
@@ -455,4 +443,39 @@ body {
 }
 .animate-column-ripple {
   animation: column-ripple 500ms ease-out;
+}
+
+/* Focus ring for keyboard navigation */
+.focus-ring:focus-visible {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}
+
+/* Pull to refresh indicator */
+@keyframes ptr-spin {
+  to { transform: rotate(360deg); }
+}
+.ptr-spinner {
+  animation: ptr-spin 0.8s linear infinite;
+}
+
+/* Haptic feedback on tap (visual) */
+.tap-highlight {
+  -webkit-tap-highlight-color: rgba(255, 255, 255, 0.05);
+}
+
+/* Safe area bottom padding for fixed bottom bars */
+.safe-area-bottom {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+/* Ice tooltip badge */
+.ice-badge {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 9999px;
+  background: rgba(56, 189, 248, 0.15);
+  color: rgba(125, 211, 252, 0.9);
+  white-space: nowrap;
 }
