@@ -353,6 +353,13 @@ export function useBatchPrefetch(threads: { id: string }[], connectionId?: strin
 
 // ── Labels ──────────────────────────────────────────────────
 
+// Third-party app labels to hide from the sidebar
+const THIRD_PARTY_PREFIXES = ["[Superhuman]", "[Streak]", "[Mixmax]", "[Boomerang]", "[Mailtrack]", "[Yesware]"];
+
+function isThirdPartyLabel(name: string): boolean {
+  return THIRD_PARTY_PREFIXES.some((prefix) => name.startsWith(prefix));
+}
+
 export function useLabels(connectionId?: string) {
   const [labels, setLabels] = React.useState<Label[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -369,7 +376,8 @@ export function useLabels(connectionId?: string) {
           setError(json.error ?? "Failed to load labels");
           return;
         }
-        setLabels(json.data ?? []);
+        const all: Label[] = json.data ?? [];
+        setLabels(all.filter((l) => l.type !== "user" || !isThirdPartyLabel(l.name)));
       })
       .catch(() => {
         setError("Network error");
