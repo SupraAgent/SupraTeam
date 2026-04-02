@@ -197,14 +197,14 @@ body {
   mix-blend-mode: screen;
 }
 
-.ice-stage-1::before { background-image: url("/ice-1.png"); }
-.ice-stage-2::before { background-image: url("/ice-2.png"); }
-.ice-stage-3::before { background-image: url("/ice-3.png"); }
-.ice-stage-4::before { background-image: url("/ice-4.png"); }
-.ice-stage-5::before { background-image: url("/ice-5.png"); }
-.ice-stage-6::before { background-image: url("/ice-6.png"); }
-.ice-stage-7::before { background-image: url("/ice-6.png"); }
-.ice-stage-8::before { background-image: url("/ice-6.png"); }
+.ice-stage-1::before { background-image: url("/frost-1.png"); }
+.ice-stage-2::before { background-image: url("/frost-2.png"); }
+.ice-stage-3::before { background-image: url("/frost-3.png"); }
+.ice-stage-4::before { background-image: url("/frost-4.png"); }
+.ice-stage-5::before { background-image: url("/frost-5.png"); }
+.ice-stage-6::before { background-image: url("/frost-6.png"); }
+.ice-stage-7::before { background-image: url("/frost-6.png"); }
+.ice-stage-8::before { background-image: url("/frost-6.png"); }
 
 /* View density system */
 [data-density="compact"] {
