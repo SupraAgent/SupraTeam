@@ -3,7 +3,7 @@
 import * as React from "react";
 import { cn, timeAgo } from "@/lib/utils";
 import { toast } from "sonner";
-import { ChevronDown, Folder, Plus, X, Archive } from "lucide-react";
+import { ChevronDown, Folder, Plus, X, Archive, Pencil, Info, Loader2 } from "lucide-react";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -34,7 +34,8 @@ export interface EmailGroup {
   gmail_label_id: string | null;
   created_at: string;
   updated_at: string;
-  crm_email_group_threads: EmailGroupThread[];
+  /** null = never loaded (Gmail groups), [] = loaded but empty */
+  crm_email_group_threads: EmailGroupThread[] | null;
   crm_email_group_contacts: EmailGroupContact[];
 }
 
@@ -49,15 +50,25 @@ export interface DragThreadData {
   fromEmail: string;
   fromName: string;
   lastMessageAt: string;
-  /** All primary senders (from field) in the thread */
   primaryContacts: { email: string; name?: string }[];
 }
+
+// ── Preset colors ───────────────────────────────────────────
+
+const GROUP_COLORS = [
+  "#3b82f6", "#ef4444", "#22c55e", "#f59e0b", "#8b5cf6",
+  "#ec4899", "#06b6d4", "#f97316",
+];
 
 // ── Hook: useEmailGroups ─────────────────────────────────────
 
 export function useEmailGroups(connectionId: string | undefined) {
   const [groups, setGroups] = React.useState<EmailGroup[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [loadingThreads, setLoadingThreads] = React.useState<Set<string>>(new Set());
+  // Ref tracks latest groups to avoid stale closures in callbacks
+  const groupsRef = React.useRef(groups);
+  groupsRef.current = groups;
 
   const fetchGroups = React.useCallback(async () => {
     if (!connectionId) { setLoading(false); return; }
@@ -65,16 +76,24 @@ export function useEmailGroups(connectionId: string | undefined) {
       const res = await globalThis.fetch(`/api/email/groups?connection_id=${connectionId}`);
       const json = await res.json();
       if (json.data) {
-        const groupList: EmailGroup[] = json.data;
+        const groupList: EmailGroup[] = json.data.map((g: EmailGroup) => ({
+          ...g,
+          // Gmail groups: null = never loaded, IMAP groups keep their threads
+          crm_email_group_threads: g.gmail_label_id ? null : (g.crm_email_group_threads ?? []),
+        }));
         setGroups(groupList);
 
         // Lazy-load threads for expanded Gmail-backed groups
         const gmailExpanded = groupList.filter((g) => g.gmail_label_id && !g.is_collapsed);
         if (gmailExpanded.length > 0) {
+          const loadingIds = new Set(gmailExpanded.map((g) => g.id));
+          setLoadingThreads(loadingIds);
+
           const results = await Promise.allSettled(
             gmailExpanded.map(async (g) => {
               const tRes = await globalThis.fetch(`/api/email/groups/threads?group_id=${g.id}`);
               const tJson = await tRes.json();
+              if (tJson.error) throw new Error(tJson.error);
               return { groupId: g.id, threads: (tJson.data ?? []) as EmailGroupThread[] };
             })
           );
@@ -86,16 +105,23 @@ export function useEmailGroups(connectionId: string | undefined) {
               if (match && match.status === "fulfilled") {
                 return { ...g, crm_email_group_threads: match.value.threads };
               }
+              // Mark failed fetches as empty array so user sees error state
+              const failed = results.find(
+                (r) => r.status === "rejected"
+              );
+              if (failed && loadingIds.has(g.id)) {
+                return { ...g, crm_email_group_threads: [] };
+              }
               return g;
             })
           );
+          setLoadingThreads(new Set());
         }
       } else if (json.error) {
         toast.error(`Failed to load groups: ${json.error}`);
       }
-    } catch (err) {
+    } catch {
       toast.error("Failed to load email groups");
-      console.error("fetchGroups error:", err);
     } finally {
       setLoading(false);
     }
@@ -115,13 +141,14 @@ export function useEmailGroups(connectionId: string | undefined) {
       toast.error(json.error);
       return null;
     }
-    setGroups((prev) => [...prev, json.data]);
-    return json.data as EmailGroup;
+    const newGroup = { ...json.data, crm_email_group_threads: json.data.gmail_label_id ? null : (json.data.crm_email_group_threads ?? []) };
+    setGroups((prev) => [...prev, newGroup]);
+    toast.success(`Group "${name}" created`);
+    return newGroup as EmailGroup;
   }, [connectionId]);
 
   const deleteGroup = React.useCallback(async (id: string) => {
-    // Snapshot before optimistic remove (read outside updater to avoid Strict Mode double-invoke bug)
-    const snapshot = groups;
+    const snapshot = groupsRef.current;
     const removed = snapshot.find((g) => g.id === id);
     setGroups((prev) => prev.filter((g) => g.id !== id));
 
@@ -131,34 +158,40 @@ export function useEmailGroups(connectionId: string | undefined) {
       if (json.error) {
         toast.error(json.error);
         if (removed) setGroups((prev) => [...prev, removed].sort((a, b) => a.position - b.position));
+      } else {
+        toast.success("Group deleted");
       }
     } catch {
       toast.error("Failed to delete group");
       if (removed) setGroups((prev) => [...prev, removed].sort((a, b) => a.position - b.position));
     }
-  }, [groups]);
+  }, []);
 
   const toggleCollapse = React.useCallback(async (id: string) => {
-    // Read current value from snapshot to avoid Strict Mode double-invoke bug
-    const current = groups.find((g) => g.id === id);
+    const current = groupsRef.current.find((g) => g.id === id);
     if (!current) return;
     const newCollapsed = !current.is_collapsed;
     setGroups((prev) =>
       prev.map((g) => (g.id === id ? { ...g, is_collapsed: newCollapsed } : g))
     );
 
-    // Lazy-load threads when expanding a Gmail-backed group
-    if (!newCollapsed && current.gmail_label_id && current.crm_email_group_threads.length === 0) {
+    // Lazy-load threads when expanding a Gmail-backed group that was never loaded
+    if (!newCollapsed && current.gmail_label_id && current.crm_email_group_threads === null) {
+      setLoadingThreads((prev) => new Set([...prev, id]));
       try {
         const tRes = await globalThis.fetch(`/api/email/groups/threads?group_id=${id}`);
         const tJson = await tRes.json();
-        if (tJson.data) {
-          setGroups((prev) =>
-            prev.map((g) => (g.id === id ? { ...g, crm_email_group_threads: tJson.data } : g))
-          );
-        }
+        if (tJson.error) throw new Error(tJson.error);
+        setGroups((prev) =>
+          prev.map((g) => (g.id === id ? { ...g, crm_email_group_threads: tJson.data ?? [] } : g))
+        );
       } catch {
-        // Non-critical — group still expands, just empty
+        toast.error("Failed to load threads — click to retry");
+        setGroups((prev) =>
+          prev.map((g) => (g.id === id ? { ...g, crm_email_group_threads: null } : g))
+        );
+      } finally {
+        setLoadingThreads((prev) => { const next = new Set(prev); next.delete(id); return next; });
       }
     }
 
@@ -179,11 +212,11 @@ export function useEmailGroups(connectionId: string | undefined) {
         prev.map((g) => (g.id === id ? { ...g, is_collapsed: !newCollapsed } : g))
       );
     }
-  }, [groups]);
+  }, []);
 
   const renameGroup = React.useCallback(async (id: string, name: string) => {
     if (!name.trim()) return;
-    const oldName = groups.find((g) => g.id === id)?.name ?? "";
+    const oldName = groupsRef.current.find((g) => g.id === id)?.name ?? "";
     setGroups((prev) =>
       prev.map((g) => (g.id === id ? { ...g, name: name.trim() } : g))
     );
@@ -203,7 +236,7 @@ export function useEmailGroups(connectionId: string | undefined) {
       toast.error("Failed to rename group");
       setGroups((prev) => prev.map((g) => (g.id === id ? { ...g, name: oldName } : g)));
     }
-  }, [groups]);
+  }, []);
 
   const addThreadToGroup = React.useCallback(async (groupId: string, data: DragThreadData) => {
     const tempId = crypto.randomUUID();
@@ -222,7 +255,7 @@ export function useEmailGroups(connectionId: string | undefined) {
     setGroups((prev) =>
       prev.map((g) =>
         g.id === groupId
-          ? { ...g, crm_email_group_threads: [newThread, ...g.crm_email_group_threads] }
+          ? { ...g, crm_email_group_threads: [newThread, ...(g.crm_email_group_threads ?? [])] }
           : g
       )
     );
@@ -249,7 +282,7 @@ export function useEmailGroups(connectionId: string | undefined) {
         setGroups((prev) =>
           prev.map((g) =>
             g.id === groupId
-              ? { ...g, crm_email_group_threads: g.crm_email_group_threads.filter((t) => t.id !== tempId) }
+              ? { ...g, crm_email_group_threads: (g.crm_email_group_threads ?? []).filter((t) => t.id !== tempId) }
               : g
           )
         );
@@ -259,7 +292,7 @@ export function useEmailGroups(connectionId: string | undefined) {
             g.id === groupId
               ? {
                   ...g,
-                  crm_email_group_threads: g.crm_email_group_threads.map((t) =>
+                  crm_email_group_threads: (g.crm_email_group_threads ?? []).map((t) =>
                     t.id === tempId ? { ...t, id: json.data.id } : t
                   ),
                 }
@@ -272,7 +305,7 @@ export function useEmailGroups(connectionId: string | undefined) {
       setGroups((prev) =>
         prev.map((g) =>
           g.id === groupId
-            ? { ...g, crm_email_group_threads: g.crm_email_group_threads.filter((t) => t.id !== tempId) }
+            ? { ...g, crm_email_group_threads: (g.crm_email_group_threads ?? []).filter((t) => t.id !== tempId) }
             : g
         )
       );
@@ -280,13 +313,12 @@ export function useEmailGroups(connectionId: string | undefined) {
   }, []);
 
   const removeThreadFromGroup = React.useCallback(async (groupId: string, threadId: string) => {
-    // Snapshot removed thread outside updater to avoid Strict Mode double-invoke bug
-    const group = groups.find((g) => g.id === groupId);
-    const removed = group?.crm_email_group_threads.find((t) => t.thread_id === threadId);
+    const group = groupsRef.current.find((g) => g.id === groupId);
+    const removed = (group?.crm_email_group_threads ?? []).find((t) => t.thread_id === threadId);
     setGroups((prev) =>
       prev.map((g) =>
         g.id === groupId
-          ? { ...g, crm_email_group_threads: g.crm_email_group_threads.filter((t) => t.thread_id !== threadId) }
+          ? { ...g, crm_email_group_threads: (g.crm_email_group_threads ?? []).filter((t) => t.thread_id !== threadId) }
           : g
       )
     );
@@ -303,7 +335,7 @@ export function useEmailGroups(connectionId: string | undefined) {
           setGroups((prev) =>
             prev.map((g) =>
               g.id === groupId
-                ? { ...g, crm_email_group_threads: [...g.crm_email_group_threads, removed] }
+                ? { ...g, crm_email_group_threads: [...(g.crm_email_group_threads ?? []), removed] }
                 : g
             )
           );
@@ -315,15 +347,15 @@ export function useEmailGroups(connectionId: string | undefined) {
         setGroups((prev) =>
           prev.map((g) =>
             g.id === groupId
-              ? { ...g, crm_email_group_threads: [...g.crm_email_group_threads, removed] }
+              ? { ...g, crm_email_group_threads: [...(g.crm_email_group_threads ?? []), removed] }
               : g
           )
         );
       }
     }
-  }, [groups]);
+  }, []);
 
-  return { groups, loading, createGroup, deleteGroup, toggleCollapse, renameGroup, addThreadToGroup, removeThreadFromGroup, refresh: fetchGroups };
+  return { groups, loading, loadingThreads, createGroup, deleteGroup, toggleCollapse, renameGroup, addThreadToGroup, removeThreadFromGroup, refresh: fetchGroups };
 }
 
 // ── EmailGroupPanel Component ────────────────────────────────
@@ -331,10 +363,11 @@ export function useEmailGroups(connectionId: string | undefined) {
 interface EmailGroupPanelProps {
   groups: EmailGroup[];
   loading: boolean;
+  loadingThreads: Set<string>;
   panelCollapsed: boolean;
   onTogglePanel: () => void;
   onToggleGroup: (id: string) => void;
-  onCreateGroup: (name: string) => void;
+  onCreateGroup: (name: string, color?: string) => void;
   onDeleteGroup: (id: string) => void;
   onRenameGroup: (id: string, name: string) => void;
   onDropThread: (groupId: string, data: DragThreadData) => void;
@@ -346,6 +379,7 @@ interface EmailGroupPanelProps {
 export function EmailGroupPanel({
   groups,
   loading,
+  loadingThreads,
   panelCollapsed,
   onTogglePanel,
   onToggleGroup,
@@ -359,6 +393,7 @@ export function EmailGroupPanel({
 }: EmailGroupPanelProps) {
   const [creating, setCreating] = React.useState(false);
   const [newName, setNewName] = React.useState("");
+  const [newColor, setNewColor] = React.useState(GROUP_COLORS[0]);
   const inputRef = React.useRef<HTMLInputElement>(null);
   const [archiveOver, setArchiveOver] = React.useState(false);
 
@@ -369,8 +404,9 @@ export function EmailGroupPanel({
   function handleCreateSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (newName.trim()) {
-      onCreateGroup(newName.trim());
+      onCreateGroup(newName.trim(), newColor);
       setNewName("");
+      setNewColor(GROUP_COLORS[Math.floor(Math.random() * GROUP_COLORS.length)]);
       setCreating(false);
     }
   }
@@ -390,6 +426,14 @@ export function EmailGroupPanel({
         </button>
 
         <div className="flex items-center gap-1.5">
+          {/* Gmail label info */}
+          <div
+            className="flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground/50 cursor-help"
+            title="Groups sync as Gmail labels (SupraCRM/Name). Changes here are reflected in your Gmail."
+          >
+            <Info className="h-3 w-3" />
+          </div>
+
           {/* Archive drop zone */}
           <div
             onDragOver={(e) => {
@@ -408,9 +452,7 @@ export function EmailGroupPanel({
               try {
                 const data: DragThreadData = JSON.parse(raw);
                 onArchiveThread(data.threadId);
-              } catch (err) {
-                console.error("Failed to parse drag data:", err);
-              }
+              } catch { /* ignore parse errors */ }
             }}
             className={cn(
               "flex items-center justify-center w-7 h-7 rounded-md transition-all",
@@ -455,6 +497,7 @@ export function EmailGroupPanel({
                 <GroupRow
                   key={group.id}
                   group={group}
+                  isLoadingThreads={loadingThreads.has(group.id)}
                   onToggle={() => onToggleGroup(group.id)}
                   onDelete={() => onDeleteGroup(group.id)}
                   onRename={(name) => onRenameGroup(group.id, name)}
@@ -468,29 +511,47 @@ export function EmailGroupPanel({
 
           {/* Inline create form */}
           {creating && (
-            <form onSubmit={handleCreateSubmit} className="px-4 py-2 flex items-center gap-2">
-              <input
-                ref={inputRef}
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Escape") { setCreating(false); setNewName(""); } }}
-                placeholder="Group name..."
-                className="flex-1 bg-white/5 border border-white/10 rounded-md px-2 py-1 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
-              />
-              <button
-                type="submit"
-                disabled={!newName.trim()}
-                className="text-[10px] font-medium text-primary hover:text-primary/80 disabled:opacity-40 transition"
-              >
-                Add
-              </button>
-              <button
-                type="button"
-                onClick={() => { setCreating(false); setNewName(""); }}
-                className="text-[10px] text-muted-foreground hover:text-foreground transition"
-              >
-                Cancel
-              </button>
+            <form onSubmit={handleCreateSubmit} className="px-4 py-2 space-y-2">
+              <div className="flex items-center gap-2">
+                <input
+                  ref={inputRef}
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Escape") { setCreating(false); setNewName(""); } }}
+                  placeholder="Group name..."
+                  maxLength={100}
+                  className="flex-1 bg-white/5 border border-white/10 rounded-md px-2 py-1 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+                />
+                <button
+                  type="submit"
+                  disabled={!newName.trim()}
+                  className="text-[10px] font-medium text-primary hover:text-primary/80 disabled:opacity-40 transition"
+                >
+                  Add
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setCreating(false); setNewName(""); }}
+                  className="text-[10px] text-muted-foreground hover:text-foreground transition"
+                >
+                  Cancel
+                </button>
+              </div>
+              {/* Color presets */}
+              <div className="flex items-center gap-1.5 pl-0.5">
+                {GROUP_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setNewColor(c)}
+                    className={cn(
+                      "h-4 w-4 rounded-full transition-all",
+                      newColor === c ? "ring-2 ring-white/60 scale-110" : "opacity-60 hover:opacity-100"
+                    )}
+                    style={{ backgroundColor: c }}
+                  />
+                ))}
+              </div>
             </form>
           )}
         </div>
@@ -503,6 +564,7 @@ export function EmailGroupPanel({
 
 function GroupRow({
   group,
+  isLoadingThreads,
   onToggle,
   onDelete,
   onRename,
@@ -511,6 +573,7 @@ function GroupRow({
   onSelectThread,
 }: {
   group: EmailGroup;
+  isLoadingThreads: boolean;
   onToggle: () => void;
   onDelete: () => void;
   onRename: (name: string) => void;
@@ -524,7 +587,7 @@ function GroupRow({
   const [confirmDelete, setConfirmDelete] = React.useState(false);
   const editRef = React.useRef<HTMLInputElement>(null);
   const recentDropsRef = React.useRef(new Set<string>());
-  const threads = group.crm_email_group_threads;
+  const threads = group.crm_email_group_threads ?? [];
 
   React.useEffect(() => {
     if (editing) editRef.current?.focus();
@@ -556,14 +619,11 @@ function GroupRow({
         toast("Thread already in this group");
         return;
       }
-      // Debounce: block rapid duplicate drops for 2s
       recentDropsRef.current.add(data.threadId);
       setTimeout(() => recentDropsRef.current.delete(data.threadId), 2000);
       onDrop(data);
       toast(`Added to "${group.name}"`);
-    } catch (err) {
-      console.error("Failed to parse drag data:", err);
-    }
+    } catch { /* ignore parse errors */ }
   }
 
   function handleRenameSubmit() {
@@ -614,13 +674,14 @@ function GroupRow({
               if (e.key === "Enter") handleRenameSubmit();
               if (e.key === "Escape") { setEditName(group.name); setEditing(false); }
             }}
+            maxLength={100}
             className="flex-1 bg-white/5 border border-white/10 rounded px-1.5 py-0.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
           />
         ) : (
           <span
             className="text-xs font-medium text-foreground flex-1 truncate cursor-pointer"
             onDoubleClick={() => { setEditName(group.name); setEditing(true); }}
-            title="Double-click to rename"
+            title={group.gmail_label_id ? `Gmail label: SupraCRM/${group.name}` : "Double-click to rename"}
           >
             {group.name}
           </span>
@@ -630,18 +691,28 @@ function GroupRow({
           {threads.length}
         </span>
 
+        {/* Edit button — visible on hover */}
+        <button
+          onClick={() => { setEditName(group.name); setEditing(true); }}
+          className="opacity-0 group-hover/row:opacity-100 text-muted-foreground hover:text-foreground transition shrink-0"
+          title="Rename"
+        >
+          <Pencil className="h-2.5 w-2.5" />
+        </button>
+
         {confirmDelete ? (
           <button
             onClick={handleDeleteClick}
             className="text-[10px] font-medium text-red-400 hover:text-red-300 transition shrink-0 animate-pulse"
+            title={group.gmail_label_id ? "This will also delete the Gmail label and remove it from all threads" : "Delete this group"}
           >
-            Confirm?
+            Delete?
           </button>
         ) : (
           <button
             onClick={handleDeleteClick}
             className="opacity-0 group-hover/row:opacity-100 text-muted-foreground hover:text-red-400 transition shrink-0"
-            title="Delete group"
+            title={group.gmail_label_id ? "Delete group and Gmail label" : "Delete group"}
           >
             <X className="h-3 w-3" />
           </button>
@@ -651,7 +722,19 @@ function GroupRow({
       {/* Thread items */}
       {!group.is_collapsed && (
         <div className="pl-9 pr-4">
-          {threads.length > 0 ? (
+          {isLoadingThreads ? (
+            <div className="flex items-center gap-1.5 py-2">
+              <Loader2 className="h-3 w-3 text-muted-foreground animate-spin" />
+              <span className="text-[10px] text-muted-foreground">Loading threads...</span>
+            </div>
+          ) : group.crm_email_group_threads === null ? (
+            <button
+              onClick={onToggle}
+              className="text-[10px] text-primary/60 hover:text-primary py-1.5 italic transition"
+            >
+              Click to load threads
+            </button>
+          ) : threads.length > 0 ? (
             threads.map((t) => (
               <GroupThreadItem
                 key={t.id}
@@ -661,7 +744,9 @@ function GroupRow({
               />
             ))
           ) : (
-            <p className="text-[10px] text-muted-foreground/50 py-1.5 italic">Drag emails here</p>
+            <div className="py-2 border border-dashed border-white/10 rounded-md text-center">
+              <p className="text-[10px] text-muted-foreground/50 italic">Drag emails here</p>
+            </div>
           )}
         </div>
       )}

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { getDriverForUser } from "@/lib/email/driver";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 const MAX_PRIMARY_CONTACTS = 50;
 
@@ -105,9 +106,8 @@ export async function DELETE(req: NextRequest) {
   if ("error" in auth) return auth.error;
   const { supabase, user } = auth;
 
-  const { searchParams } = new URL(req.url);
-  const groupId = searchParams.get("group_id");
-  const threadId = searchParams.get("thread_id");
+  const groupId = req.nextUrl.searchParams.get("group_id");
+  const threadId = req.nextUrl.searchParams.get("thread_id");
 
   if (!groupId || !threadId) {
     return NextResponse.json({ error: "group_id and thread_id required" }, { status: 400 });
@@ -210,13 +210,12 @@ export async function GET(req: NextRequest) {
 
 // ── Helper: register primary contacts for auto-routing ──────
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function registerContacts(supabase: any, body: { group_id?: string; primary_contacts?: { email: string; name?: string }[] }) {
+function registerContacts(supabase: SupabaseClient, body: { group_id?: string; primary_contacts?: { email: string; name?: string }[] }) {
   if (!body.primary_contacts?.length || !body.group_id) return;
 
   const contacts = body.primary_contacts.slice(0, MAX_PRIMARY_CONTACTS);
   const contactInserts = contacts
-    .filter((c) => c.email && /^[^@]+@[^@]+$/.test(c.email))
+    .filter((c) => c.email && /^[^@]+@[^@]+\.[^@]+$/.test(c.email))
     .map((c) => ({
       group_id: body.group_id!,
       email: c.email.toLowerCase(),
@@ -224,10 +223,11 @@ function registerContacts(supabase: any, body: { group_id?: string; primary_cont
     }));
 
   if (contactInserts.length > 0) {
-    // Fire and forget — non-critical
     supabase
       .from("crm_email_group_contacts")
       .upsert(contactInserts, { onConflict: "group_id,email", ignoreDuplicates: true })
-      .then(() => {});
+      .then(({ error }) => {
+        if (error) console.error("[email-groups] Failed to register contacts:", error.message);
+      });
   }
 }

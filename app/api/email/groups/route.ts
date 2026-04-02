@@ -66,9 +66,11 @@ export async function POST(req: NextRequest) {
   let gmailLabelId: string | null = null;
 
   // For Gmail connections, create a real Gmail label
+  let cachedDriver: Awaited<ReturnType<typeof getDriverForUser>>["driver"] | null = null;
   try {
     const { driver, connection } = await getDriverForUser(user.id, body.connection_id);
-    if (connection.provider === "gmail" && "createLabel" in driver && typeof driver.createLabel === "function") {
+    cachedDriver = driver;
+    if (connection.provider === "gmail" && driver.createLabel) {
       const label = await driver.createLabel(`${LABEL_PREFIX}${trimmedName}`, body.color);
       gmailLabelId = label.id;
       serverCache.invalidatePrefix(`labels:${user.id}:`);
@@ -92,13 +94,10 @@ export async function POST(req: NextRequest) {
   });
 
   if (error) {
-    // Clean up Gmail label if DB insert fails
-    if (gmailLabelId) {
+    // Clean up Gmail label if DB insert fails (reuse cached driver)
+    if (gmailLabelId && cachedDriver?.deleteLabel) {
       try {
-        const { driver } = await getDriverForUser(user.id, body.connection_id);
-        if ("deleteLabel" in driver && typeof driver.deleteLabel === "function") {
-          await driver.deleteLabel(gmailLabelId);
-        }
+        await cachedDriver.deleteLabel(gmailLabelId);
       } catch { /* best effort cleanup */ }
     }
     if (error.message.includes("duplicate") || error.code === "23505") {
@@ -141,10 +140,8 @@ export async function DELETE(req: NextRequest) {
   if (group.gmail_label_id) {
     try {
       const { driver } = await getDriverForUser(user.id, group.connection_id);
-      if ("deleteLabel" in driver && typeof driver.deleteLabel === "function") {
-        await driver.deleteLabel(group.gmail_label_id);
-        serverCache.invalidatePrefix(`labels:${user.id}:`);
-      }
+      await driver.deleteLabel?.(group.gmail_label_id);
+      serverCache.invalidatePrefix(`labels:${user.id}:`);
     } catch {
       // Label may already be gone — continue with DB delete
     }
@@ -177,9 +174,10 @@ export async function PATCH(req: NextRequest) {
 
   const updates: Record<string, unknown> = {};
   if (body.name !== undefined) {
-    if (!body.name.trim()) return NextResponse.json({ error: "name cannot be empty" }, { status: 400 });
-    if (body.name.length > 100) return NextResponse.json({ error: "name too long (max 100 chars)" }, { status: 400 });
-    updates.name = body.name.trim();
+    const trimmed = body.name.trim();
+    if (!trimmed) return NextResponse.json({ error: "name cannot be empty" }, { status: 400 });
+    if (trimmed.length > 100) return NextResponse.json({ error: "name too long (max 100 chars)" }, { status: 400 });
+    updates.name = trimmed;
   }
   if (body.color !== undefined) {
     if (!HEX_COLOR_RE.test(body.color)) return NextResponse.json({ error: "color must be a valid hex color" }, { status: 400 });
@@ -192,10 +190,12 @@ export async function PATCH(req: NextRequest) {
   }
 
   // If renaming and group has Gmail label, rename the label first
+  let oldLabelName: string | null = null;
+  let renameGroup: { gmail_label_id: string; connection_id: string } | null = null;
   if (updates.name) {
     const { data: group } = await supabase
       .from("crm_email_groups")
-      .select("gmail_label_id, connection_id")
+      .select("gmail_label_id, connection_id, name")
       .eq("id", body.id)
       .eq("user_id", user.id)
       .maybeSingle();
@@ -203,10 +203,10 @@ export async function PATCH(req: NextRequest) {
     if (group?.gmail_label_id) {
       try {
         const { driver } = await getDriverForUser(user.id, group.connection_id);
-        if ("renameLabel" in driver && typeof driver.renameLabel === "function") {
-          await driver.renameLabel(group.gmail_label_id, `${LABEL_PREFIX}${updates.name}`);
-          serverCache.invalidatePrefix(`labels:${user.id}:`);
-        }
+        await driver.renameLabel?.(group.gmail_label_id, `${LABEL_PREFIX}${updates.name}`);
+        serverCache.invalidatePrefix(`labels:${user.id}:`);
+        oldLabelName = group.name;
+        renameGroup = { gmail_label_id: group.gmail_label_id, connection_id: group.connection_id };
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "Failed to rename Gmail label";
         return NextResponse.json({ error: msg }, { status: 500 });
@@ -223,6 +223,13 @@ export async function PATCH(req: NextRequest) {
     .single();
 
   if (error) {
+    // Rollback Gmail label rename if DB update fails
+    if (renameGroup && oldLabelName) {
+      try {
+        const { driver } = await getDriverForUser(user.id, renameGroup.connection_id);
+        await driver.renameLabel?.(renameGroup.gmail_label_id, `${LABEL_PREFIX}${oldLabelName}`);
+      } catch { /* best effort rollback */ }
+    }
     if (error.message.includes("duplicate") || error.code === "23505") {
       return NextResponse.json({ error: "A group with that name already exists" }, { status: 409 });
     }

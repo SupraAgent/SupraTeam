@@ -4,7 +4,7 @@
 
 ALTER TABLE crm_email_groups ADD COLUMN IF NOT EXISTS gmail_label_id text;
 
-CREATE INDEX IF NOT EXISTS idx_email_groups_gmail_label
+CREATE UNIQUE INDEX IF NOT EXISTS idx_email_groups_gmail_label
   ON crm_email_groups(gmail_label_id) WHERE gmail_label_id IS NOT NULL;
 
 -- Update the atomic insert to accept gmail_label_id

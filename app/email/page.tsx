@@ -82,7 +82,7 @@ function EmailPageInner() {
   const [commandPaletteOpen, setCommandPaletteOpen] = React.useState(false);
 
   // Email groups state
-  const { groups, loading: groupsLoading, createGroup, deleteGroup, toggleCollapse, renameGroup, addThreadToGroup, removeThreadFromGroup } = useEmailGroups(activeConnectionId);
+  const { groups, loading: groupsLoading, loadingThreads, createGroup, deleteGroup, toggleCollapse, renameGroup, addThreadToGroup, removeThreadFromGroup } = useEmailGroups(activeConnectionId);
   const [groupPanelCollapsed, setGroupPanelCollapsed] = React.useState(() => {
     if (typeof window !== "undefined") return localStorage.getItem("email-group-panel-collapsed") === "true";
     return false;
@@ -703,6 +703,7 @@ function EmailPageInner() {
         <EmailGroupPanel
           groups={groups}
           loading={groupsLoading}
+          loadingThreads={loadingThreads}
           panelCollapsed={groupPanelCollapsed}
           onTogglePanel={() => {
             setGroupPanelCollapsed((v) => {
@@ -712,7 +713,7 @@ function EmailPageInner() {
             });
           }}
           onToggleGroup={toggleCollapse}
-          onCreateGroup={(name) => createGroup(name)}
+          onCreateGroup={(name, color) => createGroup(name, color)}
           onDeleteGroup={deleteGroup}
           onRenameGroup={renameGroup}
           onDropThread={(groupId, data) => addThreadToGroup(groupId, data)}

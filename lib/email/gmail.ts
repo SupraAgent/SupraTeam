@@ -28,6 +28,16 @@ function escapeHtml(text: string): string {
     .replace(/'/g, "&#39;");
 }
 
+/** Check if a hex color is light (for text contrast on Gmail labels) */
+function isLightColor(hex: string): boolean {
+  const c = hex.replace("#", "");
+  const r = parseInt(c.substring(0, 2), 16);
+  const g = parseInt(c.substring(2, 4), 16);
+  const b = parseInt(c.substring(4, 6), 16);
+  // Relative luminance threshold
+  return (r * 299 + g * 587 + b * 114) / 1000 > 150;
+}
+
 /** Retry Gmail API calls on 429/5xx with exponential backoff (Google requirement) */
 async function withBackoff<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -409,15 +419,23 @@ export class GmailDriver implements MailDriver {
   }
 
   async createLabel(name: string, color?: string): Promise<Label> {
+    // Validate label name: Gmail rejects leading/trailing spaces, max ~225 chars, empty names
+    const trimmed = name.trim();
+    if (!trimmed || trimmed.length > 225) {
+      throw new Error(`Invalid label name: must be 1-225 characters (got ${name.length})`);
+    }
+
     const bgColor = color ?? "#4986e7"; // Default Gmail blue
+    // Map light backgrounds to dark text for readability in Gmail
+    const textColor = isLightColor(bgColor) ? "#000000" : "#ffffff";
     const res = await withBackoff(() =>
       this.gmail.users.labels.create({
         userId: "me",
         requestBody: {
-          name,
+          name: trimmed,
           labelListVisibility: "labelShow",
           messageListVisibility: "show",
-          color: { backgroundColor: bgColor, textColor: "#ffffff" },
+          color: { backgroundColor: bgColor, textColor },
         },
       })
     );
@@ -432,9 +450,16 @@ export class GmailDriver implements MailDriver {
   }
 
   async deleteLabel(labelId: string): Promise<void> {
-    await withBackoff(() =>
-      this.gmail.users.labels.delete({ userId: "me", id: labelId })
-    );
+    try {
+      await withBackoff(() =>
+        this.gmail.users.labels.delete({ userId: "me", id: labelId })
+      );
+    } catch (err: unknown) {
+      // Treat 404 as success (idempotent delete — label already gone)
+      const status = (err as { code?: number })?.code ?? (err as { status?: number })?.status;
+      if (status === 404) return;
+      throw err;
+    }
   }
 
   async renameLabel(labelId: string, newName: string): Promise<Label> {
