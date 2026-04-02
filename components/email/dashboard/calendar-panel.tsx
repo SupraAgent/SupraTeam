@@ -101,18 +101,20 @@ export function CalendarPanel() {
 
   if (connected === false) {
     return (
-      <div className="text-center py-6">
-        <Calendar className="mx-auto h-8 w-8 text-muted-foreground/30" />
-        <p className="mt-3 text-sm font-medium text-foreground">Connect Calendar</p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Link your Google Calendar to see upcoming events and meetings
+      <div className="flex flex-col items-center justify-center text-center py-12 min-h-[280px]">
+        <div className="rounded-2xl bg-white/[0.04] p-5 mb-4">
+          <Calendar className="h-10 w-10 text-muted-foreground/40" />
+        </div>
+        <p className="text-sm font-semibold text-foreground">Connect Google Calendar</p>
+        <p className="mt-1.5 text-xs text-muted-foreground max-w-[240px] leading-relaxed">
+          Link your Google Calendar to see upcoming events, meetings, and schedule directly from your inbox
         </p>
         <button
           onClick={handleConnect}
-          className="inline-flex items-center gap-1.5 mt-3 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary/90 transition"
+          className="inline-flex items-center gap-2 mt-5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition shadow-lg shadow-primary/20"
         >
-          <Calendar className="h-3.5 w-3.5" />
-          Connect Google Calendar
+          <Calendar className="h-4 w-4" />
+          Connect Calendar
         </button>
       </div>
     );
@@ -131,7 +133,7 @@ export function CalendarPanel() {
   });
 
   return (
-    <div>
+    <div className="min-h-[280px]">
       <div className="flex items-center justify-between mb-3">
         <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
           Today ({todayEvents.length})

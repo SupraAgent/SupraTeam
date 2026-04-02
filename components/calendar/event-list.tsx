@@ -73,9 +73,12 @@ export function EventList({ events, loading, onEventClick, compact, className }:
 
   if (events.length === 0) {
     return (
-      <div className={cn("text-center py-6", className)}>
-        <Calendar className="mx-auto h-6 w-6 text-muted-foreground/30" />
-        <p className="mt-2 text-xs text-muted-foreground">No upcoming events</p>
+      <div className={cn("flex flex-col items-center justify-center text-center py-10", className)}>
+        <div className="rounded-xl bg-white/[0.03] p-4 mb-3">
+          <Calendar className="h-8 w-8 text-muted-foreground/30" />
+        </div>
+        <p className="text-sm font-medium text-muted-foreground">No upcoming events</p>
+        <p className="mt-1 text-xs text-muted-foreground/60">Your schedule is clear</p>
       </div>
     );
   }
