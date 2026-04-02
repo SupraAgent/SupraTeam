@@ -59,7 +59,8 @@ export async function GET(request: Request) {
     // Get CRM-linked group IDs for marking
     const { data: crmGroups } = await admin
       .from("tg_groups")
-      .select("telegram_group_id");
+      .select("telegram_group_id")
+      .limit(1000);
     const crmGroupIds = new Set(
       (crmGroups || []).map((g) => String(g.telegram_group_id))
     );
@@ -102,6 +103,7 @@ export async function GET(request: Request) {
 
       for (const dialog of fullResult.dialogs) {
         if (!(dialog instanceof Api.Dialog)) continue;
+        if (dialog.folderId === 1) continue; // skip archived
 
         const peer = dialog.peer;
         let item: DialogItem | null = null;
@@ -177,11 +179,12 @@ export async function GET(request: Request) {
       }
     }
 
-    // Update last_used_at
-    await admin
+    // Fire-and-forget: don't block the response for a non-critical timestamp update
+    admin
       .from("tg_client_sessions")
       .update({ last_used_at: new Date().toISOString() })
-      .eq("user_id", user.id);
+      .eq("user_id", user.id)
+      .then(({ error }) => { if (error) console.error("[tg-client] last_used_at update failed:", error.message); });
 
     return NextResponse.json({ data: dialogs, source: "live" });
   } catch (err: unknown) {
