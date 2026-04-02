@@ -27,8 +27,8 @@ import {
 } from "@/lib/telegram-login-store";
 
 export async function POST(request: Request) {
-  // Legacy route — disabled by default. Set ALLOW_LEGACY_TG_AUTH=true to re-enable.
-  if (process.env.ALLOW_LEGACY_TG_AUTH !== "true") {
+  // Legacy route — hard-disabled in production, opt-in in dev only.
+  if (process.env.NODE_ENV === "production" || process.env.ALLOW_LEGACY_TG_AUTH !== "true") {
     return NextResponse.json(
       { error: "Legacy Telegram auth is disabled. Use the zero-knowledge client flow." },
       { status: 410 }
@@ -158,6 +158,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Invalid 2FA password." }, { status: 400 });
     }
 
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: "Verification failed" }, { status: 500 });
   }
 }

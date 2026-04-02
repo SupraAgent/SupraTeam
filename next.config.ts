@@ -47,11 +47,11 @@ const nextConfig: NextConfig = {
             key: "Content-Security-Policy",
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+              "script-src 'self' 'unsafe-inline'",
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: blob: https://avatars.githubusercontent.com https://github.com https://t.me",
               "font-src 'self' data:",
-              "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.anthropic.com wss://venus.web.telegram.org wss://flora.web.telegram.org wss://pluto.web.telegram.org wss://vesta.web.telegram.org wss://aurora.web.telegram.org",
+              "connect-src 'self' https://btpwumlhjphmoznsejxm.supabase.co wss://btpwumlhjphmoznsejxm.supabase.co https://api.anthropic.com wss://venus.web.telegram.org wss://flora.web.telegram.org wss://pluto.web.telegram.org wss://vesta.web.telegram.org wss://aurora.web.telegram.org",
               "frame-ancestors 'none'",
               "base-uri 'self'",
               "form-action 'self'",

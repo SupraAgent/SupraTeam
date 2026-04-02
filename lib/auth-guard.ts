@@ -53,7 +53,8 @@ export async function requireAuth(): Promise<AuthResult> {
   }
 
   // Dev access bypass — disabled in production, validates cookie against password
-  if (process.env.DEV_ACCESS_PASSWORD && process.env.NODE_ENV !== "production") {
+  // WARNING: Dev mode bypasses RLS. Never enable on staging sharing a production Supabase.
+  if (process.env.DEV_ACCESS_PASSWORD && process.env.NODE_ENV !== "production" && !process.env.SUPABASE_PROD_GUARD) {
     const cookieStore = await cookies();
     const devCookie = cookieStore.get("dev-auth")?.value;
     if (devCookie) {

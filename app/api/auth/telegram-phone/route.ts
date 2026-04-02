@@ -16,8 +16,8 @@ import { pendingPhoneLogins, phoneKey } from "@/lib/telegram-login-store";
 import { rateLimit } from "@/lib/rate-limit";
 
 export async function POST(request: Request) {
-  // Legacy route — disabled by default. Set ALLOW_LEGACY_TG_AUTH=true to re-enable.
-  if (process.env.ALLOW_LEGACY_TG_AUTH !== "true") {
+  // Legacy route — hard-disabled in production, opt-in in dev only.
+  if (process.env.NODE_ENV === "production" || process.env.ALLOW_LEGACY_TG_AUTH !== "true") {
     return NextResponse.json(
       { error: "Legacy Telegram auth is disabled. Use the zero-knowledge client flow." },
       { status: 410 }

@@ -31,8 +31,8 @@ import { Api } from "telegram";
 import crypto from "crypto";
 
 export async function POST() {
-  // Legacy route — disabled by default. Set ALLOW_LEGACY_TG_AUTH=true to re-enable.
-  if (process.env.ALLOW_LEGACY_TG_AUTH !== "true") {
+  // Legacy route — hard-disabled in production, opt-in in dev only.
+  if (process.env.NODE_ENV === "production" || process.env.ALLOW_LEGACY_TG_AUTH !== "true") {
     return NextResponse.json(
       { error: "Legacy Telegram auth is disabled. Use the zero-knowledge client flow." },
       { status: 410 }
@@ -110,7 +110,7 @@ export async function POST() {
       return NextResponse.json({ error: "Telegram API not configured. Set TELEGRAM_API_ID and TELEGRAM_API_HASH." }, { status: 503 });
     }
 
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: "QR login failed" }, { status: 500 });
   }
 }
 
