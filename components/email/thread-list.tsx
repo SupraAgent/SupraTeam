@@ -1,10 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { cn } from "@/lib/utils";
-import { timeAgo } from "@/lib/utils";
+import { cn, timeAgo } from "@/lib/utils";
 import type { ThreadListItem } from "@/lib/email/types";
 import { ContactAvatar } from "./contact-avatar";
+import { EMAIL_THREAD_DRAG_TYPE, type DragThreadData } from "./email-groups";
+import { GripVertical, Inbox, Star, Archive, Trash2, MailOpen, Mail, Clock, AlertTriangle, Ban } from "lucide-react";
 
 export type ContextMenuAction = "archive" | "trash" | "star" | "read" | "unread" | "snooze" | "spam" | "block";
 
@@ -96,7 +97,7 @@ export function ThreadList({ threads, selectedId, selectedIds, onSelect, onToggl
   if (!loading && threads.length === 0) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-2 px-4">
-        <InboxIcon className="h-8 w-8 opacity-40" />
+        <Inbox className="h-8 w-8 opacity-40" />
         <p className="text-sm">No emails</p>
       </div>
     );
@@ -135,8 +136,8 @@ export function ThreadList({ threads, selectedId, selectedIds, onSelect, onToggl
         <div
           className="fixed z-[100] min-w-[180px] rounded-lg border border-white/10 shadow-2xl py-1 overflow-hidden"
           style={{
-            left: contextMenu.x,
-            top: contextMenu.y,
+            left: Math.min(contextMenu.x, typeof window !== "undefined" ? window.innerWidth - 200 : contextMenu.x),
+            top: Math.min(contextMenu.y, typeof window !== "undefined" ? window.innerHeight - 320 : contextMenu.y),
             backgroundColor: "hsl(var(--surface-3))",
           }}
           onClick={(e) => e.stopPropagation()}
@@ -146,16 +147,16 @@ export function ThreadList({ threads, selectedId, selectedIds, onSelect, onToggl
               {contextMenu.threadIds.length} threads selected
             </div>
           )}
-          <ContextMenuItem icon={<ArchiveIcon />} label="Archive" shortcut="e" onClick={() => handleContextAction("archive")} />
-          <ContextMenuItem icon={<TrashIcon />} label="Delete" shortcut="#" onClick={() => handleContextAction("trash")} />
-          <ContextMenuItem icon={<StarOutlineIcon />} label="Star" shortcut="s" onClick={() => handleContextAction("star")} />
+          <ContextMenuItem icon={<Archive className="h-3.5 w-3.5" />} label="Archive" shortcut="e" onClick={() => handleContextAction("archive")} />
+          <ContextMenuItem icon={<Trash2 className="h-3.5 w-3.5" />} label="Delete" shortcut="#" onClick={() => handleContextAction("trash")} />
+          <ContextMenuItem icon={<Star className="h-3.5 w-3.5" />} label="Star" shortcut="s" onClick={() => handleContextAction("star")} />
           <div className="h-px bg-white/5 my-1" />
-          <ContextMenuItem icon={<MailReadIcon />} label="Mark as read" onClick={() => handleContextAction("read")} />
-          <ContextMenuItem icon={<MailUnreadIcon />} label="Mark as unread" shortcut="u" onClick={() => handleContextAction("unread")} />
-          <ContextMenuItem icon={<ClockIcon />} label="Snooze" shortcut="h" onClick={() => handleContextAction("snooze")} />
+          <ContextMenuItem icon={<MailOpen className="h-3.5 w-3.5" />} label="Mark as read" onClick={() => handleContextAction("read")} />
+          <ContextMenuItem icon={<Mail className="h-3.5 w-3.5" />} label="Mark as unread" shortcut="u" onClick={() => handleContextAction("unread")} />
+          <ContextMenuItem icon={<Clock className="h-3.5 w-3.5" />} label="Snooze" shortcut="h" onClick={() => handleContextAction("snooze")} />
           <div className="h-px bg-white/5 my-1" />
-          <ContextMenuItem icon={<SpamIcon />} label="Report spam" onClick={() => handleContextAction("spam")} destructive />
-          <ContextMenuItem icon={<BlockIcon />} label="Block sender" onClick={() => handleContextAction("block")} destructive />
+          <ContextMenuItem icon={<AlertTriangle className="h-3.5 w-3.5" />} label="Report spam" onClick={() => handleContextAction("spam")} destructive />
+          <ContextMenuItem icon={<Ban className="h-3.5 w-3.5" />} label="Block sender" onClick={() => handleContextAction("block")} destructive />
         </div>
       )}
     </div>
@@ -232,6 +233,20 @@ function ThreadRow({
         </div>
       )}
     <button
+      draggable
+      onDragStart={(e) => {
+        const dragData: DragThreadData = {
+          threadId: thread.id,
+          subject: thread.subject || "",
+          snippet: thread.snippet || "",
+          fromEmail: thread.from[0]?.email || "",
+          fromName: thread.from[0]?.name || "",
+          lastMessageAt: thread.lastMessageAt || new Date().toISOString(),
+          primaryContacts: thread.from.map((f) => ({ email: f.email, name: f.name })),
+        };
+        e.dataTransfer.setData(EMAIL_THREAD_DRAG_TYPE, JSON.stringify(dragData));
+        e.dataTransfer.effectAllowed = "move";
+      }}
       onClick={onClick}
       onContextMenu={onContextMenu}
       onMouseEnter={onMouseEnter}
@@ -240,7 +255,7 @@ function ThreadRow({
       onTouchEnd={handleTouchEnd}
       style={{ transform: swipeOffset ? `translateX(${swipeOffset}px)` : undefined, transition: swipeOffset ? "none" : "transform 200ms ease-out" }}
       className={cn(
-        "w-full text-left px-3 py-2.5 border-b border-white/5 transition-colors flex gap-3 relative",
+        "group/threadrow w-full text-left px-3 py-2.5 border-b border-white/5 transition-colors flex gap-3 relative",
         isSelected ? "bg-white/[0.08]" : "hover:bg-white/[0.03]",
         isChecked && "bg-primary/[0.08]",
         thread.isUnread && !isChecked && "bg-white/[0.02]"
@@ -265,6 +280,11 @@ function ThreadRow({
         </div>
       )}
 
+      {/* Drag grip handle */}
+      <div className="pt-1.5 shrink-0 opacity-0 group-hover/threadrow:opacity-40 transition-opacity cursor-grab">
+        <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
+      </div>
+
       {/* Contact avatar */}
       <div className="pt-0.5 shrink-0 relative">
         <ContactAvatar
@@ -273,7 +293,7 @@ function ThreadRow({
           size={28}
         />
         {thread.isStarred && (
-          <StarFilledIcon className="h-2.5 w-2.5 text-yellow-400 absolute -bottom-0.5 -right-0.5" />
+          <Star className="h-2.5 w-2.5 text-yellow-400 fill-yellow-400 absolute -bottom-0.5 -right-0.5" />
         )}
       </div>
 
@@ -325,23 +345,6 @@ function ThreadRow({
   );
 }
 
-function InboxIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
-      <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z" />
-    </svg>
-  );
-}
-
-function StarFilledIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth={1.5}>
-      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-    </svg>
-  );
-}
-
 // ── Context menu item ──────────────────────────────────────
 
 function ContextMenuItem({
@@ -374,38 +377,4 @@ function ContextMenuItem({
       )}
     </button>
   );
-}
-
-// ── Context menu icons ─────────────────────────────────────
-
-function ArchiveIcon() {
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5"><polyline points="21 8 21 21 3 21 3 8" /><rect x="1" y="3" width="22" height="5" /><line x1="10" y1="12" x2="14" y2="12" /></svg>;
-}
-
-function TrashIcon() {
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>;
-}
-
-function StarOutlineIcon() {
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>;
-}
-
-function MailReadIcon() {
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5"><path d="M22 13V6a2 2 0 00-2-2H4a2 2 0 00-2 2v12c0 1.1.9 2 2 2h8" /><polyline points="22 6 12 13 2 6" /></svg>;
-}
-
-function MailUnreadIcon() {
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22 6 12 13 2 6" /><circle cx="19" cy="5" r="3" fill="currentColor" /></svg>;
-}
-
-function ClockIcon() {
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>;
-}
-
-function SpamIcon() {
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>;
-}
-
-function BlockIcon() {
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5"><circle cx="12" cy="12" r="10" /><line x1="4.93" y1="4.93" x2="19.07" y2="19.07" /></svg>;
 }

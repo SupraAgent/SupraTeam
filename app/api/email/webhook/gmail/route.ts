@@ -32,6 +32,9 @@ async function verifyPubSubToken(request: Request): Promise<boolean> {
   }
 }
 
+// Cap auto-routing to avoid blowing past Pub/Sub's 10s ack deadline
+const MAX_AUTO_ROUTE_THREADS = 20;
+
 export async function POST(request: Request) {
   // Verify the request is from Google Pub/Sub
   const isValid = await verifyPubSubToken(request);
@@ -94,12 +97,14 @@ export async function POST(request: Request) {
       return;
     }
 
-    // Get changes since last known history ID
+    // Get changes since last known history ID — reuse driver for auto-routing below
     let threadIds: string[] = [];
     let newHistoryId = payload.historyId;
+    let driver: Awaited<ReturnType<typeof getDriverForUser>>["driver"] | null = null;
     try {
       if (previousHistoryId) {
-        const { driver } = await getDriverForUser(conn.user_id, conn.id);
+        const result_driver = await getDriverForUser(conn.user_id, conn.id);
+        driver = result_driver.driver;
         if ("listHistory" in driver && typeof driver.listHistory === "function") {
           const result = await driver.listHistory(previousHistoryId);
           threadIds = result.changes.map((c: { threadId: string }) => c.threadId);
@@ -128,6 +133,90 @@ export async function POST(request: Request) {
       history_id: newHistoryId,
       thread_ids: threadIds,
     });
+
+    // ── Auto-route new threads to email groups ──────────────
+    if (threadIds.length > 0) {
+      try {
+        // Step 1: Get group IDs for this connection (safe — no string interpolation)
+        const { data: connGroups } = await admin
+          .from("crm_email_groups")
+          .select("id")
+          .eq("connection_id", conn.id)
+          .eq("user_id", conn.user_id);
+
+        if (!connGroups?.length) return;
+
+        const groupIds = connGroups.map((g) => g.id);
+
+        // Step 2: Get contacts for those groups
+        const { data: groupContacts } = await admin
+          .from("crm_email_group_contacts")
+          .select("group_id, email")
+          .in("group_id", groupIds);
+
+        if (!groupContacts?.length) return;
+
+        const contactMap = new Map<string, string[]>();
+        for (const gc of groupContacts) {
+          const groups = contactMap.get(gc.email) ?? [];
+          groups.push(gc.group_id);
+          contactMap.set(gc.email, groups);
+        }
+
+        // Reuse driver from history fetch, or init if we didn't have one
+        if (!driver) {
+          const result_driver = await getDriverForUser(conn.user_id, conn.id);
+          driver = result_driver.driver;
+        }
+
+        // Cap threads to avoid timeout, then process in parallel
+        const capped = threadIds.slice(0, MAX_AUTO_ROUTE_THREADS);
+        await Promise.allSettled(capped.map(async (threadId) => {
+          const thread = await driver!.getThread(threadId);
+          if (!thread?.messages?.length) return;
+
+          // Safely extract from emails with null checks
+          const fromEmails = [...new Set(
+            thread.messages
+              .filter((m: { from?: { email?: string } }) => m.from?.email)
+              .map((m: { from: { email: string } }) => m.from.email.toLowerCase())
+          )];
+
+          const matchedGroupIds = new Set<string>();
+          for (const email of fromEmails) {
+            const gids = contactMap.get(email);
+            if (gids) gids.forEach((id) => matchedGroupIds.add(id));
+          }
+
+          if (matchedGroupIds.size === 0) return;
+
+          const lastMsg = thread.messages[thread.messages.length - 1];
+          const fromEmail = lastMsg?.from?.email ?? "";
+          const fromName = lastMsg?.from?.name ?? "";
+          // Batch upserts for all matched groups in parallel
+          await Promise.allSettled([...matchedGroupIds].map((groupId) =>
+            admin
+              .from("crm_email_group_threads")
+              .upsert(
+                {
+                  group_id: groupId,
+                  thread_id: threadId,
+                  subject: thread.subject ?? null,
+                  snippet: thread.snippet ?? null,
+                  from_email: fromEmail,
+                  from_name: fromName,
+                  last_message_at: lastMsg?.date ?? new Date().toISOString(),
+                  auto_added: true,
+                },
+                { onConflict: "group_id,thread_id" }
+              )
+          ));
+        }));
+      } catch (autoRouteErr) {
+        // Non-critical — don't fail the webhook for auto-routing errors
+        console.error("[gmail-webhook] Auto-routing error:", autoRouteErr);
+      }
+    }
   }));
 
   return NextResponse.json({ ok: true });
