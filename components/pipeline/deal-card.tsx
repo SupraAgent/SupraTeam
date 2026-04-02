@@ -28,7 +28,7 @@ const RESPONSE_OVERDUE_HOURS = 4;
 function getColdWeeks(updatedAt: string): number {
   const ms = Date.now() - new Date(updatedAt).getTime();
   const weeks = Math.floor(ms / (7 * 86400000));
-  return Math.min(Math.max(weeks, 0), 8);
+  return Math.min(Math.max(weeks, 0), 6);
 }
 
 export function DealCard({
