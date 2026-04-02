@@ -20,6 +20,9 @@ type DealCardProps = {
   tgHighlight?: boolean;
   tgHighlightDetails?: { priority?: string; sentiment?: string; message_count?: number; sender_name?: string };
   unreadCount?: number;
+  slam?: boolean;
+  onHoverPreview?: (deal: Deal, rect: DOMRect) => void;
+  onHoverEnd?: () => void;
 };
 
 // Response time threshold (hours) — will be configurable via SLA config in Stage 2
@@ -36,6 +39,7 @@ export function DealCard({
   onQuickMove, onQuickOutcome, onInlineEdit,
   selected, onToggleSelect,
   highlight, tgHighlight, tgHighlightDetails, unreadCount,
+  slam, onHoverPreview, onHoverEnd,
 }: DealCardProps) {
   const coldWeeks = getColdWeeks(deal.updated_at);
   const iceClass = coldWeeks >= 1 ? `ice-stage-${coldWeeks}` : null;
@@ -90,8 +94,11 @@ export function DealCard({
             tgHighlight && !highlight && "border-amber-400/40 bg-amber-500/5 ring-1 ring-amber-400/30",
             selected && "ring-2 ring-primary/60 border-primary/40 bg-primary/5",
             !highlight && !tgHighlight && !selected && !iceClass && "border-white/10",
-            !highlight && !tgHighlight && !selected && iceClass
+            !highlight && !tgHighlight && !selected && iceClass,
+            slam && "animate-drop-slam"
           )}
+          onMouseEnter={(e) => onHoverPreview?.(deal, e.currentTarget.getBoundingClientRect())}
+          onMouseLeave={() => onHoverEnd?.()}
         >
           {/* Selection checkbox — visible on hover or when selected */}
           <div
