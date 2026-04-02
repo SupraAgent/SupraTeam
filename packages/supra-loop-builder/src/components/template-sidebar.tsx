@@ -24,6 +24,9 @@ import {
 import { GROUP_COLORS, groupColorIndex } from "./flow-canvas";
 import { uid } from "../lib/utils";
 
+/** Categories shown in the CRM template sidebar (hides imported team builder templates) */
+const CRM_CATEGORIES = new Set(["crm", "telegram", "email"]);
+
 type Tab = "templates" | "my-templates" | "groups";
 
 /** Unified item displayed in the "My Templates" tab */
@@ -259,7 +262,9 @@ export function TemplateSidebar({
     });
   };
 
-  const builtInFiltered = sortStarredFirst(filterBySearch(BUILT_IN_TEMPLATES));
+  // Only show CRM-focused templates (hide imported team builder templates)
+  const crmBuiltIn = BUILT_IN_TEMPLATES.filter((t) => CRM_CATEGORIES.has(t.category));
+  const builtInFiltered = sortStarredFirst(filterBySearch(crmBuiltIn));
   const myTemplatesFiltered = filterBySearch(myTemplateItems);
 
   // Group built-in templates by category
@@ -275,10 +280,6 @@ export function TemplateSidebar({
     crm: "CRM",
     telegram: "Telegram",
     email: "Email",
-    benchmark: "Benchmark",
-    scoring: "Scoring",
-    improve: "Improve",
-    workflow: "Workflow",
   };
 
   const sourceLabels: Record<string, { label: string; color: string }> = {
