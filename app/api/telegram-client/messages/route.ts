@@ -25,23 +25,18 @@ import {
 } from "@/lib/telegram-client";
 import { Api } from "telegram";
 
-function parsePeerParams(params: URLSearchParams | Record<string, string>) {
-  const type = (typeof params.get === "function" ? params.get("type") : (params as Record<string, string>).type) as
-    | "user"
-    | "chat"
-    | "channel"
-    | null;
-  const idStr = typeof params.get === "function" ? params.get("id") : (params as Record<string, string>).id;
-  const accessHashStr =
-    typeof params.get === "function"
-      ? params.get("accessHash")
-      : (params as Record<string, string>).accessHash;
+const VALID_PEER_TYPES = new Set<string>(["user", "chat", "channel"]);
 
-  if (!type || !idStr) return null;
+function parsePeerParams(params: URLSearchParams) {
+  const type = params.get("type");
+  const idStr = params.get("id");
+  const accessHashStr = params.get("accessHash");
+
+  if (!type || !idStr || !VALID_PEER_TYPES.has(type)) return null;
   try {
     const id = BigInt(idStr);
     const accessHash = accessHashStr ? BigInt(accessHashStr) : BigInt(0);
-    return { type, id, accessHash };
+    return { type: type as "user" | "chat" | "channel", id, accessHash };
   } catch {
     return null;
   }
@@ -159,6 +154,12 @@ export async function POST(request: Request) {
   if (!body.type || !body.id || !body.message?.trim()) {
     return NextResponse.json(
       { error: "type, id, and message are required" },
+      { status: 400 }
+    );
+  }
+  if (!VALID_PEER_TYPES.has(body.type)) {
+    return NextResponse.json(
+      { error: "type must be user, chat, or channel" },
       { status: 400 }
     );
   }

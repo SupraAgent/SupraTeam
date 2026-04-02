@@ -9,7 +9,7 @@
 import { TelegramClient, Api } from "telegram";
 import { StringSession } from "telegram/sessions";
 import { encryptToken, decryptToken } from "@/lib/crypto";
-import { createHash } from "crypto";
+import { createHash, randomBytes } from "crypto";
 import bigInt from "big-integer";
 
 // Telegram API credentials (from my.telegram.org)
@@ -144,7 +144,11 @@ export async function signInWith2FA(
       },
     }
   );
-  return result as unknown as Api.User;
+  if (result instanceof Api.User) return result;
+  // signInWithPassword may return Auth wrapper or User directly
+  const auth = result as { user?: Api.User };
+  if (auth.user instanceof Api.User) return auth.user;
+  throw new Error("Unexpected 2FA sign-in response");
 }
 
 /** Get user's Telegram contacts */
@@ -204,7 +208,7 @@ export async function sendMessage(
     new Api.messages.SendMessage({
       peer,
       message,
-      randomId: bigInt(Math.floor(Math.random() * Number.MAX_SAFE_INTEGER)),
+      randomId: bigInt(randomBytes(8).readBigInt64BE().toString().replace("-", "")),
       ...(replyToMsgId ? { replyTo: new Api.InputReplyToMessage({ replyToMsgId }) } : {}),
     })
   );
@@ -229,6 +233,8 @@ export function buildPeer(
         channelId: idBig,
         accessHash: hashBig,
       });
+    default:
+      throw new Error(`Invalid peer type: ${type satisfies never}`);
   }
 }
 

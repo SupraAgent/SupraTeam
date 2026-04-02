@@ -80,36 +80,56 @@ export default function TelegramPage() {
 
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
 
-  // Check connection status on mount
+  // Auto-scroll to bottom when messages change
   React.useEffect(() => {
-    checkStatus();
-  }, []);
-
-  async function checkStatus() {
-    try {
-      const res = await fetch("/api/telegram-client/status");
-      const data = await res.json();
-      setStatus(data);
-      if (data.connected) {
-        fetchDialogs();
-      }
-    } finally {
-      setStatusLoading(false);
+    if (messages.length > 0) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }
+  }, [messages]);
 
-  async function fetchDialogs() {
+  const fetchDialogs = React.useCallback(async () => {
     setDialogsLoading(true);
     try {
       const res = await fetch("/api/telegram-client/conversations?limit=100");
+      if (!res.ok) {
+        console.error("[telegram] conversations fetch failed:", res.status);
+        return;
+      }
       const data = await res.json();
       if (data.data) {
         setDialogs(data.data);
       }
+    } catch (err) {
+      console.error("[telegram] conversations fetch error:", err);
     } finally {
       setDialogsLoading(false);
     }
-  }
+  }, []);
+
+  // Check connection status on mount
+  React.useEffect(() => {
+    async function checkStatus() {
+      try {
+        const res = await fetch("/api/telegram-client/status");
+        if (!res.ok) {
+          console.error("[telegram] status check failed:", res.status);
+          setStatus({ connected: false });
+          return;
+        }
+        const data = await res.json();
+        setStatus(data);
+        if (data.connected) {
+          fetchDialogs();
+        }
+      } catch (err) {
+        console.error("[telegram] status check error:", err);
+        setStatus({ connected: false });
+      } finally {
+        setStatusLoading(false);
+      }
+    }
+    checkStatus();
+  }, [fetchDialogs]);
 
   async function fetchMessages(dialog: Dialog) {
     setMessagesLoading(true);
@@ -128,7 +148,6 @@ export default function TelegramPage() {
       const data = await res.json();
       if (data.data) {
         setMessages(data.data.reverse());
-        setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
       }
     } finally {
       setMessagesLoading(false);
@@ -179,6 +198,16 @@ export default function TelegramPage() {
     }
     return true;
   });
+
+  const filterCounts = React.useMemo(() => {
+    const counts = { all: dialogs.length, private: 0, group: 0, channel: 0 };
+    for (const d of dialogs) {
+      if (d.type === "private") counts.private++;
+      else if (d.type === "group" || d.type === "supergroup") counts.group++;
+      else if (d.type === "channel") counts.channel++;
+    }
+    return counts;
+  }, [dialogs]);
 
   function dialogIcon(type: string) {
     switch (type) {
@@ -285,10 +314,7 @@ export default function TelegramPage() {
             { key: "group" as FilterType, label: "Groups", icon: Users },
             { key: "channel" as FilterType, label: "Channels", icon: Megaphone },
           ]).map((item) => {
-            const count = item.key === "all" ? dialogs.length
-              : item.key === "private" ? dialogs.filter((d) => d.type === "private").length
-              : item.key === "group" ? dialogs.filter((d) => d.type === "group" || d.type === "supergroup").length
-              : dialogs.filter((d) => d.type === "channel").length;
+            const count = filterCounts[item.key];
             return (
               <button
                 key={item.key}
