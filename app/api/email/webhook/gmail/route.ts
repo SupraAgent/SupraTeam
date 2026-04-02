@@ -137,16 +137,20 @@ export async function POST(request: Request) {
     // ── Auto-route new threads to email groups ──────────────
     if (threadIds.length > 0) {
       try {
-        // Step 1: Get group IDs for this connection (safe — no string interpolation)
+        // Step 1: Get groups for this connection (include gmail_label_id for label-based routing)
         const { data: connGroups } = await admin
           .from("crm_email_groups")
-          .select("id")
+          .select("id, gmail_label_id")
           .eq("connection_id", conn.id)
           .eq("user_id", conn.user_id);
 
         if (!connGroups?.length) return;
 
         const groupIds = connGroups.map((g) => g.id);
+        const gmailLabelMap = new Map<string, string>();
+        for (const g of connGroups) {
+          if (g.gmail_label_id) gmailLabelMap.set(g.id, g.gmail_label_id);
+        }
 
         // Step 2: Get contacts for those groups
         const { data: groupContacts } = await admin
@@ -193,9 +197,15 @@ export async function POST(request: Request) {
           const lastMsg = thread.messages[thread.messages.length - 1];
           const fromEmail = lastMsg?.from?.email ?? "";
           const fromName = lastMsg?.from?.name ?? "";
-          // Batch upserts for all matched groups in parallel
-          await Promise.allSettled([...matchedGroupIds].map((groupId) =>
-            admin
+          // Route to matched groups: Gmail labels for Gmail groups, junction table for IMAP
+          await Promise.allSettled([...matchedGroupIds].map((groupId) => {
+            const labelId = gmailLabelMap.get(groupId);
+            if (labelId) {
+              // Gmail path: apply label to thread (driver already initialized above)
+              return driver!.modifyLabels(threadId, [labelId], []);
+            }
+            // IMAP fallback: upsert into junction table
+            return admin
               .from("crm_email_group_threads")
               .upsert(
                 {
@@ -209,8 +219,8 @@ export async function POST(request: Request) {
                   auto_added: true,
                 },
                 { onConflict: "group_id,thread_id" }
-              )
-          ));
+              );
+          }));
         }));
       } catch (autoRouteErr) {
         // Non-critical — don't fail the webhook for auto-routing errors

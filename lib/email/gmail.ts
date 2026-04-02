@@ -408,6 +408,51 @@ export class GmailDriver implements MailDriver {
     }));
   }
 
+  async createLabel(name: string, color?: string): Promise<Label> {
+    const bgColor = color ?? "#4986e7"; // Default Gmail blue
+    const res = await withBackoff(() =>
+      this.gmail.users.labels.create({
+        userId: "me",
+        requestBody: {
+          name,
+          labelListVisibility: "labelShow",
+          messageListVisibility: "show",
+          color: { backgroundColor: bgColor, textColor: "#ffffff" },
+        },
+      })
+    );
+    return {
+      id: res.data.id!,
+      name: res.data.name!,
+      type: "user" as const,
+      messageCount: 0,
+      unreadCount: 0,
+      color: bgColor,
+    };
+  }
+
+  async deleteLabel(labelId: string): Promise<void> {
+    await withBackoff(() =>
+      this.gmail.users.labels.delete({ userId: "me", id: labelId })
+    );
+  }
+
+  async renameLabel(labelId: string, newName: string): Promise<Label> {
+    const res = await withBackoff(() =>
+      this.gmail.users.labels.patch({
+        userId: "me",
+        id: labelId,
+        requestBody: { name: newName },
+      })
+    );
+    return {
+      id: res.data.id!,
+      name: res.data.name!,
+      type: "user" as const,
+      color: res.data.color?.backgroundColor ?? undefined,
+    };
+  }
+
   async getAttachment(messageId: string, attachmentId: string, meta?: { filename?: string; mimeType?: string }): Promise<Attachment> {
     const res = await this.gmail.users.messages.attachments.get({
       userId: "me",

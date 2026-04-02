@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
+import { getDriverForUser } from "@/lib/email/driver";
 
 const MAX_PRIMARY_CONTACTS = 50;
 
-/** POST /api/email/groups/threads — Add thread to group + register primary contacts */
+/** POST /api/email/groups/threads — Add thread to group (applies Gmail label or uses junction table) */
 export async function POST(req: NextRequest) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
@@ -17,7 +18,6 @@ export async function POST(req: NextRequest) {
     from_email?: string;
     from_name?: string;
     last_message_at?: string;
-    /** Primary contacts (from field, not CC) to auto-route future emails */
     primary_contacts?: { email: string; name?: string }[];
   };
   try {
@@ -30,19 +30,49 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "group_id and thread_id required" }, { status: 400 });
   }
 
-  // Defense in depth: verify the user owns this group
-  const { data: ownerCheck } = await supabase
+  // Fetch group with gmail_label_id and connection_id
+  const { data: group } = await supabase
     .from("crm_email_groups")
-    .select("id")
+    .select("id, gmail_label_id, connection_id")
     .eq("id", body.group_id)
     .eq("user_id", user.id)
     .maybeSingle();
 
-  if (!ownerCheck) {
+  if (!group) {
     return NextResponse.json({ error: "Group not found" }, { status: 404 });
   }
 
-  // Upsert thread into group
+  // Gmail path: apply label to thread
+  if (group.gmail_label_id) {
+    try {
+      const { driver } = await getDriverForUser(user.id, group.connection_id);
+      await driver.modifyLabels(body.thread_id, [group.gmail_label_id], []);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to apply label";
+      return NextResponse.json({ error: msg }, { status: 500 });
+    }
+
+    // Register primary contacts for auto-routing (still in DB)
+    registerContacts(supabase, body);
+
+    // Return synthetic response matching expected shape
+    return NextResponse.json({
+      data: {
+        id: `gmail-${body.thread_id}-${body.group_id}`,
+        group_id: body.group_id,
+        thread_id: body.thread_id,
+        subject: body.subject ?? null,
+        snippet: body.snippet ?? null,
+        from_email: body.from_email ?? null,
+        from_name: body.from_name ?? null,
+        last_message_at: body.last_message_at ?? new Date().toISOString(),
+        auto_added: false,
+        added_at: new Date().toISOString(),
+      },
+    }, { status: 201 });
+  }
+
+  // IMAP fallback: use junction table
   const { data: threadLink, error: threadErr } = await supabase
     .from("crm_email_group_threads")
     .upsert(
@@ -64,36 +94,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: threadErr.message }, { status: 500 });
   }
 
-  // Register primary contacts for auto-routing
-  let contactWarning: string | undefined;
-  if (body.primary_contacts && body.primary_contacts.length > 0) {
-    const contacts = body.primary_contacts.slice(0, MAX_PRIMARY_CONTACTS);
-    const contactInserts = contacts
-      .filter((c) => c.email && /^[^@]+@[^@]+$/.test(c.email))
-      .map((c) => ({
-        group_id: body.group_id!,
-        email: c.email.toLowerCase(),
-        name: c.name ?? null,
-      }));
+  registerContacts(supabase, body);
 
-    if (contactInserts.length > 0) {
-      const { error: contactErr } = await supabase
-        .from("crm_email_group_contacts")
-        .upsert(contactInserts, { onConflict: "group_id,email", ignoreDuplicates: true });
-
-      if (contactErr) {
-        contactWarning = `Thread added but contact auto-routing failed: ${contactErr.message}`;
-      }
-    }
-  }
-
-  return NextResponse.json({
-    data: threadLink,
-    ...(contactWarning ? { warning: contactWarning } : {}),
-  }, { status: 201 });
+  return NextResponse.json({ data: threadLink }, { status: 201 });
 }
 
-/** DELETE /api/email/groups/threads — Remove thread from group */
+/** DELETE /api/email/groups/threads — Remove thread from group (removes Gmail label or junction row) */
 export async function DELETE(req: NextRequest) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
@@ -107,18 +113,31 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "group_id and thread_id required" }, { status: 400 });
   }
 
-  // Defense in depth: verify the user owns this group
-  const { data: ownerCheck } = await supabase
+  // Fetch group with gmail_label_id
+  const { data: group } = await supabase
     .from("crm_email_groups")
-    .select("id")
+    .select("id, gmail_label_id, connection_id")
     .eq("id", groupId)
     .eq("user_id", user.id)
     .maybeSingle();
 
-  if (!ownerCheck) {
+  if (!group) {
     return NextResponse.json({ error: "Group not found" }, { status: 404 });
   }
 
+  // Gmail path: remove label from thread
+  if (group.gmail_label_id) {
+    try {
+      const { driver } = await getDriverForUser(user.id, group.connection_id);
+      await driver.modifyLabels(threadId, [], [group.gmail_label_id]);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to remove label";
+      return NextResponse.json({ error: msg }, { status: 500 });
+    }
+    return NextResponse.json({ data: { deleted: true } });
+  }
+
+  // IMAP fallback: delete from junction table
   const { error } = await supabase
     .from("crm_email_group_threads")
     .delete()
@@ -130,4 +149,85 @@ export async function DELETE(req: NextRequest) {
   }
 
   return NextResponse.json({ data: { deleted: true } });
+}
+
+/** GET /api/email/groups/threads?group_id=... — Fetch threads for a Gmail-backed group */
+export async function GET(req: NextRequest) {
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+  const { supabase, user } = auth;
+
+  const groupId = req.nextUrl.searchParams.get("group_id");
+  if (!groupId) {
+    return NextResponse.json({ error: "group_id required" }, { status: 400 });
+  }
+
+  const { data: group } = await supabase
+    .from("crm_email_groups")
+    .select("id, gmail_label_id, connection_id")
+    .eq("id", groupId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (!group) {
+    return NextResponse.json({ error: "Group not found" }, { status: 404 });
+  }
+
+  // Gmail path: fetch threads by label
+  if (group.gmail_label_id) {
+    try {
+      const { driver } = await getDriverForUser(user.id, group.connection_id);
+      const result = await driver.listThreads({ labelIds: [group.gmail_label_id], maxResults: 50 });
+      // Map ThreadListItem to EmailGroupThread shape
+      const threads = result.threads.map((t) => ({
+        id: `gmail-${t.id}`,
+        thread_id: t.id,
+        subject: t.subject ?? null,
+        snippet: t.snippet ?? null,
+        from_email: t.from[0]?.email ?? null,
+        from_name: t.from[0]?.name ?? null,
+        last_message_at: t.lastMessageAt ?? null,
+        auto_added: false,
+        added_at: t.lastMessageAt ?? new Date().toISOString(),
+      }));
+      return NextResponse.json({ data: threads });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to fetch threads";
+      return NextResponse.json({ error: msg }, { status: 500 });
+    }
+  }
+
+  // IMAP fallback: query junction table
+  const { data, error } = await supabase
+    .from("crm_email_group_threads")
+    .select("*")
+    .eq("group_id", groupId)
+    .order("last_message_at", { ascending: false });
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ data: data ?? [] });
+}
+
+// ── Helper: register primary contacts for auto-routing ──────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function registerContacts(supabase: any, body: { group_id?: string; primary_contacts?: { email: string; name?: string }[] }) {
+  if (!body.primary_contacts?.length || !body.group_id) return;
+
+  const contacts = body.primary_contacts.slice(0, MAX_PRIMARY_CONTACTS);
+  const contactInserts = contacts
+    .filter((c) => c.email && /^[^@]+@[^@]+$/.test(c.email))
+    .map((c) => ({
+      group_id: body.group_id!,
+      email: c.email.toLowerCase(),
+      name: c.name ?? null,
+    }));
+
+  if (contactInserts.length > 0) {
+    // Fire and forget — non-critical
+    supabase
+      .from("crm_email_group_contacts")
+      .upsert(contactInserts, { onConflict: "group_id,email", ignoreDuplicates: true })
+      .then(() => {});
+  }
 }

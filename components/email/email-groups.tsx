@@ -31,6 +31,7 @@ export interface EmailGroup {
   color: string;
   position: number;
   is_collapsed: boolean;
+  gmail_label_id: string | null;
   created_at: string;
   updated_at: string;
   crm_email_group_threads: EmailGroupThread[];
@@ -63,8 +64,35 @@ export function useEmailGroups(connectionId: string | undefined) {
     try {
       const res = await globalThis.fetch(`/api/email/groups?connection_id=${connectionId}`);
       const json = await res.json();
-      if (json.data) setGroups(json.data);
-      else if (json.error) toast.error(`Failed to load groups: ${json.error}`);
+      if (json.data) {
+        const groupList: EmailGroup[] = json.data;
+        setGroups(groupList);
+
+        // Lazy-load threads for expanded Gmail-backed groups
+        const gmailExpanded = groupList.filter((g) => g.gmail_label_id && !g.is_collapsed);
+        if (gmailExpanded.length > 0) {
+          const results = await Promise.allSettled(
+            gmailExpanded.map(async (g) => {
+              const tRes = await globalThis.fetch(`/api/email/groups/threads?group_id=${g.id}`);
+              const tJson = await tRes.json();
+              return { groupId: g.id, threads: (tJson.data ?? []) as EmailGroupThread[] };
+            })
+          );
+          setGroups((prev) =>
+            prev.map((g) => {
+              const match = results.find(
+                (r) => r.status === "fulfilled" && r.value.groupId === g.id
+              );
+              if (match && match.status === "fulfilled") {
+                return { ...g, crm_email_group_threads: match.value.threads };
+              }
+              return g;
+            })
+          );
+        }
+      } else if (json.error) {
+        toast.error(`Failed to load groups: ${json.error}`);
+      }
     } catch (err) {
       toast.error("Failed to load email groups");
       console.error("fetchGroups error:", err);
@@ -118,6 +146,21 @@ export function useEmailGroups(connectionId: string | undefined) {
     setGroups((prev) =>
       prev.map((g) => (g.id === id ? { ...g, is_collapsed: newCollapsed } : g))
     );
+
+    // Lazy-load threads when expanding a Gmail-backed group
+    if (!newCollapsed && current.gmail_label_id && current.crm_email_group_threads.length === 0) {
+      try {
+        const tRes = await globalThis.fetch(`/api/email/groups/threads?group_id=${id}`);
+        const tJson = await tRes.json();
+        if (tJson.data) {
+          setGroups((prev) =>
+            prev.map((g) => (g.id === id ? { ...g, crm_email_group_threads: tJson.data } : g))
+          );
+        }
+      } catch {
+        // Non-critical — group still expands, just empty
+      }
+    }
 
     try {
       const res = await globalThis.fetch("/api/email/groups", {
