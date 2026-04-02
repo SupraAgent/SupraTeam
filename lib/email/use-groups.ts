@@ -57,11 +57,9 @@ function saveArray(key: string, arr: string[]) {
   } catch { /* noop */ }
 }
 
-// Third-party label prefixes to hide from auto-import
-const THIRD_PARTY_PREFIXES = ["[Superhuman]", "[Streak]", "[Mixmax]", "[Boomerang]", "[Mailtrack]", "[Yesware]"];
-
+// Third-party labels use bracket prefixes like [Superhuman]/Snoozed, [Streak]/Tracked
 function isThirdPartyLabel(name: string): boolean {
-  return THIRD_PARTY_PREFIXES.some((prefix) => name.startsWith(prefix));
+  return name.startsWith("[");
 }
 
 export function useGroups(labels: Label[]): UseGroupsResult {

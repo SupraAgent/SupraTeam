@@ -59,10 +59,9 @@ export function GroupsPanel({ labels, connectionId, onSelectLabel, onSelectThrea
       <div className="flex items-center justify-between px-3 py-3 border-b border-white/10 shrink-0">
         <div className="flex items-center gap-2">
           <FolderOpen className="h-4 w-4 text-muted-foreground" />
-          <div>
-            <h2 className="text-sm font-semibold text-foreground leading-none">Groups</h2>
-            <p className="text-[9px] text-muted-foreground/50 mt-0.5">Drag emails here to label</p>
-          </div>
+          <h2 className="text-sm font-semibold text-foreground" title="Drag emails here to label">
+            Groups
+          </h2>
           <span className="text-xs text-muted-foreground">
             ({visibleGroups.length})
           </span>
@@ -308,7 +307,7 @@ function GroupSection({
           {displayName}
         </button>
         <span className="text-xs text-muted-foreground tabular-nums">
-          {group.unreadCount ?? threads.filter((t) => t.isUnread).length}
+          {group.unreadCount != null ? group.unreadCount : threads.filter((t) => t.isUnread).length}
         </span>
         <button
           onClick={(e) => { e.stopPropagation(); onRemove(); }}

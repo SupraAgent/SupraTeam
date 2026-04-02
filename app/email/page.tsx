@@ -123,16 +123,17 @@ function EmailPageInner() {
     try {
       if (localStorage.getItem(flagKey)) return;
     } catch { return; }
-    localStorage.setItem(flagKey, "1");
     fetch(`/api/email/groups/bootstrap?connection_id=${activeConnectionId}`, { method: "POST" })
       .then((r) => r.json())
       .then((json) => {
+        // Only set flag after successful response so failed attempts can retry
+        try { localStorage.setItem(flagKey, "1"); } catch { /* noop */ }
         if (json.data?.created > 0) {
           refreshLabels();
           toast(`Created ${json.data.created} default groups`);
         }
       })
-      .catch(() => {}); // silent
+      .catch(() => {}); // silent — will retry on next page load
   }, [activeConnectionId, refreshLabels]);
 
   // Visible threads based on active category
@@ -407,7 +408,11 @@ function EmailPageInner() {
     onShowHelp: () => setKeyboardHelpOpen((v) => !v),
     onCommandPalette: () => setCommandPaletteOpen(true),
     onLabelPicker: () => {
-      if (selectedThreadId || selectedIds.size > 0) setLabelPickerOpen(true);
+      if (selectedThreadId || selectedIds.size > 0) {
+        setLabelPickerOpen(true);
+      } else {
+        toast("Select a thread first", { duration: 2000 });
+      }
     },
   }, !composeOpen && !snoozeOpen && !advancedSearchOpen && !keyboardHelpOpen && !commandPaletteOpen && !labelPickerOpen);
 

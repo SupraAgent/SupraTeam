@@ -3,7 +3,7 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import type { Label } from "@/lib/email/types";
-import { Check, X } from "lucide-react";
+import { X } from "lucide-react";
 
 interface LabelPickerProps {
   open: boolean;
@@ -95,7 +95,6 @@ export function LabelPicker({ open, onClose, labels, onApply }: LabelPickerProps
                 <span className="flex-1 text-left truncate text-foreground/90">
                   {displayName(label.name)}
                 </span>
-                <Check className="h-3 w-3 text-muted-foreground/0" />
               </button>
             ))
           )}
