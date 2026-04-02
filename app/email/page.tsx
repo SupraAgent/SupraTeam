@@ -513,6 +513,23 @@ function EmailPageInner() {
             setActiveCategory("all");
           }}
           unreadCounts={unreadCounts}
+          onDeleteLabel={async (labelId) => {
+            try {
+              const params = new URLSearchParams({ labelId });
+              if (activeConnectionId) params.set("connectionId", activeConnectionId);
+              const res = await fetch(`/api/email/labels?${params}`, { method: "DELETE" });
+              if (!res.ok) {
+                const json = await res.json();
+                toast.error(json.error ?? "Failed to delete group");
+                return;
+              }
+              toast("Group deleted");
+              if (activeLabel === labelId) setActiveLabel("INBOX");
+              refreshLabels();
+            } catch {
+              toast.error("Failed to delete group");
+            }
+          }}
         />
       </div>
 

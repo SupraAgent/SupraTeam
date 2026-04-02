@@ -1,8 +1,33 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { getDriverForUser } from "@/lib/email/driver";
 import { serverCache, TTL } from "@/lib/email/server-cache";
 import { sanitizeEmailError } from "@/lib/email/errors";
+
+/** DELETE: Delete a user-created label/group */
+export async function DELETE(request: NextRequest) {
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+
+  const { searchParams } = new URL(request.url);
+  const labelId = searchParams.get("labelId");
+  const connectionId = searchParams.get("connectionId") ?? undefined;
+
+  if (!labelId) {
+    return NextResponse.json({ error: "labelId required" }, { status: 400 });
+  }
+
+  try {
+    const { driver } = await getDriverForUser(auth.user.id, connectionId);
+    await driver.deleteLabel?.(labelId);
+    // Invalidate labels cache
+    serverCache.invalidatePrefix(`labels:${auth.user.id}:`);
+    return NextResponse.json({ data: { deleted: true } });
+  } catch (err: unknown) {
+    const { message, status } = sanitizeEmailError(err, "Failed to delete label");
+    return NextResponse.json({ error: message }, { status });
+  }
+}
 
 /** GET: List email labels/folders */
 export async function GET(request: Request) {
