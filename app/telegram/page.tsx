@@ -106,6 +106,16 @@ export default function TelegramPage() {
     return true;
   });
 
+  const filterCounts = React.useMemo(() => {
+    const counts = { all: dialogs.length, private: 0, group: 0, channel: 0 };
+    for (const d of dialogs) {
+      if (d.type === "private") counts.private++;
+      else if (d.type === "group" || d.type === "supergroup") counts.group++;
+      else if (d.type === "channel") counts.channel++;
+    }
+    return counts;
+  }, [dialogs]);
+
   function dialogIcon(type: string) {
     switch (type) {
       case "private":
@@ -244,24 +254,13 @@ export default function TelegramPage() {
           </h2>
         </div>
         <nav className="flex-1 p-2 space-y-0.5">
-          {(
-            [
-              { key: "all" as FilterType, label: "All Chats", icon: MessageCircle },
-              { key: "private" as FilterType, label: "Direct Messages", icon: UserIcon },
-              { key: "group" as FilterType, label: "Groups", icon: Users },
-              { key: "channel" as FilterType, label: "Channels", icon: Megaphone },
-            ] as const
-          ).map((item) => {
-            const count =
-              item.key === "all"
-                ? dialogs.length
-                : item.key === "private"
-                  ? dialogs.filter((d) => d.type === "private").length
-                  : item.key === "group"
-                    ? dialogs.filter(
-                        (d) => d.type === "group" || d.type === "supergroup"
-                      ).length
-                    : dialogs.filter((d) => d.type === "channel").length;
+          {([
+            { key: "all" as FilterType, label: "All Chats", icon: MessageCircle },
+            { key: "private" as FilterType, label: "Direct Messages", icon: UserIcon },
+            { key: "group" as FilterType, label: "Groups", icon: Users },
+            { key: "channel" as FilterType, label: "Channels", icon: Megaphone },
+          ]).map((item) => {
+            const count = filterCounts[item.key];
             return (
               <button
                 key={item.key}

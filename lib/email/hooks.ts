@@ -81,13 +81,32 @@ export function useThreads(options?: {
   maxResults?: number;
   connectionId?: string;
 }) {
-  const [threads, setThreads] = React.useState<ThreadListItem[]>([]);
-  const [loading, setLoading] = React.useState(true);
-  const [nextPageToken, setNextPageToken] = React.useState<string>();
+  const cacheKey = getListCacheKey(options?.labelIds, options?.query, options?.connectionId);
+
+  // Initialize from cache to avoid blank flash on account switch
+  const [threads, setThreads] = React.useState<ThreadListItem[]>(() => {
+    const cached = listCache.get(cacheKey);
+    return cached ? cached.data : [];
+  });
+  const [loading, setLoading] = React.useState(() => !listCache.has(cacheKey));
+  const [nextPageToken, setNextPageToken] = React.useState<string>(() => {
+    const cached = listCache.get(cacheKey);
+    return cached?.nextPageToken ?? "";
+  });
   const [error, setError] = React.useState<string>();
   const [reconnect, setReconnect] = React.useState(false);
 
-  const cacheKey = getListCacheKey(options?.labelIds, options?.query, options?.connectionId);
+  // Sync from cache when cacheKey changes (account/label switch)
+  React.useEffect(() => {
+    const cached = listCache.get(cacheKey);
+    if (cached) {
+      setThreads(cached.data);
+      setNextPageToken(cached.nextPageToken ?? "");
+      if (!isCacheStale(cacheKey, listCache)) {
+        setLoading(false);
+      }
+    }
+  }, [cacheKey]);
 
   const fetchThreads = React.useCallback(async (pageToken?: string) => {
     // Serve from cache immediately (stale-while-revalidate)
@@ -95,7 +114,7 @@ export function useThreads(options?: {
       const cached = listCache.get(cacheKey);
       if (cached) {
         setThreads(cached.data);
-        setNextPageToken(cached.nextPageToken);
+        setNextPageToken(cached.nextPageToken ?? "");
         // If cache is fresh, skip network
         if (!isCacheStale(cacheKey, listCache)) {
           setLoading(false);
@@ -152,7 +171,7 @@ export function useThreads(options?: {
         listCache.set(cacheKey, { data: data.threads, ts: Date.now(), nextPageToken: data.nextPageToken });
           evictIfNeeded(listCache, LIST_CACHE_MAX);
       }
-      setNextPageToken(data.nextPageToken);
+      setNextPageToken(data.nextPageToken ?? "");
 
       // Persist to IndexedDB for offline access
       cacheThreads(data.threads as unknown as Parameters<typeof cacheThreads>[0]).catch(() => {});
@@ -349,6 +368,48 @@ export function useBatchPrefetch(threads: { id: string }[], connectionId?: strin
     });
 
   }, [depKey, connectionId]); // eslint-disable-line react-hooks/exhaustive-deps
+}
+
+// ── Prefetch all connections (parallel warm-up) ────────────
+
+/**
+ * On mount, prefetch INBOX threads + labels for all non-active connections
+ * so switching accounts is instant.
+ */
+export function usePrefetchAllConnections(
+  connections: EmailConnection[],
+  activeConnectionId: string | undefined,
+) {
+  const prefetchedRef = React.useRef(new Set<string>());
+
+  React.useEffect(() => {
+    if (connections.length <= 1 || !activeConnectionId) return;
+
+    connections.forEach((conn) => {
+      if (conn.id === activeConnectionId) return;
+      if (prefetchedRef.current.has(conn.id)) return;
+      prefetchedRef.current.add(conn.id);
+
+      const cacheKey = getListCacheKey(["INBOX"], undefined, conn.id);
+      if (listCache.has(cacheKey) && !isCacheStale(cacheKey, listCache)) return;
+
+      // Prefetch threads + labels in parallel
+      const params = new URLSearchParams({ labelIds: "INBOX", connectionId: conn.id });
+      fetch(`/api/email/threads?${params}`)
+        .then((r) => r.ok ? r.json() : null)
+        .then((json) => {
+          if (json?.data) {
+            const data = json.data as ThreadList;
+            listCache.set(cacheKey, { data: data.threads, ts: Date.now(), nextPageToken: data.nextPageToken });
+          }
+        })
+        .catch(() => {});
+
+      fetch(`/api/email/labels?connectionId=${conn.id}`)
+        .then((r) => r.ok ? r.json() : null)
+        .catch(() => {});
+    });
+  }, [connections, activeConnectionId]);
 }
 
 // ── Labels ──────────────────────────────────────────────────
