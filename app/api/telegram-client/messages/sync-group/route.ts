@@ -1,36 +1,47 @@
 /**
  * POST /api/telegram-client/messages/sync-group
- * Sync messages from a CRM-linked Telegram group to the database
- * Only group messages are stored (DMs are NEVER stored)
+ * Store group messages sent from the browser (zero-knowledge architecture).
  *
- * Body: { tgGroupId: string, limit?: number }
+ * The browser fetches messages via GramJS client-side, then POSTs them here
+ * for CRM storage. Only CRM-linked group messages are accepted.
+ *
+ * Body: { tgGroupId: string, messages: Array<{...}> }
  */
 
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
-import { getConnectedClient, getMessages, buildPeer } from "@/lib/telegram-client";
-import { Api } from "telegram";
+
+interface SyncMessage {
+  messageId: number;
+  chatId: number;
+  senderTelegramId?: number;
+  senderName?: string;
+  text?: string;
+  messageType: string;
+  replyToMessageId?: number;
+  sentAt: string; // ISO string
+}
 
 export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { user, admin } = auth;
+  const { admin } = auth;
 
-  let body: { tgGroupId?: string; limit?: number };
+  let body: { tgGroupId?: string; messages?: SyncMessage[] };
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  if (!body.tgGroupId) {
-    return NextResponse.json({ error: "tgGroupId required" }, { status: 400 });
+  if (!body.tgGroupId || !body.messages?.length) {
+    return NextResponse.json({ error: "tgGroupId and messages required" }, { status: 400 });
   }
 
   // Verify this is a CRM-linked group
   const { data: group } = await admin
     .from("tg_groups")
-    .select("id, telegram_group_id, group_type")
+    .select("id, telegram_group_id")
     .eq("id", body.tgGroupId)
     .single();
 
@@ -38,103 +49,31 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Group not found in CRM" }, { status: 404 });
   }
 
-  // Get user session
-  const { data: session } = await admin
-    .from("tg_client_sessions")
-    .select("session_encrypted")
-    .eq("user_id", user.id)
-    .eq("is_active", true)
-    .single();
+  const rows = body.messages.map((m) => ({
+    tg_group_id: group.id,
+    telegram_message_id: m.messageId,
+    telegram_chat_id: m.chatId || Number(group.telegram_group_id),
+    sender_telegram_id: m.senderTelegramId || null,
+    sender_name: m.senderName || null,
+    message_text: m.text || null,
+    message_type: m.messageType || "text",
+    reply_to_message_id: m.replyToMessageId || null,
+    sent_at: m.sentAt,
+  }));
 
-  if (!session) {
-    return NextResponse.json({ error: "Telegram not connected" }, { status: 400 });
-  }
+  let synced = 0;
+  for (let i = 0; i < rows.length; i += 50) {
+    const batch = rows.slice(i, i + 50);
+    const { error } = await admin
+      .from("tg_group_messages")
+      .upsert(batch, { onConflict: "telegram_chat_id,telegram_message_id" });
 
-  try {
-    const client = await getConnectedClient(user.id, session.session_encrypted);
-    const limit = Math.min(body.limit || 100, 200);
-
-    // Determine peer type from group_type
-    const peerType =
-      group.group_type === "supergroup" || group.group_type === "channel"
-        ? "channel"
-        : "chat";
-
-    const peer = buildPeer(peerType, BigInt(group.telegram_group_id));
-    const result = await getMessages(client, peer, limit);
-
-    let synced = 0;
-
-    if ("messages" in result && "users" in result) {
-      const usersMap = new Map<string, Api.User>();
-      for (const u of (result as Api.messages.Messages).users) {
-        if (u instanceof Api.User) {
-          usersMap.set(String(u.id), u);
-        }
-      }
-
-      const rows: Array<Record<string, unknown>> = [];
-
-      for (const m of (result as Api.messages.Messages).messages) {
-        if (!(m instanceof Api.Message)) continue;
-
-        let senderName: string | undefined;
-        let senderTelegramId: number | undefined;
-
-        if (m.fromId instanceof Api.PeerUser) {
-          senderTelegramId = Number(m.fromId.userId);
-          const sender = usersMap.get(String(m.fromId.userId));
-          if (sender) {
-            senderName = [sender.firstName, sender.lastName].filter(Boolean).join(" ");
-          }
-        }
-
-        const messageType = m.media
-          ? m.media instanceof Api.MessageMediaPhoto
-            ? "photo"
-            : m.media instanceof Api.MessageMediaDocument
-              ? "document"
-              : "other"
-          : "text";
-
-        rows.push({
-          tg_group_id: group.id,
-          telegram_message_id: m.id,
-          telegram_chat_id: Number(group.telegram_group_id),
-          sender_telegram_id: senderTelegramId || null,
-          sender_name: senderName || null,
-          message_text: m.message || null,
-          message_type: messageType,
-          reply_to_message_id:
-            m.replyTo instanceof Api.MessageReplyHeader
-              ? m.replyTo.replyToMsgId
-              : null,
-          sent_at: new Date(m.date * 1000).toISOString(),
-        });
-      }
-
-      // Batch upsert
-      if (rows.length > 0) {
-        for (let i = 0; i < rows.length; i += 50) {
-          const batch = rows.slice(i, i + 50);
-          const { error } = await admin
-            .from("tg_group_messages")
-            .upsert(batch, {
-              onConflict: "telegram_chat_id,telegram_message_id",
-            });
-          if (error) {
-            console.error("[tg-client/sync-group] upsert error:", error);
-          } else {
-            synced += batch.length;
-          }
-        }
-      }
+    if (error) {
+      console.error("[tg-client/sync-group] upsert error:", error);
+    } else {
+      synced += batch.length;
     }
-
-    return NextResponse.json({ ok: true, synced });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Sync failed";
-    console.error("[tg-client/sync-group]", message);
-    return NextResponse.json({ error: message }, { status: 500 });
   }
+
+  return NextResponse.json({ ok: true, synced });
 }

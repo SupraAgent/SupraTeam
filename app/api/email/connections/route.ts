@@ -26,7 +26,7 @@ export async function GET() {
     if (fallback.error) {
       return NextResponse.json({ error: "Failed to fetch connections" }, { status: 500 });
     }
-    data = (fallback.data ?? []).map((c: Record<string, unknown>, i: number) => ({ ...c, sort_order: i }));
+    data = (fallback.data ?? []).map((c, i) => ({ ...c, sort_order: i }));
   }
 
   return NextResponse.json({ data, source: "supabase" });

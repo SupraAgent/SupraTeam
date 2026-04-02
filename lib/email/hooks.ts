@@ -91,7 +91,7 @@ export function useThreads(options?: {
   const [loading, setLoading] = React.useState(() => !listCache.has(cacheKey));
   const [nextPageToken, setNextPageToken] = React.useState<string>(() => {
     const cached = listCache.get(cacheKey);
-    return cached?.nextPageToken;
+    return cached?.nextPageToken ?? "";
   });
   const [error, setError] = React.useState<string>();
   const [reconnect, setReconnect] = React.useState(false);
@@ -101,7 +101,7 @@ export function useThreads(options?: {
     const cached = listCache.get(cacheKey);
     if (cached) {
       setThreads(cached.data);
-      setNextPageToken(cached.nextPageToken);
+      setNextPageToken(cached.nextPageToken ?? "");
       if (!isCacheStale(cacheKey, listCache)) {
         setLoading(false);
       }
@@ -114,7 +114,7 @@ export function useThreads(options?: {
       const cached = listCache.get(cacheKey);
       if (cached) {
         setThreads(cached.data);
-        setNextPageToken(cached.nextPageToken);
+        setNextPageToken(cached.nextPageToken ?? "");
         // If cache is fresh, skip network
         if (!isCacheStale(cacheKey, listCache)) {
           setLoading(false);
@@ -171,7 +171,7 @@ export function useThreads(options?: {
         listCache.set(cacheKey, { data: data.threads, ts: Date.now(), nextPageToken: data.nextPageToken });
           evictIfNeeded(listCache, LIST_CACHE_MAX);
       }
-      setNextPageToken(data.nextPageToken);
+      setNextPageToken(data.nextPageToken ?? "");
 
       // Persist to IndexedDB for offline access
       cacheThreads(data.threads as unknown as Parameters<typeof cacheThreads>[0]).catch(() => {});

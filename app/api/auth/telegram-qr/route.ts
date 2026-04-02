@@ -1,4 +1,8 @@
 /**
+ * @deprecated LEGACY — runs GramJS server-side, breaking zero-knowledge guarantee.
+ * Sessions created via this route use server-side encryption (encryption_method='server').
+ * Migrate to client-side auth flow (TelegramProvider + browser GramJS) when possible.
+ *
  * POST /api/auth/telegram-qr
  * Initiate QR code login (no auth required -- this IS the login flow)
  * Returns: { ok: true, qrUrl: string, loginToken: string, expiresAt: number }
@@ -27,6 +31,14 @@ import { Api } from "telegram";
 import crypto from "crypto";
 
 export async function POST() {
+  // Legacy route — disabled by default. Set ALLOW_LEGACY_TG_AUTH=true to re-enable.
+  if (process.env.ALLOW_LEGACY_TG_AUTH !== "true") {
+    return NextResponse.json(
+      { error: "Legacy Telegram auth is disabled. Use the zero-knowledge client flow." },
+      { status: 410 }
+    );
+  }
+
   // Fail fast if Telegram API credentials aren't configured
   if (!parseInt(process.env.TELEGRAM_API_ID || "0", 10) || !process.env.TELEGRAM_API_HASH) {
     return NextResponse.json(
@@ -103,6 +115,13 @@ export async function POST() {
 }
 
 export async function GET(request: Request) {
+  if (process.env.ALLOW_LEGACY_TG_AUTH !== "true") {
+    return NextResponse.json(
+      { error: "Legacy Telegram auth is disabled. Use the zero-knowledge client flow." },
+      { status: 410 }
+    );
+  }
+
   const admin = createSupabaseAdmin();
   if (!admin) {
     return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
