@@ -36,10 +36,10 @@ export interface NavSection {
 
 export const TOP_ITEMS: NavItem[] = [
   { href: "/", label: "Dashboard", icon: Home },
-  { href: "/pipeline", label: "Pipeline", icon: KanbanSquare },
-  { href: "/telegram", label: "Telegram", icon: Send },
+  { href: "/telegram", label: "Telegram", icon: MessageCircle },
   { href: "/email", label: "Email", icon: Mail },
   { href: "/inbox", label: "Inbox", icon: Inbox },
+  { href: "/pipeline", label: "Pipeline", icon: KanbanSquare },
 ];
 
 export const NAV_SECTIONS: NavSection[] = [
@@ -47,9 +47,9 @@ export const NAV_SECTIONS: NavSection[] = [
     key: "contacts",
     label: "Contacts & Groups",
     items: [
+      { href: "/groups", label: "TG Groups", icon: MessageCircle },
       { href: "/contacts", label: "Contacts", icon: Users },
       { href: "/companies", label: "Companies", icon: Building2 },
-      { href: "/groups", label: "TG Groups", icon: MessageCircle },
     ],
   },
   {
