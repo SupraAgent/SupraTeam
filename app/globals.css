@@ -204,9 +204,11 @@ body {
   pointer-events: none;
   z-index: 2;
   border-radius: inherit;
-  background-size: 100% 100%;
+  background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
+  filter: invert(1) hue-rotate(180deg);
+  mix-blend-mode: screen;
 }
 
 /* ::after — shimmer highlight layer (stages 5-6 only) */
