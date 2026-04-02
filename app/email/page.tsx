@@ -19,6 +19,7 @@ import { toast } from "sonner";
 import { CommandPalette } from "@/components/email/command-palette";
 import { AutoDraftBanner } from "@/components/email/auto-draft";
 import { GroupsPanel } from "@/components/email/groups-panel";
+import { ComposeForm } from "@/components/email/compose-form";
 import { LabelPicker } from "@/components/email/label-picker";
 import { DragDropZones } from "@/components/email/drag-drop-zones";
 import { LayoutDashboard, PanelRight } from "lucide-react";
@@ -70,6 +71,20 @@ function EmailPageInner() {
   const [composeMode, setComposeMode] = React.useState<"compose" | "reply" | "replyAll" | "forward">("compose");
   const [composeThreadId, setComposeThreadId] = React.useState<string>();
   const [composeMessageId, setComposeMessageId] = React.useState<string>();
+
+  // Inline compose (reply/forward in right sidebar)
+  const [inlineCompose, setInlineCompose] = React.useState<{
+    mode: "reply" | "replyAll" | "forward";
+    threadId: string;
+    messageId?: string;
+  } | null>(null);
+
+  // Clear inline compose when thread changes
+  React.useEffect(() => {
+    if (inlineCompose && selectedThreadId !== inlineCompose.threadId) {
+      setInlineCompose(null);
+    }
+  }, [selectedThreadId, inlineCompose]);
 
   // Multi-select state
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
@@ -331,6 +346,14 @@ function EmailPageInner() {
   }
 
   function openCompose(mode: "compose" | "reply" | "replyAll" | "forward", threadId?: string, messageId?: string) {
+    // Reply/ReplyAll/Forward use inline sidebar panel (xl screens only)
+    const canInline = typeof window !== "undefined" && window.innerWidth >= 1280;
+    if (mode !== "compose" && threadId && canInline) {
+      setInlineCompose({ mode, threadId, messageId });
+      setRightPanelOpen(true);
+      return;
+    }
+    // New compose or fallback to modal
     setComposeMode(mode);
     setComposeThreadId(threadId);
     setComposeMessageId(messageId);
@@ -414,7 +437,7 @@ function EmailPageInner() {
         toast("Select a thread first", { duration: 2000 });
       }
     },
-  }, !composeOpen && !snoozeOpen && !advancedSearchOpen && !keyboardHelpOpen && !commandPaletteOpen && !labelPickerOpen);
+  }, !composeOpen && !inlineCompose && !snoozeOpen && !advancedSearchOpen && !keyboardHelpOpen && !commandPaletteOpen && !labelPickerOpen);
 
   // Active connection for display
   const activeConnection = connections.find((c) => c.id === activeConnectionId);
@@ -600,7 +623,7 @@ function EmailPageInner() {
       {/* Thread list */}
       <div className={cn(
         "w-full md:w-80 border-r border-white/10 flex flex-col md:shrink-0",
-        selectedThreadId ? "hidden md:flex" : "flex",
+        inlineCompose ? "hidden" : selectedThreadId ? "hidden md:flex" : "flex",
         "min-w-0"
       )}>
         {/* Header */}
@@ -878,26 +901,75 @@ function EmailPageInner() {
         )}
       </div>
 
-      {/* Right sidebar — Groups panel */}
+      {/* Right sidebar — Groups panel + inline compose */}
       {rightPanelOpen && (
         <div
-          className="w-72 border-l border-white/10 shrink-0 overflow-y-auto thin-scroll hidden xl:block"
+          className={cn(
+            "border-l border-white/10 shrink-0 hidden xl:flex flex-col",
+            inlineCompose ? "w-[400px]" : "w-72"
+          )}
           style={{ backgroundColor: "hsl(var(--surface-1))" }}
         >
-          <GroupsPanel
-            labels={labels}
-            connectionId={activeConnectionId}
-            onSelectLabel={(id) => {
-              setActiveLabel(id);
-              setSelectedThreadId(null);
-              setSearchQuery("");
-              setActiveCategory("all");
-            }}
-            onSelectThread={(threadId) => setSelectedThreadId(threadId)}
-            onLabelsRefresh={refreshLabels}
-            onDeleteLabel={handleDeleteLabel}
-            onAddThreadsToLabel={handleAddThreadsToLabel}
-          />
+          {/* Groups section */}
+          <div className={cn(
+            inlineCompose ? "max-h-[180px] overflow-y-auto thin-scroll shrink-0 border-b border-white/10" : "flex-1 overflow-y-auto thin-scroll"
+          )}>
+            <GroupsPanel
+              labels={labels}
+              connectionId={activeConnectionId}
+              onSelectLabel={(id) => {
+                setActiveLabel(id);
+                setSelectedThreadId(null);
+                setSearchQuery("");
+                setActiveCategory("all");
+              }}
+              onSelectThread={(threadId) => setSelectedThreadId(threadId)}
+              onLabelsRefresh={refreshLabels}
+              onDeleteLabel={handleDeleteLabel}
+              onAddThreadsToLabel={handleAddThreadsToLabel}
+            />
+          </div>
+
+          {/* Inline compose form */}
+          {inlineCompose && (
+            <div className="flex-1 flex flex-col min-h-0">
+              <div className="flex items-center justify-between px-3 py-2 border-b border-white/10 shrink-0">
+                <h3 className="text-xs font-semibold text-foreground">
+                  {inlineCompose.mode === "reply" ? "Reply" : inlineCompose.mode === "replyAll" ? "Reply All" : "Forward"}
+                </h3>
+                <button
+                  onClick={() => setInlineCompose(null)}
+                  className="text-muted-foreground hover:text-foreground transition text-sm leading-none"
+                >
+                  &times;
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto thin-scroll p-3">
+                <ComposeForm
+                  mode={inlineCompose.mode}
+                  threadId={inlineCompose.threadId}
+                  messageId={inlineCompose.messageId}
+                  connectionId={activeConnectionId}
+                  onSent={() => {
+                    setInlineCompose(null);
+                    refresh();
+                  }}
+                  onSentAndArchive={() => {
+                    if (inlineCompose.threadId) {
+                      performAction(inlineCompose.threadId, "archive");
+                      toast("Sent & Archived");
+                      setSelectedThreadId(null);
+                    }
+                    setInlineCompose(null);
+                    refresh();
+                  }}
+                  onDiscard={() => setInlineCompose(null)}
+                  active={true}
+                  compact
+                />
+              </div>
+            </div>
+          )}
         </div>
       )}
 

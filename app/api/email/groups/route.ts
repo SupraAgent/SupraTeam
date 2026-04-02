@@ -94,11 +94,26 @@ export async function POST(req: NextRequest) {
     }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Failed to create Gmail label";
-    // 409 from Gmail means label already exists
+    // 409 from Gmail means label already exists — find and reuse it
     if (msg.includes("already exists") || msg.includes("409")) {
-      return NextResponse.json({ error: `Label "${trimmedName}" already exists in Gmail` }, { status: 409 });
+      try {
+        const labels = await cachedDriver!.listLabels();
+        const existing = labels.find(
+          (l) => l.name === `${LABEL_PREFIX}${trimmedName}` || l.name === trimmedName
+        );
+        if (existing) {
+          gmailLabelId = existing.id;
+          serverCache.invalidatePrefix(`labels:${user.id}:`);
+        }
+      } catch {
+        return NextResponse.json({ error: `Label "${trimmedName}" already exists in Gmail` }, { status: 409 });
+      }
+      if (!gmailLabelId) {
+        return NextResponse.json({ error: `Label "${trimmedName}" already exists in Gmail` }, { status: 409 });
+      }
+    } else {
+      return NextResponse.json({ error: msg }, { status: 500 });
     }
-    return NextResponse.json({ error: msg }, { status: 500 });
   }
 
   // Insert group in DB with gmail_label_id — wrapped in try/catch so Gmail label

@@ -145,6 +145,8 @@ async function processEnrollment(bot: Bot, enrollment: Enrollment, prefetchedSte
       const chatId = Number(enrollment.tg_chat_id);
 
       try {
+        // Respect Telegram rate limits: 1 msg/sec for DMs
+        await new Promise((r) => setTimeout(r, 1000));
         await bot.api.sendMessage(chatId, text);
         logDelivery(chatId, text, "outreach_sequence", true).catch(() => {});
       } catch (sendErr) {

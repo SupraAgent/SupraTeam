@@ -259,6 +259,28 @@ export function formatStageChangeMessage(
   });
 }
 
+/**
+ * Format a pinned deal status summary for a TG group.
+ * This gets pinned after stage changes so the group always shows current deal status.
+ */
+export function formatPinnedDealStatus(
+  dealName: string,
+  stageName: string,
+  boardType: string,
+  assignedTo?: string,
+): string {
+  const lines = [
+    `<b>📌 Deal Status</b>`,
+    ``,
+    `<b>Deal:</b> ${escapeHtml(dealName)}`,
+    `<b>Stage:</b> ${escapeHtml(stageName)}`,
+    `<b>Board:</b> ${escapeHtml(boardType)}`,
+  ];
+  if (assignedTo) lines.push(`<b>Assigned:</b> ${escapeHtml(assignedTo)}`);
+  lines.push(``, `<i>Updated ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</i>`);
+  return lines.join("\n");
+}
+
 export interface DailyDigestStats {
   totalDeals: number;
   byBoard: Record<string, number>;

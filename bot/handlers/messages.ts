@@ -1,6 +1,7 @@
 import type { Bot } from "grammy";
 import { supabase } from "../lib/supabase.js";
 import { pushToDealAssignee, sendTMAPush } from "./push-notifications.js";
+import { detectPriority, detectSentiment } from "../../lib/priority-detector.js";
 
 /**
  * Fire workflow automations for a given trigger type.
@@ -30,6 +31,7 @@ async function fireWebhookEvent(eventType: string, payload: Record<string, unkno
 
 // ── Team member detection cache (refreshed every 60s) ──────────
 let cachedTeamTelegramIds: Set<number> = new Set();
+let cachedTeamTgToProfile: Map<number, string> = new Map();
 let teamIdsFetchedAt = 0;
 const TEAM_IDS_TTL_MS = 60_000;
 
@@ -39,17 +41,28 @@ async function getTeamTelegramIds(): Promise<Set<number>> {
   }
   const { data } = await supabase
     .from("profiles")
-    .select("telegram_id")
+    .select("id, telegram_id")
     .not("telegram_id", "is", null);
   const ids = new Set<number>();
+  const tgToProfile = new Map<number, string>();
   if (data) {
     for (const p of data) {
-      if (p.telegram_id) ids.add(Number(p.telegram_id));
+      if (p.telegram_id) {
+        const tgId = Number(p.telegram_id);
+        ids.add(tgId);
+        tgToProfile.set(tgId, p.id);
+      }
     }
   }
   cachedTeamTelegramIds = ids;
+  cachedTeamTgToProfile = tgToProfile;
   teamIdsFetchedAt = Date.now();
   return ids;
+}
+
+/** Get the profile ID for a telegram user ID, using the cached team map. */
+function getProfileIdByTelegramId(telegramId: number): string | undefined {
+  return cachedTeamTgToProfile.get(telegramId);
 }
 
 // ── AI Agent: cached config (refreshed every 60s) ──────────────
@@ -119,8 +132,16 @@ const GROUP_RESPONSE_COOLDOWN_MS = 60_000; // 1 response per 60s per chat
 
 function canRespondInGroup(chatId: number): boolean {
   const lastResponse = groupResponseCooldowns.get(chatId) ?? 0;
-  if (Date.now() - lastResponse < GROUP_RESPONSE_COOLDOWN_MS) return false;
-  groupResponseCooldowns.set(chatId, Date.now());
+  const now = Date.now();
+  if (now - lastResponse < GROUP_RESPONSE_COOLDOWN_MS) return false;
+  groupResponseCooldowns.set(chatId, now);
+  // Evict stale entries to prevent memory leak
+  if (groupResponseCooldowns.size > 500) {
+    const cutoff = now - GROUP_RESPONSE_COOLDOWN_MS * 2;
+    for (const [id, t] of groupResponseCooldowns) {
+      if (t < cutoff) groupResponseCooldowns.delete(id);
+    }
+  }
   return true;
 }
 
@@ -142,6 +163,13 @@ async function handleAIResponse(
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return;
+
+  // Send typing indicator while processing AI response
+  try {
+    await bot.api.sendChatAction(chatId, "typing");
+  } catch {
+    // Non-critical — some chat types may not support this
+  }
 
   // Check for escalation
   const lowerMsg = messageText.toLowerCase();
@@ -291,14 +319,15 @@ async function handleAIResponse(
     await bot.api.sendMessage(chatId, aiResponse, {
       reply_parameters: replyToMessageId ? { message_id: replyToMessageId } : undefined,
     });
-    // Non-blocking delivery log
-    supabase.from("crm_notification_log").insert({
+    // Delivery log — await to catch errors
+    const { error: logErr } = await supabase.from("crm_notification_log").insert({
       notification_type: isDM ? "ai_dm_response" : "ai_group_response",
       tg_chat_id: chatId,
       message_preview: aiResponse.length > 200 ? aiResponse.slice(0, 200) + "..." : aiResponse,
       status: "sent",
       sent_at: new Date().toISOString(),
-    }).then(() => {});
+    });
+    if (logErr) console.error("[bot/messages] delivery log error:", logErr.message);
 
     // Auto-create deal from qualified lead if enabled
     if (qualificationData && config.auto_create_deals) {
@@ -413,6 +442,27 @@ async function autoCreateDealFromQualification(
   }
 }
 
+// ── Media group deduplication ──────────────────────────────
+// Telegram sends multiple updates for media groups (albums). Buffer by media_group_id
+// and only process once per group.
+const processedMediaGroups = new Map<string, number>();
+const MEDIA_GROUP_BUFFER_MS = 2000;
+
+function isMediaGroupDuplicate(mediaGroupId: string | undefined): boolean {
+  if (!mediaGroupId) return false;
+  const existing = processedMediaGroups.get(mediaGroupId);
+  if (existing && Date.now() - existing < MEDIA_GROUP_BUFFER_MS) return true;
+  processedMediaGroups.set(mediaGroupId, Date.now());
+  // Evict old entries
+  if (processedMediaGroups.size > 500) {
+    const cutoff = Date.now() - MEDIA_GROUP_BUFFER_MS * 5;
+    for (const [id, t] of processedMediaGroups) {
+      if (t < cutoff) processedMediaGroups.delete(id);
+    }
+  }
+  return false;
+}
+
 export function registerMessageHandlers(bot: Bot) {
   // ── DM handler: AI agent responds to private messages ──────────
   bot.on("message:text", async (ctx) => {
@@ -455,8 +505,13 @@ export function registerMessageHandlers(bot: Bot) {
     // Only process group/supergroup messages
     if (chat.type !== "group" && chat.type !== "supergroup") return;
 
+    // Skip duplicate media group updates (albums send N updates, process only first)
+    if (isMediaGroupDuplicate(ctx.message.media_group_id)) return;
+
     const chatId = chat.id;
     const messageId = ctx.message.message_id;
+    const messageThreadId = ctx.message.message_thread_id ?? undefined;
+    const isForumTopic = ctx.message.is_topic_message ?? false;
     const senderName = ctx.from.first_name + (ctx.from.last_name ? ` ${ctx.from.last_name}` : "");
     const senderUsername = ctx.from.username ?? "";
     const messageText = ctx.message.text;
@@ -490,6 +545,8 @@ export function registerMessageHandlers(bot: Bot) {
         message_text: messageText,
         message_link: tgDeepLink,
         tg_group_id: tgGroup.id,
+        message_thread_id: messageThreadId,
+        is_forum_topic: isForumTopic,
       });
 
       // Find deals linked to this telegram chat (include assigned_to for push notifications)
@@ -712,18 +769,10 @@ export function registerMessageHandlers(bot: Bot) {
                 : `${existing.message_preview.split("\n")[0]}\n+${newCount - 1} more messages`;
 
               // Re-evaluate priority/sentiment from latest message and escalate if higher
-              const lowerText = messageText.toLowerCase();
-              const urgentWords = ["urgent", "asap", "immediately", "critical", "deadline"];
-              const highWords = ["ready to sign", "contract", "payment", "invoice", "approve", "confirm"];
-              const negativeWords = ["cancel", "delay", "problem", "issue", "disappointed", "frustrated", "concerned"];
-
               const priorityRank: Record<string, number> = { low: 1, medium: 2, high: 3, urgent: 4 };
-              let newPriority: string | undefined;
-              if (urgentWords.some((w) => lowerText.includes(w))) newPriority = "urgent";
-              else if (highWords.some((w) => lowerText.includes(w))) newPriority = "high";
-
-              let newSentiment: string | undefined;
-              if (negativeWords.some((w) => lowerText.includes(w))) newSentiment = "negative";
+              const newPriority = detectPriority(messageText);
+              const newSentimentVal = detectSentiment(messageText);
+              const newSentiment: string | undefined = newSentimentVal === "negative" ? "negative" : undefined;
 
               const updatePayload: Record<string, unknown> = {
                 message_count: newCount,
@@ -757,20 +806,8 @@ export function registerMessageHandlers(bot: Bot) {
                 .limit(1);
 
               if (!recentHighlight || recentHighlight.length === 0) {
-                // Priority / sentiment detection
-                const lowerText = messageText.toLowerCase();
-                const urgentWords = ["urgent", "asap", "immediately", "critical", "deadline"];
-                const highWords = ["ready to sign", "contract", "payment", "invoice", "approve", "confirm"];
-                const negativeWords = ["cancel", "delay", "problem", "issue", "disappointed", "frustrated", "concerned"];
-                const positiveWords = ["excited", "great", "love", "perfect", "amazing", "deal", "agree", "yes"];
-
-                let priority: "low" | "medium" | "high" | "urgent" = "medium";
-                if (urgentWords.some((w) => lowerText.includes(w))) priority = "urgent";
-                else if (highWords.some((w) => lowerText.includes(w))) priority = "high";
-
-                let sentiment: "positive" | "neutral" | "negative" = "neutral";
-                if (negativeWords.some((w) => lowerText.includes(w))) sentiment = "negative";
-                else if (positiveWords.some((w) => lowerText.includes(w))) sentiment = "positive";
+                const priority = detectPriority(messageText);
+                const sentiment = detectSentiment(messageText);
 
                 await supabase.from("crm_highlights").insert({
                   deal_id: deal.id,

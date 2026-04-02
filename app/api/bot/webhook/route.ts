@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { triggerWorkflowsByEvent } from "@/lib/workflow-engine";
+import { detectPriority, detectSentiment } from "@/lib/priority-detector";
+import crypto from "crypto";
 
 export const runtime = "nodejs";
 export const maxDuration = 10;
@@ -9,13 +11,16 @@ export async function POST(request: Request) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) return NextResponse.json({ error: "No bot token" }, { status: 503 });
 
-  // Validate webhook secret header (required)
+  // Validate webhook secret header (primary security boundary — HMAC-signed by Telegram)
   const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
   if (!webhookSecret) {
     return NextResponse.json({ error: "Webhook secret not configured" }, { status: 503 });
   }
-  const secretHeader = request.headers.get("x-telegram-bot-api-secret-token");
-  if (secretHeader !== webhookSecret) {
+  const secretHeader = request.headers.get("x-telegram-bot-api-secret-token") ?? "";
+  if (
+    secretHeader.length !== webhookSecret.length ||
+    !crypto.timingSafeEqual(Buffer.from(secretHeader), Buffer.from(webhookSecret))
+  ) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
@@ -135,6 +140,10 @@ export async function POST(request: Request) {
     // --- Handle group text messages (skip commands) ---
     if (update.message?.text && !update.message.text.startsWith("/") && (update.message.chat.type === "group" || update.message.chat.type === "supergroup")) {
       const chat = update.message.chat;
+      // Validate chat.id is a finite integer before using in query interpolation
+      if (!Number.isFinite(chat.id) || !Number.isInteger(chat.id)) {
+        return NextResponse.json({ ok: true });
+      }
       const from = update.message.from;
       const msgId = update.message.message_id;
       const text = update.message.text;
@@ -300,19 +309,8 @@ export async function POST(request: Request) {
               .limit(1);
 
             if (!recentHighlight || recentHighlight.length === 0) {
-              const lowerText = text.toLowerCase();
-              const urgentWords = ["urgent", "asap", "immediately", "critical", "deadline"];
-              const highWords = ["ready to sign", "contract", "payment", "invoice", "approve", "confirm"];
-              const negativeWords = ["cancel", "delay", "problem", "issue", "disappointed", "frustrated", "concerned"];
-              const positiveWords = ["excited", "great", "love", "perfect", "amazing", "deal", "agree", "yes"];
-
-              let priority: "low" | "medium" | "high" | "urgent" = "medium";
-              if (urgentWords.some((w) => lowerText.includes(w))) priority = "urgent";
-              else if (highWords.some((w) => lowerText.includes(w))) priority = "high";
-
-              let sentiment: "positive" | "neutral" | "negative" = "neutral";
-              if (negativeWords.some((w) => lowerText.includes(w))) sentiment = "negative";
-              else if (positiveWords.some((w) => lowerText.includes(w))) sentiment = "positive";
+              const priority = detectPriority(text);
+              const sentiment = detectSentiment(text);
 
               await supabase.from("crm_highlights").insert({
                 deal_id: deal.id,
@@ -342,10 +340,16 @@ export async function POST(request: Request) {
   return NextResponse.json({ ok: true });
 }
 
-async function sendMessage(token: string, chatId: number, text: string) {
-  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, text }),
-  });
+async function sendMessage(token: string, chatId: number, text: string, parseMode?: "HTML") {
+  try {
+    const body: Record<string, unknown> = { chat_id: chatId, text };
+    if (parseMode) body.parse_mode = parseMode;
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    console.error(`[webhook] sendMessage to ${chatId} failed:`, err instanceof Error ? err.message : err);
+  }
 }

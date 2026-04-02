@@ -101,6 +101,8 @@ async function processEnrollment(bot: Bot, enrollment: Enrollment, steps: Step[]
       const text = renderTemplate(currentStep.message_template, vars);
 
       try {
+        // Respect Telegram rate limits: 1 msg/sec for DMs
+        await new Promise((r) => setTimeout(r, 1000));
         await bot.api.sendMessage(enrollment.tg_chat_id, text);
         // Non-blocking delivery tracking
         logDelivery(enrollment.tg_chat_id, text, "drip_sequence", true).catch(() => {});

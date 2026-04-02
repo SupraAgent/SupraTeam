@@ -40,7 +40,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "media_type must be photo or document" }, { status: 400 });
   }
 
-  // Size limits: 10MB for photos, 50MB for documents
+  // Validate MIME type for photos
+  const ALLOWED_PHOTO_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+  if (mediaType === "photo" && !ALLOWED_PHOTO_TYPES.includes(file.type)) {
+    return NextResponse.json({
+      error: `Invalid photo type "${file.type}". Allowed: JPEG, PNG, GIF, WebP`,
+    }, { status: 400 });
+  }
+
+  // Size limits: 10MB for photos, 50MB for documents (Telegram Bot API limits)
   const maxSize = mediaType === "photo" ? 10 * 1024 * 1024 : 50 * 1024 * 1024;
   if (file.size > maxSize) {
     return NextResponse.json({
