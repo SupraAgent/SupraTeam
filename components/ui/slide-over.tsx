@@ -9,9 +9,10 @@ type SlideOverProps = {
   title: string;
   children: React.ReactNode;
   className?: string;
+  wide?: boolean;
 };
 
-export function SlideOver({ open, onClose, title, children, className }: SlideOverProps) {
+export function SlideOver({ open, onClose, title, children, className, wide }: SlideOverProps) {
   React.useEffect(() => {
     if (!open) return;
     function handleKey(e: KeyboardEvent) {
@@ -28,7 +29,8 @@ export function SlideOver({ open, onClose, title, children, className }: SlideOv
       <div className="fixed inset-0 bg-black/40" onClick={onClose} />
       <div
         className={cn(
-          "relative z-10 w-full max-w-md sm:max-w-md border-l border-white/10 bg-[hsl(225,35%,5%)] shadow-2xl overflow-y-auto",
+          "relative z-10 w-full border-l border-white/10 bg-[hsl(225,35%,5%)] shadow-2xl overflow-y-auto transition-[max-width] duration-200",
+          wide ? "max-w-md lg:max-w-2xl" : "max-w-md",
           "animate-slide-in",
           className
         )}

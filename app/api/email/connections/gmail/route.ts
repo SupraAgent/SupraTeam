@@ -65,7 +65,7 @@ export async function POST() {
   }
 
   const nonce = crypto.randomUUID();
-  const state = signState({ uid: auth.user.id, ts: Date.now(), nonce });
+  const state = signState({ uid: auth.user.id, ts: Date.now(), nonce, type: "email" });
 
   // Always use prompt: "consent" — Google only returns a refresh_token on consent grant.
   // For reconnects, the callback will keep the existing refresh token if Google doesn't send a new one.
@@ -75,6 +75,7 @@ export async function POST() {
     scope: SCOPES,
     prompt: "consent",
     state,
+    include_granted_scopes: true,
   });
 
   return NextResponse.json({ url, source: "google" });

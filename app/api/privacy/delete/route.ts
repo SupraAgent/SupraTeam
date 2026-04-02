@@ -116,6 +116,64 @@ export async function PATCH(request: Request) {
     if (req.target_type === "user_data") {
       const userId = req.requested_by;
 
+      // ── Calendar data cleanup ──────────────────────────────
+      const { data: calConnections } = await supabase
+        .from("crm_calendar_connections")
+        .select("id, access_token_encrypted, refresh_token_encrypted")
+        .eq("user_id", userId);
+
+      // Revoke calendar tokens (best-effort)
+      for (const conn of calConnections ?? []) {
+        // Revoke refresh token first (invalidates all tokens for the grant)
+        const tokenField = conn.refresh_token_encrypted ?? conn.access_token_encrypted;
+        if (tokenField) {
+          try {
+            const token = decryptToken(tokenField);
+            await fetch("https://oauth2.googleapis.com/revoke", {
+              method: "POST",
+              headers: { "Content-Type": "application/x-www-form-urlencoded" },
+              body: `token=${encodeURIComponent(token)}`,
+            });
+          } catch {
+            // Non-fatal
+          }
+        }
+
+        // Stop active webhook channels (best-effort)
+        try {
+          const { stopWebhookChannel } = await import("@/lib/calendar/sync");
+          await stopWebhookChannel(userId, conn.id);
+        } catch {
+          // Non-fatal
+        }
+      }
+
+      // Delete calendar event links (via event_id join)
+      const { data: calEvents } = await supabase
+        .from("crm_calendar_events")
+        .select("id")
+        .eq("user_id", userId);
+      const calEventIds = (calEvents ?? []).map((e) => e.id);
+      if (calEventIds.length > 0) {
+        const CAL_BATCH = 100;
+        for (let i = 0; i < calEventIds.length; i += CAL_BATCH) {
+          await supabase.from("crm_calendar_event_links").delete().in("event_id", calEventIds.slice(i, i + CAL_BATCH));
+        }
+      }
+
+      // Delete calendar events
+      await supabase.from("crm_calendar_events").delete().eq("user_id", userId);
+
+      // Delete calendar sync state (via connection_id join)
+      const calConnIds = (calConnections ?? []).map((c) => c.id);
+      if (calConnIds.length > 0) {
+        await supabase.from("crm_calendar_sync_state").delete().in("connection_id", calConnIds);
+      }
+
+      // Delete calendar connections
+      await supabase.from("crm_calendar_connections").delete().eq("user_id", userId);
+
+      // ── Email data cleanup ─────────────────────────────────
       // Revoke Google OAuth tokens before deleting connections
       const { data: connections } = await supabase
         .from("crm_email_connections")

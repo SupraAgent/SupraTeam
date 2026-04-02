@@ -18,9 +18,14 @@ const AuthContext = React.createContext<AuthContextValue>({
   isDevAuth: false,
 });
 
-/** Synthetic user for dev-access sessions. */
+/**
+ * Synthetic user for dev-access sessions.
+ * ID must match the server-side getDevUserId() in auth-guard.ts.
+ * Client-side cannot access os.hostname(), so we use a fixed fallback.
+ * The actual dev user ID is server-authoritative; this is only for UI display.
+ */
 const DEV_USER = {
-  id: "dev-00000000-0000-0000-0000-000000000000",
+  id: "dev-client-0000-0000-0000-000000000000",
   email: "dev@supracrm.local",
   app_metadata: {},
   user_metadata: { full_name: "Dev User" },

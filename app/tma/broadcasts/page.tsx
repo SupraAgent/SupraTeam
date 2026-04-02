@@ -4,6 +4,7 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 import { Send, Loader2, CheckCircle, XCircle, Radio, Clock } from "lucide-react";
 import { BottomTabBar } from "@/components/tma/bottom-tab-bar";
+import { useTelegramWebApp } from "@/components/tma/use-telegram";
 
 type TgGroup = {
   id: string;
@@ -31,14 +32,21 @@ export default function TMABroadcastsPage() {
   const [message, setMessage] = React.useState("");
   const [sending, setSending] = React.useState(false);
   const [sent, setSent] = React.useState(false);
+  const sentTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clean up sent timer on unmount
+  React.useEffect(() => {
+    return () => { if (sentTimerRef.current) clearTimeout(sentTimerRef.current); };
+  }, []);
+  const mainButtonText = selectedGroups.size > 0 && message.trim() ? `Send to ${selectedGroups.size} group${selectedGroups.size > 1 ? "s" : ""}` : undefined;
+  useTelegramWebApp({
+    mainButtonText,
+    onMainButton: mainButtonText ? () => handleSend() : undefined,
+    mainButtonDisabled: sending || !message.trim() || selectedGroups.size === 0,
+    mainButtonLoading: sending,
+  });
 
   React.useEffect(() => {
-    if (typeof window !== "undefined" && (window as unknown as Record<string, unknown>).Telegram) {
-      const tg = (window as unknown as { Telegram: { WebApp: { ready: () => void; expand: () => void } } }).Telegram.WebApp;
-      tg.ready();
-      tg.expand();
-    }
-
     Promise.all([
       fetch("/api/groups").then((r) => r.json()).catch(() => ({ groups: [] })),
       fetch("/api/broadcasts?limit=5").then((r) => r.ok ? r.json() : { broadcasts: [] }).catch(() => ({ broadcasts: [] })),
@@ -90,7 +98,8 @@ export default function TMABroadcastsPage() {
         setSent(true);
         setMessage("");
         setSelectedGroups(new Set());
-        setTimeout(() => setSent(false), 3000);
+        if (sentTimerRef.current) clearTimeout(sentTimerRef.current);
+        sentTimerRef.current = setTimeout(() => setSent(false), 3000);
       }
     } finally {
       setSending(false);

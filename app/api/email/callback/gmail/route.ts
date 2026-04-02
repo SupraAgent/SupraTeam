@@ -48,6 +48,13 @@ export async function GET(request: Request) {
     );
   }
 
+  // Reject cross-flow replay: calendar OAuth states cannot be used for email callback
+  if (stateData.type && stateData.type !== "email") {
+    return NextResponse.redirect(
+      new URL("/settings/integrations/email?error=invalid_state_type", baseUrl)
+    );
+  }
+
   // Reject if state is older than 10 minutes
   if (Date.now() - ts > 10 * 60 * 1000) {
     return NextResponse.redirect(

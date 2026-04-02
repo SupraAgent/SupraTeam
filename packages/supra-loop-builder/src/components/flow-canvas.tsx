@@ -532,6 +532,8 @@ function FlowCanvasInner({
   // Use refs to avoid re-registering the listener on every node/edge change
   const nodesRef = React.useRef(nodes);
   nodesRef.current = nodes;
+  const edgesRef = React.useRef(edges);
+  edgesRef.current = edges;
   const lockedGroupsRef = React.useRef(lockedGroups);
   lockedGroupsRef.current = lockedGroups;
   const isNodeInLockedGroupRef = React.useRef(isNodeInLockedGroup);
@@ -548,41 +550,61 @@ function FlowCanvasInner({
         return;
       }
       if (e.key === "Delete" || e.key === "Backspace") {
-        const selected = nodesRef.current.filter((n) => n.selected);
-        if (selected.length === 0) return;
+        const selectedNodes = nodesRef.current.filter((n) => n.selected);
+        // Also check for selected edges
+        const hasSelectedEdges = edgesRef.current.some((edge) => edge.selected);
+        if (selectedNodes.length === 0 && !hasSelectedEdges) return;
         e.preventDefault();
-        const ids = selected.map((n) => n.id);
-        const deletable = ids.filter((id) => !isNodeInLockedGroupRef.current(id));
 
-        // Allow deleting entire locked groups when all members are selected
-        const lockedIds = ids.filter((id) => isNodeInLockedGroupRef.current(id));
-        const groupsToDelete = new Set<string>();
-        for (const id of lockedIds) {
-          const gid = nodesRef.current.find((n) => n.id === id)?.data?.groupId as string | undefined;
-          if (gid) groupsToDelete.add(gid);
-        }
-        // Check if all members of each group are selected — if so, allow deletion
-        const fullySelectedGroupMembers: string[] = [];
-        for (const gid of groupsToDelete) {
-          const members = lockedGroupsRef.current.get(gid);
-          if (members && [...members].every((mid) => ids.includes(mid))) {
-            fullySelectedGroupMembers.push(...members);
+        // Build the set of node IDs to delete (respecting locked groups)
+        let allDeletable = new Set<string>();
+        if (selectedNodes.length > 0) {
+          const ids = selectedNodes.map((n) => n.id);
+          const deletable = ids.filter((id) => !isNodeInLockedGroupRef.current(id));
+
+          // Allow deleting entire locked groups when all members are selected
+          const lockedIds = ids.filter((id) => isNodeInLockedGroupRef.current(id));
+          const groupsToDelete = new Set<string>();
+          for (const id of lockedIds) {
+            const gid = nodesRef.current.find((n) => n.id === id)?.data?.groupId as string | undefined;
+            if (gid) groupsToDelete.add(gid);
+          }
+          const fullySelectedGroupMembers: string[] = [];
+          for (const gid of groupsToDelete) {
+            const members = lockedGroupsRef.current.get(gid);
+            if (members && [...members].every((mid) => ids.includes(mid))) {
+              fullySelectedGroupMembers.push(...members);
+            }
+          }
+
+          allDeletable = new Set([...deletable, ...fullySelectedGroupMembers]);
+          if (allDeletable.size === 0 && !hasSelectedEdges) {
+            showToast("All selected nodes are in locked groups. Unlock first.");
+            return;
           }
         }
 
-        const allDeletable = new Set([...deletable, ...fullySelectedGroupMembers]);
-        if (allDeletable.size === 0) {
-          showToast("All selected nodes are in locked groups. Unlock first.");
-          return;
+        // Single batched update for edges: remove selected edges AND edges
+        // connected to deleted nodes in one pass so undo restores both at once
+        if (hasSelectedEdges || allDeletable.size > 0) {
+          setEdges((eds) =>
+            eds.filter(
+              (edge) =>
+                (!edge.selected || !hasSelectedEdges) &&
+                !allDeletable.has(edge.source) &&
+                !allDeletable.has(edge.target)
+            )
+          );
         }
-        setNodes((nds) => nds.filter((n) => !allDeletable.has(n.id)));
-        setEdges((eds) => eds.filter((e) => !allDeletable.has(e.source) && !allDeletable.has(e.target)));
+        if (allDeletable.size > 0) {
+          setNodes((nds) => nds.filter((n) => !allDeletable.has(n.id)));
+        }
         setSelectedNodeId(null);
       }
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [nodes, isNodeInLockedGroup, setNodes, setEdges, showTemplates, pendingTemplate, showShortcuts, showToast]);
+  }, [setNodes, setEdges, showTemplates, pendingTemplate, showShortcuts, showToast, setSelectedNodeId]);
 
   // ── Wrap onNodesChange to enforce group constraints + alignment guides ──
   // Uses getNodes() instead of `nodes` closure to avoid recreating this callback

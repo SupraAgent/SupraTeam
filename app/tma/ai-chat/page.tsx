@@ -4,6 +4,7 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 import { Send, Loader2, Sparkles, Bot, User } from "lucide-react";
 import { BottomTabBar } from "@/components/tma/bottom-tab-bar";
+import { useTelegramWebApp } from "@/components/tma/use-telegram";
 
 type Message = {
   role: "user" | "assistant";
@@ -23,13 +24,13 @@ export default function TMAAIChatPage() {
   const [loading, setLoading] = React.useState(false);
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
+  const abortRef = React.useRef<AbortController | null>(null);
 
+  useTelegramWebApp();
+
+  // Cancel any in-flight streaming request on unmount
   React.useEffect(() => {
-    if (typeof window !== "undefined" && (window as unknown as Record<string, unknown>).Telegram) {
-      const tg = (window as unknown as { Telegram: { WebApp: { ready: () => void; expand: () => void } } }).Telegram.WebApp;
-      tg.ready();
-      tg.expand();
-    }
+    return () => { abortRef.current?.abort(); };
   }, []);
 
   React.useEffect(() => {
@@ -46,6 +47,11 @@ export default function TMAAIChatPage() {
     setLoading(true);
 
     try {
+      // Cancel previous stream if still running
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
       const res = await fetch("/api/ai-chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -53,6 +59,7 @@ export default function TMAAIChatPage() {
           messages: newMessages,
           page_context: "/tma",
         }),
+        signal: controller.signal,
       });
 
       if (!res.ok) {
@@ -69,19 +76,27 @@ export default function TMAAIChatPage() {
 
       let assistantContent = "";
       const decoder = new TextDecoder();
+      let lineBuffer = ""; // Buffer for partial lines split across TCP chunks
+      let streamDone = false;
       setMessages([...newMessages, { role: "assistant", content: "" }]);
 
-      while (true) {
+      while (!streamDone) {
         const { done, value } = await reader.read();
         if (done) break;
 
         const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n");
+        lineBuffer += chunk;
+        const lines = lineBuffer.split("\n");
+        // Last element may be incomplete — keep it in buffer
+        lineBuffer = lines.pop() ?? "";
 
         for (const line of lines) {
           if (line.startsWith("data: ")) {
             const data = line.slice(6);
-            if (data === "[DONE]") break;
+            if (data === "[DONE]") {
+              streamDone = true;
+              break;
+            }
             try {
               const parsed = JSON.parse(data);
               if (parsed.text) {
@@ -89,7 +104,7 @@ export default function TMAAIChatPage() {
                 setMessages([...newMessages, { role: "assistant", content: assistantContent }]);
               }
             } catch {
-              // Some responses are plain text
+              // Non-JSON data lines are plain text
               assistantContent += data;
               setMessages([...newMessages, { role: "assistant", content: assistantContent }]);
             }
@@ -212,7 +227,7 @@ export default function TMAAIChatPage() {
         </div>
       </div>
 
-      <BottomTabBar active="chat" />
+      <BottomTabBar active="more" />
     </div>
   );
 }

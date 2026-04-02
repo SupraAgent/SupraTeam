@@ -220,7 +220,30 @@ function WorkflowManagerPanel({
 }) {
   const [workflows, setWorkflows] = React.useState<DbWorkflow[]>([]);
   const [showList, setShowList] = React.useState(false);
+  const [showMore, setShowMore] = React.useState(false);
+  const moreRef = React.useRef<HTMLDivElement>(null);
   const [loading, setLoading] = React.useState(false);
+
+  // Close overflow menu on outside click or Escape
+  React.useEffect(() => {
+    if (!showMore) return;
+    function handleClick(e: MouseEvent) {
+      if (moreRef.current && !moreRef.current.contains(e.target as globalThis.Node)) {
+        setShowMore(false);
+      }
+    }
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setShowMore(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [showMore]);
 
   const fetchWorkflows = React.useCallback(async () => {
     setLoading(true);
@@ -240,7 +263,7 @@ function WorkflowManagerPanel({
   }, [showList, fetchWorkflows]);
 
   return (
-    <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2">
+    <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 max-w-[calc(100vw-2rem)]">
       {/* Workflow name + status */}
       <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-background/95 backdrop-blur-sm px-3 py-1.5 shadow-lg">
         <button
@@ -336,68 +359,7 @@ function WorkflowManagerPanel({
         </div>
       )}
 
-      {/* Runs & replay */}
-      {activeWorkflowId && (
-        <button
-          onClick={() => onOpenReplay()}
-          className="rounded-lg border border-white/10 bg-background/95 backdrop-blur-sm px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-white/5 shadow-lg transition"
-          title="View execution history for this workflow"
-        >
-          History
-        </button>
-      )}
-
-      {/* Version history */}
-      {activeWorkflowId && (
-        <button
-          onClick={() => onOpenVersionHistory()}
-          className="rounded-lg border border-white/10 bg-background/95 backdrop-blur-sm px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-white/5 shadow-lg transition flex items-center gap-1"
-          title="View and restore previous versions of this workflow"
-        >
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-          </svg>
-          Versions
-        </button>
-      )}
-      <Link
-        href="/automations/runs"
-        className="rounded-lg border border-white/10 bg-background/95 backdrop-blur-sm px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-white/5 shadow-lg transition"
-        title="View all workflow runs"
-      >
-        Runs
-      </Link>
-      <Link
-        href="/automations/analytics"
-        className="rounded-lg border border-white/10 bg-background/95 backdrop-blur-sm px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-white/5 shadow-lg transition"
-        title="Workflow analytics dashboard"
-      >
-        Analytics
-      </Link>
-
-      {/* Alerts */}
-      {activeWorkflowId && (
-        <button
-          onClick={() => onOpenAlerts()}
-          className="rounded-lg border border-white/10 bg-background/95 backdrop-blur-sm px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-white/5 shadow-lg transition"
-          title="Manage alert rules for this workflow"
-        >
-          Alerts
-        </button>
-      )}
-
-      {/* Save as Template */}
-      {activeWorkflowId && (
-        <button
-          onClick={() => onSaveAsTemplate()}
-          className="rounded-lg border border-white/10 bg-background/95 backdrop-blur-sm px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-white/5 shadow-lg transition"
-          title="Save current workflow as a reusable template"
-        >
-          Save Template
-        </button>
-      )}
-
-      {/* AI Generate */}
+      {/* AI Generate — primary action */}
       <button
         onClick={() => onOpenNlDialog()}
         className="rounded-lg border border-primary/30 bg-primary/5 backdrop-blur-sm px-2.5 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 shadow-lg transition flex items-center gap-1"
@@ -409,16 +371,7 @@ function WorkflowManagerPanel({
         AI Generate
       </button>
 
-      {/* Templates */}
-      <button
-        onClick={() => onOpenTemplates()}
-        className="rounded-lg border border-white/10 bg-background/95 backdrop-blur-sm px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-white/5 shadow-lg transition"
-        title="Load from template library"
-      >
-        Templates
-      </button>
-
-      {/* New workflow button */}
+      {/* New workflow — primary action */}
       <button
         onClick={onNewWorkflow}
         className="rounded-lg border border-white/10 bg-background/95 backdrop-blur-sm px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-white/5 shadow-lg transition"
@@ -426,6 +379,85 @@ function WorkflowManagerPanel({
       >
         +
       </button>
+
+      {/* More menu — secondary actions */}
+      <div ref={moreRef} className="relative">
+        <button
+          onClick={() => setShowMore((v) => !v)}
+          className={`rounded-lg border bg-background/95 backdrop-blur-sm px-2.5 py-1.5 text-xs font-medium shadow-lg transition flex items-center gap-1 ${
+            showMore
+              ? "border-white/20 bg-white/10 text-foreground"
+              : "border-white/10 text-foreground hover:bg-white/5"
+          }`}
+          title="More actions"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM12.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM18.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z" />
+          </svg>
+          More
+        </button>
+        {showMore && (
+          <div className="absolute right-0 top-full mt-1 w-48 rounded-xl border border-white/10 bg-background/95 shadow-xl backdrop-blur-sm py-1 z-50">
+            {activeWorkflowId && (
+              <button
+                onClick={() => { onOpenReplay(); setShowMore(false); }}
+                className="w-full text-left px-3 py-2 text-xs text-foreground hover:bg-white/5 transition"
+              >
+                History
+              </button>
+            )}
+            {activeWorkflowId && (
+              <button
+                onClick={() => { onOpenVersionHistory(); setShowMore(false); }}
+                className="w-full text-left px-3 py-2 text-xs text-foreground hover:bg-white/5 transition flex items-center gap-2"
+              >
+                <svg className="w-3.5 h-3.5 text-muted-foreground" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                </svg>
+                Versions
+              </button>
+            )}
+            <Link
+              href="/automations/runs"
+              onClick={() => setShowMore(false)}
+              className="block w-full text-left px-3 py-2 text-xs text-foreground hover:bg-white/5 transition"
+            >
+              Runs
+            </Link>
+            <Link
+              href="/automations/analytics"
+              onClick={() => setShowMore(false)}
+              className="block w-full text-left px-3 py-2 text-xs text-foreground hover:bg-white/5 transition"
+            >
+              Analytics
+            </Link>
+            {activeWorkflowId && (
+              <>
+                <div className="my-1 border-t border-white/10" />
+                <button
+                  onClick={() => { onOpenAlerts(); setShowMore(false); }}
+                  className="w-full text-left px-3 py-2 text-xs text-foreground hover:bg-white/5 transition"
+                >
+                  Alerts
+                </button>
+                <button
+                  onClick={() => { onSaveAsTemplate(); setShowMore(false); }}
+                  className="w-full text-left px-3 py-2 text-xs text-foreground hover:bg-white/5 transition"
+                >
+                  Save as Template
+                </button>
+              </>
+            )}
+            <div className="my-1 border-t border-white/10" />
+            <button
+              onClick={() => { onOpenTemplates(); setShowMore(false); }}
+              className="w-full text-left px-3 py-2 text-xs text-foreground hover:bg-white/5 transition"
+            >
+              Templates
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* Workflow card grid modal */}
       {showList && (

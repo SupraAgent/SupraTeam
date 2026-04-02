@@ -10,6 +10,7 @@ import { timeAgo, cn } from "@/lib/utils";
 import { toast } from "sonner";
 import {
   MessageCircle, Save, Trash2, Send, GitBranch, StickyNote, ExternalLink, FileText, Plus, Clock,
+  ChevronRight, UserPlus, Trophy, XCircle,
 } from "lucide-react";
 import Link from "next/link";
 import { ConversationTimeline } from "./conversation-timeline";
@@ -102,6 +103,13 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
   const [customFields, setCustomFields] = React.useState<CustomField[]>([]);
   const [customValues, setCustomValues] = React.useState<Record<string, string>>({});
 
+  // Quick action bar state (Chat tab)
+  const [quickNote, setQuickNote] = React.useState("");
+  const [showQuickNote, setShowQuickNote] = React.useState(false);
+  const [teamMembers, setTeamMembers] = React.useState<{ id: string; display_name: string }[]>([]);
+  const [movingStage, setMovingStage] = React.useState(false);
+  const [confirmOutcome, setConfirmOutcome] = React.useState<"won" | "lost" | null>(null);
+
   // Load deal data into editable state
   React.useEffect(() => {
     if (deal && open) {
@@ -111,7 +119,7 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
       setStageId(deal.stage_id ?? "");
       setBoardType(deal.board_type);
       setTgLink(deal.telegram_chat_link ?? "");
-      setTab("details");
+      setTab(deal.telegram_chat_id ? "conversation" : "details");
       setLoadingContent(true);
 
       // Fetch unread count for chat tab badge
@@ -124,6 +132,7 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
 
       Promise.all([
         fetch(`/api/pipeline?board_type=${deal.board_type}`).then((r) => r.json()).then((d) => setStages(d.stages ?? [])).catch(() => {}),
+        fetch("/api/team").then((r) => r.json()).then((d) => setTeamMembers(d.members ?? [])).catch(() => {}),
         fetch(`/api/deals/${deal.id}/notes`).then((r) => r.json()).then((d) => setNotes(d.notes ?? [])).catch(() => setNotes([])),
         fetch(`/api/deals/${deal.id}/activity`).then((r) => r.json()).then((d) => setActivities(d.activities ?? [])).catch(() => setActivities([])),
         fetch(`/api/docs?entity_type=deal&entity_id=${deal.id}`).then((r) => r.json()).then((d) => setLinkedDocs(d.docs ?? [])).catch(() => setLinkedDocs([])),
@@ -240,6 +249,86 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
     }
   }
 
+  async function handleQuickStageMove(newStageId: string) {
+    if (!deal || movingStage || newStageId === stageId) return;
+    const prevStageId = stageId;
+    const stage = stages.find((s) => s.id === newStageId);
+    const prevStage = stages.find((s) => s.id === prevStageId);
+
+    // Optimistic updates
+    setMovingStage(true);
+    setStageId(newStageId);
+    const optimisticActivity: Activity = {
+      id: `optimistic-${Date.now()}`,
+      type: "stage_change",
+      title: `Moved from ${prevStage?.name ?? "?"} to ${stage?.name ?? "?"}`,
+      created_at: new Date().toISOString(),
+    };
+    setActivities((prev) => [optimisticActivity, ...prev]);
+
+    try {
+      const res = await fetch(`/api/deals/${deal.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stage_id: newStageId }),
+      });
+      if (res.ok) {
+        toast.success(`Moved to ${stage?.name ?? "new stage"}`);
+        onUpdated?.();
+        // Replace optimistic activity with real data
+        fetch(`/api/deals/${deal.id}/activity`).then((r) => r.json()).then((d) => setActivities(d.activities ?? [])).catch(() => {});
+      } else {
+        // Rollback
+        setStageId(prevStageId);
+        setActivities((prev) => prev.filter((a) => a.id !== optimisticActivity.id));
+        toast.error("Failed to move stage");
+      }
+    } catch {
+      setStageId(prevStageId);
+      setActivities((prev) => prev.filter((a) => a.id !== optimisticActivity.id));
+      toast.error("Network error");
+    } finally {
+      setMovingStage(false);
+    }
+  }
+
+  async function handleQuickNote() {
+    if (!deal || !quickNote.trim()) return;
+    setSendingNote(true);
+    try {
+      const res = await fetch(`/api/deals/${deal.id}/notes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: quickNote }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setNotes((prev) => [data.note, ...prev]);
+        setQuickNote("");
+        setShowQuickNote(false);
+        toast.success("Note added");
+        // Refresh activities to show the note card inline
+        fetch(`/api/deals/${deal.id}/activity`).then((r) => r.json()).then((d) => setActivities(d.activities ?? [])).catch(() => {});
+      }
+    } finally {
+      setSendingNote(false);
+    }
+  }
+
+  async function handleQuickAssign(userId: string | null) {
+    if (!deal) return;
+    const res = await fetch(`/api/deals/${deal.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ assigned_to: userId }),
+    });
+    if (res.ok) {
+      const assignee = teamMembers.find((m) => m.id === userId);
+      toast.success(userId ? `Assigned to ${assignee?.display_name ?? "user"}` : "Unassigned");
+      onUpdated?.();
+    }
+  }
+
   const TABS: { key: Tab; label: string; badge?: number }[] = [
     { key: "details", label: "Details" },
     { key: "conversation", label: "Chat", badge: chatUnread },
@@ -248,7 +337,7 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
   ];
 
   return (
-    <SlideOver open={open} onClose={onClose} title={dealName || deal.deal_name}>
+    <SlideOver open={open} onClose={onClose} title={dealName || deal.deal_name} wide={tab === "conversation"}>
       <div className="space-y-4">
         {/* TG Chat button -- most prominent action */}
         {(deal.telegram_chat_link || tgLink) && (
@@ -645,7 +734,128 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
               telegramChatId={deal.telegram_chat_id ? Number(deal.telegram_chat_id) : null}
               telegramChatLink={deal.telegram_chat_link || tgLink || null}
               onUnreadChange={setChatUnread}
+              activities={activities
+                .filter((a): a is Activity & { type: "stage_change" | "note" | "created" } =>
+                  a.type === "stage_change" || a.type === "note" || a.type === "created"
+                )
+                .map((a) => ({ id: a.id, type: a.type, title: a.title, body: a.body, created_at: a.created_at }))
+              }
             />
+
+            {/* Quick action bar */}
+            <div className="flex items-center gap-1.5 flex-wrap border-t border-white/5 pt-2">
+              {/* Move Stage */}
+              <div className="relative">
+                <select
+                  value={stageId}
+                  onChange={(e) => handleQuickStageMove(e.target.value)}
+                  disabled={movingStage}
+                  className="h-7 rounded-md bg-purple-500/10 border border-purple-500/20 text-[10px] text-purple-300 px-2 pr-6 cursor-pointer appearance-none hover:bg-purple-500/15 transition-colors"
+                >
+                  {stages.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+                <ChevronRight className="absolute right-1.5 top-1/2 -translate-y-1/2 h-3 w-3 text-purple-300/50 pointer-events-none" />
+              </div>
+
+              {/* Add Note */}
+              <button
+                onClick={() => setShowQuickNote(!showQuickNote)}
+                className={cn(
+                  "h-7 rounded-md border text-[10px] px-2 flex items-center gap-1 transition-colors",
+                  showQuickNote
+                    ? "bg-yellow-500/10 border-yellow-500/20 text-yellow-300"
+                    : "bg-white/5 border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/10"
+                )}
+              >
+                <StickyNote className="h-3 w-3" /> Note
+              </button>
+
+              {/* Assign */}
+              <select
+                value={deal.assigned_to ?? ""}
+                onChange={(e) => handleQuickAssign(e.target.value || null)}
+                className="h-7 rounded-md bg-white/5 border border-white/10 text-[10px] text-muted-foreground px-2 cursor-pointer hover:bg-white/10 transition-colors"
+                title="Assign deal"
+              >
+                <option value="">Unassigned</option>
+                {teamMembers.map((m) => (
+                  <option key={m.id} value={m.id}>{m.display_name}</option>
+                ))}
+              </select>
+
+              {/* Won / Lost with confirmation */}
+              <div className="ml-auto flex gap-1 relative">
+                <button
+                  onClick={() => deal.outcome === "won" ? handleOutcome("open") : setConfirmOutcome("won")}
+                  className={cn(
+                    "h-7 rounded-md border text-[10px] px-2 flex items-center gap-1 transition-colors",
+                    deal.outcome === "won"
+                      ? "bg-green-500/20 border-green-500/30 text-green-400"
+                      : "bg-white/5 border-white/10 text-muted-foreground hover:text-green-400 hover:bg-green-500/10 hover:border-green-500/20"
+                  )}
+                >
+                  <Trophy className="h-3 w-3" /> Won
+                </button>
+                <button
+                  onClick={() => deal.outcome === "lost" ? handleOutcome("open") : setConfirmOutcome("lost")}
+                  className={cn(
+                    "h-7 rounded-md border text-[10px] px-2 flex items-center gap-1 transition-colors",
+                    deal.outcome === "lost"
+                      ? "bg-red-500/20 border-red-500/30 text-red-400"
+                      : "bg-white/5 border-white/10 text-muted-foreground hover:text-red-400 hover:bg-red-500/10 hover:border-red-500/20"
+                  )}
+                >
+                  <XCircle className="h-3 w-3" /> Lost
+                </button>
+
+                {/* Confirmation popover */}
+                {confirmOutcome && (
+                  <div className="absolute right-0 bottom-9 z-20 rounded-lg border border-white/10 bg-[hsl(225,35%,8%)] p-3 shadow-xl min-w-[200px]">
+                    <p className="text-xs text-foreground mb-2">
+                      Mark this deal as <span className={confirmOutcome === "won" ? "text-green-400 font-medium" : "text-red-400 font-medium"}>{confirmOutcome}</span>?
+                    </p>
+                    <div className="flex gap-2 justify-end">
+                      <button
+                        onClick={() => setConfirmOutcome(null)}
+                        className="text-[10px] text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-white/5"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => { handleOutcome(confirmOutcome); setConfirmOutcome(null); }}
+                        className={cn(
+                          "text-[10px] font-medium px-3 py-1 rounded",
+                          confirmOutcome === "won"
+                            ? "bg-green-500/20 text-green-400 hover:bg-green-500/30"
+                            : "bg-red-500/20 text-red-400 hover:bg-red-500/30"
+                        )}
+                      >
+                        Confirm
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Inline quick note input */}
+            {showQuickNote && (
+              <div className="flex gap-2">
+                <Input
+                  value={quickNote}
+                  onChange={(e) => setQuickNote(e.target.value)}
+                  placeholder="Add a quick note..."
+                  className="flex-1 text-xs"
+                  autoFocus
+                  onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleQuickNote()}
+                />
+                <Button size="sm" onClick={handleQuickNote} disabled={sendingNote || !quickNote.trim()} className="h-8 px-2">
+                  <Send className="h-3 w-3" />
+                </Button>
+              </div>
+            )}
 
             {/* Notes section (collapsed) */}
             <details className="group">

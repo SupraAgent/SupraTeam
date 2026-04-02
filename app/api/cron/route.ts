@@ -67,6 +67,12 @@ export async function GET(request: Request) {
       case "renew-watches":
         await runJob("renew-watches", "/api/cron/renew-watches");
         break;
+      case "revoke-expired-access":
+        await runJob("revoke-expired-access", "/api/cron/revoke-expired-access");
+        break;
+      case "quiet-groups":
+        await runJob("quiet-groups", "/api/cron/quiet-groups");
+        break;
       default:
         return NextResponse.json({ error: `Unknown job: ${job}` }, { status: 400 });
     }

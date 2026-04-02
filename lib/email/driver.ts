@@ -14,6 +14,35 @@ type ConnectionRecord = {
   token_expires_at: string | null;
 };
 
+// ── Driver pool ───────────────────────────────────────────────
+// Cache GmailDriver instances to reuse OAuth2 clients and HTTP/2 connections.
+// The OAuth2 client handles token refresh internally (via auth.on("tokens")),
+// so pooled drivers stay valid as long as the connection isn't revoked.
+// 30s TTL is short enough to limit token exposure in memory (security tradeoff)
+// but long enough to avoid re-creation during a single page load (perf win).
+const DRIVER_POOL_TTL = 30_000;
+const DRIVER_POOL_MAX = 50;
+const driverPool = new Map<string, { driver: MailDriver; createdAt: number }>();
+
+function getPooledDriver(connectionId: string): MailDriver | null {
+  const entry = driverPool.get(connectionId);
+  if (!entry) return null;
+  if (Date.now() - entry.createdAt > DRIVER_POOL_TTL) {
+    driverPool.delete(connectionId);
+    return null;
+  }
+  return entry.driver;
+}
+
+function poolDriver(connectionId: string, driver: MailDriver): void {
+  // LRU eviction if over max size
+  if (driverPool.size >= DRIVER_POOL_MAX) {
+    const oldest = driverPool.keys().next().value;
+    if (oldest) driverPool.delete(oldest);
+  }
+  driverPool.set(connectionId, { driver, createdAt: Date.now() });
+}
+
 /**
  * Create a MailDriver for a specific email connection.
  * Decrypts stored tokens and instantiates the correct driver.
@@ -80,8 +109,19 @@ export async function getDriverForUser(
   const admin = createSupabaseAdmin();
   if (!admin) throw new Error("Supabase not configured");
 
-  // If we have cached metadata, fetch only the tokens (skip full query)
+  // If we have cached metadata, try driver pool first (avoids DB token fetch + OAuth2 init)
   if (cachedMeta) {
+    const pooled = getPooledDriver(cachedMeta.id);
+    if (pooled) {
+      // Still need connection record for callers that use connection.email etc
+      const conn: ConnectionRecord = {
+        ...cachedMeta,
+        access_token_encrypted: "", // Not needed — driver already has decrypted tokens
+        refresh_token_encrypted: null,
+      };
+      return { driver: pooled, connection: conn };
+    }
+
     const { data: tokenData } = await admin
       .from("crm_email_connections")
       .select("access_token_encrypted, refresh_token_encrypted, token_expires_at")
@@ -92,10 +132,9 @@ export async function getDriverForUser(
 
     if (tokenData) {
       const conn: ConnectionRecord = { ...cachedMeta, ...tokenData };
-      return {
-        driver: createDriverFromConnection(conn, userId),
-        connection: conn,
-      };
+      const driver = createDriverFromConnection(conn, userId);
+      poolDriver(conn.id, driver);
+      return { driver, connection: conn };
     }
     // Cache entry stale — fall through to full query
     serverCache.delete(cacheKey);
@@ -130,18 +169,16 @@ export async function getDriverForUser(
 
     const conn = fallback as ConnectionRecord;
     serverCache.set(cacheKey, { id: conn.id, provider: conn.provider, email: conn.email, token_expires_at: conn.token_expires_at }, TTL.DRIVER);
-    return {
-      driver: createDriverFromConnection(conn, userId),
-      connection: conn,
-    };
+    const driver = createDriverFromConnection(conn, userId);
+    poolDriver(conn.id, driver);
+    return { driver, connection: conn };
   }
 
   const conn = data as ConnectionRecord;
   serverCache.set(cacheKey, { id: conn.id, provider: conn.provider, email: conn.email, token_expires_at: conn.token_expires_at }, TTL.DRIVER);
-  return {
-    driver: createDriverFromConnection(conn, userId),
-    connection: conn,
-  };
+  const driver = createDriverFromConnection(conn, userId);
+  poolDriver(conn.id, driver);
+  return { driver, connection: conn };
 }
 
 /**

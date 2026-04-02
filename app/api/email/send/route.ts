@@ -100,6 +100,7 @@ export async function POST(request: Request) {
           to: body.to,
           cc: body.cc,
           bcc: body.bcc,
+          from: { name: "", email: connection.email },
           subject: body.subject ?? "(no subject)",
           body: body.body,
           bodyText: body.bodyText,
