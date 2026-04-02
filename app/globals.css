@@ -188,6 +188,7 @@ body {
 .ice-stage-6 {
   position: relative;
   overflow: hidden;
+  contain: content;
   transition: border-color 0.3s ease, box-shadow 0.3s ease, background-color 0.3s ease;
 }
 
@@ -239,7 +240,6 @@ body {
 }
 .ice-stage-1::before {
   background-image: url("/ice-1.png");
-  backdrop-filter: blur(0.2px);
 }
 
 /* ── Stage 2: Frost spreading along edges ── */
@@ -249,7 +249,6 @@ body {
 }
 .ice-stage-2::before {
   background-image: url("/ice-2.png");
-  backdrop-filter: blur(0.5px);
 }
 
 /* ── Stage 3: Ice crystals creeping inward ── */
@@ -261,7 +260,6 @@ body {
 }
 .ice-stage-3::before {
   background-image: url("/ice-3.png");
-  backdrop-filter: blur(0.8px);
 }
 
 /* ── Stage 4: Half the card covered ── */
@@ -274,7 +272,6 @@ body {
 }
 .ice-stage-4::before {
   background-image: url("/ice-4.png");
-  backdrop-filter: blur(1.2px);
 }
 
 /* ── Stage 5: Mostly frozen + shimmer ── */
@@ -287,7 +284,6 @@ body {
 }
 .ice-stage-5::before {
   background-image: url("/ice-5.png");
-  backdrop-filter: blur(2px);
 }
 
 /* ── Stage 6: Fully frozen — Hearthstone ice block ── */
@@ -302,7 +298,6 @@ body {
 }
 .ice-stage-6::before {
   background-image: url("/ice-6.png");
-  backdrop-filter: blur(3px);
 }
 .ice-stage-6::after {
   animation-duration: 2.5s;
