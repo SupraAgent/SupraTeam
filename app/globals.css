@@ -162,171 +162,134 @@ body {
 }
 
 /* ── Ice Cold Deal Cards ── */
-/* Progressive frost effect for stale deals (1-8 weeks without activity) */
+/* Progressive frost effect for stale deals (1-6 weeks without activity).
+ * Each stage uses its own PNG: /ice-1.png through /ice-6.png
+ * Each image should have MORE ice coverage than the previous:
+ *   ice-1.png — light frost at corners only
+ *   ice-2.png — frost spreading along edges
+ *   ice-3.png — ice crystals creeping inward, edges covered
+ *   ice-4.png — half the card covered in ice
+ *   ice-5.png — mostly frozen, content barely visible
+ *   ice-6.png — fully encased in ice block (Hearthstone style)
+ * All PNGs should be transparent with ice detail painted in. */
 
+/* Shimmer animation for heavy frost (stages 5-6) */
+@keyframes ice-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* Base for all ice stages */
 .ice-stage-1,
 .ice-stage-2,
 .ice-stage-3,
 .ice-stage-4,
 .ice-stage-5,
-.ice-stage-6,
-.ice-stage-7,
-.ice-stage-8 {
+.ice-stage-6 {
   position: relative;
   overflow: hidden;
   transition: border-color 0.3s ease, box-shadow 0.3s ease, background-color 0.3s ease;
 }
 
-/* Frost overlay layer */
+/* ::before — PNG texture overlay, each stage has its own image */
 .ice-stage-1::before,
 .ice-stage-2::before,
 .ice-stage-3::before,
 .ice-stage-4::before,
 .ice-stage-5::before,
-.ice-stage-6::before,
-.ice-stage-7::before,
-.ice-stage-8::before {
+.ice-stage-6::before {
   content: "";
   position: absolute;
-  inset: 0;
+  inset: -2px;
   pointer-events: none;
   z-index: 1;
   border-radius: inherit;
+  background-size: 100% 100%;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 
-/* Ice crystal corners layer */
-.ice-stage-3::after,
-.ice-stage-4::after,
+/* ::after — shimmer highlight layer (stages 5-6 only) */
 .ice-stage-5::after,
-.ice-stage-6::after,
-.ice-stage-7::after,
-.ice-stage-8::after {
+.ice-stage-6::after {
   content: "";
   position: absolute;
   inset: 0;
   pointer-events: none;
-  z-index: 2;
+  z-index: 3;
   border-radius: inherit;
+  background: linear-gradient(
+    105deg,
+    transparent 30%,
+    rgba(200, 235, 255, 0.08) 42%,
+    rgba(255, 255, 255, 0.12) 50%,
+    rgba(200, 235, 255, 0.08) 58%,
+    transparent 70%
+  );
+  background-size: 200% 100%;
+  animation: ice-shimmer 4s ease-in-out infinite;
 }
 
-/* Stage 1: Very subtle ice blue tint — barely noticeable */
+/* ── Stage 1: Frost at corners ── */
 .ice-stage-1 {
-  border-color: rgba(184, 228, 240, 0.15) !important;
-  box-shadow: inset 0 0 8px rgba(184, 228, 240, 0.04);
+  border-color: rgba(184, 228, 240, 0.2) !important;
+  box-shadow: inset 0 0 8px rgba(184, 228, 240, 0.05);
 }
 .ice-stage-1::before {
-  background: linear-gradient(135deg, rgba(184, 228, 240, 0.03) 0%, transparent 60%);
+  background-image: url("/ice-1.png");
+  backdrop-filter: blur(0.2px);
 }
 
-/* Stage 2: Light frost, more noticeable border */
+/* ── Stage 2: Frost spreading along edges ── */
 .ice-stage-2 {
-  border-color: rgba(184, 228, 240, 0.25) !important;
-  box-shadow: inset 0 0 12px rgba(184, 228, 240, 0.06);
+  border-color: rgba(184, 228, 240, 0.3) !important;
+  box-shadow: inset 0 0 14px rgba(184, 228, 240, 0.08);
 }
 .ice-stage-2::before {
-  background: linear-gradient(135deg, rgba(184, 228, 240, 0.05) 0%, rgba(125, 211, 252, 0.02) 50%, transparent 80%);
+  background-image: url("/ice-2.png");
+  backdrop-filter: blur(0.5px);
 }
 
-/* Stage 3: Ice crystals begin forming at corners */
+/* ── Stage 3: Ice crystals creeping inward ── */
 .ice-stage-3 {
-  border-color: rgba(125, 211, 252, 0.3) !important;
-  box-shadow:
-    inset 0 0 15px rgba(184, 228, 240, 0.08),
-    inset 0 0 3px rgba(125, 211, 252, 0.05);
-}
-.ice-stage-3::before {
-  background: linear-gradient(135deg, rgba(184, 228, 240, 0.07) 0%, rgba(125, 211, 252, 0.03) 40%, transparent 70%);
-}
-.ice-stage-3::after {
-  background:
-    radial-gradient(ellipse 20px 20px at 0% 0%, rgba(125, 211, 252, 0.12) 0%, transparent 70%),
-    radial-gradient(ellipse 15px 15px at 100% 100%, rgba(125, 211, 252, 0.08) 0%, transparent 70%);
-}
-
-/* Stage 4: Stronger ice, visible crystal patterns */
-.ice-stage-4 {
-  border-color: rgba(125, 211, 252, 0.4) !important;
+  border-color: rgba(125, 211, 252, 0.35) !important;
   box-shadow:
     inset 0 0 20px rgba(125, 211, 252, 0.1),
     inset 0 0 4px rgba(56, 189, 248, 0.06);
 }
-.ice-stage-4::before {
-  background: linear-gradient(135deg, rgba(125, 211, 252, 0.1) 0%, rgba(56, 189, 248, 0.04) 40%, transparent 65%);
-}
-.ice-stage-4::after {
-  background:
-    radial-gradient(ellipse 30px 28px at 0% 0%, rgba(125, 211, 252, 0.18) 0%, transparent 70%),
-    radial-gradient(ellipse 25px 22px at 100% 100%, rgba(125, 211, 252, 0.14) 0%, transparent 70%),
-    radial-gradient(ellipse 18px 20px at 100% 0%, rgba(56, 189, 248, 0.08) 0%, transparent 70%);
+.ice-stage-3::before {
+  background-image: url("/ice-3.png");
+  backdrop-filter: blur(0.8px);
 }
 
-/* Stage 5: Heavy frost spreading */
-.ice-stage-5 {
+/* ── Stage 4: Half the card covered ── */
+.ice-stage-4 {
   border-color: rgba(56, 189, 248, 0.4) !important;
   box-shadow:
     inset 0 0 25px rgba(125, 211, 252, 0.12),
     inset 0 0 6px rgba(56, 189, 248, 0.08),
-    0 0 8px rgba(56, 189, 248, 0.05);
+    0 0 8px rgba(56, 189, 248, 0.06);
 }
-.ice-stage-5::before {
-  background: linear-gradient(135deg, rgba(125, 211, 252, 0.12) 0%, rgba(56, 189, 248, 0.06) 35%, rgba(184, 228, 240, 0.03) 60%, transparent 80%);
-}
-.ice-stage-5::after {
-  background:
-    radial-gradient(ellipse 40px 35px at 0% 0%, rgba(125, 211, 252, 0.22) 0%, transparent 70%),
-    radial-gradient(ellipse 35px 30px at 100% 100%, rgba(125, 211, 252, 0.18) 0%, transparent 70%),
-    radial-gradient(ellipse 25px 28px at 100% 0%, rgba(56, 189, 248, 0.12) 0%, transparent 70%),
-    radial-gradient(ellipse 22px 25px at 0% 100%, rgba(56, 189, 248, 0.10) 0%, transparent 70%);
+.ice-stage-4::before {
+  background-image: url("/ice-4.png");
+  backdrop-filter: blur(1.2px);
 }
 
-/* Stage 6: Card heavily iced */
-.ice-stage-6 {
-  border-color: rgba(56, 189, 248, 0.5) !important;
+/* ── Stage 5: Mostly frozen + shimmer ── */
+.ice-stage-5 {
+  border-color: rgba(56, 189, 248, 0.55) !important;
   box-shadow:
-    inset 0 0 30px rgba(125, 211, 252, 0.14),
+    inset 0 0 30px rgba(125, 211, 252, 0.15),
     inset 0 0 8px rgba(56, 189, 248, 0.1),
     0 0 12px rgba(56, 189, 248, 0.08);
 }
-.ice-stage-6::before {
-  background:
-    linear-gradient(135deg, rgba(125, 211, 252, 0.15) 0%, rgba(56, 189, 248, 0.08) 30%, rgba(184, 228, 240, 0.04) 55%, transparent 75%),
-    linear-gradient(315deg, rgba(56, 189, 248, 0.06) 0%, transparent 50%);
-}
-.ice-stage-6::after {
-  background:
-    radial-gradient(ellipse 50px 45px at 0% 0%, rgba(125, 211, 252, 0.28) 0%, transparent 70%),
-    radial-gradient(ellipse 45px 40px at 100% 100%, rgba(125, 211, 252, 0.22) 0%, transparent 70%),
-    radial-gradient(ellipse 35px 38px at 100% 0%, rgba(56, 189, 248, 0.16) 0%, transparent 70%),
-    radial-gradient(ellipse 32px 35px at 0% 100%, rgba(56, 189, 248, 0.14) 0%, transparent 70%),
-    conic-gradient(from 45deg at 10% 10%, rgba(184, 228, 240, 0.08) 0deg, transparent 60deg, transparent 360deg);
+.ice-stage-5::before {
+  background-image: url("/ice-5.png");
+  backdrop-filter: blur(2px);
 }
 
-/* Stage 7: Nearly frozen solid */
-.ice-stage-7 {
-  border-color: rgba(56, 189, 248, 0.6) !important;
-  box-shadow:
-    inset 0 0 35px rgba(125, 211, 252, 0.16),
-    inset 0 0 10px rgba(56, 189, 248, 0.12),
-    0 0 15px rgba(56, 189, 248, 0.1),
-    0 0 3px rgba(184, 228, 240, 0.15);
-}
-.ice-stage-7::before {
-  background:
-    linear-gradient(135deg, rgba(125, 211, 252, 0.18) 0%, rgba(56, 189, 248, 0.1) 25%, rgba(184, 228, 240, 0.06) 50%, rgba(56, 189, 248, 0.03) 70%, transparent 85%),
-    linear-gradient(315deg, rgba(56, 189, 248, 0.08) 0%, rgba(125, 211, 252, 0.04) 40%, transparent 60%);
-}
-.ice-stage-7::after {
-  background:
-    radial-gradient(ellipse 60px 55px at 0% 0%, rgba(125, 211, 252, 0.32) 0%, transparent 70%),
-    radial-gradient(ellipse 55px 50px at 100% 100%, rgba(125, 211, 252, 0.28) 0%, transparent 70%),
-    radial-gradient(ellipse 45px 48px at 100% 0%, rgba(56, 189, 248, 0.2) 0%, transparent 70%),
-    radial-gradient(ellipse 42px 45px at 0% 100%, rgba(56, 189, 248, 0.18) 0%, transparent 70%),
-    conic-gradient(from 45deg at 8% 8%, rgba(184, 228, 240, 0.12) 0deg, transparent 50deg, transparent 360deg),
-    conic-gradient(from 225deg at 92% 92%, rgba(184, 228, 240, 0.10) 0deg, transparent 50deg, transparent 360deg);
-}
-
-/* Stage 8: Fully frozen — maximum ice effect */
-.ice-stage-8 {
+/* ── Stage 6: Fully frozen — Hearthstone ice block ── */
+.ice-stage-6 {
   border-color: rgba(56, 189, 248, 0.7) !important;
   box-shadow:
     inset 0 0 40px rgba(125, 211, 252, 0.18),
@@ -335,23 +298,21 @@ body {
     0 0 4px rgba(184, 228, 240, 0.2),
     0 0 1px rgba(255, 255, 255, 0.1);
 }
-.ice-stage-8::before {
-  background:
-    linear-gradient(135deg, rgba(125, 211, 252, 0.2) 0%, rgba(56, 189, 248, 0.12) 20%, rgba(184, 228, 240, 0.08) 40%, rgba(56, 189, 248, 0.05) 60%, rgba(125, 211, 252, 0.03) 80%, transparent 95%),
-    linear-gradient(315deg, rgba(56, 189, 248, 0.1) 0%, rgba(125, 211, 252, 0.06) 35%, rgba(184, 228, 240, 0.03) 55%, transparent 70%),
-    linear-gradient(to bottom, rgba(184, 228, 240, 0.04) 0%, transparent 100%);
-  backdrop-filter: blur(0.5px);
+.ice-stage-6::before {
+  background-image: url("/ice-6.png");
+  backdrop-filter: blur(3px);
 }
-.ice-stage-8::after {
-  background:
-    radial-gradient(ellipse 70px 65px at 0% 0%, rgba(125, 211, 252, 0.35) 0%, transparent 70%),
-    radial-gradient(ellipse 65px 60px at 100% 100%, rgba(125, 211, 252, 0.3) 0%, transparent 70%),
-    radial-gradient(ellipse 55px 58px at 100% 0%, rgba(56, 189, 248, 0.24) 0%, transparent 70%),
-    radial-gradient(ellipse 52px 55px at 0% 100%, rgba(56, 189, 248, 0.22) 0%, transparent 70%),
-    conic-gradient(from 30deg at 6% 6%, rgba(184, 228, 240, 0.16) 0deg, rgba(255, 255, 255, 0.05) 25deg, transparent 55deg, transparent 360deg),
-    conic-gradient(from 210deg at 94% 94%, rgba(184, 228, 240, 0.14) 0deg, rgba(255, 255, 255, 0.04) 25deg, transparent 55deg, transparent 360deg),
-    conic-gradient(from 120deg at 94% 6%, rgba(184, 228, 240, 0.1) 0deg, transparent 40deg, transparent 360deg),
-    conic-gradient(from 300deg at 6% 94%, rgba(184, 228, 240, 0.08) 0deg, transparent 40deg, transparent 360deg);
+.ice-stage-6::after {
+  animation-duration: 2.5s;
+  background: linear-gradient(
+    105deg,
+    transparent 25%,
+    rgba(200, 235, 255, 0.1) 40%,
+    rgba(255, 255, 255, 0.18) 50%,
+    rgba(200, 235, 255, 0.1) 60%,
+    transparent 75%
+  );
+  background-size: 200% 100%;
 }
 
 /* View density system */
