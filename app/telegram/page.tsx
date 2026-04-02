@@ -20,9 +20,8 @@ import {
   ArrowLeft,
   Loader2,
   Smartphone,
-  Shield,
-  Lock,
   Fingerprint,
+  ShieldCheck,
 } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────
@@ -179,53 +178,28 @@ export default function TelegramPage() {
             Connect Telegram
           </Button>
 
-          {/* Zero-knowledge privacy info */}
-          <div className="rounded-xl bg-white/[0.03] border border-white/5 p-4 text-left space-y-3">
+          {/* Zero-knowledge privacy explanation */}
+          <div className="rounded-xl bg-white/[0.03] border border-white/5 p-4 text-left space-y-3 max-w-md">
             <div className="flex items-center gap-2">
-              <Fingerprint className="h-4 w-4 text-primary shrink-0" />
+              <ShieldCheck className="h-4 w-4 text-primary shrink-0" />
               <span className="text-xs font-medium text-foreground">
-                Zero-Knowledge Encryption
+                Zero-Knowledge Architecture
               </span>
             </div>
-            <div className="grid grid-cols-2 gap-3 text-xs text-muted-foreground">
-              <div className="space-y-1.5">
-                <p className="text-green-400/80 font-medium">How it works:</p>
-                <ul className="space-y-1">
-                  <li className="flex items-start gap-1.5">
-                    <Shield className="h-3 w-3 mt-0.5 shrink-0 text-green-400/60" />
-                    Connects directly from your browser
-                  </li>
-                  <li className="flex items-start gap-1.5">
-                    <Shield className="h-3 w-3 mt-0.5 shrink-0 text-green-400/60" />
-                    Key never leaves your device
-                  </li>
-                  <li className="flex items-start gap-1.5">
-                    <Shield className="h-3 w-3 mt-0.5 shrink-0 text-green-400/60" />
-                    Server stores only encrypted blobs
-                  </li>
-                </ul>
-              </div>
-              <div className="space-y-1.5">
-                <p className="text-red-400/80 font-medium">Server never sees:</p>
-                <ul className="space-y-1">
-                  <li className="flex items-start gap-1.5">
-                    <Lock className="h-3 w-3 mt-0.5 shrink-0 text-red-400/60" />
-                    Your messages
-                  </li>
-                  <li className="flex items-start gap-1.5">
-                    <Lock className="h-3 w-3 mt-0.5 shrink-0 text-red-400/60" />
-                    Your contacts
-                  </li>
-                  <li className="flex items-start gap-1.5">
-                    <Lock className="h-3 w-3 mt-0.5 shrink-0 text-red-400/60" />
-                    Your session key
-                  </li>
-                </ul>
-              </div>
-            </div>
-            <p className="text-[10px] text-muted-foreground/60">
-              AES-256-GCM · Device-bound key · Non-extractable CryptoKey
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Your Telegram data is protected by <span className="text-foreground">zero-knowledge encryption</span>.
+              All messages, contacts, and session data are encrypted with a key that exists
+              only on your device. Our server stores an encrypted blob it physically cannot decrypt —
+              not even we can access your data.
             </p>
+            <div className="flex flex-wrap gap-1.5">
+              {["AES-256-GCM", "Device-bound key", "Non-extractable", "Direct WebSocket"].map((tag) => (
+                <span key={tag} className="inline-flex items-center gap-1 rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] text-muted-foreground">
+                  <Fingerprint className="h-2.5 w-2.5" />
+                  {tag}
+                </span>
+              ))}
+            </div>
           </div>
 
           {/* Re-auth prompt for legacy sessions */}

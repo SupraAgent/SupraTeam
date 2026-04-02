@@ -4,14 +4,14 @@ import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useTelegram } from "@/lib/client/telegram-context";
-import { Shield, Lock, Fingerprint } from "lucide-react";
+import { Shield, Lock, Fingerprint, Eye, EyeOff, Server, Smartphone, ArrowRight, ShieldCheck } from "lucide-react";
 import type { Api } from "telegram";
 
-type Step = "idle" | "phone" | "code" | "2fa" | "qr" | "connected" | "needs-reauth";
+type Step = "privacy" | "idle" | "phone" | "code" | "2fa" | "qr" | "connected" | "needs-reauth";
 
 export default function TelegramConnectPage() {
   const tg = useTelegram();
-  const [step, setStep] = React.useState<Step>("idle");
+  const [step, setStep] = React.useState<Step>("privacy");
   const [phone, setPhone] = React.useState("");
   const [code, setCode] = React.useState("");
   const [password, setPassword] = React.useState("");
@@ -25,8 +25,8 @@ export default function TelegramConnectPage() {
   React.useEffect(() => {
     if (tg.status === "connected") setStep("connected");
     else if (tg.status === "needs-reauth") setStep("needs-reauth");
-    else if (tg.status === "disconnected") setStep("idle");
-  }, [tg.status]);
+    else if (tg.status === "disconnected" && step !== "privacy") setStep("idle");
+  }, [tg.status, step]);
 
   async function handleSendCode() {
     if (!phone.trim()) return;
@@ -144,6 +144,137 @@ export default function TelegramConnectPage() {
           and send messages from the CRM.
         </p>
       </div>
+
+      {/* Privacy welcome — shown before first connection */}
+      {step === "privacy" && (
+        <div className="space-y-5">
+          {/* Hero */}
+          <div className="rounded-2xl border border-primary/20 bg-primary/[0.03] p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10">
+                <ShieldCheck className="h-6 w-6 text-primary" />
+              </div>
+              <div>
+                <h2 className="text-base font-semibold text-foreground">Zero-Knowledge Telegram</h2>
+                <p className="text-xs text-muted-foreground">
+                  Your data never touches our servers. Period.
+                </p>
+              </div>
+            </div>
+
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              Unlike most integrations, SupraCRM uses <span className="text-foreground font-medium">zero-knowledge encryption</span> for
+              Telegram. Your messages, contacts, and session data are encrypted with a key that
+              only exists on your device. Our server stores an encrypted blob it physically cannot decrypt.
+            </p>
+          </div>
+
+          {/* How it works */}
+          <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5 space-y-4">
+            <h3 className="text-sm font-medium text-foreground">How it works</h3>
+            <div className="grid gap-3">
+              <div className="flex items-start gap-3">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 text-xs font-bold text-blue-400">1</div>
+                <div>
+                  <p className="text-sm text-foreground">Telegram connects directly from your browser</p>
+                  <p className="text-xs text-muted-foreground">GramJS runs client-side over WebSocket — data flows between your browser and Telegram servers only.</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 text-xs font-bold text-blue-400">2</div>
+                <div>
+                  <p className="text-sm text-foreground">A unique encryption key is generated on your device</p>
+                  <p className="text-xs text-muted-foreground">AES-256-GCM key stored in your browser&apos;s IndexedDB. It&apos;s marked non-extractable — even JavaScript can&apos;t read the raw key bytes.</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 text-xs font-bold text-blue-400">3</div>
+                <div>
+                  <p className="text-sm text-foreground">Your session is encrypted before leaving the browser</p>
+                  <p className="text-xs text-muted-foreground">We store an opaque encrypted blob on the server for session persistence. We have no key to decrypt it.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* What we see vs don't see */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="rounded-2xl border border-green-500/20 bg-green-500/[0.03] p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <Eye className="h-4 w-4 text-green-400" />
+                <h3 className="text-xs font-medium text-green-400 uppercase tracking-wider">What we can see</h3>
+              </div>
+              <ul className="space-y-2 text-xs text-muted-foreground">
+                <li className="flex items-start gap-2">
+                  <Server className="h-3 w-3 mt-0.5 shrink-0 text-green-400/50" />
+                  An encrypted blob (unreadable without your device key)
+                </li>
+                <li className="flex items-start gap-2">
+                  <Server className="h-3 w-3 mt-0.5 shrink-0 text-green-400/50" />
+                  Last 4 digits of your phone (for your account display)
+                </li>
+                <li className="flex items-start gap-2">
+                  <Server className="h-3 w-3 mt-0.5 shrink-0 text-green-400/50" />
+                  Whether you have an active session (boolean)
+                </li>
+              </ul>
+            </div>
+
+            <div className="rounded-2xl border border-red-500/20 bg-red-500/[0.03] p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <EyeOff className="h-4 w-4 text-red-400" />
+                <h3 className="text-xs font-medium text-red-400 uppercase tracking-wider">What we never see</h3>
+              </div>
+              <ul className="space-y-2 text-xs text-muted-foreground">
+                <li className="flex items-start gap-2">
+                  <Lock className="h-3 w-3 mt-0.5 shrink-0 text-red-400/50" />
+                  Your messages or conversations
+                </li>
+                <li className="flex items-start gap-2">
+                  <Lock className="h-3 w-3 mt-0.5 shrink-0 text-red-400/50" />
+                  Your contacts or full phone number
+                </li>
+                <li className="flex items-start gap-2">
+                  <Lock className="h-3 w-3 mt-0.5 shrink-0 text-red-400/50" />
+                  Your Telegram session or encryption key
+                </li>
+                <li className="flex items-start gap-2">
+                  <Lock className="h-3 w-3 mt-0.5 shrink-0 text-red-400/50" />
+                  Any Telegram API call or response data
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Technical details */}
+          <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4 space-y-2">
+            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Technical details</h3>
+            <div className="flex flex-wrap gap-2">
+              {[
+                "AES-256-GCM encryption",
+                "Non-extractable CryptoKey",
+                "Device-bound key (IndexedDB)",
+                "Per-user key scoping",
+                "AAD context binding",
+                "CSRF protection",
+                "Direct WebSocket to Telegram",
+              ].map((tag) => (
+                <span key={tag} className="inline-flex items-center gap-1 rounded-full bg-white/[0.06] px-2.5 py-1 text-[10px] text-muted-foreground">
+                  <Fingerprint className="h-2.5 w-2.5" />
+                  {tag}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* CTA */}
+          <Button onClick={() => setStep("idle")} className="w-full gap-2">
+            <Smartphone className="h-4 w-4" />
+            Continue to Connect Telegram
+            <ArrowRight className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
 
       {/* Connected state */}
       {step === "connected" && (
