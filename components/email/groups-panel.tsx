@@ -196,27 +196,24 @@ function GroupSection({
   const [isDropTarget, setIsDropTarget] = React.useState(false);
   const [dropFlash, setDropFlash] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
-  const [fetched, setFetched] = React.useState(false);
+  const [fetchKey, setFetchKey] = React.useState(0);
 
-  // Fetch threads for this label on expand
+  // Fetch threads for this label — always fetch on mount (for count), re-fetch on fetchKey change
   React.useEffect(() => {
-    if (isCollapsed || fetched) return;
-
-    setLoading(true);
     const params = new URLSearchParams();
     params.set("labelIds", group.id);
     params.set("maxResults", "10");
     if (connectionId) params.set("connectionId", connectionId);
 
+    setLoading(true);
     fetch(`/api/email/threads?${params}`)
       .then((r) => r.json())
       .then((json) => {
         setThreads(json.threads ?? []);
-        setFetched(true);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [isCollapsed, fetched, group.id, connectionId]);
+  }, [fetchKey, group.id, connectionId]);
 
   const sortedThreads = React.useMemo(() => {
     const sorted = [...threads];
@@ -282,9 +279,9 @@ function GroupSection({
           try {
             const ids = JSON.parse(raw) as string[];
             onAddThreadsToLabel?.(ids, group.id);
-            // Flash feedback
+            // Flash feedback + re-fetch threads after label is applied
             setDropFlash(true);
-            setTimeout(() => setDropFlash(false), 600);
+            setTimeout(() => { setDropFlash(false); setFetchKey((k) => k + 1); }, 800);
           } catch { /* ignore */ }
         }}
       >
@@ -307,7 +304,7 @@ function GroupSection({
           {displayName}
         </button>
         <span className="text-xs text-muted-foreground tabular-nums">
-          {group.unreadCount != null ? group.unreadCount : threads.filter((t) => t.isUnread).length}
+          {threads.length}
         </span>
         <button
           onClick={(e) => { e.stopPropagation(); onRemove(); }}
