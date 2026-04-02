@@ -190,7 +190,7 @@ body {
   pointer-events: none;
   z-index: 2;
   border-radius: inherit;
-  background-size: 100% 100%;
+  background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
   mix-blend-mode: multiply;
