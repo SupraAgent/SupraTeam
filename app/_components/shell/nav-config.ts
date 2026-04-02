@@ -38,15 +38,15 @@ export const TOP_ITEMS: NavItem[] = [
   { href: "/", label: "Dashboard", icon: Home },
   { href: "/telegram", label: "Telegram", icon: MessageCircle },
   { href: "/email", label: "Email", icon: Mail },
-  { href: "/inbox", label: "Inbox", icon: Inbox },
   { href: "/pipeline", label: "Pipeline", icon: KanbanSquare },
 ];
 
 export const NAV_SECTIONS: NavSection[] = [
   {
     key: "contacts",
-    label: "Contacts & Groups",
+    label: "Team & Groups",
     items: [
+      { href: "/inbox", label: "Team Inbox", icon: Inbox },
       { href: "/groups", label: "TG Groups", icon: MessageCircle },
       { href: "/contacts", label: "Contacts", icon: Users },
       { href: "/companies", label: "Companies", icon: Building2 },
