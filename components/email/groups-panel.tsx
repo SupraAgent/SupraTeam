@@ -13,7 +13,6 @@ import {
   Plus,
   X,
   ArrowUpDown,
-  Calendar,
   Check,
   Loader2,
 } from "lucide-react";
@@ -25,14 +24,17 @@ interface GroupsPanelProps {
   onSelectLabel: (labelId: string) => void;
   onSelectThread?: (threadId: string) => void;
   onLabelsRefresh?: () => void;
+  onDeleteLabel?: (labelId: string) => void;
+  onAddThreadsToLabel?: (threadIds: string[], labelId: string) => void;
 }
 
-export function GroupsPanel({ labels, connectionId, onSelectLabel, onSelectThread, onLabelsRefresh }: GroupsPanelProps) {
+export function GroupsPanel({ labels, connectionId, onSelectLabel, onSelectThread, onLabelsRefresh, onDeleteLabel, onAddThreadsToLabel }: GroupsPanelProps) {
   const {
     visibleGroups,
     hiddenGroups,
     addGroup,
     removeGroup,
+    reorderGroup,
     collapsedGroups,
     toggleCollapsed,
     sortOrder,
@@ -40,7 +42,16 @@ export function GroupsPanel({ labels, connectionId, onSelectLabel, onSelectThrea
   } = useGroups(labels);
 
   const [addMenuOpen, setAddMenuOpen] = React.useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = React.useState<string | null>(null);
+  const [reorderDragIndex, setReorderDragIndex] = React.useState<number | null>(null);
+  const [reorderOverIndex, setReorderOverIndex] = React.useState<number | null>(null);
   const addBtnRef = React.useRef<HTMLButtonElement>(null);
+
+  function handleDeleteGroup(labelId: string) {
+    removeGroup(labelId);
+    onDeleteLabel?.(labelId);
+    setConfirmDeleteId(null);
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -48,9 +59,10 @@ export function GroupsPanel({ labels, connectionId, onSelectLabel, onSelectThrea
       <div className="flex items-center justify-between px-3 py-3 border-b border-white/10 shrink-0">
         <div className="flex items-center gap-2">
           <FolderOpen className="h-4 w-4 text-muted-foreground" />
-          <h2 className="text-sm font-semibold text-foreground">
-            Groups
-          </h2>
+          <div>
+            <h2 className="text-sm font-semibold text-foreground leading-none">Groups</h2>
+            <p className="text-[9px] text-muted-foreground/50 mt-0.5">Drag emails here to label</p>
+          </div>
           <span className="text-xs text-muted-foreground">
             ({visibleGroups.length})
           </span>
@@ -94,40 +106,57 @@ export function GroupsPanel({ labels, connectionId, onSelectLabel, onSelectThrea
             No groups added. Click + to add Gmail labels as groups.
           </div>
         ) : (
-          visibleGroups.map((group) => (
-            <GroupSection
+          visibleGroups.map((group, index) => (
+            <div
               key={group.id}
+              draggable
+              onDragStart={(e) => {
+                // Only allow reorder drag from the group itself (not thread drags)
+                if (e.dataTransfer.types.includes("application/x-thread-ids")) return;
+                e.dataTransfer.setData("application/x-group-reorder", String(index));
+                e.dataTransfer.effectAllowed = "move";
+                setReorderDragIndex(index);
+              }}
+              onDragOver={(e) => {
+                if (!e.dataTransfer.types.includes("application/x-group-reorder")) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                setReorderOverIndex(index);
+              }}
+              onDragLeave={() => setReorderOverIndex(null)}
+              onDrop={(e) => {
+                const fromStr = e.dataTransfer.getData("application/x-group-reorder");
+                if (fromStr === "") return;
+                e.preventDefault();
+                const from = Number(fromStr);
+                reorderGroup(from, index);
+                setReorderDragIndex(null);
+                setReorderOverIndex(null);
+              }}
+              onDragEnd={() => { setReorderDragIndex(null); setReorderOverIndex(null); }}
+              className={cn(
+                reorderDragIndex === index && "opacity-40",
+                reorderOverIndex === index && reorderDragIndex !== index && "border-t-2 border-primary"
+              )}
+            >
+            <GroupSection
               group={group}
               connectionId={connectionId}
               isCollapsed={collapsedGroups.has(group.id)}
               onToggle={() => toggleCollapsed(group.id)}
-              onRemove={() => removeGroup(group.id)}
+              onRemove={() => setConfirmDeleteId(group.id)}
               onClickLabel={() => onSelectLabel(group.id)}
               onSelectThread={onSelectThread}
+              onAddThreadsToLabel={onAddThreadsToLabel}
               sortOrder={sortOrder}
+              showConfirmDelete={confirmDeleteId === group.id}
+              onConfirmDelete={() => handleDeleteGroup(group.id)}
+              onCancelDelete={() => setConfirmDeleteId(null)}
             />
+            </div>
           ))
         )}
 
-        {/* Calendar placeholder */}
-        <div className="border-t border-white/10 mt-2">
-          <div className="flex items-center gap-2 px-3 py-3">
-            <Calendar className="h-4 w-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold text-foreground">Calendar</h3>
-            <span className="text-xs text-muted-foreground">(0)</span>
-          </div>
-          <div className="px-3 pb-4">
-            <div className="rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2 mb-2">
-              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Today (0)
-              </span>
-            </div>
-            <div className="flex flex-col items-center justify-center py-6 text-muted-foreground/40 gap-2">
-              <Calendar className="h-8 w-8" />
-              <p className="text-xs">No upcoming events</p>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   );
@@ -143,7 +172,11 @@ interface GroupSectionProps {
   onRemove: () => void;
   onClickLabel: () => void;
   onSelectThread?: (threadId: string) => void;
+  onAddThreadsToLabel?: (threadIds: string[], labelId: string) => void;
   sortOrder: "newest" | "oldest";
+  showConfirmDelete: boolean;
+  onConfirmDelete: () => void;
+  onCancelDelete: () => void;
 }
 
 function GroupSection({
@@ -154,9 +187,15 @@ function GroupSection({
   onRemove,
   onClickLabel,
   onSelectThread,
+  onAddThreadsToLabel,
   sortOrder,
+  showConfirmDelete,
+  onConfirmDelete,
+  onCancelDelete,
 }: GroupSectionProps) {
   const [threads, setThreads] = React.useState<ThreadListItem[]>([]);
+  const [isDropTarget, setIsDropTarget] = React.useState(false);
+  const [dropFlash, setDropFlash] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
   const [fetched, setFetched] = React.useState(false);
 
@@ -196,8 +235,60 @@ function GroupSection({
 
   return (
     <div className="border-b border-white/5">
+      {showConfirmDelete ? (
+        <div className="px-3 py-2.5 bg-red-500/10 border-b border-red-500/20">
+          <p className="text-xs text-red-400 mb-2">
+            Delete &ldquo;{displayName}&rdquo;?
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onConfirmDelete}
+              className="rounded-md px-3 py-1 text-xs font-medium bg-red-500/20 text-red-400 hover:bg-red-500/30 transition"
+            >
+              Yes
+            </button>
+            <button
+              onClick={onCancelDelete}
+              className="rounded-md px-3 py-1 text-xs font-medium bg-white/5 text-muted-foreground hover:bg-white/10 transition"
+            >
+              No
+            </button>
+          </div>
+        </div>
+      ) : (
+      <>
       {/* Group header */}
-      <div className="flex items-center gap-2 px-3 py-2.5 hover:bg-white/[0.03] transition-colors group">
+      <div
+        className={cn(
+          "flex items-center gap-2 px-3 py-2.5 transition-colors group",
+          dropFlash
+            ? "bg-green-500/20 ring-1 ring-inset ring-green-500/40"
+            : isDropTarget
+              ? "bg-primary/15 ring-1 ring-inset ring-primary/40"
+              : "hover:bg-white/[0.03]"
+        )}
+        onDragOver={(e) => {
+          if (e.dataTransfer.types.includes("application/x-thread-ids")) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "copy";
+            setIsDropTarget(true);
+          }
+        }}
+        onDragLeave={() => setIsDropTarget(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setIsDropTarget(false);
+          const raw = e.dataTransfer.getData("application/x-thread-ids");
+          if (!raw) return;
+          try {
+            const ids = JSON.parse(raw) as string[];
+            onAddThreadsToLabel?.(ids, group.id);
+            // Flash feedback
+            setDropFlash(true);
+            setTimeout(() => setDropFlash(false), 600);
+          } catch { /* ignore */ }
+        }}
+      >
         <button onClick={onToggle} className="shrink-0 text-muted-foreground hover:text-foreground transition">
           {isCollapsed ? (
             <ChevronRight className="h-3.5 w-3.5" />
@@ -217,12 +308,12 @@ function GroupSection({
           {displayName}
         </button>
         <span className="text-xs text-muted-foreground tabular-nums">
-          {group.messageCount ?? threads.length}
+          {group.unreadCount ?? threads.filter((t) => t.isUnread).length}
         </span>
         <button
           onClick={(e) => { e.stopPropagation(); onRemove(); }}
           className="opacity-0 group-hover:opacity-100 shrink-0 rounded p-0.5 text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition"
-          title="Remove group"
+          title="Delete group"
         >
           <X className="h-3 w-3" />
         </button>
@@ -249,6 +340,8 @@ function GroupSection({
             ))
           )}
         </div>
+      )}
+      </>
       )}
     </div>
   );
@@ -406,7 +499,9 @@ function AddGroupDropdown({
                 className="h-2.5 w-2.5 rounded-full shrink-0"
                 style={{ backgroundColor: label.color ?? "hsl(var(--primary))" }}
               />
-              <span className="flex-1 text-left truncate">{label.name}</span>
+              <span className="flex-1 text-left truncate">
+                {label.name.includes("/") ? label.name.split("/").pop()! : label.name}
+              </span>
               <Plus className="h-3 w-3 text-muted-foreground" />
             </button>
           ))}

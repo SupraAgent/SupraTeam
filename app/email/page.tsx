@@ -19,6 +19,7 @@ import { toast } from "sonner";
 import { CommandPalette } from "@/components/email/command-palette";
 import { AutoDraftBanner } from "@/components/email/auto-draft";
 import { GroupsPanel } from "@/components/email/groups-panel";
+import { LabelPicker } from "@/components/email/label-picker";
 import { DragDropZones } from "@/components/email/drag-drop-zones";
 import { LayoutDashboard, PanelRight } from "lucide-react";
 
@@ -91,6 +92,9 @@ function EmailPageInner() {
   const [snoozeOpen, setSnoozeOpen] = React.useState(false);
   const [snoozeThreadId, setSnoozeThreadId] = React.useState<string | null>(null);
 
+  // Label picker state
+  const [labelPickerOpen, setLabelPickerOpen] = React.useState(false);
+
   // Data hooks
   const { threads, loading, error, reconnect, nextPageToken, loadMore, refresh, setThreads } = useThreads({
     labelIds: searchQuery ? undefined : [activeLabel],
@@ -111,6 +115,25 @@ function EmailPageInner() {
 
   // Gmail Pub/Sub push — refresh on new mail
   useGmailPush(refresh);
+
+  // Bootstrap default groups on first connection load (client-side flag for idempotency)
+  React.useEffect(() => {
+    if (!activeConnectionId) return;
+    const flagKey = `email-groups-bootstrapped:${activeConnectionId}`;
+    try {
+      if (localStorage.getItem(flagKey)) return;
+    } catch { return; }
+    localStorage.setItem(flagKey, "1");
+    fetch(`/api/email/groups/bootstrap?connection_id=${activeConnectionId}`, { method: "POST" })
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.data?.created > 0) {
+          refreshLabels();
+          toast(`Created ${json.data.created} default groups`);
+        }
+      })
+      .catch(() => {}); // silent
+  }, [activeConnectionId, refreshLabels]);
 
   // Visible threads based on active category
   const visibleThreads = activeCategory === "all" ? threads : split[activeCategory];
@@ -383,7 +406,10 @@ function EmailPageInner() {
     onDeselectAll: () => setSelectedIds(new Set()),
     onShowHelp: () => setKeyboardHelpOpen((v) => !v),
     onCommandPalette: () => setCommandPaletteOpen(true),
-  }, !composeOpen && !snoozeOpen && !advancedSearchOpen && !keyboardHelpOpen && !commandPaletteOpen);
+    onLabelPicker: () => {
+      if (selectedThreadId || selectedIds.size > 0) setLabelPickerOpen(true);
+    },
+  }, !composeOpen && !snoozeOpen && !advancedSearchOpen && !keyboardHelpOpen && !commandPaletteOpen && !labelPickerOpen);
 
   // Active connection for display
   const activeConnection = connections.find((c) => c.id === activeConnectionId);
@@ -397,6 +423,54 @@ function EmailPageInner() {
     setActiveLabel("INBOX");
     setSelectedIds(new Set());
     setComposeOpen(false);
+  }
+
+  // ── Add threads to a label (drag-to-group) ──────────────
+  function handleAddThreadsToLabel(threadIds: string[], labelId: string) {
+    const label = labels.find((l) => l.id === labelId);
+    const displayName = label
+      ? label.name.includes("/") ? label.name.split("/").pop()! : label.name
+      : "group";
+
+    // Use batch API for efficiency (single call instead of N)
+    fetch("/api/email/threads/batch-label", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        threadIds,
+        add: [labelId],
+        remove: [],
+        connectionId: activeConnectionId,
+      }),
+    })
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.error) {
+          toast.error(json.error);
+        } else {
+          toast(`Added ${threadIds.length === 1 ? "thread" : `${threadIds.length} threads`} to ${displayName}`);
+        }
+      })
+      .catch(() => toast.error("Failed to add to group"));
+  }
+
+  // ── Delete label handler ──────────────────────────────────
+  async function handleDeleteLabel(labelId: string) {
+    try {
+      const params = new URLSearchParams({ labelId });
+      if (activeConnectionId) params.set("connectionId", activeConnectionId);
+      const res = await fetch(`/api/email/labels?${params}`, { method: "DELETE" });
+      if (!res.ok) {
+        const json = await res.json();
+        toast.error(json.error ?? "Failed to delete group");
+        return;
+      }
+      toast("Group deleted");
+      if (activeLabel === labelId) setActiveLabel("INBOX");
+      refreshLabels();
+    } catch {
+      toast.error("Failed to delete group");
+    }
   }
 
   // ── Right panel toggle ──────────────────────────────────
@@ -513,6 +587,8 @@ function EmailPageInner() {
             setActiveCategory("all");
           }}
           unreadCounts={unreadCounts}
+          onDeleteLabel={handleDeleteLabel}
+          onAddThreadsToLabel={handleAddThreadsToLabel}
         />
       </div>
 
@@ -814,6 +890,8 @@ function EmailPageInner() {
             }}
             onSelectThread={(threadId) => setSelectedThreadId(threadId)}
             onLabelsRefresh={refreshLabels}
+            onDeleteLabel={handleDeleteLabel}
+            onAddThreadsToLabel={handleAddThreadsToLabel}
           />
         </div>
       )}
@@ -885,6 +963,19 @@ function EmailPageInner() {
         open={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}
         onAction={handleCommandAction}
+      />
+
+      {/* Label picker (L shortcut) */}
+      <LabelPicker
+        open={labelPickerOpen}
+        onClose={() => setLabelPickerOpen(false)}
+        labels={labels}
+        onApply={(labelId) => {
+          const threadIds = selectedIds.size > 0
+            ? Array.from(selectedIds)
+            : selectedThreadId ? [selectedThreadId] : [];
+          if (threadIds.length > 0) handleAddThreadsToLabel(threadIds, labelId);
+        }}
       />
 
       {/* Compose modal */}

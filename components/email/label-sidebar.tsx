@@ -19,10 +19,15 @@ type LabelSidebarProps = {
   activeLabel: string;
   onSelectLabel: (labelId: string) => void;
   unreadCounts: Record<string, number>;
+  onDeleteLabel?: (labelId: string) => void;
+  onAddThreadsToLabel?: (threadIds: string[], labelId: string) => void;
 };
 
-export function LabelSidebar({ labels, activeLabel, onSelectLabel, unreadCounts }: LabelSidebarProps) {
+export function LabelSidebar({ labels, activeLabel, onSelectLabel, unreadCounts, onDeleteLabel, onAddThreadsToLabel }: LabelSidebarProps) {
   const userLabels = labels.filter((l) => l.type === "user");
+  const [confirmDelete, setConfirmDelete] = React.useState<string | null>(null);
+  const [dropTargetId, setDropTargetId] = React.useState<string | null>(null);
+  const [dropFlashId, setDropFlashId] = React.useState<string | null>(null);
 
   return (
     <div className="w-full space-y-1">
@@ -48,7 +53,7 @@ export function LabelSidebar({ labels, activeLabel, onSelectLabel, unreadCounts 
         </button>
       ))}
 
-      {/* User labels */}
+      {/* User labels (Groups) */}
       {userLabels.length > 0 && (
         <>
           <div className="pt-2 pb-1 px-2.5">
@@ -56,33 +61,99 @@ export function LabelSidebar({ labels, activeLabel, onSelectLabel, unreadCounts 
               Groups
             </span>
           </div>
-          {userLabels.map((label) => (
-            <button
-              key={label.id}
-              onClick={() => onSelectLabel(label.id)}
-              className={cn(
-                "w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors",
-                activeLabel === label.id
-                  ? "bg-white/10 text-foreground"
-                  : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
-              )}
-            >
-              <div
-                className="h-2.5 w-2.5 rounded-full shrink-0"
-                style={{ backgroundColor: label.color ?? "hsl(var(--primary))" }}
-              />
-              <span className="flex-1 text-left truncate">{label.name}</span>
-              {(label.unreadCount ?? 0) > 0 && (
-                <span className="text-[10px] text-muted-foreground">
-                  {label.unreadCount}
-                </span>
-              )}
-            </button>
-          ))}
+          {userLabels.map((label) => {
+            const displayName = label.name.includes("/") ? label.name.split("/").pop()! : label.name;
+            return (
+              <div key={label.id} className="relative group">
+                {confirmDelete === label.id ? (
+                  <div className="rounded-lg px-2.5 py-1.5 bg-red-500/10 border border-red-500/20">
+                    <p className="text-[10px] text-red-400 mb-1.5">
+                      Delete &ldquo;{displayName}&rdquo;?
+                    </p>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => { onDeleteLabel?.(label.id); setConfirmDelete(null); }}
+                        className="rounded px-2 py-0.5 text-[10px] font-medium bg-red-500/20 text-red-400 hover:bg-red-500/30 transition"
+                      >
+                        Yes
+                      </button>
+                      <button
+                        onClick={() => setConfirmDelete(null)}
+                        className="rounded px-2 py-0.5 text-[10px] font-medium bg-white/5 text-muted-foreground hover:bg-white/10 transition"
+                      >
+                        No
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => onSelectLabel(label.id)}
+                    onDragOver={(e) => {
+                      if (e.dataTransfer.types.includes("application/x-thread-ids")) {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "copy";
+                        setDropTargetId(label.id);
+                      }
+                    }}
+                    onDragLeave={() => setDropTargetId(null)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setDropTargetId(null);
+                      const raw = e.dataTransfer.getData("application/x-thread-ids");
+                      if (!raw) return;
+                      try {
+                        const ids = JSON.parse(raw) as string[];
+                        onAddThreadsToLabel?.(ids, label.id);
+                        setDropFlashId(label.id);
+                        setTimeout(() => setDropFlashId(null), 600);
+                      } catch { /* ignore */ }
+                    }}
+                    className={cn(
+                      "w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors",
+                      dropFlashId === label.id
+                        ? "bg-green-500/20 text-green-400 ring-1 ring-green-500/40"
+                        : dropTargetId === label.id
+                          ? "bg-primary/20 text-primary ring-1 ring-primary/40"
+                          : activeLabel === label.id
+                            ? "bg-white/10 text-foreground"
+                            : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+                    )}
+                  >
+                    <div
+                      className="h-2.5 w-2.5 rounded-full shrink-0"
+                      style={{ backgroundColor: label.color ?? "hsl(var(--primary))" }}
+                    />
+                    <span className="flex-1 text-left truncate">{displayName}</span>
+                    {(label.unreadCount ?? 0) > 0 && (
+                      <span className="text-[10px] text-muted-foreground">
+                        {label.unreadCount}
+                      </span>
+                    )}
+                    {onDeleteLabel && (
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        onClick={(e) => { e.stopPropagation(); setConfirmDelete(label.id); }}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); setConfirmDelete(label.id); } }}
+                        className="opacity-0 group-hover:opacity-100 shrink-0 rounded p-0.5 text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition"
+                        title="Delete group"
+                      >
+                        <DeleteIcon className="h-3 w-3" />
+                      </span>
+                    )}
+                  </button>
+                )}
+              </div>
+            );
+          })}
         </>
       )}
     </div>
   );
+}
+
+function DeleteIcon({ className }: { className?: string }) {
+  return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>;
 }
 
 // ── Inline SVGs ─────────────────────────────────────────────

@@ -855,6 +855,7 @@ type KeyboardActions = {
   onGoAll?: () => void;
   onShowHelp?: () => void;
   onCommandPalette?: () => void;
+  onLabelPicker?: () => void;
 };
 
 export function useEmailKeyboard(actions: KeyboardActions, enabled = true) {
@@ -990,6 +991,10 @@ export function useEmailKeyboard(actions: KeyboardActions, enabled = true) {
         case "?":
           e.preventDefault();
           a.onShowHelp?.();
+          break;
+        case "l":
+          e.preventDefault();
+          a.onLabelPicker?.();
           break;
       }
 
