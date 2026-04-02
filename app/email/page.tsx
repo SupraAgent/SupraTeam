@@ -12,7 +12,7 @@ import { UndoSendProvider, UndoSendBar } from "@/components/email/undo-send-bar"
 import { SnoozePicker } from "@/components/email/snooze-picker";
 import { AdvancedSearch } from "@/components/email/advanced-search";
 import { KeyboardHelp } from "@/components/email/keyboard-help";
-import { useThreads, useThread, useLabels, useEmailActions, useEmailKeyboard, useEmailConnections, useSplitInbox, useAICategories, usePrefetchThread, useBatchPrefetch, useGmailPush } from "@/lib/email/hooks";
+import { useThreads, useThread, useLabels, useEmailActions, useEmailKeyboard, useEmailConnections, useSplitInbox, useAICategories, usePrefetchThread, useBatchPrefetch, usePrefetchAllConnections, useGmailPush } from "@/lib/email/hooks";
 import { INBOX_CATEGORIES, type InboxCategory } from "@/lib/email/types";
 import { EmailErrorBoundary } from "@/components/email/error-boundary";
 import { toast } from "sonner";
@@ -109,6 +109,9 @@ function EmailPageInner() {
 
   // Label picker state
   const [labelPickerOpen, setLabelPickerOpen] = React.useState(false);
+
+  // Prefetch all accounts' INBOX threads in parallel on mount
+  usePrefetchAllConnections(connections, activeConnectionId);
 
   // Data hooks
   const { threads, loading, error, reconnect, nextPageToken, loadMore, refresh, setThreads } = useThreads({
