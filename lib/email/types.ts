@@ -187,6 +187,7 @@ export type EmailConnection = {
   provider: EmailProvider;
   email: string;
   is_default: boolean;
+  sort_order: number;
   connected_at: string;
   last_sync_at: string | null;
 };
