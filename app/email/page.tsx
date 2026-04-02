@@ -82,15 +82,22 @@ function EmailPageInner() {
   const [commandPaletteOpen, setCommandPaletteOpen] = React.useState(false);
 
   // Email groups state
-  const { groups, loading: groupsLoading, createGroup, deleteGroup, toggleCollapse, renameGroup, addThreadToGroup, removeThreadFromGroup } = useEmailGroups(activeConnectionId);
+  const { groups, loading: groupsLoading, loadingThreads, createGroup, deleteGroup, toggleCollapse, renameGroup, addThreadToGroup, removeThreadFromGroup } = useEmailGroups(activeConnectionId);
   const [groupPanelCollapsed, setGroupPanelCollapsed] = React.useState(() => {
-    if (typeof window !== "undefined") return localStorage.getItem("email-group-panel-collapsed") === "true";
-    return false;
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("email-group-panel-collapsed");
+      // Default to collapsed if never set (new users) — expanded only if explicitly set to "false"
+      return stored !== "false";
+    }
+    return true;
   });
 
   // Snooze state
   const [snoozeOpen, setSnoozeOpen] = React.useState(false);
   const [snoozeThreadId, setSnoozeThreadId] = React.useState<string | null>(null);
+
+  // Group picker state (for "Add to group" context menu on touch/mobile)
+  const [groupPickerThreadIds, setGroupPickerThreadIds] = React.useState<string[] | null>(null);
 
   // Data hooks
   const { threads, loading, error, reconnect, nextPageToken, loadMore, refresh, setThreads } = useThreads({
@@ -281,6 +288,9 @@ function EmailPageInner() {
         setThreads((prev) => prev.filter((t) => !threadIds.includes(t.id)));
         toast(isBulk ? `Blocked ${threadIds.length} senders` : "Sender blocked");
         break;
+      case "add_to_group":
+        setGroupPickerThreadIds(threadIds);
+        return; // Don't clear selection
     }
     // Clear selection after context action
     setSelectedIds(new Set());
@@ -638,6 +648,39 @@ function EmailPageInner() {
           </div>
         )}
 
+        {/* Groups panel — mobile only (hidden on md+ where it appears in right column) */}
+        <div className="md:hidden">
+          <EmailGroupPanel
+            groups={groups}
+            loading={groupsLoading}
+            loadingThreads={loadingThreads}
+            panelCollapsed={groupPanelCollapsed}
+            onTogglePanel={() => {
+              setGroupPanelCollapsed((v) => {
+                const next = !v;
+                localStorage.setItem("email-group-panel-collapsed", String(next));
+                return next;
+              });
+            }}
+            onToggleGroup={toggleCollapse}
+            onCreateGroup={createGroup}
+            onDeleteGroup={deleteGroup}
+            onRenameGroup={renameGroup}
+            onDropThread={(groupId, data) => addThreadToGroup(groupId, data)}
+            onRemoveThread={removeThreadFromGroup}
+            onSelectThread={(threadId) => {
+              setSelectedThreadId(threadId);
+              setThreads((prev) =>
+                prev.map((t) => (t.id === threadId && t.isUnread ? { ...t, isUnread: false } : t))
+              );
+            }}
+            onArchiveThread={(threadId) => {
+              performAction(threadId, "archive");
+              toast("Archived");
+            }}
+          />
+        </div>
+
         <ThreadList
           threads={visibleThreads}
           selectedId={selectedThreadId}
@@ -699,10 +742,12 @@ function EmailPageInner() {
           resetLayout={dashboardResetLayout}
         />
 
-        {/* Email groups panel — drag threads here */}
+        {/* Email groups panel — desktop only (mobile version is in thread list column) */}
+        <div className="hidden md:block">
         <EmailGroupPanel
           groups={groups}
           loading={groupsLoading}
+          loadingThreads={loadingThreads}
           panelCollapsed={groupPanelCollapsed}
           onTogglePanel={() => {
             setGroupPanelCollapsed((v) => {
@@ -712,7 +757,7 @@ function EmailPageInner() {
             });
           }}
           onToggleGroup={toggleCollapse}
-          onCreateGroup={(name) => createGroup(name)}
+          onCreateGroup={createGroup}
           onDeleteGroup={deleteGroup}
           onRenameGroup={renameGroup}
           onDropThread={(groupId, data) => addThreadToGroup(groupId, data)}
@@ -733,6 +778,7 @@ function EmailPageInner() {
             }
           }}
         />
+        </div>
 
         {activeThread ? (
           <>
@@ -804,6 +850,56 @@ function EmailPageInner() {
           }
         }}
       />
+
+      {/* Group picker (for "Add to group" context menu / touch fallback) */}
+      {groupPickerThreadIds && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50"
+          onClick={() => setGroupPickerThreadIds(null)}
+        >
+          <div
+            className="rounded-lg border border-white/10 shadow-2xl py-2 w-[240px] max-h-[300px] overflow-y-auto"
+            style={{ backgroundColor: "hsl(var(--surface-3))" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-3 py-1.5 text-xs font-medium text-foreground border-b border-white/5 mb-1">
+              Add to group
+            </div>
+            {groups.length === 0 ? (
+              <div className="px-3 py-3 text-xs text-muted-foreground">No groups yet. Create one first.</div>
+            ) : (
+              groups.map((g) => (
+                <button
+                  key={g.id}
+                  onClick={() => {
+                    for (const threadId of groupPickerThreadIds) {
+                      const thread = threads.find((t) => t.id === threadId);
+                      if (thread) {
+                        addThreadToGroup(g.id, {
+                          threadId: thread.id,
+                          subject: thread.subject ?? "",
+                          snippet: thread.snippet ?? "",
+                          fromEmail: thread.from[0]?.email ?? "",
+                          fromName: thread.from[0]?.name ?? "",
+                          lastMessageAt: thread.lastMessageAt ?? "",
+                          primaryContacts: thread.from.map((f) => ({ email: f.email, name: f.name })),
+                        });
+                      }
+                    }
+                    setGroupPickerThreadIds(null);
+                    toast(`Added to "${g.name}"`);
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-white/5 transition"
+                >
+                  <div className="h-2.5 w-2.5 rounded-sm shrink-0" style={{ backgroundColor: g.color }} />
+                  <span className="truncate">{g.name}</span>
+                  <span className="text-[10px] text-muted-foreground ml-auto">{(g.crm_email_group_threads ?? []).length}</span>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Keyboard help overlay */}
       <KeyboardHelp

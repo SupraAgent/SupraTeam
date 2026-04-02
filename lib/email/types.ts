@@ -164,6 +164,9 @@ export interface MailDriver {
 
   // Labels
   listLabels(): Promise<Label[]>;
+  createLabel?(name: string, color?: string): Promise<Label>;
+  deleteLabel?(labelId: string): Promise<void>;
+  renameLabel?(labelId: string, newName: string): Promise<Label>;
 
   // Attachments
   getAttachment(messageId: string, attachmentId: string): Promise<Attachment>;

@@ -6,6 +6,7 @@ import { KanbanBoard } from "@/components/pipeline/kanban-board";
 import { DealListView } from "@/components/pipeline/deal-list-view";
 import { CreateDealModal } from "@/components/pipeline/create-deal-modal";
 import { DealDetailPanel } from "@/components/pipeline/deal-detail-panel";
+import { AutomateDealModal, type WorkflowTemplate } from "@/components/pipeline/automate-deal-modal";
 import { PipelineFilterBar } from "@/components/pipeline/pipeline-filter-bar";
 import { BulkActionBar } from "@/components/pipeline/bulk-action-bar";
 import { SavedViewsBar } from "@/components/saved-views-bar";
@@ -71,6 +72,7 @@ export default function PipelinePage() {
   const [stages, setStages] = React.useState<PipelineStage[]>([]);
   const [deals, setDeals] = React.useState<Deal[]>([]);
   const [contacts, setContacts] = React.useState<Contact[]>([]);
+  const contactsFetched = React.useRef(false);
   const [board, setBoard] = React.useState<BoardType>("All");
   const [viewMode, setViewMode] = React.useState<"kanban" | "list">("kanban");
   // Sync view mode to screen width after mount to avoid SSR hydration mismatch
@@ -79,6 +81,10 @@ export default function PipelinePage() {
   }, []);
   const [createOpen, setCreateOpen] = React.useState(false);
   const [selectedDeal, setSelectedDeal] = React.useState<Deal | null>(null);
+  const [automateDeal, setAutomateDeal] = React.useState<Deal | null>(null);
+  const [workflowTemplates, setWorkflowTemplates] = React.useState<WorkflowTemplate[]>([]);
+  const [templatesLoading, setTemplatesLoading] = React.useState(false);
+  const templatesFetched = React.useRef(false);
   const [search, setSearch] = React.useState("");
   const [loading, setLoading] = React.useState(true);
   const [usingSamples, setUsingSamples] = React.useState(false);
@@ -216,11 +222,11 @@ export default function PipelinePage() {
 
   const fetchData = React.useCallback(async () => {
     try {
-      const [stagesRes, dealsRes, contactsRes, highlightsRes] = await Promise.all([
+      const [stagesRes, dealsRes, highlightsRes, unreadRes] = await Promise.all([
         fetch("/api/pipeline"),
         fetch("/api/deals"),
-        fetch("/api/contacts"),
         fetch("/api/highlights"),
+        fetch("/api/deals/unread-counts"),
       ]);
 
       let fetchedStages: PipelineStage[] = [];
@@ -235,10 +241,6 @@ export default function PipelinePage() {
         const data = await dealsRes.json();
         fetchedDeals = data.deals ?? [];
         setDeals(fetchedDeals);
-      }
-      if (contactsRes.ok) {
-        const { contacts: fetchedContacts } = await contactsRes.json();
-        setContacts(fetchedContacts ?? []);
       }
       if (highlightsRes.ok) {
         const { highlighted_deal_ids, highlights: hlList } = await highlightsRes.json();
@@ -261,10 +263,17 @@ export default function PipelinePage() {
         setHighlightDetails(detailsMap);
       }
 
-      // Fetch unread counts (non-blocking)
-      fetch("/api/deals/unread-counts").then((r) => r.json()).then((d) => {
-        setUnreadCounts(d.counts ?? {});
-      }).catch(() => {});
+      if (unreadRes.ok) {
+        const unreadData = await unreadRes.json();
+        setUnreadCounts(unreadData.counts ?? {});
+      }
+
+      // Refresh contacts if previously loaded (non-blocking)
+      if (contactsFetched.current) {
+        fetch("/api/contacts").then((r) => r.ok ? r.json() : null).then((d) => {
+          if (d) setContacts(d.contacts ?? []);
+        }).catch(() => {});
+      }
 
       // Show sample deals if no real deals exist
       if (fetchedDeals.length === 0 && fetchedStages.length > 0) {
@@ -282,8 +291,9 @@ export default function PipelinePage() {
     fetchData();
   }, [fetchData]);
 
-  // Track active undo toasts per deal so we can dismiss stale ones
+  // Track active undo toasts and in-flight move requests per deal
   const undoToastIds = React.useRef<Map<string, string | number>>(new Map());
+  const moveControllers = React.useRef<Map<string, AbortController>>(new Map());
 
   async function handleMoveDeal(dealId: string, newStageId: string) {
     if (dealId.startsWith("sample-")) return;
@@ -293,9 +303,14 @@ export default function PipelinePage() {
     const oldStage = deal.stage;
     if (oldStageId === newStageId) return;
 
-    // Dismiss any previous undo toast for this deal
+    // Abort any in-flight PATCH for this deal and dismiss its undo toast
+    const prevController = moveControllers.current.get(dealId);
+    if (prevController) prevController.abort();
     const prevToast = undoToastIds.current.get(dealId);
     if (prevToast) toast.dismiss(prevToast);
+
+    const controller = new AbortController();
+    moveControllers.current.set(dealId, controller);
 
     // Optimistic update
     setDeals((prev) =>
@@ -306,11 +321,25 @@ export default function PipelinePage() {
       )
     );
 
-    const res = await fetch(`/api/deals/${dealId}/move`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stage_id: newStageId }),
-    });
+    let res: Response;
+    try {
+      res = await fetch(`/api/deals/${dealId}/move`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stage_id: newStageId }),
+        signal: controller.signal,
+      });
+    } catch (e: unknown) {
+      if (e instanceof DOMException && e.name === "AbortError") return; // superseded by newer move
+      toast.error("Failed to move deal");
+      fetchData();
+      return;
+    } finally {
+      // Clean up only if this controller is still the active one
+      if (moveControllers.current.get(dealId) === controller) {
+        moveControllers.current.delete(dealId);
+      }
+    }
 
     if (!res.ok) {
       toast.error("Failed to move deal");
@@ -318,23 +347,29 @@ export default function PipelinePage() {
       return;
     }
 
+    // Capture the stage the deal is at RIGHT NOW for undo (not the stale closure value)
+    const undoToStageId = oldStageId;
+    const undoToStage = oldStage;
     const newStageName = stages.find((s) => s.id === newStageId)?.name ?? "stage";
     const toastId = toast(`Moved "${deal.deal_name}" to ${newStageName}`, {
       action: {
         label: "Undo",
         onClick: async () => {
-          // Revert optimistically
+          // Check the deal's current stage before reverting — bail if it's been moved again
+          const currentDeal = deals.find((d) => d.id === dealId);
+          if (currentDeal && currentDeal.stage_id !== newStageId) return; // deal was re-moved
+
           setDeals((prev) =>
             prev.map((d) =>
               d.id === dealId
-                ? { ...d, stage_id: oldStageId, stage: oldStage }
+                ? { ...d, stage_id: undoToStageId, stage: undoToStage }
                 : d
             )
           );
           const undoRes = await fetch(`/api/deals/${dealId}/move`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ stage_id: oldStageId }),
+            body: JSON.stringify({ stage_id: undoToStageId }),
           });
           if (!undoRes.ok) {
             toast.error("Failed to undo move");
@@ -454,11 +489,6 @@ export default function PipelinePage() {
     fetchData();
   }
 
-  // Quick actions from deal cards
-  async function handleQuickMove(dealId: string, stageId: string) {
-    handleMoveDeal(dealId, stageId);
-  }
-
   async function handleQuickOutcome(dealId: string, outcome: string) {
     if (dealId.startsWith("sample-")) return;
     const res = await fetch(`/api/deals/${dealId}/outcome`, {
@@ -485,6 +515,72 @@ export default function PipelinePage() {
       setDeals((prev) => prev.map((d) => d.id === dealId ? { ...d, [field]: val } : d));
     } else {
       toast.error("Failed to update");
+    }
+  }
+
+  async function handleBulkSentiment() {
+    setBulkSentimentLoading(true);
+    try {
+      const res = await fetch("/api/deals/bulk-sentiment", { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        toast.success(`Analyzed sentiment for ${data.analyzed} deal${data.analyzed !== 1 ? "s" : ""}`);
+        fetchData();
+      }
+    } finally {
+      setBulkSentimentLoading(false);
+    }
+  }
+
+  async function handleToggleInsights() {
+    if (showInsights) { setShowInsights(false); return; }
+    setInsightsLoading(true);
+    setShowInsights(true);
+    try {
+      const res = await fetch("/api/deals/pipeline-insights");
+      if (res.ok) {
+        const data = await res.json();
+        setInsights(data.insights);
+        setInsightsStats(data.stats);
+      }
+    } finally {
+      setInsightsLoading(false);
+    }
+  }
+
+  // Fetch contacts lazily — only when "Add Deal" is first opened
+  function handleOpenCreateDeal() {
+    setCreateOpen(true);
+    if (!contactsFetched.current) {
+      contactsFetched.current = true;
+      fetch("/api/contacts")
+        .then((r) => {
+          if (!r.ok) throw new Error(`${r.status}`);
+          return r.json();
+        })
+        .then((d) => setContacts(d.contacts ?? []))
+        .catch(() => {
+          contactsFetched.current = false;
+        });
+    }
+  }
+
+  // Fetch workflow templates once (lazy — on first automate action)
+  function handleAutomateDeal(deal: Deal) {
+    setAutomateDeal(deal);
+    if (!templatesFetched.current) {
+      templatesFetched.current = true;
+      setTemplatesLoading(true);
+      fetch("/api/workflow-templates")
+        .then((r) => {
+          if (!r.ok) throw new Error(`${r.status}`);
+          return r.json();
+        })
+        .then((d) => setWorkflowTemplates(d.templates ?? []))
+        .catch(() => {
+          templatesFetched.current = false; // allow retry
+        })
+        .finally(() => setTemplatesLoading(false));
     }
   }
 
@@ -579,7 +675,7 @@ export default function PipelinePage() {
               className="h-8 w-[160px] pl-7 text-xs"
             />
           </div>
-          <Button size="sm" onClick={() => setCreateOpen(true)}>
+          <Button size="sm" onClick={handleOpenCreateDeal}>
             Add Deal
           </Button>
         </div>
@@ -596,19 +692,7 @@ export default function PipelinePage() {
           {search && <span className="text-primary ml-auto">{searchFiltered.length} match{searchFiltered.length !== 1 ? "es" : ""}</span>}
           <div className="ml-auto flex items-center gap-2">
             <button
-              onClick={async () => {
-                setBulkSentimentLoading(true);
-                try {
-                  const res = await fetch("/api/deals/bulk-sentiment", { method: "POST" });
-                  if (res.ok) {
-                    const data = await res.json();
-                    toast.success(`Analyzed sentiment for ${data.analyzed} deal${data.analyzed !== 1 ? "s" : ""}`);
-                    fetchData();
-                  }
-                } finally {
-                  setBulkSentimentLoading(false);
-                }
-              }}
+              onClick={handleBulkSentiment}
               disabled={bulkSentimentLoading}
               className="flex items-center gap-1 text-[10px] text-primary hover:text-primary/80 transition-colors"
             >
@@ -616,21 +700,7 @@ export default function PipelinePage() {
               {bulkSentimentLoading ? "Analyzing..." : "Bulk Sentiment"}
             </button>
             <button
-              onClick={async () => {
-                if (showInsights) { setShowInsights(false); return; }
-                setInsightsLoading(true);
-                setShowInsights(true);
-                try {
-                  const res = await fetch("/api/deals/pipeline-insights");
-                  if (res.ok) {
-                    const data = await res.json();
-                    setInsights(data.insights);
-                    setInsightsStats(data.stats);
-                  }
-                } finally {
-                  setInsightsLoading(false);
-                }
-              }}
+              onClick={handleToggleInsights}
               className="flex items-center gap-1 text-[10px] text-primary hover:text-primary/80 transition-colors"
             >
               <Sparkles className="h-3 w-3" />
@@ -735,7 +805,7 @@ export default function PipelinePage() {
           board={board}
           onMoveDeal={handleMoveDeal}
           onDealClick={setSelectedDeal}
-          onQuickMove={handleQuickMove}
+          onQuickMove={handleMoveDeal}
           onQuickOutcome={handleQuickOutcome}
           onInlineEdit={handleInlineEdit}
           selectedDealIds={selectedDealIds}
@@ -744,6 +814,7 @@ export default function PipelinePage() {
           highlightedDealIds={highlightedDealIds}
           highlightDetails={highlightDetails}
           unreadCounts={unreadCounts}
+          onAutomateDeal={handleAutomateDeal}
         />
       ) : (
         <DealListView
@@ -772,6 +843,15 @@ export default function PipelinePage() {
         onClose={() => setSelectedDeal(null)}
         onDeleted={fetchData}
         onUpdated={fetchData}
+      />
+
+      <AutomateDealModal
+        open={!!automateDeal}
+        onClose={() => setAutomateDeal(null)}
+        deal={automateDeal}
+        templates={workflowTemplates}
+        templatesLoading={templatesLoading}
+        onWorkflowCreated={fetchData}
       />
     </div>
   );

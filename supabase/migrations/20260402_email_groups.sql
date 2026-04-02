@@ -13,7 +13,7 @@ create table if not exists crm_email_groups (
   is_collapsed boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  unique(connection_id, name)
+  unique(user_id, connection_id, name)
 );
 
 alter table crm_email_groups enable row level security;

@@ -28,6 +28,16 @@ function escapeHtml(text: string): string {
     .replace(/'/g, "&#39;");
 }
 
+/** Check if a hex color is light (for text contrast on Gmail labels) */
+function isLightColor(hex: string): boolean {
+  const c = hex.replace("#", "");
+  const r = parseInt(c.substring(0, 2), 16);
+  const g = parseInt(c.substring(2, 4), 16);
+  const b = parseInt(c.substring(4, 6), 16);
+  // Relative luminance threshold
+  return (r * 299 + g * 587 + b * 114) / 1000 > 150;
+}
+
 /** Retry Gmail API calls on 429/5xx with exponential backoff (Google requirement) */
 async function withBackoff<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -161,31 +171,31 @@ export class GmailDriver implements MailDriver {
   }
 
   async markAsRead(threadId: string): Promise<void> {
-    await this.gmail.users.threads.modify({
+    await withBackoff(() => this.gmail.users.threads.modify({
       userId: "me",
       id: threadId,
       requestBody: { removeLabelIds: ["UNREAD"] },
-    });
+    }));
   }
 
   async markAsUnread(threadId: string): Promise<void> {
-    await this.gmail.users.threads.modify({
+    await withBackoff(() => this.gmail.users.threads.modify({
       userId: "me",
       id: threadId,
       requestBody: { addLabelIds: ["UNREAD"] },
-    });
+    }));
   }
 
   async archive(threadId: string): Promise<void> {
-    await this.gmail.users.threads.modify({
+    await withBackoff(() => this.gmail.users.threads.modify({
       userId: "me",
       id: threadId,
       requestBody: { removeLabelIds: ["INBOX"] },
-    });
+    }));
   }
 
   async trash(threadId: string): Promise<void> {
-    await this.gmail.users.threads.trash({ userId: "me", id: threadId });
+    await withBackoff(() => this.gmail.users.threads.trash({ userId: "me", id: threadId }));
   }
 
   async toggleStar(threadId: string, currentlyStarred?: boolean): Promise<void> {
@@ -310,6 +320,7 @@ export class GmailDriver implements MailDriver {
       userId: "me",
       requestBody: { raw, threadId },
     }));
+    if (!res.data.id) throw new Error("Gmail reply returned no message ID");
     const msg = await withBackoff(() => this.gmail.users.messages.get({
       userId: "me",
       id: res.data.id!,
@@ -385,27 +396,97 @@ export class GmailDriver implements MailDriver {
     const res = await withBackoff(() => this.gmail.users.labels.list({ userId: "me" }));
     const labels = res.data.labels ?? [];
 
-    // Fetch label details in batches of 10 to avoid hammering the API
+    // System labels don't need detail fetch — use list response directly
+    const systemLabels: Label[] = labels
+      .filter((l) => l.type === "system")
+      .map((l) => ({
+        id: l.id!,
+        name: l.name!,
+        type: "system" as const,
+      }));
+
+    // Only fetch details for user labels (need color, counts) — batch to avoid rate limits
+    const userLabels = labels.filter((l) => l.type === "user");
     const BATCH_SIZE = 10;
-    const details: { l: typeof labels[number]; d: gmail_v1.Schema$Label }[] = [];
-    for (let i = 0; i < labels.length; i += BATCH_SIZE) {
-      const batch = labels.slice(i, i + BATCH_SIZE);
+    const userDetails: Label[] = [];
+    for (let i = 0; i < userLabels.length; i += BATCH_SIZE) {
+      const batch = userLabels.slice(i, i + BATCH_SIZE);
       const batchResults = await Promise.all(
         batch.map((l) =>
-          withBackoff(() => this.gmail.users.labels.get({ userId: "me", id: l.id! })).then((d) => ({ l, d: d.data }))
+          withBackoff(() => this.gmail.users.labels.get({ userId: "me", id: l.id! })).then((d) => ({
+            id: l.id!,
+            name: l.name!,
+            type: "user" as const,
+            messageCount: d.data.messagesTotal ?? undefined,
+            unreadCount: d.data.messagesUnread ?? undefined,
+            color: d.data.color?.backgroundColor ?? undefined,
+          }))
         )
       );
-      details.push(...batchResults);
+      userDetails.push(...batchResults);
     }
 
-    return details.map(({ l, d }) => ({
-      id: l.id!,
-      name: l.name!,
-      type: l.type === "system" ? "system" as const : "user" as const,
-      messageCount: d.messagesTotal ?? undefined,
-      unreadCount: d.messagesUnread ?? undefined,
-      color: d.color?.backgroundColor ?? undefined,
-    }));
+    return [...systemLabels, ...userDetails];
+  }
+
+  async createLabel(name: string, color?: string): Promise<Label> {
+    // Validate label name: Gmail rejects leading/trailing spaces, max ~225 chars, empty names
+    const trimmed = name.trim();
+    if (!trimmed || trimmed.length > 225) {
+      throw new Error(`Invalid label name: must be 1-225 characters (got ${name.length})`);
+    }
+
+    const bgColor = color ?? "#4986e7"; // Default Gmail blue
+    // Map light backgrounds to dark text for readability in Gmail
+    const textColor = isLightColor(bgColor) ? "#000000" : "#ffffff";
+    const res = await withBackoff(() =>
+      this.gmail.users.labels.create({
+        userId: "me",
+        requestBody: {
+          name: trimmed,
+          labelListVisibility: "labelShow",
+          messageListVisibility: "show",
+          color: { backgroundColor: bgColor, textColor },
+        },
+      })
+    );
+    return {
+      id: res.data.id!,
+      name: res.data.name!,
+      type: "user" as const,
+      messageCount: 0,
+      unreadCount: 0,
+      color: bgColor,
+    };
+  }
+
+  async deleteLabel(labelId: string): Promise<void> {
+    try {
+      await withBackoff(() =>
+        this.gmail.users.labels.delete({ userId: "me", id: labelId })
+      );
+    } catch (err: unknown) {
+      // Treat 404 as success (idempotent delete — label already gone)
+      const status = (err as { code?: number })?.code ?? (err as { status?: number })?.status;
+      if (status === 404) return;
+      throw err;
+    }
+  }
+
+  async renameLabel(labelId: string, newName: string): Promise<Label> {
+    const res = await withBackoff(() =>
+      this.gmail.users.labels.patch({
+        userId: "me",
+        id: labelId,
+        requestBody: { name: newName },
+      })
+    );
+    return {
+      id: res.data.id!,
+      name: res.data.name!,
+      type: "user" as const,
+      color: res.data.color?.backgroundColor ?? undefined,
+    };
   }
 
   async getAttachment(messageId: string, attachmentId: string, meta?: { filename?: string; mimeType?: string }): Promise<Attachment> {

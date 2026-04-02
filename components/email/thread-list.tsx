@@ -5,9 +5,9 @@ import { cn, timeAgo } from "@/lib/utils";
 import type { ThreadListItem } from "@/lib/email/types";
 import { ContactAvatar } from "./contact-avatar";
 import { EMAIL_THREAD_DRAG_TYPE, type DragThreadData } from "./email-groups";
-import { GripVertical, Inbox, Star, Archive, Trash2, MailOpen, Mail, Clock, AlertTriangle, Ban } from "lucide-react";
+import { GripVertical, Inbox, Star, Archive, Trash2, MailOpen, Mail, Clock, AlertTriangle, Ban, FolderPlus } from "lucide-react";
 
-export type ContextMenuAction = "archive" | "trash" | "star" | "read" | "unread" | "snooze" | "spam" | "block";
+export type ContextMenuAction = "archive" | "trash" | "star" | "read" | "unread" | "snooze" | "spam" | "block" | "add_to_group";
 
 interface ContextMenuState {
   x: number;
@@ -154,6 +154,7 @@ export function ThreadList({ threads, selectedId, selectedIds, onSelect, onToggl
           <ContextMenuItem icon={<MailOpen className="h-3.5 w-3.5" />} label="Mark as read" onClick={() => handleContextAction("read")} />
           <ContextMenuItem icon={<Mail className="h-3.5 w-3.5" />} label="Mark as unread" shortcut="u" onClick={() => handleContextAction("unread")} />
           <ContextMenuItem icon={<Clock className="h-3.5 w-3.5" />} label="Snooze" shortcut="h" onClick={() => handleContextAction("snooze")} />
+          <ContextMenuItem icon={<FolderPlus className="h-3.5 w-3.5" />} label="Add to group" onClick={() => handleContextAction("add_to_group")} />
           <div className="h-px bg-white/5 my-1" />
           <ContextMenuItem icon={<AlertTriangle className="h-3.5 w-3.5" />} label="Report spam" onClick={() => handleContextAction("spam")} destructive />
           <ContextMenuItem icon={<Ban className="h-3.5 w-3.5" />} label="Block sender" onClick={() => handleContextAction("block")} destructive />
