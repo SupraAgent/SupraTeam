@@ -91,7 +91,7 @@ export async function POST() {
             }
           }
         } catch (err) {
-          console.error("[auth/telegram-qr] token update error:", err);
+          console.error("[auth/telegram-qr] token update error:", err instanceof Error ? err.message : "unknown");
         }
       }
     });
@@ -115,7 +115,7 @@ export async function POST() {
 }
 
 export async function GET(request: Request) {
-  if (process.env.ALLOW_LEGACY_TG_AUTH !== "true") {
+  if (process.env.NODE_ENV === "production" || process.env.ALLOW_LEGACY_TG_AUTH !== "true") {
     return NextResponse.json(
       { error: "Legacy Telegram auth is disabled. Use the zero-knowledge client flow." },
       { status: 410 }
@@ -172,7 +172,7 @@ export async function GET(request: Request) {
       console.error("[auth/telegram-qr] failed to save TG session:", sessionError);
     }
   } catch (err) {
-    console.error("[auth/telegram-qr] failed to encrypt/save TG session:", err);
+    console.error("[auth/telegram-qr] failed to encrypt/save TG session:", err instanceof Error ? err.message : "unknown");
   }
 
   // Audit log (non-critical)

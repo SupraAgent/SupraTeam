@@ -13,6 +13,7 @@
  */
 
 import type { TelegramClient } from "telegram";
+import { createHmac } from "crypto";
 import { createSupabaseAdmin } from "@/lib/supabase";
 
 // ── Phone login pending sessions ──
@@ -87,7 +88,7 @@ export async function getOrCreateSupabaseSession(
     console.error("[telegram-login-store] TELEGRAM_BOT_TOKEN is not set — cannot derive password");
     return null;
   }
-  const password = `tg_${tgId}_${botToken.slice(0, 16)}`;
+  const password = createHmac("sha256", botToken).update(`tg-user:${tgId}`).digest("hex");
   const displayName =
     [tgUser.firstName, tgUser.lastName].filter(Boolean).join(" ") ||
     `User ${tgId}`;
