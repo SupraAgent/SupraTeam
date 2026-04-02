@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { SetupChecklist } from "@/components/onboarding/setup-checklist";
 import { ActionableNotificationWidget } from "@/components/notifications/actionable-notification-widget";
+import { QuestProgressWidget } from "@/components/dashboard/quest-progress-widget";
 
 type Stats = {
   totalDeals: number;
@@ -244,6 +245,9 @@ export default function HomePage() {
           sparkline={extras?.responseTime.daily_trend.map((d) => d.avg_ms)}
         />
       </div>
+
+      {/* Weekly quests */}
+      <QuestProgressWidget />
 
       {/* === ACTION REQUIRED === */}
       {(s.staleDeals.length > 0 || s.followUps.length > 0 || reminders.length > 0 || highlights.length > 0) && (
