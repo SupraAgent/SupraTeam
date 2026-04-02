@@ -193,7 +193,8 @@ body {
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
-  mix-blend-mode: multiply;
+  filter: invert(1) hue-rotate(180deg);
+  mix-blend-mode: screen;
 }
 
 .ice-stage-1::before { background-image: url("/ice-1.png"); }
