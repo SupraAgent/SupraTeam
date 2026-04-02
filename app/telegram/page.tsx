@@ -5,13 +5,16 @@ import { useRouter } from "next/navigation";
 import { cn, timeAgo } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useTelegram } from "@/lib/client/telegram-context";
+import { useTelegramDialogs } from "@/lib/client/use-telegram-dialogs";
+import { useTelegramMessages } from "@/lib/client/use-telegram-messages";
+import type { TgDialog } from "@/lib/client/telegram-service";
 import {
   MessageCircle,
   Search,
   Send,
   Users,
   User as UserIcon,
-  Hash,
   Megaphone,
   RefreshCw,
   ArrowLeft,
@@ -19,42 +22,10 @@ import {
   Smartphone,
   Shield,
   Lock,
+  Fingerprint,
 } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────
-
-interface Dialog {
-  id: string;
-  type: "private" | "group" | "supergroup" | "channel";
-  title: string;
-  username?: string;
-  unreadCount: number;
-  telegramId: number;
-  accessHash?: string;
-  isCrmLinked: boolean;
-  lastMessage?: {
-    text: string;
-    date: number;
-    senderName?: string;
-  };
-}
-
-interface Message {
-  id: number;
-  text: string;
-  date: number;
-  senderId?: number;
-  senderName?: string;
-  replyToId?: number;
-  mediaType?: string;
-}
-
-type ConnectionStatus = {
-  connected: boolean;
-  telegramUserId?: number;
-  phoneLast4?: string;
-  connectedAt?: string;
-};
 
 type FilterType = "all" | "private" | "group" | "channel";
 
@@ -62,137 +33,96 @@ type FilterType = "all" | "private" | "group" | "channel";
 
 export default function TelegramPage() {
   const router = useRouter();
-  const [status, setStatus] = React.useState<ConnectionStatus | null>(null);
-  const [statusLoading, setStatusLoading] = React.useState(true);
+  const tg = useTelegram();
+  const { dialogs, loading: dialogsLoading, refresh: refreshDialogs } = useTelegramDialogs();
 
-  // Conversation list
-  const [dialogs, setDialogs] = React.useState<Dialog[]>([]);
-  const [dialogsLoading, setDialogsLoading] = React.useState(false);
   const [filter, setFilter] = React.useState<FilterType>("all");
   const [search, setSearch] = React.useState("");
-
-  // Active conversation
-  const [activeDialog, setActiveDialog] = React.useState<Dialog | null>(null);
-  const [messages, setMessages] = React.useState<Message[]>([]);
-  const [messagesLoading, setMessagesLoading] = React.useState(false);
+  const [activeDialog, setActiveDialog] = React.useState<TgDialog | null>(null);
   const [replyText, setReplyText] = React.useState("");
   const [sending, setSending] = React.useState(false);
 
+  // Messages hook — driven by active dialog
+  const peerType = activeDialog
+    ? activeDialog.type === "private"
+      ? "user" as const
+      : activeDialog.type === "group" || activeDialog.type === "supergroup"
+        ? "chat" as const
+        : "channel" as const
+    : null;
+
+  const {
+    messages,
+    loading: messagesLoading,
+    sendMessage,
+    refresh: refreshMessages,
+  } = useTelegramMessages(
+    peerType,
+    activeDialog?.telegramId ?? null,
+    activeDialog?.accessHash
+  );
+
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
 
-  // Check connection status on mount
+  // Auto-scroll on new messages
   React.useEffect(() => {
-    checkStatus();
-  }, []);
-
-  async function checkStatus() {
-    try {
-      const res = await fetch("/api/telegram-client/status");
-      const data = await res.json();
-      setStatus(data);
-      if (data.connected) {
-        fetchDialogs();
-      }
-    } finally {
-      setStatusLoading(false);
+    if (messages.length > 0) {
+      setTimeout(
+        () => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }),
+        100
+      );
     }
-  }
-
-  async function fetchDialogs() {
-    setDialogsLoading(true);
-    try {
-      const res = await fetch("/api/telegram-client/conversations?limit=100");
-      const data = await res.json();
-      if (data.data) {
-        setDialogs(data.data);
-      }
-    } finally {
-      setDialogsLoading(false);
-    }
-  }
-
-  async function fetchMessages(dialog: Dialog) {
-    setMessagesLoading(true);
-    try {
-      const peerType = dialog.type === "private" ? "user"
-        : dialog.type === "group" ? "chat"
-        : "channel";
-      const params = new URLSearchParams({
-        type: peerType,
-        id: String(dialog.telegramId),
-        limit: "50",
-      });
-      if (dialog.accessHash) params.set("accessHash", dialog.accessHash);
-
-      const res = await fetch(`/api/telegram-client/messages?${params}`);
-      const data = await res.json();
-      if (data.data) {
-        setMessages(data.data.reverse());
-        setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
-      }
-    } finally {
-      setMessagesLoading(false);
-    }
-  }
+  }, [messages.length]);
 
   async function handleSend() {
     if (!replyText.trim() || !activeDialog || sending) return;
     setSending(true);
     try {
-      const peerType = activeDialog.type === "private" ? "user"
-        : activeDialog.type === "group" ? "chat"
-        : "channel";
-      const res = await fetch("/api/telegram-client/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: peerType,
-          id: String(activeDialog.telegramId),
-          accessHash: activeDialog.accessHash,
-          message: replyText.trim(),
-        }),
-      });
-      if (res.ok) {
-        setReplyText("");
-        fetchMessages(activeDialog);
-      }
+      await sendMessage(replyText.trim());
+      setReplyText("");
     } finally {
       setSending(false);
     }
   }
 
-  function selectDialog(dialog: Dialog) {
+  function selectDialog(dialog: TgDialog) {
     setActiveDialog(dialog);
-    setMessages([]);
     setReplyText("");
-    fetchMessages(dialog);
   }
 
   // Filter dialogs
   const filtered = dialogs.filter((d) => {
     if (filter === "private" && d.type !== "private") return false;
-    if (filter === "group" && d.type !== "group" && d.type !== "supergroup") return false;
+    if (filter === "group" && d.type !== "group" && d.type !== "supergroup")
+      return false;
     if (filter === "channel" && d.type !== "channel") return false;
     if (search) {
       const q = search.toLowerCase();
-      return d.title.toLowerCase().includes(q) || d.username?.toLowerCase().includes(q);
+      return (
+        d.title.toLowerCase().includes(q) ||
+        d.username?.toLowerCase().includes(q)
+      );
     }
     return true;
   });
 
   function dialogIcon(type: string) {
     switch (type) {
-      case "private": return <UserIcon className="h-4 w-4 text-muted-foreground" />;
+      case "private":
+        return <UserIcon className="h-4 w-4 text-muted-foreground" />;
       case "group":
-      case "supergroup": return <Users className="h-4 w-4 text-muted-foreground" />;
-      case "channel": return <Megaphone className="h-4 w-4 text-muted-foreground" />;
-      default: return <MessageCircle className="h-4 w-4 text-muted-foreground" />;
+      case "supergroup":
+        return <Users className="h-4 w-4 text-muted-foreground" />;
+      case "channel":
+        return <Megaphone className="h-4 w-4 text-muted-foreground" />;
+      default:
+        return <MessageCircle className="h-4 w-4 text-muted-foreground" />;
     }
   }
 
   // ── Loading State ────────────────────────────────────────────
 
-  if (statusLoading) {
+  if (tg.status === "loading") {
     return (
       <div className="flex h-full items-center justify-center">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -202,7 +132,7 @@ export default function TelegramPage() {
 
   // ── Not Connected CTA ───────────────────────────────────────
 
-  if (!status?.connected) {
+  if (tg.status !== "connected") {
     return (
       <div className="flex h-full items-center justify-center p-8">
         <div className="max-w-md w-full space-y-8 text-center">
@@ -213,16 +143,19 @@ export default function TelegramPage() {
                 <MessageCircle className="h-10 w-10 text-[#2AABEE]" />
               </div>
               <div className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full bg-card border border-white/10">
-                <Lock className="h-3.5 w-3.5 text-muted-foreground" />
+                <Fingerprint className="h-3.5 w-3.5 text-primary" />
               </div>
             </div>
           </div>
 
           {/* Copy */}
           <div className="space-y-2">
-            <h2 className="text-xl font-semibold text-foreground">Connect Telegram</h2>
+            <h2 className="text-xl font-semibold text-foreground">
+              Connect Telegram
+            </h2>
             <p className="text-sm text-muted-foreground leading-relaxed">
-              View your conversations, send messages, and manage contacts directly from SupraTeam.
+              View your conversations, send messages, and manage contacts
+              directly from SupraTeam.
             </p>
           </div>
 
@@ -236,34 +169,64 @@ export default function TelegramPage() {
             Connect Telegram
           </Button>
 
-          {/* Privacy info */}
+          {/* Zero-knowledge privacy info */}
           <div className="rounded-xl bg-white/[0.03] border border-white/5 p-4 text-left space-y-3">
             <div className="flex items-center gap-2">
-              <Shield className="h-4 w-4 text-muted-foreground shrink-0" />
-              <span className="text-xs font-medium text-foreground">Privacy & Security</span>
+              <Fingerprint className="h-4 w-4 text-primary shrink-0" />
+              <span className="text-xs font-medium text-foreground">
+                Zero-Knowledge Encryption
+              </span>
             </div>
             <div className="grid grid-cols-2 gap-3 text-xs text-muted-foreground">
               <div className="space-y-1.5">
-                <p className="text-green-400/80 font-medium">We access:</p>
+                <p className="text-green-400/80 font-medium">How it works:</p>
                 <ul className="space-y-1">
-                  <li>Your contact list</li>
-                  <li>Your conversations</li>
-                  <li>Send messages as you</li>
+                  <li className="flex items-start gap-1.5">
+                    <Shield className="h-3 w-3 mt-0.5 shrink-0 text-green-400/60" />
+                    Connects directly from your browser
+                  </li>
+                  <li className="flex items-start gap-1.5">
+                    <Shield className="h-3 w-3 mt-0.5 shrink-0 text-green-400/60" />
+                    Key never leaves your device
+                  </li>
+                  <li className="flex items-start gap-1.5">
+                    <Shield className="h-3 w-3 mt-0.5 shrink-0 text-green-400/60" />
+                    Server stores only encrypted blobs
+                  </li>
                 </ul>
               </div>
               <div className="space-y-1.5">
-                <p className="text-red-400/80 font-medium">We never:</p>
+                <p className="text-red-400/80 font-medium">Server never sees:</p>
                 <ul className="space-y-1">
-                  <li>Store your DMs</li>
-                  <li>Share private data</li>
-                  <li>Store phone numbers</li>
+                  <li className="flex items-start gap-1.5">
+                    <Lock className="h-3 w-3 mt-0.5 shrink-0 text-red-400/60" />
+                    Your messages
+                  </li>
+                  <li className="flex items-start gap-1.5">
+                    <Lock className="h-3 w-3 mt-0.5 shrink-0 text-red-400/60" />
+                    Your contacts
+                  </li>
+                  <li className="flex items-start gap-1.5">
+                    <Lock className="h-3 w-3 mt-0.5 shrink-0 text-red-400/60" />
+                    Your session key
+                  </li>
                 </ul>
               </div>
             </div>
             <p className="text-[10px] text-muted-foreground/60">
-              Sessions encrypted with AES-256-GCM. Disconnect anytime from Settings.
+              AES-256-GCM · Device-bound key · Non-extractable CryptoKey
             </p>
           </div>
+
+          {/* Re-auth prompt for legacy sessions */}
+          {tg.status === "needs-reauth" && (
+            <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3">
+              <p className="text-xs text-amber-400">
+                Your previous session used server-side encryption.
+                Re-authenticate to upgrade to zero-knowledge encryption.
+              </p>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -276,19 +239,29 @@ export default function TelegramPage() {
       {/* Column 1: Filter Sidebar */}
       <div className="w-[200px] shrink-0 border-r border-white/[0.06] flex flex-col">
         <div className="p-3 border-b border-white/[0.06]">
-          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Chats</h2>
+          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            Chats
+          </h2>
         </div>
         <nav className="flex-1 p-2 space-y-0.5">
-          {([
-            { key: "all" as FilterType, label: "All Chats", icon: MessageCircle },
-            { key: "private" as FilterType, label: "Direct Messages", icon: UserIcon },
-            { key: "group" as FilterType, label: "Groups", icon: Users },
-            { key: "channel" as FilterType, label: "Channels", icon: Megaphone },
-          ]).map((item) => {
-            const count = item.key === "all" ? dialogs.length
-              : item.key === "private" ? dialogs.filter((d) => d.type === "private").length
-              : item.key === "group" ? dialogs.filter((d) => d.type === "group" || d.type === "supergroup").length
-              : dialogs.filter((d) => d.type === "channel").length;
+          {(
+            [
+              { key: "all" as FilterType, label: "All Chats", icon: MessageCircle },
+              { key: "private" as FilterType, label: "Direct Messages", icon: UserIcon },
+              { key: "group" as FilterType, label: "Groups", icon: Users },
+              { key: "channel" as FilterType, label: "Channels", icon: Megaphone },
+            ] as const
+          ).map((item) => {
+            const count =
+              item.key === "all"
+                ? dialogs.length
+                : item.key === "private"
+                  ? dialogs.filter((d) => d.type === "private").length
+                  : item.key === "group"
+                    ? dialogs.filter(
+                        (d) => d.type === "group" || d.type === "supergroup"
+                      ).length
+                    : dialogs.filter((d) => d.type === "channel").length;
             return (
               <button
                 key={item.key}
@@ -303,7 +276,9 @@ export default function TelegramPage() {
                 <item.icon className="h-4 w-4 shrink-0" />
                 <span className="flex-1 text-left truncate">{item.label}</span>
                 {count > 0 && (
-                  <span className="text-[10px] text-muted-foreground/60">{count}</span>
+                  <span className="text-[10px] text-muted-foreground/60">
+                    {count}
+                  </span>
                 )}
               </button>
             );
@@ -315,8 +290,13 @@ export default function TelegramPage() {
           <div className="flex items-center gap-2">
             <div className="h-2 w-2 rounded-full bg-green-400" />
             <span className="text-[10px] text-muted-foreground truncate">
-              Connected{status.phoneLast4 ? ` (***${status.phoneLast4})` : ""}
+              Connected
+              {tg.phoneLast4 ? ` (***${tg.phoneLast4})` : ""}
             </span>
+          </div>
+          <div className="flex items-center gap-1 mt-1">
+            <Fingerprint className="h-2.5 w-2.5 text-primary/60" />
+            <span className="text-[9px] text-primary/60">Zero-knowledge</span>
           </div>
         </div>
       </div>
@@ -335,11 +315,16 @@ export default function TelegramPage() {
             />
           </div>
           <button
-            onClick={fetchDialogs}
+            onClick={refreshDialogs}
             disabled={dialogsLoading}
             className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-white/[0.06] transition-colors"
           >
-            <RefreshCw className={cn("h-3.5 w-3.5 text-muted-foreground", dialogsLoading && "animate-spin")} />
+            <RefreshCw
+              className={cn(
+                "h-3.5 w-3.5 text-muted-foreground",
+                dialogsLoading && "animate-spin"
+              )}
+            />
           </button>
         </div>
 
@@ -353,7 +338,9 @@ export default function TelegramPage() {
             <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
               <MessageCircle className="h-8 w-8 text-muted-foreground/30 mb-2" />
               <p className="text-sm text-muted-foreground">
-                {search ? "No conversations match your search" : "No conversations"}
+                {search
+                  ? "No conversations match your search"
+                  : "No conversations"}
               </p>
             </div>
           ) : (
@@ -369,12 +356,7 @@ export default function TelegramPage() {
                 )}
               >
                 {/* Avatar */}
-                <div className={cn(
-                  "flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-medium",
-                  dialog.isCrmLinked
-                    ? "bg-primary/10 text-primary border border-primary/20"
-                    : "bg-white/[0.06] text-muted-foreground"
-                )}>
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-medium bg-white/[0.06] text-muted-foreground">
                   {dialog.type === "private"
                     ? dialog.title.charAt(0).toUpperCase()
                     : dialogIcon(dialog.type)}
@@ -388,7 +370,11 @@ export default function TelegramPage() {
                     </span>
                     {dialog.lastMessage && (
                       <span className="text-[10px] text-muted-foreground/60 shrink-0">
-                        {timeAgo(new Date(dialog.lastMessage.date * 1000).toISOString())}
+                        {timeAgo(
+                          new Date(
+                            dialog.lastMessage.date * 1000
+                          ).toISOString()
+                        )}
                       </span>
                     )}
                   </div>
@@ -396,12 +382,16 @@ export default function TelegramPage() {
                     {dialog.lastMessage ? (
                       <p className="text-xs text-muted-foreground truncate">
                         {dialog.lastMessage.senderName && (
-                          <span className="text-foreground/60">{dialog.lastMessage.senderName}: </span>
+                          <span className="text-foreground/60">
+                            {dialog.lastMessage.senderName}:{" "}
+                          </span>
                         )}
                         {dialog.lastMessage.text}
                       </p>
                     ) : (
-                      <p className="text-xs text-muted-foreground/40 italic">No messages</p>
+                      <p className="text-xs text-muted-foreground/40 italic">
+                        No messages
+                      </p>
                     )}
                     {dialog.unreadCount > 0 && (
                       <span className="ml-auto shrink-0 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-medium text-white">
@@ -409,11 +399,6 @@ export default function TelegramPage() {
                       </span>
                     )}
                   </div>
-                  {dialog.isCrmLinked && (
-                    <span className="mt-1 inline-flex items-center gap-1 text-[10px] text-primary/70">
-                      <Hash className="h-2.5 w-2.5" /> CRM Linked
-                    </span>
-                  )}
                 </div>
               </button>
             ))
@@ -433,27 +418,28 @@ export default function TelegramPage() {
               >
                 <ArrowLeft className="h-4 w-4" />
               </button>
-              <div className={cn(
-                "flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-medium",
-                "bg-white/[0.06] text-muted-foreground"
-              )}>
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-medium bg-white/[0.06] text-muted-foreground">
                 {activeDialog.type === "private"
                   ? activeDialog.title.charAt(0).toUpperCase()
                   : dialogIcon(activeDialog.type)}
               </div>
               <div className="flex-1 min-w-0">
-                <h3 className="text-sm font-medium text-foreground truncate">{activeDialog.title}</h3>
+                <h3 className="text-sm font-medium text-foreground truncate">
+                  {activeDialog.title}
+                </h3>
                 <p className="text-[10px] text-muted-foreground">
-                  {activeDialog.type === "private" ? "Direct Message" :
-                   activeDialog.type === "channel" ? "Channel" : "Group"}
+                  {activeDialog.type === "private"
+                    ? "Direct Message"
+                    : activeDialog.type === "channel"
+                      ? "Channel"
+                      : "Group"}
                   {activeDialog.username && ` @${activeDialog.username}`}
                 </p>
               </div>
-              {activeDialog.isCrmLinked && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 border border-primary/20 px-2.5 py-1 text-[10px] font-medium text-primary">
-                  <Hash className="h-2.5 w-2.5" /> CRM
-                </span>
-              )}
+              <div className="flex items-center gap-1 text-[9px] text-primary/50">
+                <Fingerprint className="h-3 w-3" />
+                E2E
+              </div>
             </div>
 
             {/* Messages */}
@@ -475,7 +461,10 @@ export default function TelegramPage() {
                         {msg.senderName || "Unknown"}
                       </span>
                       <span className="text-[10px] text-muted-foreground/50">
-                        {new Date(msg.date * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        {new Date(msg.date * 1000).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
                       </span>
                       {msg.mediaType && (
                         <span className="text-[10px] text-muted-foreground/40 italic">
@@ -484,7 +473,8 @@ export default function TelegramPage() {
                       )}
                     </div>
                     <p className="text-sm text-foreground/80 mt-0.5 whitespace-pre-wrap break-words">
-                      {msg.text || (msg.mediaType ? `[${msg.mediaType}]` : "[empty]")}
+                      {msg.text ||
+                        (msg.mediaType ? `[${msg.mediaType}]` : "[empty]")}
                     </p>
                   </div>
                 ))
@@ -529,9 +519,11 @@ export default function TelegramPage() {
           /* Empty state */
           <div className="flex flex-1 flex-col items-center justify-center text-center">
             <Send className="h-12 w-12 text-muted-foreground/20 mb-3" />
-            <p className="text-sm text-muted-foreground">Select a conversation to read</p>
+            <p className="text-sm text-muted-foreground">
+              Select a conversation to read
+            </p>
             <p className="text-xs text-muted-foreground/50 mt-1">
-              Right-click a conversation for quick actions
+              All data stays in your browser — zero-knowledge encrypted
             </p>
           </div>
         )}

@@ -3,18 +3,14 @@
 import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useTelegram } from "@/lib/client/telegram-context";
+import { Shield, Lock, Fingerprint } from "lucide-react";
+import type { Api } from "telegram";
 
-type ConnectionStatus = {
-  connected: boolean;
-  telegramUserId?: number;
-  phoneLast4?: string;
-  connectedAt?: string;
-};
-
-type Step = "idle" | "phone" | "code" | "2fa" | "qr" | "connected";
+type Step = "idle" | "phone" | "code" | "2fa" | "qr" | "connected" | "needs-reauth";
 
 export default function TelegramConnectPage() {
-  const [status, setStatus] = React.useState<ConnectionStatus | null>(null);
+  const tg = useTelegram();
   const [step, setStep] = React.useState<Step>("idle");
   const [phone, setPhone] = React.useState("");
   const [code, setCode] = React.useState("");
@@ -23,45 +19,25 @@ export default function TelegramConnectPage() {
   const [qrUrl, setQrUrl] = React.useState("");
   const [error, setError] = React.useState("");
   const [loading, setLoading] = React.useState(false);
-  const [initialLoading, setInitialLoading] = React.useState(true);
-  const qrPollRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  const waitForScanRef = React.useRef<(() => Promise<Api.User>) | null>(null);
 
-  // Check connection status on mount
+  // Sync step with context status
   React.useEffect(() => {
-    fetchStatus();
-    return () => {
-      if (qrPollRef.current) clearInterval(qrPollRef.current);
-    };
-  }, []);
-
-  async function fetchStatus() {
-    try {
-      const res = await fetch("/api/telegram-client/status");
-      const data = await res.json();
-      setStatus(data);
-      if (data.connected) setStep("connected");
-    } finally {
-      setInitialLoading(false);
-    }
-  }
+    if (tg.status === "connected") setStep("connected");
+    else if (tg.status === "needs-reauth") setStep("needs-reauth");
+    else if (tg.status === "disconnected") setStep("idle");
+  }, [tg.status]);
 
   async function handleSendCode() {
     if (!phone.trim()) return;
     setLoading(true);
     setError("");
     try {
-      const res = await fetch("/api/telegram-client/connect", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: phone.trim() }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Failed to send code");
-        return;
-      }
-      setPhoneCodeHash(data.phoneCodeHash);
+      const result = await tg.sendCode(phone.trim());
+      setPhoneCodeHash(result.phoneCodeHash);
       setStep("code");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to send code");
     } finally {
       setLoading(false);
     }
@@ -72,27 +48,36 @@ export default function TelegramConnectPage() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch("/api/telegram-client/verify-code", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          code: code.trim(),
-          phoneCodeHash,
-          password: password || undefined,
-        }),
-      });
-      const data = await res.json();
-      if (data.error === "2FA_REQUIRED") {
-        setStep("2fa");
-        setLoading(false);
-        return;
-      }
-      if (!res.ok) {
-        setError(data.error || "Verification failed");
-        return;
-      }
+      const user = await tg.signIn(phone.trim(), code.trim(), phoneCodeHash);
+      setCode(""); // Clear verification code from memory
+      const last4 = phone.replace(/\D/g, "").slice(-4);
+      await tg.persistSession(user, last4);
+      setPhone(""); // Clear phone number from memory
       setStep("connected");
-      fetchStatus();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Verification failed";
+      if (msg.includes("SESSION_PASSWORD_NEEDED")) {
+        setStep("2fa");
+      } else {
+        setError(msg);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handle2FA() {
+    if (!password.trim()) return;
+    setLoading(true);
+    setError("");
+    try {
+      const user = await tg.signIn2FA(password.trim());
+      setPassword(""); // Clear 2FA password from memory immediately
+      const last4 = phone.replace(/\D/g, "").slice(-4);
+      await tg.persistSession(user, last4);
+      setStep("connected");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "2FA verification failed");
     } finally {
       setLoading(false);
     }
@@ -102,31 +87,25 @@ export default function TelegramConnectPage() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch("/api/telegram-client/qr-login", {
-        method: "POST",
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "QR login failed");
-        return;
-      }
-      setQrUrl(data.qrUrl);
+      const result = await tg.service.connect("");
+      void result; // ensure client is ready
+      const qr = await tg.service.requestQRLogin();
+      setQrUrl(qr.qrUrl);
       setStep("qr");
+      waitForScanRef.current = qr.waitForScan;
 
-      // Poll for confirmation
-      qrPollRef.current = setInterval(async () => {
-        const pollRes = await fetch("/api/telegram-client/qr-login");
-        const pollData = await pollRes.json();
-        if (pollData.status === "confirmed") {
-          if (qrPollRef.current) clearInterval(qrPollRef.current);
+      // Wait for scan in background
+      qr.waitForScan()
+        .then(async (user) => {
+          await tg.persistSession(user);
           setStep("connected");
-          fetchStatus();
-        } else if (pollData.status === "expired") {
-          if (qrPollRef.current) clearInterval(qrPollRef.current);
-          setError("QR code expired. Try again.");
+        })
+        .catch((err) => {
+          setError(err instanceof Error ? err.message : "QR login failed");
           setStep("idle");
-        }
-      }, 2000);
+        });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "QR login failed");
     } finally {
       setLoading(false);
     }
@@ -135,8 +114,7 @@ export default function TelegramConnectPage() {
   async function handleDisconnect() {
     setLoading(true);
     try {
-      await fetch("/api/telegram-client/disconnect", { method: "POST" });
-      setStatus({ connected: false });
+      await tg.disconnect();
       setStep("idle");
       setPhone("");
       setCode("");
@@ -146,7 +124,7 @@ export default function TelegramConnectPage() {
     }
   }
 
-  if (initialLoading) {
+  if (tg.status === "loading") {
     return (
       <div className="space-y-6">
         <div>
@@ -168,7 +146,7 @@ export default function TelegramConnectPage() {
       </div>
 
       {/* Connected state */}
-      {step === "connected" && status?.connected && (
+      {step === "connected" && (
         <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5 space-y-4">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-green-500/10">
@@ -177,8 +155,7 @@ export default function TelegramConnectPage() {
             <div>
               <p className="text-sm font-medium text-foreground">Telegram Connected</p>
               <p className="text-xs text-muted-foreground">
-                {status.phoneLast4 && `Phone ending in ${status.phoneLast4}`}
-                {status.connectedAt && ` · Connected ${new Date(status.connectedAt).toLocaleDateString()}`}
+                {tg.phoneLast4 && `Phone ending in ${tg.phoneLast4}`}
               </p>
             </div>
           </div>
@@ -189,14 +166,29 @@ export default function TelegramConnectPage() {
             </Button>
           </div>
 
-          {/* Privacy notice */}
-          <div className="rounded-xl bg-white/[0.03] border border-white/5 p-3">
-            <p className="text-xs text-muted-foreground">
-              <strong className="text-foreground">Privacy:</strong> Your contacts and DMs are only visible to you.
-              Group messages from CRM-linked groups are shared with team members who have access.
-              Sessions are encrypted with AES-256-GCM.
-            </p>
+          {/* Zero-knowledge privacy notice */}
+          <ZeroKnowledgeNotice />
+        </div>
+      )}
+
+      {/* Needs re-auth (legacy server-encrypted session) */}
+      {step === "needs-reauth" && (
+        <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-5 space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10">
+              <Lock className="h-5 w-5 text-amber-400" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-foreground">Upgrade to Zero-Knowledge Encryption</p>
+              <p className="text-xs text-muted-foreground">
+                Your session was encrypted server-side. Re-authenticate to enable
+                client-side encryption where only your device holds the key.
+              </p>
+            </div>
           </div>
+          <Button size="sm" onClick={() => setStep("idle")}>
+            Re-authenticate
+          </Button>
         </div>
       )}
 
@@ -233,30 +225,8 @@ export default function TelegramConnectPage() {
             </Button>
           </div>
 
-          {/* Privacy info */}
-          <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5 space-y-3">
-            <h2 className="text-sm font-medium text-foreground">What We Access</h2>
-            <div className="grid grid-cols-2 gap-3 text-xs">
-              <div>
-                <p className="text-green-400 font-medium mb-1">We access:</p>
-                <ul className="space-y-1 text-muted-foreground">
-                  <li>Your contact list</li>
-                  <li>Your conversations (read-only)</li>
-                  <li>Ability to send messages as you</li>
-                  <li>Group memberships</li>
-                </ul>
-              </div>
-              <div>
-                <p className="text-red-400 font-medium mb-1">We never:</p>
-                <ul className="space-y-1 text-muted-foreground">
-                  <li>Store your DMs in our database</li>
-                  <li>Show your contacts to others</li>
-                  <li>Share your private conversations</li>
-                  <li>Store your phone number in plaintext</li>
-                </ul>
-              </div>
-            </div>
-          </div>
+          {/* Zero-knowledge privacy info */}
+          <ZeroKnowledgeNotice />
         </div>
       )}
 
@@ -304,9 +274,9 @@ export default function TelegramConnectPage() {
               placeholder="Cloud password"
               className="flex-1"
               autoFocus
-              onKeyDown={(e) => e.key === "Enter" && handleVerifyCode()}
+              onKeyDown={(e) => e.key === "Enter" && handle2FA()}
             />
-            <Button size="sm" onClick={handleVerifyCode} disabled={loading || !password.trim()}>
+            <Button size="sm" onClick={handle2FA} disabled={loading || !password.trim()}>
               {loading ? "Verifying..." : "Submit"}
             </Button>
           </div>
@@ -322,7 +292,6 @@ export default function TelegramConnectPage() {
           </p>
           <div className="flex justify-center py-4">
             <div className="rounded-2xl bg-white p-4">
-              {/* QR code rendered via canvas or external lib -- for now show URL */}
               <div className="h-48 w-48 flex items-center justify-center bg-gray-100 rounded-lg">
                 <p className="text-xs text-gray-600 text-center px-2 break-all font-mono">
                   {qrUrl}
@@ -331,10 +300,7 @@ export default function TelegramConnectPage() {
             </div>
           </div>
           <p className="text-xs text-muted-foreground animate-pulse">Waiting for scan...</p>
-          <Button size="sm" variant="ghost" onClick={() => {
-            if (qrPollRef.current) clearInterval(qrPollRef.current);
-            setStep("idle");
-          }}>
+          <Button size="sm" variant="ghost" onClick={() => setStep("idle")}>
             Cancel
           </Button>
         </div>
@@ -346,6 +312,57 @@ export default function TelegramConnectPage() {
           <p className="text-xs text-red-400">{error}</p>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Zero-knowledge privacy notice — shared between idle and connected states. */
+function ZeroKnowledgeNotice() {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5 space-y-3">
+      <div className="flex items-center gap-2">
+        <Fingerprint className="h-4 w-4 text-primary" />
+        <h2 className="text-sm font-medium text-foreground">Zero-Knowledge Encryption</h2>
+      </div>
+      <div className="grid grid-cols-2 gap-3 text-xs">
+        <div>
+          <p className="text-green-400 font-medium mb-1">How it works:</p>
+          <ul className="space-y-1 text-muted-foreground">
+            <li className="flex items-start gap-1.5">
+              <Shield className="h-3 w-3 mt-0.5 shrink-0 text-green-400/60" />
+              Telegram connects directly from your browser
+            </li>
+            <li className="flex items-start gap-1.5">
+              <Shield className="h-3 w-3 mt-0.5 shrink-0 text-green-400/60" />
+              Encryption key never leaves your device
+            </li>
+            <li className="flex items-start gap-1.5">
+              <Shield className="h-3 w-3 mt-0.5 shrink-0 text-green-400/60" />
+              Session stored as encrypted blob server can&apos;t read
+            </li>
+          </ul>
+        </div>
+        <div>
+          <p className="text-red-400 font-medium mb-1">Our server never sees:</p>
+          <ul className="space-y-1 text-muted-foreground">
+            <li className="flex items-start gap-1.5">
+              <Lock className="h-3 w-3 mt-0.5 shrink-0 text-red-400/60" />
+              Your messages or conversations
+            </li>
+            <li className="flex items-start gap-1.5">
+              <Lock className="h-3 w-3 mt-0.5 shrink-0 text-red-400/60" />
+              Your contacts or phone number
+            </li>
+            <li className="flex items-start gap-1.5">
+              <Lock className="h-3 w-3 mt-0.5 shrink-0 text-red-400/60" />
+              Your Telegram session key
+            </li>
+          </ul>
+        </div>
+      </div>
+      <p className="text-[10px] text-muted-foreground/60">
+        AES-256-GCM · Device-bound key in IndexedDB · Non-extractable CryptoKey
+      </p>
     </div>
   );
 }

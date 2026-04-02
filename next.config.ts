@@ -4,6 +4,19 @@ const nextConfig: NextConfig = {
   output: "standalone",
   reactStrictMode: true,
   transpilePackages: ["@supra/loop-builder"],
+  // GramJS uses Node.js modules that don't exist in browser.
+  // Stub them out — GramJS auto-detects browser and uses WebSocket instead.
+  turbopack: {
+    resolveAlias: {
+      net: { browser: "./lib/client/empty-module.ts" },
+      tls: { browser: "./lib/client/empty-module.ts" },
+      fs: { browser: "./lib/client/empty-module.ts" },
+      path: { browser: "./lib/client/empty-module.ts" },
+      os: { browser: "./lib/client/empty-module.ts" },
+      events: { browser: "./lib/client/empty-module.ts" },
+      "node-localstorage": { browser: "./lib/client/empty-module.ts" },
+    },
+  },
   images: {
     remotePatterns: [
       { hostname: "avatars.githubusercontent.com" },
@@ -39,7 +52,7 @@ const nextConfig: NextConfig = {
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: blob: https://avatars.githubusercontent.com https://github.com https://t.me",
               "font-src 'self' data:",
-              "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.anthropic.com",
+              "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.anthropic.com wss://venus.web.telegram.org wss://flora.web.telegram.org wss://pluto.web.telegram.org wss://vesta.web.telegram.org wss://aurora.web.telegram.org",
               "frame-ancestors 'none'",
               "base-uri 'self'",
               "form-action 'self'",

@@ -1,4 +1,8 @@
 /**
+ * @deprecated LEGACY — runs GramJS server-side, breaking zero-knowledge guarantee.
+ * Sessions created via this route use server-side encryption (encryption_method='server').
+ * Migrate to client-side auth flow (TelegramProvider + browser GramJS) when possible.
+ *
  * POST /api/auth/telegram-phone
  * Step 1: Send phone code via GramJS (no auth required -- this IS the login flow)
  *
@@ -12,6 +16,14 @@ import { pendingPhoneLogins, phoneKey } from "@/lib/telegram-login-store";
 import { rateLimit } from "@/lib/rate-limit";
 
 export async function POST(request: Request) {
+  // Legacy route — disabled by default. Set ALLOW_LEGACY_TG_AUTH=true to re-enable.
+  if (process.env.ALLOW_LEGACY_TG_AUTH !== "true") {
+    return NextResponse.json(
+      { error: "Legacy Telegram auth is disabled. Use the zero-knowledge client flow." },
+      { status: 410 }
+    );
+  }
+
   // Rate limit by IP to prevent SMS flood
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
     || request.headers.get("x-real-ip")
