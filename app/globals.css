@@ -162,9 +162,8 @@ body {
 }
 
 /* ── Ice Cold Deal Cards ── */
-/* Progressive frost effect using PNG overlays for stale deals (1-8 weeks) */
+/* PNG-only frost overlay for stale deals (1-8 weeks) */
 
-/* Base for all ice stages */
 .ice-stage-1,
 .ice-stage-2,
 .ice-stage-3,
@@ -175,10 +174,8 @@ body {
 .ice-stage-8 {
   position: relative;
   overflow: hidden;
-  transition: border-color 0.3s ease, box-shadow 0.3s ease, background-color 0.3s ease;
 }
 
-/* ::before — PNG texture overlay, each stage has its own image */
 .ice-stage-1::before,
 .ice-stage-2::before,
 .ice-stage-3::before,
@@ -200,141 +197,14 @@ body {
   mix-blend-mode: screen;
 }
 
-/* ::after — shimmer highlight layer (stages 5+ only) */
-.ice-stage-5::after,
-.ice-stage-6::after,
-.ice-stage-7::after,
-.ice-stage-8::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 3;
-  border-radius: inherit;
-  background: linear-gradient(
-    105deg,
-    transparent 30%,
-    rgba(200, 235, 255, 0.08) 42%,
-    rgba(255, 255, 255, 0.12) 50%,
-    rgba(200, 235, 255, 0.08) 58%,
-    transparent 70%
-  );
-  background-size: 200% 100%;
-  animation: ice-shimmer 4s ease-in-out infinite;
-}
-
-@keyframes ice-shimmer {
-  0%, 100% { background-position: 200% 0; }
-  50% { background-position: -200% 0; }
-}
-
-/* ── Stage 1: Frost at corners ── */
-.ice-stage-1 {
-  border-color: rgba(184, 228, 240, 0.2) !important;
-  box-shadow: inset 0 0 8px rgba(184, 228, 240, 0.05);
-}
-.ice-stage-1::before {
-  background-image: url("/ice-1.png");
-}
-
-/* ── Stage 2: Frost spreading along edges ── */
-.ice-stage-2 {
-  border-color: rgba(184, 228, 240, 0.3) !important;
-  box-shadow: inset 0 0 14px rgba(184, 228, 240, 0.08);
-}
-.ice-stage-2::before {
-  background-image: url("/ice-2.png");
-}
-
-/* ── Stage 3: Ice crystals creeping inward ── */
-.ice-stage-3 {
-  border-color: rgba(125, 211, 252, 0.35) !important;
-  box-shadow:
-    inset 0 0 20px rgba(125, 211, 252, 0.1),
-    inset 0 0 4px rgba(56, 189, 248, 0.06);
-}
-.ice-stage-3::before {
-  background-image: url("/ice-3.png");
-}
-
-/* ── Stage 4: Half the card covered ── */
-.ice-stage-4 {
-  border-color: rgba(56, 189, 248, 0.4) !important;
-  box-shadow:
-    inset 0 0 25px rgba(125, 211, 252, 0.12),
-    inset 0 0 6px rgba(56, 189, 248, 0.08),
-    0 0 8px rgba(56, 189, 248, 0.06);
-}
-.ice-stage-4::before {
-  background-image: url("/ice-4.png");
-}
-
-/* ── Stage 5: Mostly frozen + shimmer ── */
-.ice-stage-5 {
-  border-color: rgba(56, 189, 248, 0.55) !important;
-  box-shadow:
-    inset 0 0 30px rgba(125, 211, 252, 0.15),
-    inset 0 0 8px rgba(56, 189, 248, 0.1),
-    0 0 12px rgba(56, 189, 248, 0.08);
-}
-.ice-stage-5::before {
-  background-image: url("/ice-5.png");
-}
-
-/* ── Stage 6: Heavily frozen ── */
-.ice-stage-6 {
-  border-color: rgba(56, 189, 248, 0.6) !important;
-  box-shadow:
-    inset 0 0 35px rgba(125, 211, 252, 0.16),
-    inset 0 0 10px rgba(56, 189, 248, 0.12),
-    0 0 15px rgba(56, 189, 248, 0.1),
-    0 0 3px rgba(184, 228, 240, 0.15);
-}
-.ice-stage-6::before {
-  background-image: url("/ice-6.png");
-}
-
-/* ── Stage 7: Nearly frozen solid ── */
-.ice-stage-7 {
-  border-color: rgba(56, 189, 248, 0.65) !important;
-  box-shadow:
-    inset 0 0 38px rgba(125, 211, 252, 0.17),
-    inset 0 0 12px rgba(56, 189, 248, 0.13),
-    0 0 18px rgba(56, 189, 248, 0.11),
-    0 0 4px rgba(184, 228, 240, 0.18);
-}
-.ice-stage-7::before {
-  background-image: url("/ice-6.png");
-}
-.ice-stage-7::after {
-  animation-duration: 3s;
-}
-
-/* ── Stage 8: Fully frozen — maximum ice ── */
-.ice-stage-8 {
-  border-color: rgba(56, 189, 248, 0.7) !important;
-  box-shadow:
-    inset 0 0 40px rgba(125, 211, 252, 0.18),
-    inset 0 0 12px rgba(56, 189, 248, 0.14),
-    0 0 20px rgba(56, 189, 248, 0.12),
-    0 0 4px rgba(184, 228, 240, 0.2),
-    0 0 1px rgba(255, 255, 255, 0.1);
-}
-.ice-stage-8::before {
-  background-image: url("/ice-6.png");
-}
-.ice-stage-8::after {
-  animation-duration: 2.5s;
-  background: linear-gradient(
-    105deg,
-    transparent 25%,
-    rgba(200, 235, 255, 0.1) 40%,
-    rgba(255, 255, 255, 0.18) 50%,
-    rgba(200, 235, 255, 0.1) 60%,
-    transparent 75%
-  );
-  background-size: 200% 100%;
-}
+.ice-stage-1::before { background-image: url("/ice-1.png"); }
+.ice-stage-2::before { background-image: url("/ice-2.png"); }
+.ice-stage-3::before { background-image: url("/ice-3.png"); }
+.ice-stage-4::before { background-image: url("/ice-4.png"); }
+.ice-stage-5::before { background-image: url("/ice-5.png"); }
+.ice-stage-6::before { background-image: url("/ice-6.png"); }
+.ice-stage-7::before { background-image: url("/ice-6.png"); }
+.ice-stage-8::before { background-image: url("/ice-6.png"); }
 
 /* View density system */
 [data-density="compact"] {
