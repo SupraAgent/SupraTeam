@@ -22,6 +22,10 @@ type KanbanColumnProps = {
   collapsed?: boolean;
   onToggleCollapse?: () => void;
   unreadCounts?: Record<string, number>;
+  slamDealId?: string | null;
+  ripple?: boolean;
+  onHoverPreview?: (deal: Deal, rect: DOMRect) => void;
+  onHoverEnd?: () => void;
 };
 
 function avgDaysInStage(deals: Deal[]): number | null {
@@ -44,6 +48,8 @@ export function KanbanColumn({
   highlightDealId, highlightedDealIds, highlightDetails,
   collapsed, onToggleCollapse,
   unreadCounts,
+  slamDealId, ripple,
+  onHoverPreview, onHoverEnd,
 }: KanbanColumnProps) {
   const totalValue = deals.reduce((sum, d) => sum + Number(d.value ?? 0), 0);
   const avgDays = avgDaysInStage(deals);
@@ -82,7 +88,7 @@ export function KanbanColumn({
   }
 
   return (
-    <div className="min-w-[260px] w-[260px] flex-shrink-0 rounded-xl border border-white/10 bg-white/[0.02] flex flex-col max-h-[calc(100vh-180px)]">
+    <div className={cn("min-w-[260px] w-[260px] flex-shrink-0 rounded-xl border border-white/10 bg-white/[0.02] flex flex-col max-h-[calc(100vh-180px)]", ripple && "animate-column-ripple")}>
       <div
         className="border-b border-white/10 px-3 py-2.5 cursor-pointer hover:bg-white/[0.02] transition-colors"
         onClick={onToggleCollapse}
@@ -170,6 +176,9 @@ export function KanbanColumn({
                 tgHighlight={highlightedDealIds?.has(deal.id) ?? false}
                 tgHighlightDetails={highlightDetails?.[deal.id]}
                 unreadCount={unreadCounts?.[deal.id]}
+                slam={deal.id === slamDealId}
+                onHoverPreview={onHoverPreview}
+                onHoverEnd={onHoverEnd}
               />
             ))}
             {provided.placeholder}

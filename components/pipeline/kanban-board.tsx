@@ -4,7 +4,8 @@ import * as React from "react";
 import { DragDropContext, type DropResult } from "@hello-pangea/dnd";
 import type { Deal, PipelineStage, BoardType } from "@/lib/types";
 import { KanbanColumn } from "./kanban-column";
-import { cn } from "@/lib/utils";
+import { DealHoverPreview } from "./deal-hover-preview";
+
 
 type KanbanBoardProps = {
   stages: PipelineStage[];
@@ -34,6 +35,15 @@ export function KanbanBoard({
   const filteredDeals = board === "All" ? deals : deals.filter((d) => d.board_type === board);
   const allFilteredDeals = board === "All" ? allDeals : allDeals.filter((d) => d.board_type === board);
   const [collapsedColumns, setCollapsedColumns] = React.useState<Set<string>>(new Set());
+  const [slamDealId, setSlamDealId] = React.useState<string | null>(null);
+  const [rippleStageId, setRippleStageId] = React.useState<string | null>(null);
+  const [hoverDeal, setHoverDeal] = React.useState<Deal | null>(null);
+  const [hoverRect, setHoverRect] = React.useState<DOMRect | null>(null);
+  const slamTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  React.useEffect(() => {
+    return () => { if (slamTimerRef.current) clearTimeout(slamTimerRef.current); };
+  }, []);
 
   function handleDragEnd(result: DropResult) {
     if (!result.destination) return;
@@ -41,6 +51,10 @@ export function KanbanBoard({
     const newStageId = result.destination.droppableId;
     if (result.source.droppableId === newStageId) return;
     onMoveDeal(dealId, newStageId);
+    setSlamDealId(dealId);
+    setRippleStageId(newStageId);
+    if (slamTimerRef.current) clearTimeout(slamTimerRef.current);
+    slamTimerRef.current = setTimeout(() => { setSlamDealId(null); setRippleStageId(null); }, 400);
   }
 
   function toggleCollapse(stageId: string) {
@@ -99,7 +113,8 @@ export function KanbanBoard({
         </div>
       )}
 
-      <DragDropContext onDragEnd={handleDragEnd}>
+      <DealHoverPreview deal={hoverDeal} anchorRect={hoverRect} />
+      <DragDropContext onDragStart={() => { setHoverDeal(null); setHoverRect(null); }} onDragEnd={handleDragEnd}>
         <div className="flex gap-3 overflow-x-auto pb-4 thin-scroll">
           {stages.map((stage) => {
             const stageDeals = filteredDeals.filter((d) => d.stage_id === stage.id);
@@ -124,6 +139,10 @@ export function KanbanBoard({
                 collapsed={isCollapsed}
                 onToggleCollapse={() => toggleCollapse(stage.id)}
                 unreadCounts={unreadCounts}
+                slamDealId={slamDealId}
+                ripple={rippleStageId === stage.id}
+                onHoverPreview={(deal, rect) => { setHoverDeal(deal); setHoverRect(rect); }}
+                onHoverEnd={() => { setHoverDeal(null); setHoverRect(null); }}
               />
             );
           })}

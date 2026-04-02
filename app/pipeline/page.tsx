@@ -8,6 +8,7 @@ import { CreateDealModal } from "@/components/pipeline/create-deal-modal";
 import { DealDetailPanel } from "@/components/pipeline/deal-detail-panel";
 import { PipelineFilterBar } from "@/components/pipeline/pipeline-filter-bar";
 import { BulkActionBar } from "@/components/pipeline/bulk-action-bar";
+import { AISuggestionsPanel } from "@/components/pipeline/ai-suggestions-panel";
 import { SavedViewsBar } from "@/components/saved-views-bar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -96,6 +97,7 @@ export default function PipelinePage() {
   const [showInsights, setShowInsights] = React.useState(false);
   const [bulkSentimentLoading, setBulkSentimentLoading] = React.useState(false);
   const [unreadCounts, setUnreadCounts] = React.useState<Record<string, number>>({});
+  const [showSuggestions, setShowSuggestions] = React.useState(true);
 
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -638,6 +640,17 @@ export default function PipelinePage() {
             </>
           )}
         </div>
+      )}
+
+      {/* AI Suggestions panel (Discover-style) */}
+      {showSuggestions && !usingSamples && deals.length > 0 && (
+        <AISuggestionsPanel
+          onDealClick={(dealId) => {
+            const deal = deals.find((d) => d.id === dealId);
+            if (deal) setSelectedDeal(deal);
+          }}
+          onQuickOutcome={handleQuickOutcome}
+        />
       )}
 
       {/* Advanced filter bar */}
