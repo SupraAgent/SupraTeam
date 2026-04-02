@@ -13,7 +13,6 @@ const nextConfig: NextConfig = {
       fs: { browser: "./lib/client/empty-module.ts" },
       path: { browser: "./lib/client/empty-module.ts" },
       os: { browser: "./lib/client/empty-module.ts" },
-      events: { browser: "./lib/client/empty-module.ts" },
       "node-localstorage": { browser: "./lib/client/empty-module.ts" },
     },
   },
