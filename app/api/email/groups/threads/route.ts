@@ -49,6 +49,16 @@ export async function POST(req: NextRequest) {
       const { driver } = await getDriverForUser(user.id, group.connection_id);
       await driver.modifyLabels(body.thread_id, [group.gmail_label_id], []);
     } catch (err: unknown) {
+      const code = (err as { code?: number })?.code;
+      if (code === 404) {
+        // Stale label — clear it so future operations fall back to junction table
+        await supabase
+          .from("crm_email_groups")
+          .update({ gmail_label_id: null })
+          .eq("id", body.group_id)
+          .eq("user_id", user.id);
+        return NextResponse.json({ error: "Gmail label was deleted. Group has been unlinked." }, { status: 410 });
+      }
       const msg = err instanceof Error ? err.message : "Failed to apply label";
       return NextResponse.json({ error: msg }, { status: 500 });
     }
@@ -192,6 +202,20 @@ export async function GET(req: NextRequest) {
       }));
       return NextResponse.json({ data: threads });
     } catch (err: unknown) {
+      // Detect stale label reference — user deleted the label directly in Gmail
+      const code = (err as { code?: number })?.code;
+      if (code === 404 || code === 400) {
+        // Clear the dead gmail_label_id so the group falls back to junction table
+        await supabase
+          .from("crm_email_groups")
+          .update({ gmail_label_id: null })
+          .eq("id", groupId)
+          .eq("user_id", user.id);
+        return NextResponse.json({
+          data: [],
+          warning: "Gmail label was deleted outside SupraCRM. Group has been unlinked from Gmail.",
+        });
+      }
       const msg = err instanceof Error ? err.message : "Failed to fetch threads";
       return NextResponse.json({ error: msg }, { status: 500 });
     }
