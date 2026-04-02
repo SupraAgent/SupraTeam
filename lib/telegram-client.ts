@@ -167,6 +167,7 @@ export async function getDialogs(
       offsetPeer: new Api.InputPeerEmpty(),
       limit,
       hash: bigInt(0),
+      folderId: 0, // exclude archived chats (folder 1)
     })
   );
 }

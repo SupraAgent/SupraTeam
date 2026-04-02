@@ -102,6 +102,7 @@ export async function GET(request: Request) {
 
       for (const dialog of fullResult.dialogs) {
         if (!(dialog instanceof Api.Dialog)) continue;
+        if (dialog.folderId === 1) continue; // skip archived
 
         const peer = dialog.peer;
         let item: DialogItem | null = null;
