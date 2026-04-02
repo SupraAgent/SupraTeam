@@ -972,8 +972,8 @@ export function WorkflowBuilder({
   return (
     <div className={`flex h-full flex-col ${className ?? ""}`}>
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-white/10 px-6 py-3">
-        <div className="flex items-center gap-4">
+      <div className="flex items-center justify-between border-b border-white/10 px-6 py-3 gap-4 flex-wrap">
+        <div className="flex items-center gap-4 min-w-0 shrink">
           <button
             onClick={handleBackToStartScreen}
             className="rounded-lg border border-white/10 bg-white/5 p-1.5 text-muted-foreground hover:bg-white/10 hover:text-foreground transition"
@@ -994,7 +994,7 @@ export function WorkflowBuilder({
             hasUnsavedChanges={hasUnsavedChanges}
           />
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap shrink-0">
           <Button
             variant="ghost"
             size="sm"

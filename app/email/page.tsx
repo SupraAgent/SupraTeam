@@ -24,6 +24,7 @@ import { getPanelById } from "@/lib/plugins/registry";
 import { ThreadContextProvider } from "@/lib/plugins/thread-context";
 import { PanelCard } from "@/components/email/dashboard/panel-card";
 import { PanelPicker } from "@/components/email/dashboard/panel-picker";
+import { EmailGroupPanel, useEmailGroups, type DragThreadData } from "@/components/email/email-groups";
 
 export default function EmailPage() {
   return (
@@ -80,6 +81,13 @@ function EmailPageInner() {
   // Command palette state
   const [commandPaletteOpen, setCommandPaletteOpen] = React.useState(false);
 
+  // Email groups state
+  const { groups, loading: groupsLoading, createGroup, deleteGroup, toggleCollapse, renameGroup, addThreadToGroup, removeThreadFromGroup } = useEmailGroups(activeConnectionId);
+  const [groupPanelCollapsed, setGroupPanelCollapsed] = React.useState(() => {
+    if (typeof window !== "undefined") return localStorage.getItem("email-group-panel-collapsed") === "true";
+    return false;
+  });
+
   // Snooze state
   const [snoozeOpen, setSnoozeOpen] = React.useState(false);
   const [snoozeThreadId, setSnoozeThreadId] = React.useState<string | null>(null);
@@ -104,6 +112,9 @@ function EmailPageInner() {
 
   // Gmail Pub/Sub push — refresh on new mail
   useGmailPush(refresh);
+
+  // Dashboard layout — shared between DashboardBar and InlineDashboardPanels
+  const { layout: dashboardLayout, togglePanel: dashboardTogglePanel, resetLayout: dashboardResetLayout } = useDashboardLayout();
 
   // Visible threads based on active category
   const visibleThreads = activeCategory === "all" ? threads : split[activeCategory];
@@ -683,6 +694,44 @@ function EmailPageInner() {
         <DashboardBar
           isThreadView={!!activeThread}
           onBackToDashboard={() => setSelectedThreadId(null)}
+          enabledPanels={dashboardLayout.enabledPanels}
+          togglePanel={dashboardTogglePanel}
+          resetLayout={dashboardResetLayout}
+        />
+
+        {/* Email groups panel — drag threads here */}
+        <EmailGroupPanel
+          groups={groups}
+          loading={groupsLoading}
+          panelCollapsed={groupPanelCollapsed}
+          onTogglePanel={() => {
+            setGroupPanelCollapsed((v) => {
+              const next = !v;
+              localStorage.setItem("email-group-panel-collapsed", String(next));
+              return next;
+            });
+          }}
+          onToggleGroup={toggleCollapse}
+          onCreateGroup={(name) => createGroup(name)}
+          onDeleteGroup={deleteGroup}
+          onRenameGroup={renameGroup}
+          onDropThread={(groupId, data) => addThreadToGroup(groupId, data)}
+          onRemoveThread={removeThreadFromGroup}
+          onSelectThread={(threadId) => {
+            setSelectedThreadId(threadId);
+            setThreads((prev) =>
+              prev.map((t) => (t.id === threadId && t.isUnread ? { ...t, isUnread: false } : t))
+            );
+          }}
+          onArchiveThread={(threadId) => {
+            performAction(threadId, "archive");
+            toast("Archived", {
+              action: { label: "Undo", onClick: () => undoActionRef.current?.undo() },
+            });
+            if (selectedThreadId === threadId) {
+              setSelectedThreadId(null);
+            }
+          }}
         />
 
         {activeThread ? (
@@ -712,7 +761,10 @@ function EmailPageInner() {
             />
           </>
         ) : (
-          <InlineDashboardPanels />
+          <InlineDashboardPanels
+            enabledPanels={dashboardLayout.enabledPanels}
+            togglePanel={dashboardTogglePanel}
+          />
         )}
       </div>
 
@@ -884,11 +936,16 @@ function PlusIcon({ className }: { className?: string }) {
 function DashboardBar({
   isThreadView,
   onBackToDashboard,
+  enabledPanels,
+  togglePanel,
+  resetLayout,
 }: {
   isThreadView: boolean;
   onBackToDashboard: () => void;
+  enabledPanels: import("@/lib/plugins/types").PanelId[];
+  togglePanel: (id: import("@/lib/plugins/types").PanelId) => void;
+  resetLayout: () => void;
 }) {
-  const { layout, togglePanel, resetLayout } = useDashboardLayout();
   const [pickerOpen, setPickerOpen] = React.useState(false);
 
   return (
@@ -919,7 +976,7 @@ function DashboardBar({
       <PanelPicker
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
-        enabledPanels={layout.enabledPanels}
+        enabledPanels={enabledPanels}
         onToggle={togglePanel}
         onReset={resetLayout}
       />
@@ -929,10 +986,13 @@ function DashboardBar({
 
 // ── Inline Dashboard Panels (shown when no thread is selected) ────
 
-function InlineDashboardPanels() {
-  const { layout, togglePanel } = useDashboardLayout();
-  const enabledPanels = layout.enabledPanels;
-
+function InlineDashboardPanels({
+  enabledPanels,
+  togglePanel,
+}: {
+  enabledPanels: import("@/lib/plugins/types").PanelId[];
+  togglePanel: (id: import("@/lib/plugins/types").PanelId) => void;
+}) {
   return (
     <ThreadContextProvider>
       <div className="flex-1 overflow-y-auto p-3 thin-scroll">

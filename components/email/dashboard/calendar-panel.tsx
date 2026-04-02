@@ -12,15 +12,17 @@ export function CalendarPanel() {
   const [connected, setConnected] = React.useState<boolean | null>(null);
   const [selectedEvent, setSelectedEvent] = React.useState<CalendarEventItem | null>(null);
   const [syncing, setSyncing] = React.useState(false);
-  const fetchInProgress = React.useRef(false);
+  const abortRef = React.useRef<AbortController | null>(null);
   const mountedRef = React.useRef(true);
 
   const fetchEvents = React.useCallback(() => {
-    if (fetchInProgress.current || !mountedRef.current) return;
-    fetchInProgress.current = true;
+    if (!mountedRef.current) return;
+    // Abort any in-flight request before starting a new one
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     setLoading(true);
 
-    const controller = new AbortController();
     const now = new Date();
     const to = new Date(now);
     to.setDate(to.getDate() + 3);
@@ -36,7 +38,7 @@ export function CalendarPanel() {
         return r.json();
       })
       .then((json) => {
-        if (!mountedRef.current) return;
+        if (controller.signal.aborted) return;
         if (json.error?.includes("No calendar connection")) {
           setConnected(false);
           return;
@@ -50,11 +52,9 @@ export function CalendarPanel() {
       })
       .catch((err) => {
         if (err instanceof DOMException && err.name === "AbortError") return;
-        // Network error — don't assume disconnected
       })
       .finally(() => {
-        fetchInProgress.current = false;
-        if (mountedRef.current) setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       });
   }, []);
 
@@ -64,6 +64,7 @@ export function CalendarPanel() {
     const interval = setInterval(fetchEvents, 5 * 60_000);
     return () => {
       mountedRef.current = false;
+      abortRef.current?.abort();
       clearInterval(interval);
     };
   }, [fetchEvents]);

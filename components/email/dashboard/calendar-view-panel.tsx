@@ -37,6 +37,10 @@ export function CalendarViewPanel() {
     return { rangeStart: start, rangeEnd: end };
   }, [currentDate, view]);
 
+  // Stable string deps to avoid redundant fetches from new Date object refs
+  const rangeStartISO = rangeStart.toISOString();
+  const rangeEndISO = rangeEnd.toISOString();
+
   // Fetch events for visible range
   React.useEffect(() => {
     abortRef.current?.abort();
@@ -44,10 +48,7 @@ export function CalendarViewPanel() {
     abortRef.current = controller;
     setLoading(true);
 
-    const params = new URLSearchParams({
-      from: rangeStart.toISOString(),
-      to: rangeEnd.toISOString(),
-    });
+    const params = new URLSearchParams({ from: rangeStartISO, to: rangeEndISO });
 
     fetch(`/api/calendar/google/events?${params}`, { signal: controller.signal })
       .then((r) => {
@@ -63,7 +64,6 @@ export function CalendarViewPanel() {
           return;
         }
         if (json.error) {
-          // Server error but calendar is connected — don't show connect CTA
           setEvents([]);
           return;
         }
@@ -72,23 +72,22 @@ export function CalendarViewPanel() {
       })
       .catch((err) => {
         if (err instanceof DOMException && err.name === "AbortError") return;
-        // Network error — don't assume disconnected
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
       });
 
     return () => controller.abort();
-  }, [rangeStart, rangeEnd]);
+  }, [rangeStartISO, rangeEndISO]);
 
   function navigate(dir: -1 | 1) {
     setCurrentDate((d) => {
-      const next = new Date(d);
       if (view === "month") {
-        next.setMonth(next.getMonth() + dir);
-      } else {
-        next.setDate(next.getDate() + dir * 7);
+        // Use day 1 to avoid setMonth overflow (e.g. Jan 31 → Mar 3)
+        return new Date(d.getFullYear(), d.getMonth() + dir, 1);
       }
+      const next = new Date(d);
+      next.setDate(next.getDate() + dir * 7);
       return next;
     });
   }
