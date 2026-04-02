@@ -334,24 +334,20 @@ export function useBatchPrefetch(threads: { id: string }[], connectionId?: strin
         return !(entry && entry.data.messages?.length > 0 && Date.now() - entry.ts < CACHE_TTL);
       });
 
-    // Stagger prefetches to avoid request burst
-    const timers: ReturnType<typeof setTimeout>[] = [];
-    toPrefetch.forEach((t, i) => {
-      timers.push(setTimeout(() => {
-        prefetchedRef.current.add(t.id);
-        const url = connectionId
-          ? `/api/email/threads/${t.id}?connection_id=${connectionId}`
-          : `/api/email/threads/${t.id}`;
-        fetch(url)
-          .then((r) => r.json())
-          .then((json) => {
-            if (json.data) setCachedThread(t.id, json.data, connectionId);
-          })
-          .catch(() => {});
-      }, i * 200));
+    // Fire all prefetches simultaneously — HTTP/2 multiplexes them over a single connection
+    toPrefetch.forEach((t) => {
+      prefetchedRef.current.add(t.id);
+      const url = connectionId
+        ? `/api/email/threads/${t.id}?connection_id=${connectionId}`
+        : `/api/email/threads/${t.id}`;
+      fetch(url)
+        .then((r) => r.json())
+        .then((json) => {
+          if (json.data) setCachedThread(t.id, json.data, connectionId);
+        })
+        .catch(() => {});
     });
 
-    return () => { timers.forEach(clearTimeout); };
   }, [depKey, connectionId]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 
@@ -362,7 +358,7 @@ export function useLabels(connectionId?: string) {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string>();
 
-  React.useEffect(() => {
+  const fetchLabels = React.useCallback(() => {
     const labelsUrl = connectionId
       ? `/api/email/labels?connectionId=${connectionId}`
       : "/api/email/labels";
@@ -381,7 +377,11 @@ export function useLabels(connectionId?: string) {
       .finally(() => setLoading(false));
   }, [connectionId]);
 
-  return { labels, loading, error };
+  React.useEffect(() => {
+    fetchLabels();
+  }, [fetchLabels]);
+
+  return { labels, loading, error, refreshLabels: fetchLabels };
 }
 
 // ── Split inbox categorization ──────────────────────────────
@@ -1006,4 +1006,34 @@ export function useEmailKeyboard(actions: KeyboardActions, enabled = true) {
       if (gTimerRef.current) clearTimeout(gTimerRef.current);
     };
   }, [enabled]);
+}
+
+// ── Service Worker Registration ────────────────────────────────
+
+/** Register the email service worker for offline caching.
+ *  Network-first with cache fallback — users see cached data on flaky connections
+ *  instead of blank screens. Call once in the email page root. */
+export function useEmailServiceWorker() {
+  React.useEffect(() => {
+    if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
+
+    navigator.serviceWorker
+      .register("/email-sw.js", { scope: "/email" })
+      .catch((err) => {
+        console.warn("[email-sw] Registration failed:", err);
+      });
+
+    return () => {
+      // Don't unregister on unmount — SW should persist across navigations
+    };
+  }, []);
+}
+
+/** Invalidate specific cache patterns in the service worker (e.g., after send/archive) */
+export function invalidateSwCache(pattern: string) {
+  if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
+  navigator.serviceWorker.controller?.postMessage({
+    type: "INVALIDATE_CACHE",
+    pattern,
+  });
 }

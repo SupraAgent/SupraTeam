@@ -28,9 +28,11 @@ type ThreadListProps = {
   onSwipeArchive?: (id: string) => void;
   onSwipeSnooze?: (id: string) => void;
   onContextAction?: (threadIds: string[], action: ContextMenuAction) => void;
+  onDragStart?: (threadIds: string[]) => void;
+  onDragEnd?: () => void;
 };
 
-export function ThreadList({ threads, selectedId, selectedIds, onSelect, onToggleSelect, onRangeSelect, loading, onLoadMore, hasMore, onPrefetch, onSwipeArchive, onSwipeSnooze, onContextAction }: ThreadListProps) {
+export function ThreadList({ threads, selectedId, selectedIds, onSelect, onToggleSelect, onRangeSelect, loading, onLoadMore, hasMore, onPrefetch, onSwipeArchive, onSwipeSnooze, onContextAction, onDragStart, onDragEnd }: ThreadListProps) {
   const listRef = React.useRef<HTMLDivElement>(null);
   const lastClickedIndexRef = React.useRef<number>(-1);
   const [contextMenu, setContextMenu] = React.useState<ContextMenuState | null>(null);
@@ -119,6 +121,16 @@ export function ThreadList({ threads, selectedId, selectedIds, onSelect, onToggl
           onMouseEnter={() => onPrefetch?.(thread.id)}
           onSwipeLeft={() => onSwipeArchive?.(thread.id)}
           onSwipeRight={() => onSwipeSnooze?.(thread.id)}
+          onDragStart={(e) => {
+            // If this thread is multi-selected, drag all selected; otherwise just this one
+            const ids = selectedIds && selectedIds.size > 0 && selectedIds.has(thread.id)
+              ? Array.from(selectedIds)
+              : [thread.id];
+            e.dataTransfer.setData("application/x-thread-ids", JSON.stringify(ids));
+            e.dataTransfer.effectAllowed = "move";
+            onDragStart?.(ids);
+          }}
+          onDragEnd={() => onDragEnd?.()}
         />
       ))}
       {hasMore && (
@@ -173,6 +185,8 @@ function ThreadRow({
   onMouseEnter,
   onSwipeLeft,
   onSwipeRight,
+  onDragStart,
+  onDragEnd,
 }: {
   thread: ThreadListItem;
   isSelected: boolean;
@@ -184,6 +198,8 @@ function ThreadRow({
   onMouseEnter?: () => void;
   onSwipeLeft?: () => void;
   onSwipeRight?: () => void;
+  onDragStart?: (e: React.DragEvent) => void;
+  onDragEnd?: () => void;
 }) {
   const senderName = thread.from[0]?.name || thread.from[0]?.email || "Unknown";
   const shortSender = senderName.split(" ")[0] || senderName.split("@")[0];
@@ -232,9 +248,12 @@ function ThreadRow({
         </div>
       )}
     <button
+      draggable
       onClick={onClick}
       onContextMenu={onContextMenu}
       onMouseEnter={onMouseEnter}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}

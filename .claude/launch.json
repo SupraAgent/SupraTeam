@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "supracrm-dev",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev:app"],
+      "runtimeExecutable": "/bin/zsh",
+      "runtimeArgs": ["-l", "-c", "npm run dev:app"],
       "port": 3002
     }
   ]

@@ -18,13 +18,9 @@ import { EmailErrorBoundary } from "@/components/email/error-boundary";
 import { toast } from "sonner";
 import { CommandPalette } from "@/components/email/command-palette";
 import { AutoDraftBanner } from "@/components/email/auto-draft";
-import { LayoutDashboard, Plus } from "lucide-react";
-import { useDashboardLayout } from "@/lib/plugins/hooks";
-import { getPanelById } from "@/lib/plugins/registry";
-import { ThreadContextProvider } from "@/lib/plugins/thread-context";
-import { PanelCard } from "@/components/email/dashboard/panel-card";
-import { PanelPicker } from "@/components/email/dashboard/panel-picker";
-import { EmailGroupPanel, useEmailGroups, type DragThreadData } from "@/components/email/email-groups";
+import { GroupsPanel } from "@/components/email/groups-panel";
+import { DragDropZones } from "@/components/email/drag-drop-zones";
+import { LayoutDashboard, PanelRight } from "lucide-react";
 
 export default function EmailPage() {
   return (
@@ -81,12 +77,15 @@ function EmailPageInner() {
   // Command palette state
   const [commandPaletteOpen, setCommandPaletteOpen] = React.useState(false);
 
-  // Email groups state
-  const { groups, loading: groupsLoading, createGroup, deleteGroup, toggleCollapse, renameGroup, addThreadToGroup, removeThreadFromGroup } = useEmailGroups(activeConnectionId);
-  const [groupPanelCollapsed, setGroupPanelCollapsed] = React.useState(() => {
-    if (typeof window !== "undefined") return localStorage.getItem("email-group-panel-collapsed") === "true";
-    return false;
+  // Right panel (Groups sidebar) state
+  const [rightPanelOpen, setRightPanelOpen] = React.useState(() => {
+    if (typeof window === "undefined") return true;
+    try { return localStorage.getItem("email-right-panel") !== "false"; } catch { return true; }
   });
+
+  // Drag state for drop zones
+  const [isDragging, setIsDragging] = React.useState(false);
+  const [draggedThreadIds, setDraggedThreadIds] = React.useState<string[]>([]);
 
   // Snooze state
   const [snoozeOpen, setSnoozeOpen] = React.useState(false);
@@ -99,7 +98,7 @@ function EmailPageInner() {
     connectionId: activeConnectionId,
   });
   const { thread: activeThread, loading: threadLoading } = useThread(selectedThreadId, activeConnectionId);
-  const { labels, loading: labelsLoading } = useLabels(activeConnectionId);
+  const { labels, loading: labelsLoading, refreshLabels } = useLabels(activeConnectionId);
   const { performAction, performBulkAction, undoAction } = useEmailActions(setThreads, activeConnectionId);
   const undoActionRef = React.useRef(undoAction);
   undoActionRef.current = undoAction;
@@ -112,9 +111,6 @@ function EmailPageInner() {
 
   // Gmail Pub/Sub push — refresh on new mail
   useGmailPush(refresh);
-
-  // Dashboard layout — shared between DashboardBar and InlineDashboardPanels
-  const { layout: dashboardLayout, togglePanel: dashboardTogglePanel, resetLayout: dashboardResetLayout } = useDashboardLayout();
 
   // Visible threads based on active category
   const visibleThreads = activeCategory === "all" ? threads : split[activeCategory];
@@ -403,6 +399,57 @@ function EmailPageInner() {
     setComposeOpen(false);
   }
 
+  // ── Right panel toggle ──────────────────────────────────
+  function toggleRightPanel() {
+    setRightPanelOpen((prev) => {
+      const next = !prev;
+      try { localStorage.setItem("email-right-panel", String(next)); } catch { /* noop */ }
+      return next;
+    });
+  }
+
+  // ── Drag handlers ──────────────────────────────────────
+  function handleDragStart(threadIds: string[]) {
+    setIsDragging(true);
+    setDraggedThreadIds(threadIds);
+  }
+
+  function handleDragEnd() {
+    setIsDragging(false);
+    setDraggedThreadIds([]);
+  }
+
+  function handleDragArchive(threadIds: string[]) {
+    if (threadIds.length > 1) {
+      performBulkAction(threadIds, "archive");
+      toast(`Archived ${threadIds.length} threads`, {
+        action: { label: "Undo", onClick: () => undoActionRef.current?.undo() },
+      });
+    } else if (threadIds.length === 1) {
+      performAction(threadIds[0], "archive");
+      toast("Archived", {
+        action: { label: "Undo", onClick: () => undoActionRef.current?.undo() },
+      });
+    }
+    setSelectedIds(new Set());
+    if (threadIds.includes(selectedThreadId ?? "")) setSelectedThreadId(null);
+    setIsDragging(false);
+    setDraggedThreadIds([]);
+  }
+
+  function handleDragBlock(threadIds: string[]) {
+    // Block = add to SPAM + remove from INBOX for all threads
+    for (const id of threadIds) {
+      performAction(id, "labels", { labelIds: { add: ["SPAM"], remove: ["INBOX"] } });
+    }
+    setThreads((prev) => prev.filter((t) => !threadIds.includes(t.id)));
+    toast(threadIds.length > 1 ? `Blocked ${threadIds.length} senders` : "Sender blocked");
+    setSelectedIds(new Set());
+    if (threadIds.includes(selectedThreadId ?? "")) setSelectedThreadId(null);
+    setIsDragging(false);
+    setDraggedThreadIds([]);
+  }
+
   // ── Render ───────────────────────────────────────────────
 
   return (
@@ -495,6 +542,16 @@ function EmailPageInner() {
             >
               <LayoutDashboard className="h-4 w-4" />
             </Link>
+            <button
+              onClick={toggleRightPanel}
+              className={cn(
+                "rounded-lg p-1.5 hover:bg-white/5 transition",
+                rightPanelOpen ? "text-primary" : "text-muted-foreground hover:text-foreground"
+              )}
+              title="Toggle Panels"
+            >
+              <PanelRight className="h-4 w-4" />
+            </button>
             <button
               onClick={() => setAdvancedSearchOpen(true)}
               className="rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-white/5 transition"
@@ -682,58 +739,16 @@ function EmailPageInner() {
             setSnoozeOpen(true);
           }}
           onContextAction={handleContextAction}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
         />
       </div>
 
-      {/* Thread view / Dashboard */}
+      {/* Thread view */}
       <div className={cn(
         "flex-1 flex flex-col",
         !selectedThreadId && "hidden md:flex"
       )}>
-        {/* Persistent dashboard bar — always visible */}
-        <DashboardBar
-          isThreadView={!!activeThread}
-          onBackToDashboard={() => setSelectedThreadId(null)}
-          enabledPanels={dashboardLayout.enabledPanels}
-          togglePanel={dashboardTogglePanel}
-          resetLayout={dashboardResetLayout}
-        />
-
-        {/* Email groups panel — drag threads here */}
-        <EmailGroupPanel
-          groups={groups}
-          loading={groupsLoading}
-          panelCollapsed={groupPanelCollapsed}
-          onTogglePanel={() => {
-            setGroupPanelCollapsed((v) => {
-              const next = !v;
-              localStorage.setItem("email-group-panel-collapsed", String(next));
-              return next;
-            });
-          }}
-          onToggleGroup={toggleCollapse}
-          onCreateGroup={(name) => createGroup(name)}
-          onDeleteGroup={deleteGroup}
-          onRenameGroup={renameGroup}
-          onDropThread={(groupId, data) => addThreadToGroup(groupId, data)}
-          onRemoveThread={removeThreadFromGroup}
-          onSelectThread={(threadId) => {
-            setSelectedThreadId(threadId);
-            setThreads((prev) =>
-              prev.map((t) => (t.id === threadId && t.isUnread ? { ...t, isUnread: false } : t))
-            );
-          }}
-          onArchiveThread={(threadId) => {
-            performAction(threadId, "archive");
-            toast("Archived", {
-              action: { label: "Undo", onClick: () => undoActionRef.current?.undo() },
-            });
-            if (selectedThreadId === threadId) {
-              setSelectedThreadId(null);
-            }
-          }}
-        />
-
         {activeThread ? (
           <>
             <ThreadView
@@ -761,12 +776,54 @@ function EmailPageInner() {
             />
           </>
         ) : (
-          <InlineDashboardPanels
-            enabledPanels={dashboardLayout.enabledPanels}
-            togglePanel={dashboardTogglePanel}
-          />
+          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-2">
+            <MailOpenIcon className="h-10 w-10 opacity-30" />
+            <p className="text-sm">Select a thread to read</p>
+            <div className="flex flex-wrap items-center gap-2 mt-2 text-[10px]">
+              <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5">j/k</kbd>
+              <span>navigate</span>
+              <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5">Enter</kbd>
+              <span>open</span>
+              <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5">e</kbd>
+              <span>archive</span>
+              <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5">c</kbd>
+              <span>compose</span>
+              <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5">/</kbd>
+              <span>search</span>
+              <kbd className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5">h</kbd>
+              <span>snooze</span>
+            </div>
+          </div>
         )}
       </div>
+
+      {/* Right sidebar — Groups panel */}
+      {rightPanelOpen && (
+        <div
+          className="w-72 border-l border-white/10 shrink-0 overflow-y-auto thin-scroll hidden xl:block"
+          style={{ backgroundColor: "hsl(var(--surface-1))" }}
+        >
+          <GroupsPanel
+            labels={labels}
+            connectionId={activeConnectionId}
+            onSelectLabel={(id) => {
+              setActiveLabel(id);
+              setSelectedThreadId(null);
+              setSearchQuery("");
+              setActiveCategory("all");
+            }}
+            onSelectThread={(threadId) => setSelectedThreadId(threadId)}
+            onLabelsRefresh={refreshLabels}
+          />
+        </div>
+      )}
+
+      {/* Drag drop zones (archive + block) */}
+      <DragDropZones
+        visible={isDragging}
+        onArchive={handleDragArchive}
+        onBlock={handleDragBlock}
+      />
 
       {/* Undo archive/trash toast */}
       {undoAction && (
@@ -929,98 +986,4 @@ function RefreshIcon({ className }: { className?: string }) {
 
 function PlusIcon({ className }: { className?: string }) {
   return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>;
-}
-
-// ── Persistent Dashboard Bar (always visible at top of right panel) ────
-
-function DashboardBar({
-  isThreadView,
-  onBackToDashboard,
-  enabledPanels,
-  togglePanel,
-  resetLayout,
-}: {
-  isThreadView: boolean;
-  onBackToDashboard: () => void;
-  enabledPanels: import("@/lib/plugins/types").PanelId[];
-  togglePanel: (id: import("@/lib/plugins/types").PanelId) => void;
-  resetLayout: () => void;
-}) {
-  const [pickerOpen, setPickerOpen] = React.useState(false);
-
-  return (
-    <>
-      <div className="px-4 py-2 border-b border-white/10 flex items-center justify-between shrink-0">
-        {isThreadView ? (
-          <button
-            onClick={onBackToDashboard}
-            className="flex items-center gap-2 hover:opacity-80 transition-opacity"
-          >
-            <LayoutDashboard className="h-3.5 w-3.5 text-primary" />
-            <span className="text-xs font-medium text-foreground">Dashboard</span>
-          </button>
-        ) : (
-          <div className="flex items-center gap-2">
-            <LayoutDashboard className="h-3.5 w-3.5 text-primary" />
-            <span className="text-xs font-medium text-foreground">Dashboard</span>
-          </div>
-        )}
-        <button
-          onClick={() => setPickerOpen(true)}
-          className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-white/5 border border-white/10 transition"
-        >
-          <Plus className="h-3 w-3" />
-          Panels
-        </button>
-      </div>
-      <PanelPicker
-        open={pickerOpen}
-        onClose={() => setPickerOpen(false)}
-        enabledPanels={enabledPanels}
-        onToggle={togglePanel}
-        onReset={resetLayout}
-      />
-    </>
-  );
-}
-
-// ── Inline Dashboard Panels (shown when no thread is selected) ────
-
-function InlineDashboardPanels({
-  enabledPanels,
-  togglePanel,
-}: {
-  enabledPanels: import("@/lib/plugins/types").PanelId[];
-  togglePanel: (id: import("@/lib/plugins/types").PanelId) => void;
-}) {
-  return (
-    <ThreadContextProvider>
-      <div className="flex-1 overflow-y-auto p-3 thin-scroll">
-        {enabledPanels.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-3">
-            <LayoutDashboard className="h-10 w-10 opacity-20" />
-            <p className="text-xs">No panels enabled</p>
-            <p className="text-[10px] text-muted-foreground">Click + Panels above to add</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-3">
-            {enabledPanels.map((panelId) => {
-              const panel = getPanelById(panelId);
-              if (!panel) return null;
-              const PanelComponent = panel.component;
-              return (
-                <PanelCard
-                  key={panelId}
-                  panel={panel}
-                  onRemove={() => togglePanel(panelId)}
-                >
-                  <PanelComponent />
-                </PanelCard>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    </ThreadContextProvider>
-  );
 }

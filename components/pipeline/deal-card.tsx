@@ -4,7 +4,7 @@ import * as React from "react";
 import { Draggable } from "@hello-pangea/dnd";
 import type { Deal, PipelineStage } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { MessageCircle, Snowflake, MoreHorizontal, ArrowRight, Trophy, XCircle, Check, X, TrendingUp, TrendingDown, Minus, Clock } from "lucide-react";
+import { MessageCircle, Snowflake, MoreHorizontal, ArrowRight, Trophy, XCircle, Check, TrendingUp, TrendingDown, Minus, Clock, Flame } from "lucide-react";
 
 type DealCardProps = {
   deal: Deal;
@@ -20,15 +20,20 @@ type DealCardProps = {
   tgHighlight?: boolean;
   tgHighlightDetails?: { priority?: string; sentiment?: string; message_count?: number; sender_name?: string };
   unreadCount?: number;
+  slam?: boolean;
+  onHoverPreview?: (deal: Deal, rect: DOMRect) => void;
+  onHoverEnd?: () => void;
 };
 
 // Response time threshold (hours) — will be configurable via SLA config in Stage 2
 const RESPONSE_OVERDUE_HOURS = 4;
+// Hot deal thresholds
+const HOT_HEALTH_THRESHOLD = 80;
 
 function getColdWeeks(updatedAt: string): number {
   const ms = Date.now() - new Date(updatedAt).getTime();
   const weeks = Math.floor(ms / (7 * 86400000));
-  return Math.min(Math.max(weeks, 0), 8);
+  return Math.min(Math.max(weeks, 0), 6);
 }
 
 export function DealCard({
@@ -36,13 +41,18 @@ export function DealCard({
   onQuickMove, onQuickOutcome, onInlineEdit,
   selected, onToggleSelect,
   highlight, tgHighlight, tgHighlightDetails, unreadCount,
+  slam, onHoverPreview, onHoverEnd,
 }: DealCardProps) {
   const coldWeeks = getColdWeeks(deal.updated_at);
   const iceClass = coldWeeks >= 1 ? `ice-stage-${coldWeeks}` : null;
+  const isHotDeal = !iceClass && deal.outcome !== "won" && deal.outcome !== "lost" &&
+    deal.health_score != null && deal.health_score >= HOT_HEALTH_THRESHOLD;
   const [showMenu, setShowMenu] = React.useState(false);
   const [editingField, setEditingField] = React.useState<"value" | "probability" | null>(null);
   const [editValue, setEditValue] = React.useState("");
   const menuRef = React.useRef<HTMLDivElement>(null);
+  const cardRef = React.useRef<HTMLDivElement>(null);
+  const hoverTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Close menu on outside click
   React.useEffect(() => {
@@ -62,12 +72,16 @@ export function DealCard({
     setEditValue(field === "value" ? String(deal.value ?? "") : String(deal.probability ?? ""));
   }
 
+  const commitPending = React.useRef(false);
   function commitEdit(e?: React.FormEvent) {
     e?.preventDefault();
-    if (editingField) {
+    if (editingField && !commitPending.current) {
+      commitPending.current = true;
       const num = editValue === "" ? null : Number(editValue);
       onInlineEdit(editingField, isNaN(num as number) ? null : num);
       setEditingField(null);
+      // Reset guard after React flushes the state update
+      queueMicrotask(() => { commitPending.current = false; });
     }
   }
 
@@ -75,22 +89,76 @@ export function DealCard({
     setEditingField(null);
   }
 
+  // Clean up hover timer on unmount
+  React.useEffect(() => {
+    return () => {
+      if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    };
+  }, []);
+
+  // Hover preview handlers
+  function handleMouseEnter() {
+    if (!onHoverPreview || !cardRef.current) return;
+    hoverTimerRef.current = setTimeout(() => {
+      if (cardRef.current) {
+        onHoverPreview(deal, cardRef.current.getBoundingClientRect());
+      }
+    }, 400);
+  }
+
+  function handleMouseLeave() {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    onHoverEnd?.();
+  }
+
+  // Response timer — ticks every 60s so the label stays current
+  const [timerTick, setTimerTick] = React.useState(0);
+  React.useEffect(() => {
+    if (!deal.awaiting_response_since || deal.outcome === "won" || deal.outcome === "lost") return;
+    const id = setInterval(() => setTimerTick((t) => t + 1), 60_000);
+    return () => clearInterval(id);
+  }, [deal.awaiting_response_since, deal.outcome]);
+
+  const responseTimer = React.useMemo(() => {
+    if (!deal.awaiting_response_since || deal.outcome === "won" || deal.outcome === "lost") return null;
+    const waitMs = Date.now() - new Date(deal.awaiting_response_since).getTime();
+    const waitHours = waitMs / 3600000;
+    const isOverdue = waitHours >= RESPONSE_OVERDUE_HOURS;
+    const maxHours = RESPONSE_OVERDUE_HOURS * 2;
+    const pct = Math.min(100, (waitHours / maxHours) * 100);
+    const color = isOverdue ? "bg-red-400" : waitHours >= RESPONSE_OVERDUE_HOURS * 0.5 ? "bg-amber-400" : "bg-green-400";
+    const label = waitHours >= 1 ? `${Math.floor(waitHours)}h ${Math.floor((waitMs % 3600000) / 60000)}m` : `${Math.floor(waitMs / 60000)}m`;
+    return { pct, color, isOverdue, label, waitHours };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deal.awaiting_response_since, deal.outcome, timerTick]);
+
   return (
     <Draggable draggableId={deal.id} index={index}>
       {(provided, snapshot) => (
         <div
-          ref={provided.innerRef}
+          ref={(el) => {
+            provided.innerRef(el);
+            (cardRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+          }}
           {...provided.draggableProps}
           {...provided.dragHandleProps}
           data-deal-id={deal.id}
+          onMouseEnter={!snapshot.isDragging ? handleMouseEnter : undefined}
+          onMouseLeave={handleMouseLeave}
+          style={onHoverPreview && !snapshot.isDragging ? { cursor: "default" } : undefined}
           className={cn(
-            "group rounded-lg border bg-white/[0.04] p-3 cursor-pointer transition-all hover:bg-white/[0.07] relative",
+            "group rounded-lg border bg-white/[0.04] p-3 cursor-pointer transition-all hover:bg-white/[0.07] relative overflow-hidden",
             snapshot.isDragging && "shadow-lg border-primary/30 bg-white/[0.08]",
             highlight && "ring-2 ring-primary border-primary/40 bg-primary/10 animate-pulse",
             tgHighlight && !highlight && "border-amber-400/40 bg-amber-500/5 ring-1 ring-amber-400/30",
             selected && "ring-2 ring-primary/60 border-primary/40 bg-primary/5",
-            !highlight && !tgHighlight && !selected && !iceClass && "border-white/10",
-            !highlight && !tgHighlight && !selected && iceClass
+            !highlight && !tgHighlight && !selected && !iceClass && !isHotDeal && "border-white/10",
+            !highlight && !tgHighlight && !selected && iceClass,
+            !highlight && !tgHighlight && !selected && isHotDeal && "gold-hot",
+            slam && "animate-drop-slam"
           )}
         >
           {/* Selection checkbox — visible on hover or when selected */}
@@ -264,6 +332,17 @@ export function DealCard({
               </button>
             ) : null}
 
+            {/* Hot deal badge */}
+            {isHotDeal && (
+              <span
+                className="gold-badge relative z-10 flex items-center gap-0.5"
+                title={`Health: ${deal.health_score}%`}
+              >
+                <Flame className="h-2.5 w-2.5" />Hot
+              </span>
+            )}
+
+            {/* Ice cold badge */}
             {coldWeeks >= 1 && (
               <span
                 className="ice-badge relative z-10 flex items-center gap-0.5"
@@ -320,23 +399,30 @@ export function DealCard({
             )}
           </div>
 
-          {/* Response time indicator */}
-          {deal.awaiting_response_since && deal.outcome !== "won" && deal.outcome !== "lost" && (() => {
-            const waitMs = Date.now() - new Date(deal.awaiting_response_since).getTime();
-            const waitHours = Math.floor(waitMs / 3600000);
-            const waitMins = Math.floor((waitMs % 3600000) / 60000);
-            const isOverdue = waitHours >= RESPONSE_OVERDUE_HOURS;
-            const label = waitHours > 0 ? `${waitHours}h ${waitMins}m` : `${waitMins}m`;
-            return (
-              <div className={cn(
-                "mt-1.5 flex items-center gap-1 text-[9px] font-medium rounded px-1.5 py-0.5",
-                isOverdue ? "bg-red-500/10 text-red-400" : "bg-amber-500/10 text-amber-400"
-              )}>
-                <Clock className="h-2.5 w-2.5" />
-                Awaiting reply: {label}
-              </div>
-            );
-          })()}
+          {/* Response time text indicator */}
+          {responseTimer && (
+            <div className={cn(
+              "mt-1.5 flex items-center gap-1 text-[9px] font-medium rounded px-1.5 py-0.5",
+              responseTimer.isOverdue ? "bg-red-500/10 text-red-400" : "bg-amber-500/10 text-amber-400"
+            )}>
+              <Clock className="h-2.5 w-2.5" />
+              Awaiting reply: {responseTimer.label}
+            </div>
+          )}
+
+          {/* Response timer bar — thin progress bar at card bottom */}
+          {responseTimer && (
+            <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-white/5 z-10">
+              <div
+                className={cn(
+                  "h-full rounded-br-lg transition-all duration-1000",
+                  responseTimer.color,
+                  responseTimer.isOverdue && "response-timer-overdue"
+                )}
+                style={{ width: `${responseTimer.pct}%` }}
+              />
+            </div>
+          )}
         </div>
       )}
     </Draggable>
