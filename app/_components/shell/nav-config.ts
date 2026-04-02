@@ -37,7 +37,7 @@ export interface NavSection {
 export const TOP_ITEMS: NavItem[] = [
   { href: "/", label: "Dashboard", icon: Home },
   { href: "/pipeline", label: "Pipeline", icon: KanbanSquare },
-  { href: "/telegram", label: "Telegram", icon: Send },
+  { href: "/telegram", label: "Telegram", icon: MessageCircle },
   { href: "/email", label: "Email", icon: Mail },
   { href: "/inbox", label: "Inbox", icon: Inbox },
 ];
