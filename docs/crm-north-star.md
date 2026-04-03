@@ -1,142 +1,120 @@
-# CPO Review: SupraCRM — Multi-Channel Telegram-First CRM
+# CPO North Star: SupraCRM
 
-**Reviewer persona:** CPO with 12+ years shipping CRMs at scale (HubSpot, Pipedrive, CRMChat). Deep expertise in Telegram-first GTM, automation, and Web3 BD workflows.
+**Date:** 2026-04-03 | **Weighted Score: 69.5/100** | **Rank: 3rd** | **Target: 80.5 (#1)**
 
-**Date:** 2026-04-03 | **Score: ~75/100** | **Previous: 64 (v2), 73.4 (v3)**
-
----
-
-## Executive Assessment
-
-**Score: ~75/100** — Upper-mid tier. 88 pages, 100+ migrations, 60+ API routes, visual workflow builder, multi-bot support, TMA, full Gmail integration, AI chat, broadcasts, outreach sequences, zero-knowledge Telegram sessions, and company records. The surface area has doubled since v2.
-
-**The thesis evolved.** Started as "CRM that lives inside Telegram." Now it's a multi-channel engagement platform (Telegram + Gmail + Calendar) with Telegram as the primary channel. The Telegram moat features are still the differentiator, but email is now a production-grade parallel track.
-
-**What's improved since v3 (73.4):**
-- Email is now a full Gmail client (compose, threads, groups, sequences, side-by-side reply)
-- Zero-knowledge Telegram sessions (client-side encryption, device-bound keys)
-- Company records with contact linkage
-- Email groups/folders with auto-routing by sender
-- TG chat groups for organizing conversations
-- Multiple security hardening passes (encryption key versioning, HMAC, scoped BroadcastChannel)
-
-**What's still weak:**
-- No AI deal prediction (health score exists but no predictive model)
-- No campaign attribution (can't trace broadcast → deal → revenue)
-- No public REST API (API key table exists, no v1 routes)
-- Workflow dry-run still missing
-- TMA offline mode not implemented
-- Two workflow systems (automations + loop builder) still coexist
+> Scoring uses the same 30-category weighted framework as `telegram_crm_ratings.xlsx`. See `reviews/cpo-review-2026-04-03.md` for the full 30-category scorecard with evidence.
 
 ---
 
-## Feature-by-Feature Assessment
+## Where We Stand
 
-### What's Strong (75+)
+| Rank | CRM | Weighted Score |
+|------|-----|---------------|
+| 1 | CRMChat | 80.4 |
+| 2 | Respond.io | 72.0 |
+| **3** | **SupraCRM** | **69.5** |
+| 4 | Entergram | 68.7 |
 
-| Feature | Score | Notes |
-|---------|-------|-------|
-| **Group Management + Slugs** | 82/100 | Moat feature. Health classification, engagement tiers, per-member stats, slug tagging, sparklines, AI summaries. Best-in-class for TG CRM. |
-| **Kanban Pipeline** | 80/100 | Dual-view, drag-drop, 3 board types, WIP limits, collapsible columns, saved views, AI sentiment overlay, forecast analytics. Mature. |
-| **Telegram Bot** | 78/100 | Grammy with message recording, AI agent, push notifications, multi-bot registry, encrypted tokens. Solid production system. |
-| **Broadcasting** | 77/100 | Slug-filtered targeting with AND/OR, merge variables, scheduling, A/B analytics, send-time optimization. Feature-rich. |
-| **Visual Workflow Builder** | 76/100 | React Flow, 18+ triggers, 18+ actions, templates, execution history, webhook triggers. Approaching n8n-lite territory. |
-| **Email Client** | 75/100 | Full Gmail sync, multi-account, compose with side-by-side reply/forward, threads, labels, email groups, sequences, AI drafts. Ambitious and functional. |
-| **Multi-Bot Registry** | 75/100 | Encrypted token storage, per-group bot assignment, activate/deactivate, up to 10+ bots. Unique capability. |
+**Gap to #1: -10.9 points.** Previous estimates (~75) were aspirational, not math-based. Rigorous per-category scoring reveals the real position.
 
-### Mid-Tier (60-74)
-
-| Feature | Score | Notes |
-|---------|-------|-------|
-| **Contact Management** | 70/100 | Lifecycle stages, duplicate detection + merge, engagement scoring, company linkage, TG identity. Missing: unified activity timeline, smart lists. |
-| **Outreach Sequences** | 70/100 | Multi-step with branching (condition_type, on_true/false_step), A/B, AI generation. Two systems (/outreach + /drip) is confusing — consolidate. |
-| **TMA (Mini App)** | 68/100 | 10 pages (deals, contacts, tasks, AI chat, broadcasts, apply). Real mobile CRM in Telegram. Push notifications working. Gestures partial. No offline. |
-| **AI Chat/Agent** | 67/100 | Claude-powered on every page, per-page context, qualification extraction, escalation detection. Present but not decision-tree capable. |
-| **Inbox** | 65/100 | Two-pane TG conversations with labels, snooze, VIP, canned responses. Missing: reply from inbox, conversation assignment SLAs, team collision detection. |
-| **Calendar** | 60/100 | Google Calendar sync with webhooks. Functional but thin — no deal close date overlay, no drag-to-reschedule. |
-| **Drip Sequences** | 60/100 | Files exist, worker exists, but implementation depth unclear. Overlap with outreach sequences creates confusion. |
-
-### Weak (<60)
-
-| Feature | Score | Notes |
-|---------|-------|-------|
-| **AI Lead Qualification** | 52/100 | Config flag for auto-create deals exists, qualification extraction works, but auto-creation logic incomplete. No configurable score threshold. |
-| **Campaign Analytics** | 50/100 | Broadcast analytics exist (delivery rates, A/B). No campaign-to-deal attribution. Can't answer "which broadcast drove revenue?" |
-| **Public API** | 30/100 | API key table designed, auth guard spec written. Zero v1 routes shipped. |
-| **AI Deal Prediction** | 20/100 | Health score formula exists. No ML/Claude-powered prediction, no win probability, no recommended next action. |
+**Score trajectory:** 32.5 (v1) -> 64 (v2) -> 69.5 (v4 rigorous)
 
 ---
 
-## Top 3 Competitive Moats (Existing)
+## What's Strong (Our Advantages Over CRMChat)
 
-### 1. Slug-Based TG Group Access Control (10/10 importance)
+| Category | Us | CRMChat | Wt | Advantage |
+|----------|-----|---------|-----|-----------|
+| Workflow Automation | 80 | 60 | 4 | **+80** |
+| AI Summaries/Sentiment | 82 | 65 | 3 | **+51** |
+| Privacy (ZK sessions) | 85 | 70 | 3 | **+45** |
+| Omnichannel (TG+Gmail+Cal) | 48 | 30 | 2 | +36 |
+| GDPR/Compliance | 78 | 65 | 2 | +26 |
+| Custom Fields | 82 | 75 | 3 | +21 |
+| Group Monitoring | 80 | 75 | 3 | +15 |
 
-No competitor has this. "Tag groups with slugs, 1-click add/remove users across all matching groups." For teams managing 50+ TG communities, this is the killer workflow. Combined with engagement tiers, health scoring, and AI summaries — this is the strongest single feature.
-
-### 2. Zero-Knowledge Telegram + Conversation Timeline (9/10 importance)
-
-Client-side encrypted TG sessions with device-bound keys. Server never sees plaintext. Conversation timeline embedded in deal detail with search, reply, and deep links. No other CRM shows TG messages inline with CRM data AND keeps sessions zero-knowledge.
-
-### 3. Visual Workflow Builder + Bot Integration (8/10 importance)
-
-React Flow canvas with 18+ triggers (including TG events) and 18+ actions. Templates, execution history, natural language creation. Connected to bot handlers — workflows fire on TG message events, stage changes, qualification triggers. This is the automation backbone.
-
----
-
-## Top 3 Features to Build — Highest ROI
-
-### 1. Public REST API + Zapier Foundation (10/10 importance)
-
-**Why #1:** The API/Zapier category (wt=5) is the highest-weighted gap at 30/100. API key infrastructure exists. Internal routes handle all CRUD. This is a thin wrapper exercise — expose 10 endpoints under `/api/v1/` with key auth, rate limiting, and pagination. Score lift: +3-4 weighted.
-
-**What "done" looks like:** External developer can create deals, list contacts, send broadcasts via authenticated API calls. Zapier can poll for new deals.
-
-### 2. AI Chatbot Decision Trees (9/10 importance)
-
-**Why:** AI Agent category (wt=4) scores 52/100. The free-form Claude agent exists but can't do structured flows. CRMChat's chatbot does keyword-triggered decision trees with auto-qualification and routing. Implementation path: new `chatbot_turn` workflow node + `bot_dm_received` trigger + stateful conversation engine. Score lift: +2-3 weighted.
-
-**What "done" looks like:** Admin configures a flow: "If user says 'pricing' → send pricing card → ask budget → if >$10K → create deal + assign to BD lead." Runs automatically on bot DMs.
-
-### 3. Campaign Attribution + Deal Prediction (8/10 importance)
-
-**Why:** Two gaps that feed each other. Attribution (tag deals with `source_campaign_id`) answers "which broadcasts drive revenue." Prediction (Claude-powered win probability on deals) answers "which deals need attention." Combined with existing health scores and sentiment, this creates an intelligence layer no competitor has. Score lift: +3-4 weighted.
-
-**What "done" looks like:** Dashboard widget shows "Campaign ROI: BD Outreach March → 12 deals, $340K pipeline, 3 won." Deal detail shows "72% win probability, recommended: schedule follow-up call."
+**Total weighted advantage: +274 points.** Defend these — especially workflow automation, AI summaries, and privacy.
 
 ---
 
-## Architecture Issues to Address
+## What's Weak (Top Gaps by Weighted Impact)
 
-| Issue | Severity | Notes |
-|-------|----------|-------|
-| Two workflow systems (automations + loop builder) | High | Confusing for users. Converge or clearly differentiate. |
-| Two outreach systems (/outreach + /drip) | High | Same problem. Consolidate into one sequence builder with trigger types. |
-| Monolithic page components (5 files > 1000 lines) | Medium | Broadcasts (1648), inbox (1536), groups (1397). Extract hooks, split panels. |
-| No pagination on core API endpoints | Medium | Contacts, deals, groups load entire DB. Crashes at 1k+ records. |
-| No real-time sync | Medium | Supabase realtime not wired. Changes invisible until refresh. |
+| Category | Us | CRMChat | Wt | Gap | Fix |
+|----------|-----|---------|-----|-----|-----|
+| TG Folder Sync | 15 | 90 | 4 | **-300** | Ship MTProto folder API (client exists) |
+| 3rd-Party CRM Sync | 10 | 82 | 3 | -216 | Skip — webhook outbound is enough |
+| Voice-to-Data | 5 | 80 | 2 | -150 | Skip — low value for text BD workflows |
+| QR Code Lead Capture | 20 | 85 | 2 | -130 | Ship QR generation + tracking |
+| Task Assignment | 68 | 85 | 4 | -68 | Add priorities, recurring, metrics |
+| Zapier/API Access | 65 | 85 | 3 | -60 | Ship v1 REST endpoints |
+| Mini-App / TMA | 78 | 92 | 4 | -56 | Add offline, gestures |
+| Onboarding Speed | 72 | 90 | 3 | -54 | Folder sync IS onboarding |
+| AI Chatbot | 65 | 78 | 4 | -52 | Ship decision trees |
+| AI Lead Qual | 58 | 75 | 3 | -51 | Complete auto-deal + scoring |
+
+**Total weighted gap: -1,137 points.** But most of it is concentrated in folder sync (-300) and 3rd-party CRM (-216), and we intentionally skip voice (-150) and CRM sync (-216).
+
+---
+
+## The 5 Moves That Close the Gap
+
+### 1. TG Folder Sync (15 -> 75 = +2.3 weighted score)
+
+The single highest-ROI feature. MTProto client exists, folder API is a few method calls. Map slugs to folders, sync on change. Also unlocks onboarding improvement (folder sync = instant pipeline).
+
+### 2. Public REST API (65 -> 80 = +0.4 weighted score)
+
+Ship 10 v1 endpoints. API keys exist. Internal routes handle all logic. Thin wrappers + rate limiting + docs page. Unlocks Zapier/Make integrations.
+
+### 3. Chatbot Decision Trees (65 -> 80 = +0.6 weighted score)
+
+`chatbot_turn` node in workflow builder + `bot_dm_received` trigger + stateful conversation engine. Goes from "helpful chatbot" to "revenue-generating automation."
+
+### 4. QR Code Lead Capture (20 -> 70 = +1.0 weighted score)
+
+Trackable QR codes -> bot DM deep link -> auto-create contact + deal. Small feature, high competitive signal.
+
+### 5. Task System Hardening (68 -> 82 = +0.5 weighted score)
+
+Priority levels, recurring tasks, SLA tracking, completion metrics, one-click reminders via TG.
+
+**Combined: +4.9 weighted -> 74.4.** Then TMA polish, lead qual, campaign analytics, and onboarding get us to 80+.
+
+---
+
+## Strategic Decisions
+
+### DO pursue:
+- TG Folder Sync — largest single score lever
+- Public API — highest-weighted unbuilt category
+- Chatbot flows — second highest AI gap
+- QR lead capture — easy win, high signal
+- Task system — practical gap that users feel
+
+### DON'T pursue:
+- 3rd-party CRM sync — webhook outbound covers 80% of value. Building HubSpot/Salesforce connectors is months of work for +2 weighted.
+- Voice-to-Data — low value for text-based BD workflows. CRMChat has it but it's wt=2.
+- WhatsApp/SMS — Telegram-first by design. Our omnichannel score (48) already beats CRMChat (30).
+
+### STOP investing in:
+- Email features — Gmail is good enough. Every hour on email is an hour not spent on folder sync (5x higher weighted impact). Park it.
 
 ---
 
 ## Score Projection
 
-| Milestone | Target | Key Deliverables |
-|-----------|--------|-----------------|
-| Current | ~75 | — |
-| + Public API + Quick Wins | ~79 | v1 REST API, chatbot flow trigger, group custom fields, inbox bot filter |
-| + AI Chatbot Flows | ~82 | Decision tree builder, bot DM routing, stateful conversations |
-| + Attribution + Prediction | ~85 | Campaign ROI, AI win probability, recommended actions |
-
-**The path to #1 (81+) requires 2 things: ship the public API and ship chatbot flows.** Everything else is polish. These two features close the two highest-weighted competitive gaps.
+| Milestone | Score | Gap to #1 |
+|-----------|-------|-----------|
+| Current | 69.5 | -10.9 |
+| + Folder Sync + QR | 73.2 | -7.2 |
+| + API + Chatbot | 76.2 | -4.2 |
+| + Tasks + TMA + Lead Qual | 79.0 | -1.4 |
+| + Attribution + Onboarding | 80.5 | **Tied #1** |
 
 ---
 
 ## Bottom Line
 
-Score went from 64 → ~75. That's real progress. The email track added significant capability but didn't move the Telegram CRM competitive score much (email is table stakes for CRM, not a differentiator in the Telegram niche).
+We're 3rd, not 2nd. The gap to #1 is 10.9 points, not 5. But the path is clear: folder sync (+2.3), QR capture (+1.0), chatbot flows (+0.6), API (+0.4), tasks (+0.5) = 74.4 with 5 features. The rest is incremental polish to 80+.
 
-The next +6 points come from:
-1. **Public API** — highest weighted gap, lowest effort (thin wrappers on existing routes)
-2. **Chatbot decision trees** — second highest gap, medium effort (extend existing workflow builder)
-3. **Campaign attribution** — unique differentiator, connects broadcasts to revenue
-
-Stop widening. The app does enough things. Make the API externally accessible, make the bot smart enough to run decision trees, and prove that broadcasts drive deals. That's #1.
+Stop widening the product. Stop building email features. Win the Telegram war.
