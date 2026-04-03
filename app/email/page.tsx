@@ -18,7 +18,7 @@ import { EmailErrorBoundary } from "@/components/email/error-boundary";
 import { toast } from "sonner";
 import { CommandPalette } from "@/components/email/command-palette";
 import { AutoDraftBanner } from "@/components/email/auto-draft";
-import { GroupsPanel } from "@/components/email/groups-panel";
+import { TodoPanel } from "@/components/email/todo-panel";
 import { ComposeForm } from "@/components/email/compose-form";
 import { LabelPicker } from "@/components/email/label-picker";
 import { DragDropZones } from "@/components/email/drag-drop-zones";
@@ -672,6 +672,8 @@ function EmailPageInner() {
           unreadCounts={unreadCounts}
           onDeleteLabel={handleDeleteLabel}
           onAddThreadsToLabel={handleAddThreadsToLabel}
+          connectionId={activeConnectionId}
+          onLabelsRefresh={refreshLabels}
         />
       </div>
 
@@ -965,23 +967,13 @@ function EmailPageInner() {
           )}
           style={{ backgroundColor: "hsl(var(--surface-1))" }}
         >
-          {/* Groups section */}
+          {/* To Do section */}
           <div className={cn(
             inlineCompose ? "max-h-[180px] overflow-y-auto thin-scroll shrink-0 border-b border-white/10" : "flex-1 overflow-y-auto thin-scroll"
           )}>
-            <GroupsPanel
-              labels={labels}
+            <TodoPanel
               connectionId={activeConnectionId}
-              onSelectLabel={(id) => {
-                setActiveLabel(id);
-                setSelectedThreadId(null);
-                setSearchQuery("");
-                setActiveCategory("all");
-              }}
               onSelectThread={(threadId) => setSelectedThreadId(threadId)}
-              onLabelsRefresh={refreshLabels}
-              onDeleteLabel={handleDeleteLabel}
-              onAddThreadsToLabel={handleAddThreadsToLabel}
             />
           </div>
 
