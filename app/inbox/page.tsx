@@ -29,10 +29,17 @@ import {
   Tag,
   StickyNote,
   ChevronLeft,
+  Flame,
+  UserX,
 } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
+import { NukeProgressModal } from "@/components/telegram/nuke-progress-modal";
+import { useNukeMessages } from "@/lib/client/use-nuke-messages";
+import { useNukeGroups } from "@/lib/client/use-nuke-groups";
+import { useTelegramAdminGroups } from "@/lib/client/use-telegram-admin-groups";
+import { useTelegram } from "@/lib/client/telegram-context";
 
 // ── Chat Label Types & Constants ────────────────────────────────
 
@@ -150,6 +157,13 @@ export default function InboxPage() {
   } | null>(null);
   const [noteModal, setNoteModal] = React.useState<{ chatId: number; groupName: string } | null>(null);
   const [noteText, setNoteText] = React.useState("");
+
+  // Nuke state
+  const [nukeTarget, setNukeTarget] = React.useState<{ chatId: number; name: string; type: "messages" | "groups" } | null>(null);
+  const nukeMessages = useNukeMessages();
+  const nukeGroups = useNukeGroups();
+  const { groups: adminGroups } = useTelegramAdminGroups();
+  const { service: tgService, status: tgStatus } = useTelegram();
 
   // Reply state
   const [replyText, setReplyText] = React.useState("");
@@ -1348,6 +1362,17 @@ export default function InboxPage() {
                 active={getLabel(contextMenu.chatId)?.is_archived}
                 onClick={() => { toggleLabel(contextMenu.chatId, contextMenu.groupName, "is_archived"); setContextMenu(null); }}
               />
+              <div className="border-t border-white/10 my-1" />
+              <CtxItem
+                icon={<Flame className="h-3.5 w-3.5 text-orange-400" />}
+                label="Delete My Messages"
+                onClick={() => { setNukeTarget({ chatId: contextMenu.chatId, name: contextMenu.groupName, type: "messages" }); setContextMenu(null); }}
+              />
+              <CtxItem
+                icon={<UserX className="h-3.5 w-3.5 text-red-400" />}
+                label="Kick from My Groups"
+                onClick={() => { setNukeTarget({ chatId: contextMenu.chatId, name: contextMenu.groupName, type: "groups" }); setContextMenu(null); }}
+              />
             </>
           )}
 
@@ -1451,6 +1476,40 @@ export default function InboxPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Nuke modal */}
+      {nukeTarget && (
+        <NukeProgressModal
+          open={!!nukeTarget}
+          onClose={() => {
+            setNukeTarget(null);
+            nukeMessages.reset();
+            nukeGroups.reset();
+          }}
+          type={nukeTarget.type}
+          targetName={nukeTarget.name}
+          messagesState={nukeTarget.type === "messages" ? nukeMessages.state : undefined}
+          groupsState={nukeTarget.type === "groups" ? nukeGroups.state : undefined}
+          adminGroups={nukeTarget.type === "groups" ? adminGroups : undefined}
+          onConfirm={async (selectedGroups) => {
+            if (tgStatus !== "connected") {
+              toast.error("Telegram not connected. Connect via Settings > Integrations.");
+              return;
+            }
+            try {
+              const resolved = await tgService.resolveUser(nukeTarget.chatId);
+              if (nukeTarget.type === "messages") {
+                nukeMessages.start(nukeTarget.chatId, resolved.accessHash, nukeTarget.name);
+              } else {
+                nukeGroups.start(nukeTarget.chatId, resolved.accessHash, selectedGroups ?? adminGroups);
+              }
+            } catch {
+              toast.error("Could not resolve user. Connect Telegram and load conversations first.");
+            }
+          }}
+          onCancel={nukeTarget.type === "messages" ? nukeMessages.cancel : nukeGroups.cancel}
+        />
       )}
     </div>
   );

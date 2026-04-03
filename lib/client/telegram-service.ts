@@ -63,12 +63,46 @@ export interface TgContact {
   isMutual: boolean;
 }
 
+export interface TgAdminGroup {
+  telegramId: number;
+  accessHash?: string;
+  title: string;
+  type: "group" | "supergroup";
+  memberCount: number;
+  isCreator: boolean;
+  username?: string;
+}
+
+export interface TgGroupParticipant {
+  telegramUserId: number;
+  accessHash?: string;
+  firstName: string;
+  lastName?: string;
+  username?: string;
+  role: "creator" | "admin" | "member" | "banned" | "restricted";
+}
+
+export interface TgSearchResult {
+  messageIds: number[];
+  hasMore: boolean;
+  nextOffsetId: number;
+}
+
+export interface TgCommonChat {
+  id: number;
+  type: "group" | "supergroup" | "channel";
+  title: string;
+  accessHash?: string;
+}
+
 // ── Singleton Service ─────────────────────────────────────────
 
 export class TelegramBrowserService {
   private static instance: TelegramBrowserService | null = null;
   private client: TelegramClient | null = null;
   private _connected = false;
+  private _selfId: number | null = null;
+  private _lastApiCall = 0;
 
   static getInstance(): TelegramBrowserService {
     if (!TelegramBrowserService.instance) {
@@ -454,7 +488,474 @@ export class TelegramBrowserService {
       });
   }
 
+  // ── Self / Identity ───────────────────────────────────────
+
+  /** Get the logged-in user's Telegram ID (cached after first call). */
+  async getSelfId(): Promise<number> {
+    if (this._selfId) return this._selfId;
+    this.requireClient();
+    const result = await this.client!.invoke(
+      new Api.users.GetUsers({ id: [new Api.InputUserSelf()] })
+    );
+    const user = result[0];
+    if (!(user instanceof Api.User)) throw new Error("Failed to get self user");
+    this._selfId = Number(user.id);
+    return this._selfId;
+  }
+
+  // ── Admin Groups ─────────────────────────────────────────
+
+  /** Get all groups/supergroups where the current user is admin or creator. */
+  async getAdminGroups(): Promise<TgAdminGroup[]> {
+    this.requireClient();
+    const allDialogs = await this.getDialogs(500);
+    const adminGroups: TgAdminGroup[] = [];
+
+    // getDialogs only returns basic info — we need to check admin rights
+    // by iterating entities the client has cached
+    for (const d of allDialogs) {
+      if (d.type !== "group" && d.type !== "supergroup") continue;
+
+      try {
+        if (d.type === "supergroup" && d.accessHash) {
+          await this.rateLimit();
+          const full = await this.client!.invoke(
+            new Api.channels.GetParticipant({
+              channel: new Api.InputChannel({
+                channelId: bigInt(d.telegramId),
+                accessHash: bigInt(d.accessHash),
+              }),
+              participant: new Api.InputPeerSelf(),
+            })
+          );
+          const participant = full.participant;
+          const isAdmin =
+            participant instanceof Api.ChannelParticipantAdmin ||
+            participant instanceof Api.ChannelParticipantCreator;
+          if (!isAdmin) continue;
+
+          // Fetch member count
+          let memberCount = 0;
+          try {
+            await this.rateLimit();
+            const channelFull = await this.client!.invoke(
+              new Api.channels.GetFullChannel({
+                channel: new Api.InputChannel({
+                  channelId: bigInt(d.telegramId),
+                  accessHash: bigInt(d.accessHash),
+                }),
+              })
+            );
+            if (channelFull.fullChat instanceof Api.ChannelFull) {
+              memberCount = channelFull.fullChat.participantsCount ?? 0;
+            }
+          } catch {
+            // Fallback to 0 if we can't fetch
+          }
+
+          adminGroups.push({
+            telegramId: d.telegramId,
+            accessHash: d.accessHash,
+            title: d.title,
+            type: "supergroup",
+            memberCount,
+            isCreator: participant instanceof Api.ChannelParticipantCreator,
+            username: d.username,
+          });
+        } else if (d.type === "group") {
+          // For legacy groups, fetch full chat to check admin status
+          await this.rateLimit();
+          const full = await this.client!.invoke(
+            new Api.messages.GetFullChat({ chatId: bigInt(d.telegramId) })
+          );
+          const selfId = await this.getSelfId();
+          const chatFull = full.fullChat;
+          if (chatFull instanceof Api.ChatFull && chatFull.participants instanceof Api.ChatParticipants) {
+            const me = chatFull.participants.participants.find((p) => {
+              if (p instanceof Api.ChatParticipantAdmin) return Number(p.userId) === selfId;
+              if (p instanceof Api.ChatParticipantCreator) return Number(p.userId) === selfId;
+              return false;
+            });
+            if (!me) continue;
+
+            adminGroups.push({
+              telegramId: d.telegramId,
+              title: d.title,
+              type: "group",
+              memberCount: chatFull.participants.participants.length,
+              isCreator: me instanceof Api.ChatParticipantCreator,
+            });
+          }
+        }
+      } catch {
+        // Skip groups where we can't check admin status
+        continue;
+      }
+    }
+
+    return adminGroups;
+  }
+
+  // ── Group Participants ───────────────────────────────────
+
+  /** Fetch participants of a group or supergroup. */
+  async getGroupParticipants(
+    groupType: "group" | "supergroup",
+    groupId: number,
+    accessHash?: string,
+    limit = 200,
+    offset = 0
+  ): Promise<TgGroupParticipant[]> {
+    this.requireClient();
+    await this.rateLimit();
+
+    if (groupType === "supergroup") {
+      const result = await this.client!.invoke(
+        new Api.channels.GetParticipants({
+          channel: new Api.InputChannel({
+            channelId: bigInt(groupId),
+            accessHash: bigInt(accessHash || "0"),
+          }),
+          filter: new Api.ChannelParticipantsSearch({ q: "" }),
+          offset,
+          limit,
+          hash: bigInt(0),
+        })
+      );
+
+      if (!(result instanceof Api.channels.ChannelParticipants)) return [];
+
+      const users = new Map<string, Api.User>();
+      for (const u of result.users) {
+        if (u instanceof Api.User) users.set(u.id.toString(), u);
+      }
+
+      return result.participants.map((p) => {
+        let userId: bigint;
+        let role: TgGroupParticipant["role"] = "member";
+
+        if (p instanceof Api.ChannelParticipantCreator) {
+          userId = p.userId as unknown as bigint;
+          role = "creator";
+        } else if (p instanceof Api.ChannelParticipantAdmin) {
+          userId = p.userId as unknown as bigint;
+          role = "admin";
+        } else if (p instanceof Api.ChannelParticipantBanned) {
+          userId = (p.peer as Api.PeerUser).userId as unknown as bigint;
+          role = "banned";
+        } else {
+          userId = (p as Api.ChannelParticipant).userId as unknown as bigint;
+          role = "member";
+        }
+
+        const u = users.get(userId.toString());
+        return {
+          telegramUserId: Number(userId),
+          accessHash: u?.accessHash?.toString(),
+          firstName: u?.firstName ?? "",
+          lastName: u?.lastName ?? undefined,
+          username: u?.username ?? undefined,
+          role,
+        };
+      });
+    }
+
+    // Legacy group — get full chat
+    const full = await this.client!.invoke(
+      new Api.messages.GetFullChat({ chatId: bigInt(groupId) })
+    );
+
+    const users = new Map<string, Api.User>();
+    for (const u of full.users) {
+      if (u instanceof Api.User) users.set(u.id.toString(), u);
+    }
+
+    const chatFull = full.fullChat;
+    if (!(chatFull instanceof Api.ChatFull) || !(chatFull.participants instanceof Api.ChatParticipants)) {
+      return [];
+    }
+
+    return chatFull.participants.participants.map((p) => {
+      const userId = Number(p.userId);
+      const u = users.get(p.userId.toString());
+      let role: TgGroupParticipant["role"] = "member";
+      if (p instanceof Api.ChatParticipantCreator) role = "creator";
+      else if (p instanceof Api.ChatParticipantAdmin) role = "admin";
+
+      return {
+        telegramUserId: userId,
+        accessHash: u?.accessHash?.toString(),
+        firstName: u?.firstName ?? "",
+        lastName: u?.lastName ?? undefined,
+        username: u?.username ?? undefined,
+        role,
+      };
+    });
+  }
+
+  // ── Group Member Management ──────────────────────────────
+
+  /** Kick a user from a group (soft kick: ban then immediately unban). */
+  async kickGroupMember(
+    groupType: "group" | "supergroup",
+    groupId: number,
+    groupAccessHash: string | undefined,
+    userId: number,
+    userAccessHash: string | undefined
+  ): Promise<void> {
+    this.requireClient();
+    await this.rateLimit();
+
+    if (groupType === "supergroup") {
+      // Ban with full restrictions
+      await this.client!.invoke(
+        new Api.channels.EditBanned({
+          channel: new Api.InputChannel({
+            channelId: bigInt(groupId),
+            accessHash: bigInt(groupAccessHash || "0"),
+          }),
+          participant: new Api.InputPeerUser({
+            userId: bigInt(userId),
+            accessHash: bigInt(userAccessHash || "0"),
+          }),
+          bannedRights: new Api.ChatBannedRights({
+            untilDate: 0,
+            viewMessages: true,
+            sendMessages: true,
+            sendMedia: true,
+            sendStickers: true,
+            sendGifs: true,
+            sendGames: true,
+            sendInline: true,
+            embedLinks: true,
+          }),
+        })
+      );
+      // Immediately unban (soft kick — user can rejoin via invite)
+      await this.rateLimit();
+      await this.client!.invoke(
+        new Api.channels.EditBanned({
+          channel: new Api.InputChannel({
+            channelId: bigInt(groupId),
+            accessHash: bigInt(groupAccessHash || "0"),
+          }),
+          participant: new Api.InputPeerUser({
+            userId: bigInt(userId),
+            accessHash: bigInt(userAccessHash || "0"),
+          }),
+          bannedRights: new Api.ChatBannedRights({
+            untilDate: 0,
+          }),
+        })
+      );
+    } else {
+      // Legacy group
+      await this.client!.invoke(
+        new Api.messages.DeleteChatUser({
+          chatId: bigInt(groupId),
+          userId: new Api.InputUser({
+            userId: bigInt(userId),
+            accessHash: bigInt(userAccessHash || "0"),
+          }),
+        })
+      );
+    }
+  }
+
+  /** Add a user to a group. */
+  async addGroupMember(
+    groupType: "group" | "supergroup",
+    groupId: number,
+    groupAccessHash: string | undefined,
+    userId: number,
+    userAccessHash: string | undefined
+  ): Promise<void> {
+    this.requireClient();
+    await this.rateLimit();
+
+    if (groupType === "supergroup") {
+      await this.client!.invoke(
+        new Api.channels.InviteToChannel({
+          channel: new Api.InputChannel({
+            channelId: bigInt(groupId),
+            accessHash: bigInt(groupAccessHash || "0"),
+          }),
+          users: [
+            new Api.InputUser({
+              userId: bigInt(userId),
+              accessHash: bigInt(userAccessHash || "0"),
+            }),
+          ],
+        })
+      );
+    } else {
+      await this.client!.invoke(
+        new Api.messages.AddChatUser({
+          chatId: bigInt(groupId),
+          userId: new Api.InputUser({
+            userId: bigInt(userId),
+            accessHash: bigInt(userAccessHash || "0"),
+          }),
+          fwdLimit: 0,
+        })
+      );
+    }
+  }
+
+  // ── Message Search & Delete ──────────────────────────────
+
+  /** Search for own messages in a specific chat. Returns up to 100 IDs per call. */
+  async searchMyMessages(
+    peerType: "user" | "chat" | "channel",
+    peerId: number,
+    accessHash?: string,
+    offsetId = 0
+  ): Promise<TgSearchResult> {
+    this.requireClient();
+    await this.rateLimit();
+    const peer = this.buildPeer(peerType, peerId, accessHash);
+
+    const result = await this.client!.invoke(
+      new Api.messages.Search({
+        peer,
+        q: "",
+        fromId: new Api.InputPeerSelf(),
+        filter: new Api.InputMessagesFilterEmpty(),
+        minDate: 0,
+        maxDate: 0,
+        offsetId,
+        addOffset: 0,
+        limit: 100,
+        maxId: 0,
+        minId: 0,
+        hash: bigInt(0),
+      })
+    );
+
+    if (result instanceof Api.messages.MessagesNotModified) {
+      return { messageIds: [], hasMore: false, nextOffsetId: 0 };
+    }
+
+    const msgs = result as Api.messages.Messages | Api.messages.MessagesSlice | Api.messages.ChannelMessages;
+    const ids = msgs.messages
+      .filter((m): m is Api.Message => m instanceof Api.Message)
+      .map((m) => m.id);
+
+    const hasMore = ids.length === 100;
+    const nextOffsetId = ids.length > 0 ? ids[ids.length - 1] : 0;
+
+    return { messageIds: ids, hasMore, nextOffsetId };
+  }
+
+  /** Delete messages. Max 100 IDs per call. Returns count of deleted messages. */
+  async deleteMessages(
+    peerType: "user" | "chat" | "channel",
+    peerId: number,
+    accessHash: string | undefined,
+    messageIds: number[]
+  ): Promise<number> {
+    this.requireClient();
+    if (messageIds.length === 0) return 0;
+    await this.rateLimit();
+
+    if (peerType === "channel") {
+      const result = await this.client!.invoke(
+        new Api.channels.DeleteMessages({
+          channel: new Api.InputChannel({
+            channelId: bigInt(peerId),
+            accessHash: bigInt(accessHash || "0"),
+          }),
+          id: messageIds,
+        })
+      );
+      return result.ptsCount ?? messageIds.length;
+    }
+
+    const result = await this.client!.invoke(
+      new Api.messages.DeleteMessages({
+        id: messageIds,
+        revoke: true,
+      })
+    );
+    return result.ptsCount ?? messageIds.length;
+  }
+
+  // ── Common Chats ─────────────────────────────────────────
+
+  /** Get groups in common with a specific user. */
+  async getCommonChats(
+    userId: number,
+    userAccessHash: string | undefined
+  ): Promise<TgCommonChat[]> {
+    this.requireClient();
+    await this.rateLimit();
+
+    const result = await this.client!.invoke(
+      new Api.messages.GetCommonChats({
+        userId: new Api.InputUser({
+          userId: bigInt(userId),
+          accessHash: bigInt(userAccessHash || "0"),
+        }),
+        maxId: bigInt(0),
+        limit: 100,
+      })
+    );
+
+    const chats = result as Api.messages.Chats | Api.messages.ChatsSlice;
+    return chats.chats
+      .filter((c): c is Api.Chat | Api.Channel => c instanceof Api.Chat || c instanceof Api.Channel)
+      .map((c) => {
+        if (c instanceof Api.Channel) {
+          return {
+            id: Number(c.id),
+            type: (c.megagroup ? "supergroup" : "channel") as TgCommonChat["type"],
+            title: c.title,
+            accessHash: c.accessHash?.toString(),
+          };
+        }
+        return {
+          id: Number(c.id),
+          type: "group" as const,
+          title: c.title,
+        };
+      });
+  }
+
+  // ── User Resolution ──────────────────────────────────────
+
+  /** Resolve a user ID to access hash. Tries entity cache first, then API. */
+  async resolveUser(userId: number): Promise<{ accessHash: string; firstName: string }> {
+    this.requireClient();
+    await this.rateLimit();
+
+    const result = await this.client!.invoke(
+      new Api.users.GetUsers({
+        id: [new Api.InputUser({ userId: bigInt(userId), accessHash: bigInt(0) })],
+      })
+    );
+
+    const user = result[0];
+    if (!(user instanceof Api.User) || !user.accessHash) {
+      throw new Error("Could not resolve user");
+    }
+
+    return {
+      accessHash: user.accessHash.toString(),
+      firstName: user.firstName ?? "",
+    };
+  }
+
   // ── Helpers ───────────────────────────────────────────────
+
+  /** Rate limiter: 40ms minimum between API calls (~25/s). */
+  private async rateLimit(): Promise<void> {
+    const now = Date.now();
+    const elapsed = now - this._lastApiCall;
+    if (elapsed < 40) {
+      await new Promise((resolve) => setTimeout(resolve, 40 - elapsed));
+    }
+    this._lastApiCall = Date.now();
+  }
 
   private buildPeer(
     type: "user" | "chat" | "channel",
