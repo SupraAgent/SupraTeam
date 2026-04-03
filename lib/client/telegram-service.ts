@@ -53,6 +53,13 @@ export interface TgMessage {
   mediaType?: string;
 }
 
+export interface TgFolder {
+  id: number;
+  title: string;
+  includePeerIds: number[];
+  isChatlist: boolean;
+}
+
 export interface TgContact {
   telegramUserId: number;
   firstName: string;
@@ -452,6 +459,88 @@ export class TelegramBrowserService {
           isMutual: u.mutualContact ?? false,
         };
       });
+  }
+
+  // ── Folders (Dialog Filters) ───────────────────────────────
+
+  /** Get all user's Telegram folders. */
+  async getDialogFilters(): Promise<TgFolder[]> {
+    this.requireClient();
+
+    const result = await this.client!.invoke(
+      new Api.messages.GetDialogFilters()
+    );
+
+    const filters = (result as { filters?: Api.TypeDialogFilter[] }).filters ?? [];
+    const out: TgFolder[] = [];
+
+    for (const f of filters) {
+      if (f instanceof Api.DialogFilter) {
+        const title =
+          (f.title as unknown as { text?: string })?.text ??
+          (typeof f.title === "string" ? f.title : "");
+        out.push({
+          id: f.id,
+          title,
+          includePeerIds: (f.includePeers ?? []).map((p) => {
+            if (p instanceof Api.InputPeerUser) return Number(p.userId);
+            if (p instanceof Api.InputPeerChat) return Number(p.chatId);
+            if (p instanceof Api.InputPeerChannel) return Number(p.channelId);
+            return 0;
+          }).filter(Boolean),
+          isChatlist: false,
+        });
+      }
+    }
+
+    return out;
+  }
+
+  /**
+   * Create or update a Telegram folder.
+   * Pass peers from the browser's dialog cache (which has access hashes).
+   */
+  async updateDialogFilter(params: {
+    id: number;
+    title: string;
+    peers: Array<{ type: "user" | "chat" | "channel"; id: number; accessHash?: string }>;
+  }): Promise<boolean> {
+    this.requireClient();
+
+    const includePeers = params.peers.map((p) => this.buildPeer(p.type, p.id, p.accessHash));
+
+    // Build title — GramJS layer ≥167 uses TextWithEntities, older uses string.
+    // Use type assertion to handle both cases at runtime.
+    let title: Api.TypeTextWithEntities | string = params.title;
+    if (Api.TextWithEntities) {
+      title = new Api.TextWithEntities({ text: params.title, entities: [] });
+    }
+
+    const result = await this.client!.invoke(
+      new Api.messages.UpdateDialogFilter({
+        id: params.id,
+        filter: new Api.DialogFilter({
+          id: params.id,
+          title: title as Api.TypeTextWithEntities,
+          includePeers,
+          pinnedPeers: [],
+          excludePeers: [],
+          groups: true,
+          broadcasts: true,
+        }),
+      })
+    );
+
+    return !!result;
+  }
+
+  /** Delete a Telegram folder by its filter ID. */
+  async deleteDialogFilter(id: number): Promise<boolean> {
+    this.requireClient();
+    const result = await this.client!.invoke(
+      new Api.messages.UpdateDialogFilter({ id })
+    );
+    return !!result;
   }
 
   // ── Helpers ───────────────────────────────────────────────
