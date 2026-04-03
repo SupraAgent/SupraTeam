@@ -16,12 +16,15 @@ import { getOrCreateEncryptionKey, setEncryptionUserId } from "./telegram-crypto
 import { useAuth } from "@/lib/auth";
 import type { Api } from "telegram";
 
-type TgStatus = "loading" | "disconnected" | "connecting" | "connected" | "needs-reauth" | "error";
+type TgStatus = "loading" | "disconnected" | "connecting" | "connected" | "needs-reauth" | "error" | "reconnecting";
 
 /** Nonce for authenticating BroadcastChannel messages from this tab. */
 const CHANNEL_NONCE = crypto.getRandomValues(new Uint8Array(16)).reduce(
   (s, b) => s + b.toString(16).padStart(2, "0"), ""
 );
+
+/** Exponential backoff delays in ms: 2s, 4s, 8s, 16s, 30s cap */
+const RECONNECT_DELAYS = [2000, 4000, 8000, 16000, 30000];
 
 interface TelegramContextValue {
   status: TgStatus;
@@ -56,6 +59,9 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
   const [telegramUserId, setTelegramUserId] = React.useState<number | null>(null);
   const serviceRef = React.useRef(TelegramBrowserService.getInstance());
   const isRestoringRef = React.useRef(false);
+  const reconnectAttemptRef = React.useRef(0);
+  const reconnectTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wasConnectedRef = React.useRef(false);
 
   // Multi-tab coordination: notify other tabs on connect/disconnect
   const channelRef = React.useRef<BroadcastChannel | null>(null);
@@ -96,9 +102,82 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
     setEncryptionUserId(user.id);
     restoreSession();
     return () => {
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       serviceRef.current.disconnect().catch(() => {});
     };
   }, [user?.id]);
+
+  // Connection health monitor — uses refs to avoid effect feedback loops
+  const statusRef = React.useRef(status);
+  statusRef.current = status;
+  const reconnectScheduledRef = React.useRef(false);
+
+  React.useEffect(() => {
+    if (status === "connected") {
+      wasConnectedRef.current = true;
+      reconnectAttemptRef.current = 0;
+      reconnectScheduledRef.current = false;
+      return;
+    }
+
+    // Only schedule reconnect for error/disconnected, and only once per drop
+    if ((status === "error" || status === "disconnected") && wasConnectedRef.current && user?.id && !reconnectScheduledRef.current) {
+      // Don't auto-reconnect if another tab took the session
+      if (error?.includes("another tab")) return;
+
+      const attempt = reconnectAttemptRef.current;
+      if (attempt >= RECONNECT_DELAYS.length) return;
+
+      reconnectScheduledRef.current = true;
+      const delay = RECONNECT_DELAYS[attempt];
+      setStatus("reconnecting");
+      setError(`Reconnecting in ${Math.round(delay / 1000)}s... (attempt ${attempt + 1}/${RECONNECT_DELAYS.length})`);
+
+      reconnectTimerRef.current = setTimeout(async () => {
+        reconnectScheduledRef.current = false;
+        reconnectAttemptRef.current = attempt + 1;
+        try {
+          await restoreSession();
+        } catch {
+          // restoreSession handles its own error state
+        }
+      }, delay);
+    }
+  // Only trigger on status changes — not on error text changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, user?.id]);
+
+  // Network online/offline detection
+  React.useEffect(() => {
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function handleOnline() {
+      // Debounce to avoid hammering on network flapping
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        if (wasConnectedRef.current && statusRef.current !== "connected" && statusRef.current !== "connecting") {
+          reconnectAttemptRef.current = 0;
+          reconnectScheduledRef.current = false;
+          restoreSession();
+        }
+      }, 1000);
+    }
+    function handleOffline() {
+      if (statusRef.current === "connected") {
+        setStatus("error");
+        setError("Network offline — will reconnect when back online");
+      }
+    }
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  // Uses refs for status — no need for status in deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function restoreSession() {
     // Guard against double-invocation (React Strict Mode fires effects twice)
@@ -173,6 +252,12 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
   );
 
   const disconnect = React.useCallback(async () => {
+    // Stop auto-reconnect
+    wasConnectedRef.current = false;
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
     await serviceRef.current.disconnect();
     await clearSession();
     setPhoneLast4(null);
@@ -183,6 +268,13 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const reconnect = React.useCallback(async () => {
+    // Clear any pending auto-reconnect timer
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+    reconnectAttemptRef.current = 0;
+    wasConnectedRef.current = true; // Allow auto-reconnect after manual reconnect
     await restoreSession();
   }, []);
 
