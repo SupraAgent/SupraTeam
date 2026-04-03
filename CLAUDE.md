@@ -1,43 +1,32 @@
-# CLAUDE.md -- SupraCRM
-
-## Who You're Working With
-
-Jon, co-founder of Supra (L1 blockchain). Australian, lives in Taipei. Communication style: no fluff, short paragraphs (max 3 sentences). Tables for comparisons, bullets for lists. Separate facts from conclusions from speculation. Fast iteration preferred. Don't over-explain.
-
----
+# CLAUDE.md — SupraCRM
 
 ## What This Project Is
 
-SupraCRM is a Telegram-native CRM for Supra's BD, Marketing, and Admin teams. It manages deal pipelines, contacts with Telegram identities, and Telegram group access control via slug-based bulk operations. A Telegram bot acts as group admin, sending automated messages on pipeline stage changes, daily digests, and broadcasts filtered by slug tags.
+SupraCRM is a **multi-channel engagement CRM** built for BD, Marketing, and Admin teams. It unifies Telegram, Gmail, and Google Calendar into a single deal pipeline with visual automations and AI-powered assistance.
+
+**Core channels:**
+- **Telegram** — Bot-managed groups, broadcasts, TMA mobile app, zero-knowledge client sessions (GramJS + MTProto)
+- **Email** — Gmail sync, compose (side-by-side), threads, labels, email groups/folders, sequences
+- **Calendar** — Google Calendar sync with webhook-based real-time updates
+
+**Core CRM:**
+- 7-stage configurable deal pipeline (Kanban) with BD/Marketing/Admin board views
+- Contact management with Telegram identities, company associations, enrichment
+- Slug-based Telegram group access control (bulk add/remove, audit log)
+- Visual workflow builder (React Flow) with templates and execution history
+- AI chat assistant (Claude) on every page with per-page context
 
 **It is NOT:**
-- A code editor or IDE
-- A deployment dashboard (that's SupraVibe)
+- An omnichannel platform (no WhatsApp, Instagram, SMS — Telegram-first by design)
 - A project management tool
 - A general-purpose chatbot
 
-### Relationship to SupraVibe
+### Database Conventions
 
-SupraCRM shares the **same Supabase project** as SupraVibe (SupraAgent/Coder). They share:
-- `auth.users` (same GitHub OAuth login)
-- `profiles` table (extended with `crm_role` column)
-- `user_tokens` table (CRM adds `telegram_bot` provider)
-- Same Supabase URL, anon key, service role key, and encryption key
-
-They do NOT share:
-- Code (separate repos, separate deployments)
-- CRM-specific tables (prefixed `crm_`, `tg_`, `pipeline_stages`)
-- UI components (copied at init, will diverge)
-
-### Core User Flow
-
-1. Team member logs in with GitHub (same Supabase Auth as SupraVibe)
-2. Admin connects Telegram bot token in Settings > Integrations
-3. Bot is added as admin to Telegram groups
-4. Groups appear in TG Groups page, tagged with slugs
-5. Deals are created and moved through the 7-stage pipeline
-6. Stage changes trigger bot messages to linked Telegram chats
-7. Slug-based access control: 1-click add/remove users to all groups with a given slug
+SupraCRM may share its Supabase project with other apps. To avoid collisions:
+- CRM-specific tables are prefixed with `crm_` or `tg_`
+- Shared tables (`auth.users`, `profiles`, `user_tokens`) must not be restructured
+- `profiles` is extended with a `crm_role` column
 
 ---
 
@@ -47,32 +36,18 @@ They do NOT share:
 |-------|-----------|
 | Framework | Next.js 16, React 19 |
 | Styling | Tailwind CSS v3, dark-mode-only, HSL CSS variables |
-| Database | Supabase (PostgreSQL), shared with SupraVibe |
+| Database | Supabase (PostgreSQL) |
 | Auth | GitHub OAuth via Supabase Auth |
-| Encryption | AES-256-GCM for stored tokens |
-| Bot | grammy (Node.js Telegram Bot API) -- separate process |
+| Encryption | AES-256-GCM (server), device-bound keys (browser, zero-knowledge TG sessions) |
+| Telegram Bot | grammy — separate Node.js process, NOT an API route |
+| Telegram Client | GramJS (browser-side MTProto) |
+| Email | Google APIs (Gmail), nodemailer, imapflow, mailparser |
+| Calendar | Google Calendar API + webhooks |
+| Workflows | React Flow (@xyflow/react) |
+| Rich Text | Tiptap (email compose, drafts) |
+| AI | Anthropic SDK (@anthropic-ai/sdk) — drafts, summaries, sentiment, chat |
 | Package manager | npm |
 | Port | 3002 (`npm run dev:app`) |
-
----
-
-## Pipeline Stages (Default)
-
-| Position | Stage | Meaning |
-|----------|-------|---------|
-| 1 | Potential Client | Initial contact identified |
-| 2 | Outreach | Active outreach in progress |
-| 3 | Calendly Sent | Calendly link sent to prospect |
-| 4 | Video Call | Call scheduled or occurred |
-| 5 | Follow Up | Post-call follow-up phase |
-| 6 | MOU Signed | Legal agreement signed |
-| 7 | First Check Received | Payment/first transaction completed |
-
-### Board Views
-
-- **BD Board** -- deals where `board_type = 'BD'`
-- **Marketing Board** -- deals where `board_type = 'Marketing'`
-- **Admin Board** -- deals where `board_type = 'Admin'`
 
 ---
 
@@ -86,14 +61,29 @@ app/
 │   ├── contacts/          # Contacts CRUD
 │   ├── groups/            # TG groups
 │   ├── tokens/            # Token CRUD
-│   └── pipeline/          # Pipeline config
+│   ├── pipeline/          # Pipeline config
+│   ├── email/             # Gmail sync, compose, threads, labels, groups, sequences, webhooks
+│   ├── calendar/          # Google Calendar sync, events, webhooks
+│   ├── telegram/          # TG client auth, sessions, messages
+│   ├── automations/       # Workflow CRUD + execution
+│   └── broadcasts/        # TG broadcast send + scheduling
 ├── auth/callback/         # GitHub OAuth callback
 ├── login/                 # Login page
 ├── pipeline/              # Kanban board (main CRM view)
-├── contacts/              # Contact list
+├── contacts/              # Contact list + TG identity lookup
+├── companies/             # Company master data
+├── email/                 # Gmail inbox, thread view, compose
+├── inbox/                 # Unified Telegram conversation view
+├── telegram/              # TG connect, integration hub
 ├── groups/                # TG group management
-├── broadcasts/            # Broadcast tool
-├── settings/              # Settings (general, integrations, pipeline, team)
+├── broadcasts/            # Broadcast compose + scheduling
+├── automations/           # Visual workflow builder, runs, analytics
+├── outreach/              # Outreach sequences
+├── calendar/              # Google Calendar sync
+├── conversations/         # AI-driven conversation management
+├── reports/               # Analytics and reporting
+├── settings/              # 11 subsections (integrations, pipeline, team, privacy, AI, etc.)
+├── tma/                   # Telegram Mini App (mobile CRM: deals, tasks, inbox, AI chat)
 ├── layout.tsx             # Root layout
 ├── page.tsx               # Dashboard home
 └── globals.css            # Global styles + CSS variables
@@ -107,17 +97,17 @@ lib/
 │   └── middleware.ts       # Session refresh
 ├── supabase.ts            # createSupabaseAdmin() (service role)
 ├── auth.ts                # AuthProvider + useAuth hook
-├── crypto.ts              # AES-256-GCM token encryption
+├── crypto.ts              # AES-256-GCM token encryption + key versioning
 └── utils.ts               # cn() utility, timeAgo()
 
-bot/                       # Telegram bot (Phase 2, separate Node.js process)
+bot/                       # Telegram bot (separate Node.js process)
 
-supabase/migrations/       # SQL migrations for CRM tables
+supabase/migrations/       # 100+ SQL migrations
 ```
 
 ---
 
-## Database Tables (CRM-specific)
+## Database Tables
 
 | Table | Purpose |
 |-------|---------|
@@ -125,14 +115,20 @@ supabase/migrations/       # SQL migrations for CRM tables
 | `crm_contacts` | Contacts with Telegram identities |
 | `crm_deals` | Deals linked to contacts, stages, boards, and TG chats |
 | `crm_deal_stage_history` | Stage change log for automation triggers |
+| `crm_companies` | Company master data linked to contacts and groups |
 | `tg_groups` | Telegram groups where bot is admin |
 | `tg_group_slugs` | Slug tags on TG groups (junction) |
+| `tg_client_sessions` | Zero-knowledge encrypted Telegram sessions |
+| `crm_tg_chat_groups` | User-organized Telegram conversation folders |
 | `crm_user_slug_access` | Which users can access which slug-tagged groups |
 | `crm_slug_access_log` | Audit log for bulk access changes |
-| `crm_workflows` | Visual automation workflows (React Flow nodes/edges as JSONB) |
+| `crm_email_groups` | User-created email folders per connection |
+| `crm_email_group_threads` | Email thread ↔ group junction |
+| `crm_email_group_contacts` | Auto-routing rules by sender |
+| `crm_workflows` | Visual automation workflows (React Flow JSONB) |
 | `crm_workflow_runs` | Workflow execution history |
-| `crm_workflow_templates` | Reusable workflow templates (built-in + user-saved) |
-| `crm_ai_agent_config` | AI chatbot configuration (role prompt, escalation) |
+| `crm_workflow_templates` | Reusable workflow templates |
+| `crm_ai_agent_config` | AI chatbot configuration |
 | `crm_ai_conversations` | AI conversation log with qualification data |
 | `crm_bots` | Multi-bot registry with encrypted tokens |
 
@@ -140,53 +136,82 @@ Shared table extension: `profiles.crm_role` (bd_lead, marketing_lead, admin_lead
 
 ---
 
+## Pipeline Stages (Default)
+
+| Position | Stage |
+|----------|-------|
+| 1 | Potential Client |
+| 2 | Outreach |
+| 3 | Calendly Sent |
+| 4 | Video Call |
+| 5 | Follow Up |
+| 6 | MOU Signed |
+| 7 | First Check Received |
+
+Board views: **BD**, **Marketing**, **Admin** (filtered by `board_type`).
+
+---
+
 ## Key Design Patterns
 
-- **Same as SupraVibe**: `{ data, source }` API responses, null-safe clients, admin client for cross-user queries, dark-mode-only, no external component libraries.
-- **Auth middleware redirects** to /login for unauthenticated users (unlike SupraVibe which shows empty states).
-- **CRM tables prefixed** with `crm_` or `tg_` to avoid collisions with SupraVibe tables in the same database.
-- **Bot runs as separate process** (not API route) for persistent connections and scheduled jobs.
+- `{ data, source }` API response format. Null-safe clients. Admin client for cross-user queries.
+- Dark-mode-only. No external component libraries.
+- Auth middleware redirects to `/login` for unauthenticated users.
+- CRM tables prefixed with `crm_` or `tg_` to avoid collisions if sharing a Supabase project.
+- Telegram bot runs as a **separate process** (not API route) for persistent connections.
+- Zero-knowledge Telegram sessions: client-side encryption with device-bound keys, server never sees plaintext.
+- Encryption key versioning for safe key rotation.
 
 ---
 
 ## Environment Variables
 
 ```env
-NEXT_PUBLIC_SUPABASE_URL=        # Same as SupraVibe
-NEXT_PUBLIC_SUPABASE_ANON_KEY=   # Same as SupraVibe
-SUPABASE_SERVICE_ROLE_KEY=       # Same as SupraVibe
-TOKEN_ENCRYPTION_KEY=            # Same as SupraVibe
-TELEGRAM_BOT_TOKEN=              # Phase 2
-ANTHROPIC_API_KEY=               # Claude AI features (chat widget, sentiment, summaries)
+# Supabase
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+TOKEN_ENCRYPTION_KEY=
+
+# App
+NEXT_PUBLIC_APP_URL=http://localhost:3002
+
+# Telegram Bot
+TELEGRAM_BOT_TOKEN=
+
+# Telegram Client (browser-side GramJS)
+NEXT_PUBLIC_TELEGRAM_API_ID=
+NEXT_PUBLIC_TELEGRAM_API_HASH=
+
+# Google (Gmail + Calendar)
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_PUBSUB_TOPIC=              # Optional: enables real-time email push (vs 120s polling)
+
+# AI
+ANTHROPIC_API_KEY=
 ```
 
 ---
 
-## Build Phases
+## Roadmap
 
-| Phase | Status | Scope |
-|-------|--------|-------|
-| Phase 0: Foundation | Done | Repo, scaffold, auth, app shell, migration, page stubs |
-| Phase 1: CRM Core | Done | Kanban drag-drop, deals/contacts CRUD, board views, deal detail, custom fields, duplicate detection, pipeline summary bar, collapsible columns, WIP limits, task priorities & assignment |
-| Phase 2: Telegram Bot | Done | grammy bot, group registration, stage-change messages, bot templates, multi-bot registry, merge variables, broadcast personalization |
-| Phase 3: Access Control | Done | Slugs, matrix UI, bulk add/remove, audit log, automations, broadcasts, outreach sequences, workflows |
-| Phase 4: Polish | Done | Mobile TMA, view density, animations, onboarding wizard, privacy/GDPR, competitive scoring improvements |
-| Phase 5: AI & Automation | Done | Visual workflow builder (React Flow), AI agent, sentiment analysis, global AI chat assistant |
-| Phase 6: AI Chat & Templates | Done | Global Claude-powered chat widget on every page, per-page context, workflow templates (built-in + user-saved), AI template suggestions |
-| **P0: TG Moat** | **Next** | TG conversation timeline in deal detail, full TMA (tasks, AI chat, broadcasts), outreach sequence branching |
-| P1: Scale | Pending | Bot drip sequences, auto-assignment rules, engagement scoring, unified inbox, saved views |
-| P2: #1 | Pending | Payment tracking, AI chatbot flows, public REST API, TG folder sync, custom fields on deals/groups |
-| P3: Polish | Pending | AI summaries, multi-workspace, QR capture, calendar/timeline views |
+| Priority | Target | Key Deliverables |
+|----------|--------|-----------------|
+| **P0: TG Moat** | ~73 pts | TG conversation timeline in deal detail, full TMA mobile CRM, outreach sequence branching |
+| P1: Scale | ~78 pts | Bot drip sequences, auto-assignment rules, engagement scoring, unified inbox, saved views |
+| P2: #1 | ~84 pts | Blockchain payment tracking, AI chatbot flows, public REST API, TG folder sync, custom fields |
+| P3: Polish | — | AI summaries, multi-workspace, QR capture, calendar/timeline views |
 
-**Target:** CRMChat (#1 at 80.5). Current score: ~64. See `strategic-roadmap.md` for full competitive analysis.
+Strategic thesis: win by being **the CRM that lives inside Telegram**, not another CRM with a Telegram plugin. See `strategic-roadmap.md` for competitive analysis and scoring methodology.
 
 ---
 
 ## What NOT to Do
 
 - Don't install large component libraries (Material UI, Chakra, Ant Design)
-- Don't change the dark mode design system -- extend it
-- Don't restructure the shared Supabase tables (profiles, user_tokens, auth.users)
-- Don't add SupraVibe features (deployments, GitHub activity, fork-and-compare)
-- Don't build the bot inside Next.js API routes -- it runs as a separate process
-- Don't over-architect -- this is an internal tool for a small team
+- Don't change the dark mode design system — extend it
+- Don't restructure base Supabase tables (profiles, user_tokens, auth.users)
+- Don't build the bot inside Next.js API routes — it runs as a separate process
+- Don't chase omnichannel (WhatsApp, SMS) — Telegram-first is the strategy
+- Don't over-architect — this is an internal tool for a small team
