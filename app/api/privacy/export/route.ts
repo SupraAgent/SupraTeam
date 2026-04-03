@@ -9,7 +9,7 @@ import { requireAuth, requireLeadRole } from "@/lib/auth-guard";
 export async function GET(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { user, admin: supabase } = auth;
+  const { user, supabase } = auth;
 
   const { searchParams } = new URL(request.url);
   const contactId = searchParams.get("contact_id");

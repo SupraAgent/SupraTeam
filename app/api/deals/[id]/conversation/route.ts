@@ -10,10 +10,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const { id } = await params;
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin } = auth;
+  const { supabase } = auth;
 
   // Get deal's telegram_chat_id
-  const { data: deal } = await admin
+  const { data: deal } = await supabase
     .from("crm_deals")
     .select("telegram_chat_id")
     .eq("id", id)
@@ -33,7 +33,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const limit = Math.min(Number(url.searchParams.get("limit") || "50"), 100);
 
   // Try tg_group_messages first (full synced messages)
-  let query = admin
+  let query = supabase
     .from("tg_group_messages")
     .select("id, sender_name, sender_username, sender_telegram_id, message_text, message_type, media_type, media_file_id, media_thumb_id, media_mime, reply_to_message_id, sent_at, is_from_bot")
     .eq("telegram_chat_id", deal.telegram_chat_id)
@@ -58,7 +58,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     const senderTgIds = [...new Set(messages.map((m) => m.sender_telegram_id).filter(Boolean))] as number[];
     let contactMap: Record<number, { id: string; name: string }> = {};
     if (senderTgIds.length > 0) {
-      const { data: contacts } = await admin
+      const { data: contacts } = await supabase
         .from("crm_contacts")
         .select("id, name, telegram_user_id")
         .in("telegram_user_id", senderTgIds);
@@ -126,7 +126,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   }
 
   // Fallback: use crm_notifications (bot-captured, truncated)
-  let notifQuery = admin
+  let notifQuery = supabase
     .from("crm_notifications")
     .select("id, title, body, tg_deep_link, tg_sender_name, created_at")
     .eq("deal_id", id)
@@ -170,7 +170,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { id } = await params;
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { user, admin } = auth;
+  const { user, supabase } = auth;
 
   let body: { message?: string };
   try {
@@ -184,7 +184,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
 
   // Get deal's telegram_chat_id
-  const { data: deal } = await admin
+  const { data: deal } = await supabase
     .from("crm_deals")
     .select("telegram_chat_id")
     .eq("id", id)
@@ -197,7 +197,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const chatId = Number(deal.telegram_chat_id);
 
   // Try MTProto user client first (only for server-encrypted sessions)
-  const { data: session } = await admin
+  const { data: session } = await supabase
     .from("tg_client_sessions")
     .select("session_encrypted, encryption_method")
     .eq("user_id", user.id)
@@ -220,7 +220,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
 
   // Fallback: use bot token (scoped to current user)
-  const { data: botToken } = await admin
+  const { data: botToken } = await supabase
     .from("user_tokens")
     .select("encrypted_token")
     .eq("provider", "telegram_bot")

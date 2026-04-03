@@ -10,7 +10,7 @@ import { requireAuth } from "@/lib/auth-guard";
 export async function GET() {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { user, admin: supabase } = auth;
+  const { user, supabase } = auth;
 
   const { data, error } = await supabase
     .from("crm_inbox_last_seen")
@@ -32,7 +32,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { user, admin: supabase } = auth;
+  const { user, supabase } = auth;
 
   let body: { chat_id?: number };
   try {

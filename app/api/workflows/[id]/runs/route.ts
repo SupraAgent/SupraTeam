@@ -7,7 +7,7 @@ export async function GET(
 ) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
   const { id } = await params;
 
   const { data, error } = await supabase
@@ -30,7 +30,7 @@ export async function DELETE(
 ) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
   const { id } = await params;
 
   const url = new URL(request.url);

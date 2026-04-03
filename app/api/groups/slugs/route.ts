@@ -4,7 +4,7 @@ import { requireAuth } from "@/lib/auth-guard";
 export async function GET() {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { data: slugs, error } = await supabase
     .from("tg_group_slugs")
@@ -22,7 +22,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { group_id, slug } = await request.json();
   if (!group_id || !slug) {
@@ -46,7 +46,7 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { group_id, slug } = await request.json();
   if (!group_id || !slug) {

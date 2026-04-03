@@ -19,7 +19,7 @@ const PURGE_TARGETS: Record<string, { table: string; dateCol: string }> = {
 export async function GET() {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { data: policies } = await supabase
     .from("crm_data_retention_policies")
@@ -41,7 +41,7 @@ export async function GET() {
 export async function PUT(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { id, retention_days, auto_purge } = await request.json();
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
@@ -62,7 +62,7 @@ export async function PUT(request: Request) {
 export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { data_type } = await request.json();
   const target = PURGE_TARGETS[data_type];

@@ -226,7 +226,7 @@ async function handleAIResponse(
     messages.push({ role: "assistant", content: h.ai_response });
   }
   // Prefix the user message with their name as context (safe: in user role, not system)
-  const sanitizedName = userName.replace(/[<>{}]/g, "").slice(0, 64);
+  const sanitizedName = userName.replace(/[<>{}\n\r\t\x00-\x1f]/g, "").slice(0, 64);
   messages.push({ role: "user", content: `[${sanitizedName}]: ${messageText}` });
 
   try {

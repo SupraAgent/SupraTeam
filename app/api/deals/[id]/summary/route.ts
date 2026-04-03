@@ -7,7 +7,7 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
   const { id } = await params;
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const apiKey = await getAnthropicKey(auth.user.id);
   if (!apiKey) {
@@ -86,7 +86,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const { id } = await params;
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { data: deal } = await supabase
     .from("crm_deals")

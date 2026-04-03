@@ -11,7 +11,7 @@ const QUALITY_SCORE_FIELDS = ["name", "email", "telegram_username", "company", "
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
   const { id } = await params;
 
   const { data: contact, error } = await supabase
@@ -39,7 +39,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { user, admin: supabase } = auth;
+  const { user, supabase } = auth;
   const { id } = await params;
 
   const raw = await request.json();
@@ -127,7 +127,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireLeadRole();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
   const { id } = await params;
 
   const { error } = await supabase.from("crm_contacts").delete().eq("id", id);

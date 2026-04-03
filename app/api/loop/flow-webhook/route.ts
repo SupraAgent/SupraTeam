@@ -62,11 +62,12 @@ export async function GET(request: Request) {
  */
 export async function POST(request: Request) {
   const webhookSecret = process.env.WEBHOOK_SECRET;
-  if (webhookSecret) {
-    const provided = request.headers.get("x-webhook-secret");
-    if (provided !== webhookSecret) {
-      return NextResponse.json({ error: "Invalid or missing webhook secret" }, { status: 401 });
-    }
+  if (!webhookSecret) {
+    return NextResponse.json({ error: "WEBHOOK_SECRET not configured — refusing unauthenticated webhooks" }, { status: 503 });
+  }
+  const provided = request.headers.get("x-webhook-secret");
+  if (provided !== webhookSecret) {
+    return NextResponse.json({ error: "Invalid or missing webhook secret" }, { status: 401 });
   }
 
   const url = new URL(request.url);

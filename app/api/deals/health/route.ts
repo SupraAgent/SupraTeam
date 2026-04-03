@@ -69,7 +69,7 @@ async function recalculateHealthScores(supabase: SupabaseClient): Promise<number
 export async function POST() {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const updated = await recalculateHealthScores(supabase);
   return NextResponse.json({ updated });
@@ -79,7 +79,7 @@ export async function POST() {
 export async function GET() {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   // Recalculate directly instead of self-fetching
   await recalculateHealthScores(supabase);

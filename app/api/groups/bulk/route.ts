@@ -4,7 +4,7 @@ import { requireLeadRole } from "@/lib/auth-guard";
 export async function POST(request: Request) {
   const auth = await requireLeadRole();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { action, group_ids, slug, bot_id } = await request.json();
 

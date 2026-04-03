@@ -4,7 +4,7 @@ import { requireAuth } from "@/lib/auth-guard";
 export async function GET() {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { data, error } = await supabase
     .from("crm_automation_rules")
@@ -21,7 +21,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { user, admin: supabase } = auth;
+  const { user, supabase } = auth;
 
   const body = await request.json();
   const { name, trigger_type, trigger_config, condition_config, action_type, action_config } = body;
@@ -54,7 +54,7 @@ export async function POST(request: Request) {
 export async function PUT(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const body = await request.json();
   const { id } = body;
@@ -86,7 +86,7 @@ export async function PUT(request: Request) {
 export async function DELETE(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { id } = await request.json();
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });

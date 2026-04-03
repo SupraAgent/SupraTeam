@@ -28,7 +28,7 @@ interface ThreadMessage {
 export async function GET(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { searchParams } = new URL(request.url);
   const limit = Math.min(Number(searchParams.get("limit") ?? 30), 50);

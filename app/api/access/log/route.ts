@@ -4,7 +4,7 @@ import { requireAuth } from "@/lib/auth-guard";
 export async function GET() {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { data: logs, error } = await supabase
     .from("crm_slug_access_log")

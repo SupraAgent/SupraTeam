@@ -85,7 +85,7 @@ function emailLocal(email: string | null): string {
 export async function GET() {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   // Limit to 1000 contacts to prevent O(n^2) blowup on large datasets
   const { data: contacts } = await supabase

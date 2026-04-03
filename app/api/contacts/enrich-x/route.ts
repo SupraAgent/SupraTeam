@@ -5,7 +5,7 @@ import { logEnrichment } from "@/lib/enrichment-log";
 export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { user, admin: supabase } = auth;
+  const { user, supabase } = auth;
 
   const token = process.env.X_API_BEARER_TOKEN;
   if (!token) {

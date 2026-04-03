@@ -17,7 +17,7 @@ export async function POST(request: Request) {
 
   // We need a "scratch" chat to upload to. Use the bot's own chat (send to saved messages).
   // Actually, Telegram requires a valid chat_id. We'll use the sender's telegram_id.
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
   const { data: profile } = await supabase
     .from("profiles")
     .select("telegram_id")

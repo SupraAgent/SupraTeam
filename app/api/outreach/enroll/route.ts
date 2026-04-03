@@ -10,7 +10,7 @@ import { requireAuth } from "@/lib/auth-guard";
 export async function GET(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { searchParams } = new URL(request.url);
   const sequenceId = searchParams.get("sequence_id");
@@ -31,7 +31,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { user, admin: supabase } = auth;
+  const { user, supabase } = auth;
 
   const { sequence_id, deal_id, contact_id, tg_chat_id } = await request.json();
 
@@ -106,7 +106,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { id, status } = await request.json();
   if (!id || !status) {

@@ -6,7 +6,7 @@ const ALLOWED_FIELDS = ["name", "domain", "industry", "website", "description", 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
   const { id } = await params;
 
   const { data: company, error } = await supabase
@@ -65,7 +65,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireLeadRole();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
   const { id } = await params;
 
   const { error } = await supabase

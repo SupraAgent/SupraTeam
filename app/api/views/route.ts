@@ -4,7 +4,7 @@ import { requireAuth } from "@/lib/auth-guard";
 export async function GET(req: NextRequest) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { user, admin: supabase } = auth;
+  const { user, supabase } = auth;
 
   const page = req.nextUrl.searchParams.get("page");
   let query = supabase
@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { user, admin: supabase } = auth;
+  const { user, supabase } = auth;
 
   const body = await req.json();
   const { name, page, filters, board_type } = body;
@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { user, admin: supabase } = auth;
+  const { user, supabase } = auth;
 
   const body = await req.json();
   const { id, name, filters, board_type, is_default } = body;
@@ -105,7 +105,7 @@ export async function PUT(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { user, admin: supabase } = auth;
+  const { user, supabase } = auth;
 
   const id = req.nextUrl.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });

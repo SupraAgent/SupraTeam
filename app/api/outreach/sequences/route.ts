@@ -11,7 +11,7 @@ import { requireAuth } from "@/lib/auth-guard";
 export async function GET() {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { data: sequences, error } = await supabase
     .from("crm_outreach_sequences")
@@ -55,7 +55,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { user, admin: supabase } = auth;
+  const { user, supabase } = auth;
 
   const { name, description, board_type, goal_stage_id, steps, tone } = await request.json();
 
@@ -124,7 +124,7 @@ export async function POST(request: Request) {
 export async function PUT(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { user, admin: supabase } = auth;
+  const { user, supabase } = auth;
 
   const { id, status, name, description, tone } = await request.json();
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
@@ -157,7 +157,7 @@ export async function PUT(request: Request) {
 export async function DELETE(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { user, admin: supabase } = auth;
+  const { user, supabase } = auth;
 
   const { id } = await request.json();
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });

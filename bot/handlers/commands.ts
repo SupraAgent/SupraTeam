@@ -84,6 +84,17 @@ export function registerCommands(bot: Bot) {
   bot.command("status", async (ctx) => {
     if (ctx.chat.type !== "private") return; // CRM data only in private chats
 
+    // Verify sender is a linked CRM team member
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("telegram_id", ctx.from?.id)
+      .single();
+    if (!profile) {
+      await ctx.reply("This command is only available to CRM team members.");
+      return;
+    }
+
     const [groupsRes, dealsRes, contactsRes] = await Promise.all([
       supabase.from("tg_groups").select("id", { count: "exact", head: true }).eq("bot_is_admin", true),
       supabase.from("crm_deals").select("id", { count: "exact", head: true }),
@@ -105,6 +116,17 @@ export function registerCommands(bot: Bot) {
 
   bot.command("deals", async (ctx) => {
     if (ctx.chat.type !== "private") return; // CRM data only in private chats
+
+    // Verify sender is a linked CRM team member
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("telegram_id", ctx.from?.id)
+      .single();
+    if (!profile) {
+      await ctx.reply("This command is only available to CRM team members.");
+      return;
+    }
 
     const { data: stages } = await supabase
       .from("pipeline_stages")

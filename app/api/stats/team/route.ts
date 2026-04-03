@@ -4,7 +4,7 @@ import { requireLeadRole } from "@/lib/auth-guard";
 export async function GET() {
   const auth = await requireLeadRole();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   // Get all deals with assigned_to
   const { data: deals } = await supabase

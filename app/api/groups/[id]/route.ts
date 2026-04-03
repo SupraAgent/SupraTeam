@@ -6,7 +6,7 @@ const ALLOWED_FIELDS = ["company_id", "is_archived"];
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
   const { id } = await params;
 
   const body = await request.json();

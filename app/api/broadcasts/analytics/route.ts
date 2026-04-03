@@ -8,7 +8,7 @@ import { requireAuth } from "@/lib/auth-guard";
 export async function GET() {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   // Broadcasts from last 90 days (sufficient for trends)
   const cutoff90d = new Date(Date.now() - 90 * 86_400_000).toISOString();

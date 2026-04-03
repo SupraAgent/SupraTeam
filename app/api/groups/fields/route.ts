@@ -5,7 +5,7 @@ import { listFields, listFieldValues, bulkUpdateFields, saveFieldValues } from "
 export async function GET(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { searchParams } = new URL(request.url);
   const groupId = searchParams.get("group_id");
@@ -21,7 +21,7 @@ export async function GET(request: Request) {
 export async function PUT(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { fields } = await request.json();
   if (!Array.isArray(fields)) {
@@ -41,7 +41,7 @@ export async function PUT(request: Request) {
 export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { group_id, values } = await request.json();
   if (!group_id || !values || typeof values !== "object") {

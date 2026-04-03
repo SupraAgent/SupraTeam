@@ -5,7 +5,7 @@ import { logAudit } from "@/lib/audit";
 export async function GET() {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { data: grants, error } = await supabase
     .from("crm_user_slug_access")
@@ -49,7 +49,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { user, admin: supabase } = auth;
+  const { user, supabase } = auth;
 
   // Check if user has admin role
   const { data: profile } = await supabase

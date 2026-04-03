@@ -87,6 +87,7 @@ async function deliverWebhook(
       method: "POST",
       headers,
       body,
+      redirect: "error", // Prevent SSRF via redirect to internal IPs
       signal: AbortSignal.timeout(10_000), // 10s timeout
     });
 

@@ -5,7 +5,7 @@ import { sanitizePostgrestValue } from "@/lib/utils";
 export async function GET(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { searchParams } = new URL(request.url);
   const search = searchParams.get("search");
@@ -42,7 +42,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { user, admin: supabase } = auth;
+  const { user, supabase } = auth;
 
   const body = await request.json();
   const { name, domain, industry, website, description, logo_url, employee_count, location } = body;

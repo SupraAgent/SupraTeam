@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { getAllActiveBots, getDefaultBot } from "@/lib/bot-registry";
+import { requireLeadRole } from "@/lib/auth-guard";
 
 export async function POST(request: Request) {
+  const auth = await requireLeadRole();
+  if ("error" in auth) return auth.error;
+
   const { botId } = await request.json().catch(() => ({ botId: null }));
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL;
   if (!baseUrl) {
@@ -53,6 +57,9 @@ export async function POST(request: Request) {
 
 // GET — check webhook status for default bot or all bots
 export async function GET(request: Request) {
+  const auth = await requireLeadRole();
+  if ("error" in auth) return auth.error;
+
   const { searchParams } = new URL(request.url);
   const botId = searchParams.get("botId");
 

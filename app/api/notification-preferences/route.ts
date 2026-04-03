@@ -4,7 +4,7 @@ import { requireAuth } from "@/lib/auth-guard";
 export async function GET() {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { user, admin: supabase } = auth;
+  const { user, supabase } = auth;
 
   const { data } = await supabase
     .from("crm_notification_preferences")
@@ -35,7 +35,7 @@ export async function GET() {
 export async function PUT(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { user, admin: supabase } = auth;
+  const { user, supabase } = auth;
 
   let body: Record<string, unknown>;
   try {

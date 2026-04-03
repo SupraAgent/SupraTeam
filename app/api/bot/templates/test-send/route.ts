@@ -10,7 +10,7 @@ import { sendTelegramWithTracking } from "@/lib/telegram-send";
 export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   if (!botToken) {

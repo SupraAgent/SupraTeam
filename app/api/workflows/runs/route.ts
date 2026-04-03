@@ -6,7 +6,7 @@ const MAX_RETRY_BATCH = 20;
 export async function GET(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const url = new URL(request.url);
   const status = url.searchParams.get("status");
@@ -139,7 +139,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   let body: Record<string, unknown>;
   try {
@@ -204,7 +204,7 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const url = new URL(request.url);
   const status = url.searchParams.get("status");

@@ -13,7 +13,7 @@ import { requireAuth } from "@/lib/auth-guard";
 export async function GET(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase, user } = auth;
+  const { supabase, user } = auth;
 
   const { searchParams } = new URL(request.url);
   const escalatedOnly = searchParams.get("escalated") === "1";

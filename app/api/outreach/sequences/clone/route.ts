@@ -4,7 +4,7 @@ import { requireAuth } from "@/lib/auth-guard";
 export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { user, admin: supabase } = auth;
+  const { user, supabase } = auth;
 
   const { sequence_id } = await request.json();
   if (!sequence_id) {

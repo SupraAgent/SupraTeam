@@ -35,7 +35,7 @@ async function getChatMemberCount(chatId: number): Promise<number> {
 export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { user, admin: supabase } = auth;
+  const { user, supabase } = auth;
   if (!BOT_TOKEN) return NextResponse.json({ error: "Bot token not configured" }, { status: 503 });
 
   const { group_id } = await request.json();

@@ -10,7 +10,7 @@ import { requireAuth } from "@/lib/auth-guard";
 export async function GET() {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   // Auto un-snooze expired conversations before returning statuses
   const { error: unsnoozeErr } = await supabase.rpc("unsnooze_expired");
@@ -43,7 +43,7 @@ export async function GET() {
 export async function PATCH(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { user, admin: supabase } = auth;
+  const { user, supabase } = auth;
 
   let body: {
     chat_id?: number;

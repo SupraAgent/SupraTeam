@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { timingSafeEqual } from "crypto";
 import { getBotById, getDefaultBot } from "@/lib/bot-registry";
 import { triggerWorkflowsByEvent } from "@/lib/workflow-engine";
 
@@ -20,8 +21,11 @@ export async function POST(request: Request, ctx: RouteContext) {
   if (!secret) {
     return NextResponse.json({ error: "Webhook secret not configured" }, { status: 503 });
   }
-  const secretHeader = request.headers.get("x-telegram-bot-api-secret-token");
-  if (secretHeader !== secret) {
+  const secretHeader = request.headers.get("x-telegram-bot-api-secret-token") ?? "";
+  if (
+    secretHeader.length !== secret.length ||
+    !timingSafeEqual(Buffer.from(secretHeader), Buffer.from(secret))
+  ) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 

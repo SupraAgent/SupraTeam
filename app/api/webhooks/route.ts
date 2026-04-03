@@ -61,7 +61,7 @@ const VALID_EVENTS = [
 export async function GET() {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { data: webhooks } = await supabase
     .from("crm_webhooks")
@@ -104,7 +104,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { user, admin: supabase } = auth;
+  const { user, supabase } = auth;
 
   const { name, url, secret, events, headers } = await request.json();
 
@@ -144,7 +144,7 @@ export async function POST(request: Request) {
 export async function PUT(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const body = await request.json();
   const { id } = body;
@@ -180,7 +180,8 @@ export async function PUT(request: Request) {
   const { error } = await supabase
     .from("crm_webhooks")
     .update(updates)
-    .eq("id", id);
+    .eq("id", id)
+    .eq("created_by", auth.user.id);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
@@ -189,7 +190,7 @@ export async function PUT(request: Request) {
 export async function DELETE(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { id } = await request.json();
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
@@ -197,7 +198,8 @@ export async function DELETE(request: Request) {
   const { error } = await supabase
     .from("crm_webhooks")
     .delete()
-    .eq("id", id);
+    .eq("id", id)
+    .eq("created_by", auth.user.id);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
