@@ -3,17 +3,21 @@ import { createSupabaseAdmin } from "@/lib/supabase";
 import { createClient } from "@/lib/supabase/server";
 import { encryptToken, decryptToken } from "@/lib/crypto";
 import { verifySlackToken } from "@/lib/slack";
-import { requireAuth } from "@/lib/auth-guard";
+import { requireAuth, requireLeadRole } from "@/lib/auth-guard";
 
 /** GET — Check if Slack is connected and return workspace info */
 export async function GET() {
-  // Check DB first
+  const auth = await requireAuth();
+  if ("error" in auth) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+
+  // Check DB — scoped to current user's token
   const admin = createSupabaseAdmin();
   if (admin) {
     const { data } = await admin
       .from("user_tokens")
       .select("encrypted_token")
       .eq("provider", "slack")
+      .eq("user_id", auth.user.id)
       .limit(1)
       .single();
 
@@ -52,13 +56,11 @@ export async function GET() {
   return NextResponse.json({ connected: false });
 }
 
-/** POST — Save Slack Bot Token (verifies with Slack first) */
+/** POST — Save Slack Bot Token (verifies with Slack first). Requires lead role. */
 export async function POST(request: Request) {
-  const supabase = (await createClient()) ?? createSupabaseAdmin();
-  if (!supabase) return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
-
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  const leadAuth = await requireLeadRole();
+  if ("error" in leadAuth) return leadAuth.error;
+  const { user } = leadAuth;
 
   const { token } = await request.json();
   if (!token) {
@@ -77,11 +79,12 @@ export async function POST(request: Request) {
   const admin = createSupabaseAdmin()!;
   const encrypted = encryptToken(token);
 
-  // Upsert — one Slack bot token per workspace
+  // Upsert — one Slack bot token per user
   const { data: existing } = await admin
     .from("user_tokens")
     .select("id")
     .eq("provider", "slack")
+    .eq("user_id", user.id)
     .limit(1)
     .single();
 
@@ -118,6 +121,6 @@ export async function DELETE() {
     return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
   }
 
-  await admin.from("user_tokens").delete().eq("provider", "slack");
+  await admin.from("user_tokens").delete().eq("provider", "slack").eq("user_id", auth.user.id);
   return NextResponse.json({ ok: true });
 }
