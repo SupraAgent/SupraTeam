@@ -1511,6 +1511,10 @@ export default function InboxPage() {
               toast.error("Telegram not connected. Connect via Settings > Integrations.");
               return;
             }
+            if (nukeTarget.chatId <= 0) {
+              toast.error("Nuke actions are only available for private chats.");
+              return;
+            }
             try {
               const resolved = await tgService.resolveUser(nukeTarget.chatId);
               if (nukeTarget.type === "messages") {

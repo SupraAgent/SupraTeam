@@ -420,7 +420,7 @@ export default function TelegramPage() {
   async function handleForward(toDialog: TgDialog) {
     if (!forwardMsg || !activeDialog || !peerType) return;
     const toPeerType = toDialog.type === "private" ? "user" as const
-      : toDialog.type === "group" || toDialog.type === "supergroup" ? "chat" as const : "channel" as const;
+      : toDialog.type === "group" ? "chat" as const : "channel" as const;
     try {
       await tg.service.forwardMessages(
         peerType, activeDialog.telegramId, activeDialog.accessHash,

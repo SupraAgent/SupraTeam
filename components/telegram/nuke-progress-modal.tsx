@@ -105,7 +105,7 @@ export function NukeProgressModal({
   const Icon = type === "messages" ? Flame : UserX;
 
   return (
-    <Modal open={open} onClose={isRunning ? () => { onCancel(); } : onClose} title={title}>
+    <Modal open={open} onClose={isRunning ? () => { /* Non-dismissable during operation — use Cancel button */ } : onClose} title={title}>
       {/* Confirmation state */}
       {isIdle && (
         <div className="space-y-4">

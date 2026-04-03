@@ -997,6 +997,14 @@ export class TelegramBrowserService {
           if (!(p.peer instanceof Api.PeerUser)) return [];
           odId = Number(p.peer.userId);
           role = "banned";
+        } else if (p instanceof Api.ChannelParticipantSelf) {
+          odId = Number(p.userId);
+          role = "member";
+        } else if (p instanceof Api.ChannelParticipantLeft) {
+          // Left participants have .peer (Peer union), not .userId
+          if (!(p.peer instanceof Api.PeerUser)) return [];
+          odId = Number(p.peer.userId);
+          role = "member";
         } else {
           odId = Number((p as Api.ChannelParticipant).userId);
           role = "member";
@@ -1086,22 +1094,35 @@ export class TelegramBrowserService {
         })
       );
       // Immediately unban (soft kick — user can rejoin via invite)
-      await this.rateLimit();
-      await this.client!.invoke(
-        new Api.channels.EditBanned({
-          channel: new Api.InputChannel({
-            channelId: bigInt(groupId),
-            accessHash: bigInt(groupAccessHash || "0"),
-          }),
-          participant: new Api.InputPeerUser({
-            userId: bigInt(userId),
-            accessHash: bigInt(userAccessHash || "0"),
-          }),
-          bannedRights: new Api.ChatBannedRights({
-            untilDate: 0,
-          }),
-        })
-      );
+      // Retry unban up to 3 times — failure leaves user permanently banned
+      let unbanSuccess = false;
+      for (let attempt = 0; attempt < 3 && !unbanSuccess; attempt++) {
+        try {
+          await this.rateLimit();
+          await this.client!.invoke(
+            new Api.channels.EditBanned({
+              channel: new Api.InputChannel({
+                channelId: bigInt(groupId),
+                accessHash: bigInt(groupAccessHash || "0"),
+              }),
+              participant: new Api.InputPeerUser({
+                userId: bigInt(userId),
+                accessHash: bigInt(userAccessHash || "0"),
+              }),
+              bannedRights: new Api.ChatBannedRights({
+                untilDate: 0,
+              }),
+            })
+          );
+          unbanSuccess = true;
+        } catch (unbanErr) {
+          if (attempt === 2) {
+            console.error(`[kickGroupMember] CRITICAL: Unban failed after 3 attempts for user ${userId} in group ${groupId}. User is permanently banned.`, unbanErr);
+          }
+          // Wait before retry
+          await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+        }
+      }
     } else {
       // Legacy group
       await this.client!.invoke(
@@ -1222,7 +1243,7 @@ export class TelegramBrowserService {
           id: messageIds,
         })
       );
-      return result.ptsCount ?? messageIds.length;
+      return result.ptsCount ?? 0;
     }
 
     const result = await this.client!.invoke(
@@ -1231,7 +1252,7 @@ export class TelegramBrowserService {
         revoke: true,
       })
     );
-    return result.ptsCount ?? messageIds.length;
+    return result.ptsCount ?? 0;
   }
 
   // ── Common Chats ─────────────────────────────────────────

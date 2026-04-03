@@ -38,6 +38,7 @@ export function useNukeGroups() {
   const { service, status: tgStatus } = useTelegram();
   const [state, setState] = React.useState<NukeGroupsState>(INITIAL_STATE);
   const cancelledRef = React.useRef(false);
+  const runningRef = React.useRef(false);
 
   const reset = React.useCallback(() => {
     setState(INITIAL_STATE);
@@ -55,6 +56,33 @@ export function useNukeGroups() {
       adminGroups: TgAdminGroup[]
     ) => {
       if (tgStatus !== "connected") return;
+
+      // Guard against double-invocation
+      if (runningRef.current) return;
+      runningRef.current = true;
+
+      // Prevent self-targeting
+      try {
+        const selfId = await service.getSelfId();
+        if (userId === selfId) {
+          setState({
+            ...INITIAL_STATE,
+            status: "error",
+            error: "Cannot nuke yourself from groups",
+          });
+          runningRef.current = false;
+          return;
+        }
+      } catch {
+        setState({
+          ...INITIAL_STATE,
+          status: "error",
+          error: "Could not verify identity — reconnect Telegram",
+        });
+        runningRef.current = false;
+        return;
+      }
+
       cancelledRef.current = false;
 
       setState({
@@ -141,6 +169,8 @@ export function useNukeGroups() {
           status: "error",
           error: err instanceof Error ? err.message : "An error occurred",
         }));
+      } finally {
+        runningRef.current = false;
       }
     },
     [service, tgStatus]

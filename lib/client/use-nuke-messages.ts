@@ -35,6 +35,7 @@ export function useNukeMessages() {
   const { service, status: tgStatus } = useTelegram();
   const [state, setState] = React.useState<NukeMessagesState>(INITIAL_STATE);
   const cancelledRef = React.useRef(false);
+  const runningRef = React.useRef(false);
 
   const reset = React.useCallback(() => {
     setState(INITIAL_STATE);
@@ -52,6 +53,35 @@ export function useNukeMessages() {
       userName: string
     ) => {
       if (tgStatus !== "connected") return;
+
+      // Guard against double-invocation
+      if (runningRef.current) return;
+      runningRef.current = true;
+
+      // Prevent self-targeting
+      try {
+        const selfId = await service.getSelfId();
+        if (userId === selfId) {
+          setState({
+            ...INITIAL_STATE,
+            status: "error",
+            phase: "Error",
+            error: "Cannot nuke your own messages",
+          });
+          runningRef.current = false;
+          return;
+        }
+      } catch {
+        setState({
+          ...INITIAL_STATE,
+          status: "error",
+          phase: "Error",
+          error: "Could not verify identity — reconnect Telegram",
+        });
+        runningRef.current = false;
+        return;
+      }
+
       cancelledRef.current = false;
 
       const allMessages: Array<{
@@ -83,6 +113,8 @@ export function useNukeMessages() {
           hasMore = result.hasMore;
           offsetId = result.nextOffsetId;
           if (newCount > 0) setState((s) => ({ ...s, totalFound: s.totalFound + newCount }));
+          // Break if all returned messages were duplicates (pagination stuck)
+          if (newCount === 0 && hasMore) break;
         }
         const dmIds = Array.from(dmIdSet);
 
@@ -103,7 +135,9 @@ export function useNukeMessages() {
 
         // Phase 2: Find common chats
         setState((s) => ({ ...s, phase: "Finding shared groups..." }));
-        const commonChats = await service.getCommonChats(userId, userAccessHash);
+        // Filter out broadcast channels — users can't send messages there
+        const commonChats = (await service.getCommonChats(userId, userAccessHash))
+          .filter((c) => c.type !== "channel");
 
         setState((s) => ({
           ...s,
@@ -136,6 +170,8 @@ export function useNukeMessages() {
               chatHasMore = result.hasMore;
               chatOffset = result.nextOffsetId;
               if (newCount > 0) setState((s) => ({ ...s, totalFound: s.totalFound + newCount }));
+              // Break if all returned messages were duplicates (pagination stuck)
+              if (newCount === 0 && chatHasMore) break;
             } catch {
               break;
             }
@@ -217,6 +253,8 @@ export function useNukeMessages() {
           phase: "Error",
           error: err instanceof Error ? err.message : "An error occurred",
         }));
+      } finally {
+        runningRef.current = false;
       }
     },
     [service, tgStatus]
