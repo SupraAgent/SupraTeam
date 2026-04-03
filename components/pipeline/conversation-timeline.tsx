@@ -132,6 +132,10 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
     const supabase = createClient();
     if (!supabase) return () => clearInterval(interval);
 
+    // Validate dealId is a UUID to prevent filter injection
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(dealId)) return () => clearInterval(interval);
+
     const channel = supabase
       .channel(`timeline-${dealId}`)
       .on(
@@ -452,7 +456,7 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
                       <span className="text-[9px] text-muted-foreground/30">
                         {new Date(msg.sent_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
                       </span>
-                      {msg.tg_deep_link && (
+                      {msg.tg_deep_link && /^https:\/\/t\.me\//.test(msg.tg_deep_link) && (
                         <a
                           href={msg.tg_deep_link}
                           target="_blank"

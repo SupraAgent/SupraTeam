@@ -253,9 +253,10 @@ export default function TelegramPage() {
     }
   }, [activeDialog, maxMessageId, tg.status, tg.service, peerType]);
 
-  // Reset lastReadMaxId when switching dialogs
+  // Reset lastReadMaxId and scroll ref when switching dialogs
   React.useEffect(() => {
     lastReadMaxIdRef.current = 0;
+    prevMsgCountRef.current = 0;
   }, [activeDialog?.id]);
 
   // Fetch folders
@@ -399,7 +400,7 @@ export default function TelegramPage() {
   async function handleForward(toDialog: TgDialog) {
     if (!forwardMsg || !activeDialog || !peerType) return;
     const toPeerType = toDialog.type === "private" ? "user" as const
-      : toDialog.type === "group" || toDialog.type === "supergroup" ? "chat" as const : "channel" as const;
+      : toDialog.type === "group" ? "chat" as const : "channel" as const; // supergroup + channel both use InputPeerChannel
     try {
       await tg.service.forwardMessages(
         peerType, activeDialog.telegramId, activeDialog.accessHash,
@@ -1433,9 +1434,9 @@ export default function TelegramPage() {
                 >
                   <Info className="h-4 w-4" />
                 </button>
-                <div className="flex items-center gap-1 text-[9px] text-primary/50">
+                <div className="flex items-center gap-1 text-[9px] text-primary/50" title="Zero-knowledge: session encrypted on-device, server never sees data">
                   <Fingerprint className="h-3 w-3" />
-                  E2E
+                  ZK
                 </div>
               </div>
 
@@ -1462,7 +1463,7 @@ export default function TelegramPage() {
 
               {/* Pinned message banner */}
               {(() => {
-                const pinned = messages.find((m) => m.isPinned);
+                const pinned = [...messages].reverse().find((m) => m.isPinned);
                 if (!pinned) return null;
                 return (
                   <div className="flex items-center gap-2 px-4 py-2 border-b border-white/[0.06] bg-amber-500/5 shrink-0">
@@ -1901,7 +1902,7 @@ export default function TelegramPage() {
             Forward
           </button>
           <button
-            onClick={() => { navigator.clipboard.writeText(msgContextMenu.msg.text); setMsgContextMenu(null); }}
+            onClick={() => { navigator.clipboard.writeText(msgContextMenu.msg.text).catch(() => {}); setMsgContextMenu(null); }}
             className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-foreground hover:bg-white/[0.06]"
           >
             <FileText className="h-3.5 w-3.5" />

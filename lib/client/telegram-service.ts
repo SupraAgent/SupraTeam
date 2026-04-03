@@ -193,6 +193,9 @@ export class TelegramBrowserService {
       await this.client.disconnect();
     }
 
+    // Reset event handler flag so handlers are re-registered on the new client
+    this.eventHandlerRegistered = false;
+
     const session = new StringSession(sessionString);
     this.client = new TelegramClient(session, API_ID, API_HASH, {
       connectionRetries: 3,
@@ -201,6 +204,11 @@ export class TelegramBrowserService {
 
     await this.client.connect();
     this._connected = true;
+
+    // Re-register event handlers if there are active subscribers
+    if (this.eventHandlers.size > 0) {
+      this.ensureEventHandlers();
+    }
   }
 
   /** Get the current session string for encryption + storage. */
