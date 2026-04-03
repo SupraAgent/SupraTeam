@@ -25,7 +25,7 @@ interface SyncMessage {
 export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin } = auth;
+  const { user, admin } = auth;
 
   let body: { tgGroupId?: string; messages?: SyncMessage[] };
   try {
@@ -38,10 +38,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "tgGroupId and messages required" }, { status: 400 });
   }
 
-  // Verify this is a CRM-linked group
+  // Verify this is a CRM-linked group with sync enabled
   const { data: group } = await admin
     .from("tg_groups")
-    .select("id, telegram_group_id")
+    .select("id, telegram_group_id, sync_enabled")
     .eq("id", body.tgGroupId)
     .single();
 
@@ -49,6 +49,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Group not found in CRM" }, { status: 404 });
   }
 
+  if (group.sync_enabled === false) {
+    return NextResponse.json({ error: "Message sync is not enabled for this group" }, { status: 403 });
+  }
+
+  // Note: sender data (senderTelegramId, senderName) is "best effort" —
+  // it comes from the client's GramJS session and cannot be independently
+  // verified server-side. synced_by tracks who submitted each batch.
   const rows = body.messages.map((m) => ({
     tg_group_id: group.id,
     telegram_message_id: m.messageId,
@@ -59,6 +66,7 @@ export async function POST(request: Request) {
     message_type: m.messageType || "text",
     reply_to_message_id: m.replyToMessageId || null,
     sent_at: m.sentAt,
+    synced_by: user.id,
   }));
 
   let synced = 0;

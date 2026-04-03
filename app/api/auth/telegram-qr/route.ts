@@ -31,7 +31,7 @@ import { Api } from "telegram";
 import crypto from "crypto";
 
 export async function POST() {
-  // Legacy route — disabled by default. Set ALLOW_LEGACY_TG_AUTH=true to re-enable.
+  // Legacy route — blocked in ALL environments unless explicitly opted in.
   if (process.env.ALLOW_LEGACY_TG_AUTH !== "true") {
     return NextResponse.json(
       { error: "Legacy Telegram auth is disabled. Use the zero-knowledge client flow." },
@@ -91,7 +91,7 @@ export async function POST() {
             }
           }
         } catch (err) {
-          console.error("[auth/telegram-qr] token update error:", err);
+          console.error("[auth/telegram-qr] token update error:", err instanceof Error ? err.message : "unknown");
         }
       }
     });
@@ -110,7 +110,7 @@ export async function POST() {
       return NextResponse.json({ error: "Telegram API not configured. Set TELEGRAM_API_ID and TELEGRAM_API_HASH." }, { status: 503 });
     }
 
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: "QR login failed" }, { status: 500 });
   }
 }
 
@@ -172,7 +172,7 @@ export async function GET(request: Request) {
       console.error("[auth/telegram-qr] failed to save TG session:", sessionError);
     }
   } catch (err) {
-    console.error("[auth/telegram-qr] failed to encrypt/save TG session:", err);
+    console.error("[auth/telegram-qr] failed to encrypt/save TG session:", err instanceof Error ? err.message : "unknown");
   }
 
   // Audit log (non-critical)

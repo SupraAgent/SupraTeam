@@ -196,15 +196,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const chatId = Number(deal.telegram_chat_id);
 
-  // Try MTProto user client first
+  // Try MTProto user client first (only for server-encrypted sessions)
   const { data: session } = await admin
     .from("tg_client_sessions")
-    .select("session_encrypted")
+    .select("session_encrypted, encryption_method")
     .eq("user_id", user.id)
     .eq("is_active", true)
     .single();
 
-  if (session) {
+  if (session && session.encryption_method !== "client") {
     try {
       const { getConnectedClient, sendMessage, buildPeer } = await import("@/lib/telegram-client");
       const client = await getConnectedClient(user.id, session.session_encrypted);

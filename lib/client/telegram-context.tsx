@@ -61,8 +61,8 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
   const channelRef = React.useRef<BroadcastChannel | null>(null);
 
   React.useEffect(() => {
-    if (typeof BroadcastChannel === "undefined") return;
-    const ch = new BroadcastChannel("suprateam-tg");
+    if (typeof BroadcastChannel === "undefined" || !user?.id) return;
+    const ch = new BroadcastChannel(`suprateam-tg-${user.id}`);
     channelRef.current = ch;
 
     ch.onmessage = (e) => {
@@ -84,7 +84,7 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
     };
 
     return () => ch.close();
-  }, []);
+  }, [user?.id]);
 
   // Auto-restore session on mount (waits for auth user)
   React.useEffect(() => {

@@ -29,7 +29,14 @@ function keyId(): string {
   return `${KEY_PREFIX}-${currentUserId}`;
 }
 
-/** AAD binds ciphertext to a specific user — prevents blob-swap attacks. */
+/**
+ * AAD binds ciphertext to a specific user — prevents blob-swap attacks.
+ *
+ * TODO: Include telegramUserId in AAD (e.g. `tg-session:{userId}:{telegramUserId}`)
+ * to prevent cross-TG-account blob swaps. Requires threading telegramUserId through
+ * setEncryptionUserId/encryptSession/decryptSession and a migration path for
+ * existing encrypted sessions (AAD change = decryption failure on old blobs).
+ */
 function aad(): Uint8Array {
   return new TextEncoder().encode(`tg-session:${currentUserId}`);
 }
