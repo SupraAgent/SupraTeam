@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { useTelegram } from "@/lib/client/telegram-context";
 import { useTelegramDialogs } from "@/lib/client/use-telegram-dialogs";
 import { useTelegramMessages } from "@/lib/client/use-telegram-messages";
-import type { TgDialog, TgMessage } from "@/lib/client/telegram-service";
+import type { TgDialog, TgMessage, TgUserProfile, TgChatProfile } from "@/lib/client/telegram-service";
 import {
   MessageCircle,
   Search,
@@ -41,8 +41,20 @@ import {
   Download,
   Paperclip,
   ArrowUp,
+  Info,
+  AtSign,
+  Phone,
+  Clock,
+  Shield,
+  Bot,
+  Globe,
+  Mic,
+  Play,
+  Pause,
+  Volume2,
 } from "lucide-react";
 import { EmojiPicker } from "@/components/ui/emoji-picker";
+import { toast } from "sonner";
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -126,9 +138,12 @@ export default function TelegramPage() {
   const [mediaLoading, setMediaLoading] = React.useState<number | null>(null);
   const mediaBlobUrlRef = React.useRef<string | null>(null);
 
-  // File upload
+  // File upload with preview
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [uploadingFile, setUploadingFile] = React.useState(false);
+  const [pendingFile, setPendingFile] = React.useState<File | null>(null);
+  const [pendingFilePreview, setPendingFilePreview] = React.useState<string | null>(null);
+  const [fileCaption, setFileCaption] = React.useState("");
 
   // Folders
   const [folders, setFolders] = React.useState<ChatFolder[]>([]);
@@ -136,9 +151,23 @@ export default function TelegramPage() {
   const [showNewFolder, setShowNewFolder] = React.useState(false);
   const [newFolderName, setNewFolderName] = React.useState("");
 
+  // Online status (fetched for private chats)
+  const [onlineStatus, setOnlineStatus] = React.useState<string | null>(null);
+
+  // Contact profile sidebar
+  const [showProfile, setShowProfile] = React.useState(false);
+  const [profileData, setProfileData] = React.useState<TgUserProfile | TgChatProfile | null>(null);
+  const [profileLoading, setProfileLoading] = React.useState(false);
+  const profilePhotoUrlRef = React.useRef<string | null>(null);
+
   // Command palette
   const [showPalette, setShowPalette] = React.useState(false);
   const [paletteQuery, setPaletteQuery] = React.useState("");
+
+  // Voice message playback
+  const [playingVoice, setPlayingVoice] = React.useState<number | null>(null);
+  const audioRef = React.useRef<HTMLAudioElement | null>(null);
+  const voiceBlobRef = React.useRef<string | null>(null);
 
   // @mention
   const [mentionActive, setMentionActive] = React.useState(false);
@@ -185,6 +214,7 @@ export default function TelegramPage() {
     typingUsers,
     sendTyping,
     outgoingReadMaxId,
+    incomingReadMaxId,
   } = useTelegramMessages(
     peerType,
     activeDialog?.telegramId ?? null,
@@ -235,6 +265,17 @@ export default function TelegramPage() {
       .then((d) => { if (d.data) setFolders(d.data); })
       .catch(() => {});
   }, []);
+
+  // Fetch online status for private chats
+  React.useEffect(() => {
+    setOnlineStatus(null);
+    if (!activeDialog || tg.status !== "connected" || activeDialog.type !== "private") return;
+    tg.service.getUserProfile(activeDialog.telegramId, activeDialog.accessHash)
+      .then((profile) => {
+        setOnlineStatus(profile.status);
+      })
+      .catch(() => {});
+  }, [activeDialog?.id, activeDialog?.telegramId, activeDialog?.accessHash, activeDialog?.type, tg.status, tg.service]);
 
   // Fetch chat members when entering a group/supergroup
   React.useEffect(() => {
@@ -343,6 +384,8 @@ export default function TelegramPage() {
       if (replyTextareaRef.current) replyTextareaRef.current.style.height = "auto";
       setLastSentId(Date.now());
       setTimeout(() => setLastSentId(null), 3000);
+    } catch (err) {
+      toast.error("Failed to send message", { description: err instanceof Error ? err.message : undefined });
     } finally {
       setSending(false);
     }
@@ -366,7 +409,7 @@ export default function TelegramPage() {
       setForwardMsg(null);
       setForwardSearch("");
     } catch (err) {
-      console.error("[Telegram] Forward failed:", err);
+      toast.error("Failed to forward message", { description: err instanceof Error ? err.message : undefined });
     }
   }
 
@@ -375,7 +418,7 @@ export default function TelegramPage() {
     try {
       await tg.service.sendReaction(peerType, activeDialog.telegramId, activeDialog.accessHash, msgId, emoji);
     } catch (err) {
-      console.error("[Telegram] Reaction failed:", err);
+      toast.error("Failed to send reaction", { description: err instanceof Error ? err.message : undefined });
     }
   }
 
@@ -386,8 +429,23 @@ export default function TelegramPage() {
       setEditingMsg(null);
       setEditText("");
     } catch (err) {
-      console.error("[Telegram] Edit failed:", err);
+      toast.error("Failed to edit message", { description: err instanceof Error ? err.message : undefined });
     }
+  }
+
+  async function handlePin(msg: TgMessage) {
+    if (!activeDialog || !peerType) return;
+    try {
+      if (msg.isPinned) {
+        await tg.service.unpinMessage(peerType, activeDialog.telegramId, activeDialog.accessHash, msg.id);
+      } else {
+        await tg.service.pinMessage(peerType, activeDialog.telegramId, activeDialog.accessHash, msg.id, true);
+      }
+      refreshMessages();
+    } catch (err) {
+      toast.error(msg.isPinned ? "Failed to unpin message" : "Failed to pin message", { description: err instanceof Error ? err.message : undefined });
+    }
+    setMsgContextMenu(null);
   }
 
   async function handleDelete(msg: TgMessage) {
@@ -395,13 +453,17 @@ export default function TelegramPage() {
     try {
       await tg.service.deleteMessages(peerType, activeDialog.telegramId, activeDialog.accessHash, [msg.id]);
     } catch (err) {
-      console.error("[Telegram] Delete failed:", err);
+      toast.error("Failed to delete message", { description: err instanceof Error ? err.message : undefined });
     }
     setMsgContextMenu(null);
   }
 
   async function handleMediaDownload(msg: TgMessage) {
     if (!activeDialog || !peerType || !msg.mediaType) return;
+    // Stop any active voice playback
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    if (voiceBlobRef.current) { URL.revokeObjectURL(voiceBlobRef.current); voiceBlobRef.current = null; }
+    setPlayingVoice(null);
     setMediaLoading(msg.id);
     try {
       const url = await tg.service.downloadMedia(peerType, activeDialog.telegramId, activeDialog.accessHash, msg.id);
@@ -410,26 +472,92 @@ export default function TelegramPage() {
         if (mediaBlobUrlRef.current) URL.revokeObjectURL(mediaBlobUrlRef.current);
         mediaBlobUrlRef.current = url;
         setMediaPreview({ url, type: msg.mediaType });
+      } else {
+        toast.error("Media not available");
       }
     } catch (err) {
-      console.error("[Telegram] Download failed:", err);
+      toast.error("Failed to download media", { description: err instanceof Error ? err.message : undefined });
     } finally {
       setMediaLoading(null);
     }
   }
 
-  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (!file || !activeDialog || !peerType) return;
+    if (!file || !activeDialog) return;
+    if (file.size > 50 * 1024 * 1024) {
+      toast.error("File too large", { description: "Maximum file size is 50 MB" });
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+    setPendingFile(file);
+    setFileCaption("");
+    // Create preview URL for images
+    if (file.type.startsWith("image/")) {
+      setPendingFilePreview(URL.createObjectURL(file));
+    } else {
+      setPendingFilePreview(null);
+    }
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  async function handleFileSend() {
+    if (!pendingFile || !activeDialog || !peerType) return;
     setUploadingFile(true);
     try {
-      await tg.service.sendFileSimple(peerType, activeDialog.telegramId, activeDialog.accessHash, file);
+      await tg.service.sendFileSimple(peerType, activeDialog.telegramId, activeDialog.accessHash, pendingFile, fileCaption.trim() || undefined);
     } catch (err) {
-      console.error("[Telegram] Upload failed:", err);
+      toast.error("Failed to upload file", { description: err instanceof Error ? err.message : undefined });
     } finally {
       setUploadingFile(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      if (pendingFilePreview) URL.revokeObjectURL(pendingFilePreview);
+      setPendingFile(null);
+      setPendingFilePreview(null);
+      setFileCaption("");
     }
+  }
+
+  async function handleVoicePlay(msg: TgMessage) {
+    if (!activeDialog || !peerType) return;
+    // If same voice is playing, pause it
+    if (playingVoice === msg.id && audioRef.current) {
+      audioRef.current.pause();
+      setPlayingVoice(null);
+      return;
+    }
+    // Stop any existing playback
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    if (voiceBlobRef.current) {
+      URL.revokeObjectURL(voiceBlobRef.current);
+      voiceBlobRef.current = null;
+    }
+    setMediaLoading(msg.id);
+    try {
+      const url = await tg.service.downloadMedia(peerType, activeDialog.telegramId, activeDialog.accessHash, msg.id);
+      if (!url) { toast.error("Voice message not available"); return; }
+      voiceBlobRef.current = url;
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      setPlayingVoice(msg.id);
+      audio.onended = () => setPlayingVoice(null);
+      audio.onerror = () => { setPlayingVoice(null); toast.error("Failed to play voice message"); };
+      await audio.play();
+    } catch (err) {
+      toast.error("Failed to play voice message", { description: err instanceof Error ? err.message : undefined });
+      setPlayingVoice(null);
+    } finally {
+      setMediaLoading(null);
+    }
+  }
+
+  function cancelFileUpload() {
+    if (pendingFilePreview) URL.revokeObjectURL(pendingFilePreview);
+    setPendingFile(null);
+    setPendingFilePreview(null);
+    setFileCaption("");
   }
 
   function selectDialog(dialog: TgDialog) {
@@ -454,6 +582,55 @@ export default function TelegramPage() {
     setMsgSearch("");
     setSearchResults([]);
   }
+
+  async function openProfile() {
+    if (!activeDialog || tg.status !== "connected") return;
+    setShowProfile(true);
+    setProfileLoading(true);
+    try {
+      // Clean up previous profile photo
+      if (profilePhotoUrlRef.current) {
+        URL.revokeObjectURL(profilePhotoUrlRef.current);
+        profilePhotoUrlRef.current = null;
+      }
+
+      if (activeDialog.type === "private") {
+        const profile = await tg.service.getUserProfile(activeDialog.telegramId, activeDialog.accessHash);
+        if (profile.photoUrl) profilePhotoUrlRef.current = profile.photoUrl;
+        setProfileData(profile);
+      } else {
+        const pt = activeDialog.type === "group" ? "chat" as const : "channel" as const;
+        const profile = await tg.service.getChatProfile(pt, activeDialog.telegramId, activeDialog.accessHash);
+        if (profile.photoUrl) profilePhotoUrlRef.current = profile.photoUrl;
+        setProfileData(profile);
+      }
+    } catch (err) {
+      toast.error("Failed to load profile", { description: err instanceof Error ? err.message : undefined });
+      setShowProfile(false);
+    } finally {
+      setProfileLoading(false);
+    }
+  }
+
+  // Clean up profile photo on dialog switch
+  React.useEffect(() => {
+    setShowProfile(false);
+    setProfileData(null);
+    if (profilePhotoUrlRef.current) {
+      URL.revokeObjectURL(profilePhotoUrlRef.current);
+      profilePhotoUrlRef.current = null;
+    }
+  }, [activeDialog?.id]);
+
+  // Clean up blob URLs on component unmount
+  React.useEffect(() => {
+    return () => {
+      if (profilePhotoUrlRef.current) URL.revokeObjectURL(profilePhotoUrlRef.current);
+      if (mediaBlobUrlRef.current) URL.revokeObjectURL(mediaBlobUrlRef.current);
+      if (voiceBlobRef.current) URL.revokeObjectURL(voiceBlobRef.current);
+      if (audioRef.current) audioRef.current.pause();
+    };
+  }, []);
 
   function togglePin(dialogId: string) {
     setPinnedChats((prev) => {
@@ -487,7 +664,7 @@ export default function TelegramPage() {
       setNewFolderName("");
       setShowNewFolder(false);
     } catch (err) {
-      console.error("[Telegram] Failed to create folder:", err);
+      toast.error("Failed to create folder", { description: err instanceof Error ? err.message : undefined });
     }
   }
 
@@ -622,13 +799,24 @@ export default function TelegramPage() {
   function renderMessage(msg: TgMessage) {
     const isOwn = msg.senderId === tg.telegramUserId || msg.id < 0; // negative id = optimistic
     const isOptimistic = msg.id < 0;
+    // Delivery states: sending → sent → delivered → read
     const isRead = isOwn && msg.id > 0 && msg.id <= outgoingReadMaxId;
+    const isSent = isOwn && msg.id > 0; // server confirmed
 
     return (
       <div
         key={msg.id}
+        id={`msg-${msg.id}`}
         className={cn("group relative", isOwn && "flex flex-col items-end")}
       >
+        {/* Pinned indicator */}
+        {msg.isPinned && (
+          <div className="flex items-center gap-1 mb-0.5 text-[10px] text-amber-400/60">
+            <Pin className="h-2.5 w-2.5" />
+            Pinned
+          </div>
+        )}
+
         {/* Reply reference */}
         {msg.replyToId && (
           <div className="text-[10px] text-muted-foreground/50 mb-0.5 pl-3 border-l-2 border-primary/20">
@@ -662,46 +850,103 @@ export default function TelegramPage() {
               {new Date(msg.date * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
               {msg.editDate && <span className="ml-1 italic">(edited)</span>}
             </span>
-            {/* Read receipts for own messages */}
-            {isOwn && msg.id > 0 && (
-              <span className="text-[10px]">
-                {isRead ? (
+            {/* Delivery state for own messages */}
+            {isOwn && (
+              <span className="text-[10px] inline-flex items-center" title={isOptimistic ? "Sending..." : isRead ? "Read" : isSent ? "Sent" : undefined}>
+                {isOptimistic ? (
+                  <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/50 inline" />
+                ) : isRead ? (
                   <CheckCheck className="h-3 w-3 text-primary inline" />
-                ) : (
-                  <Check className="h-3 w-3 text-muted-foreground/50 inline" />
-                )}
+                ) : isSent ? (
+                  <Check className="h-3 w-3 text-muted-foreground/60 inline" />
+                ) : null}
               </span>
-            )}
-            {isOptimistic && (
-              <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/50 inline" />
             )}
           </div>
 
           {/* Media */}
           {msg.mediaType && (
-            <button
-              onClick={() => handleMediaDownload(msg)}
-              disabled={mediaLoading === msg.id}
-              className="flex items-center gap-1.5 mb-1 px-2 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.08] transition-colors cursor-pointer w-full"
-            >
-              {mediaLoading === msg.id ? (
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-              ) : msg.mediaType === "photo" ? (
-                <Image className="h-4 w-4 text-blue-400" />
-              ) : (
-                <FileText className="h-4 w-4 text-amber-400" />
-              )}
-              <span className="text-xs text-muted-foreground flex-1 text-left">
-                {msg.mediaType === "photo" ? "Photo" : "Document"}
-              </span>
-              <Download className="h-3 w-3 text-muted-foreground/50" />
-            </button>
+            msg.mediaSubType === "voice" || msg.mediaSubType === "audio" ? (
+              /* Voice / Audio inline player */
+              <button
+                onClick={() => handleVoicePlay(msg)}
+                disabled={mediaLoading === msg.id}
+                className="flex items-center gap-2 mb-1 px-2 py-2 rounded-lg bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.08] transition-colors cursor-pointer w-full"
+              >
+                <div className={cn(
+                  "flex h-8 w-8 items-center justify-center rounded-full shrink-0",
+                  playingVoice === msg.id ? "bg-primary/20" : "bg-white/[0.06]"
+                )}>
+                  {mediaLoading === msg.id ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  ) : playingVoice === msg.id ? (
+                    <Pause className="h-4 w-4 text-primary" />
+                  ) : (
+                    <Play className="h-4 w-4 text-primary ml-0.5" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  {/* Waveform placeholder */}
+                  <div className="flex items-center gap-[2px] h-4">
+                    {Array.from({ length: 24 }).map((_, i) => (
+                      <div
+                        key={i}
+                        className={cn(
+                          "w-[3px] rounded-full transition-colors",
+                          playingVoice === msg.id ? "bg-primary/60" : "bg-white/20"
+                        )}
+                        style={{ height: `${4 + Math.sin(i * 0.7) * 6 + Math.random() * 4}px` }}
+                      />
+                    ))}
+                  </div>
+                  <span className="text-[10px] text-muted-foreground/50">
+                    {msg.mediaDuration ? `${Math.floor(msg.mediaDuration / 60)}:${(msg.mediaDuration % 60).toString().padStart(2, "0")}` : "Voice message"}
+                  </span>
+                </div>
+                <Volume2 className="h-3 w-3 text-muted-foreground/30 shrink-0" />
+              </button>
+            ) : (
+              /* Photo / Document download button */
+              <button
+                onClick={() => handleMediaDownload(msg)}
+                disabled={mediaLoading === msg.id}
+                className="flex items-center gap-1.5 mb-1 px-2 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.08] transition-colors cursor-pointer w-full"
+              >
+                {mediaLoading === msg.id ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                ) : msg.mediaType === "photo" ? (
+                  <Image className="h-4 w-4 text-blue-400" />
+                ) : (
+                  <FileText className="h-4 w-4 text-amber-400" />
+                )}
+                <span className="text-xs text-muted-foreground flex-1 text-left">
+                  {msg.mediaType === "photo" ? "Photo" : msg.mediaSubType === "video_note" ? "Video message" : "Document"}
+                </span>
+                <Download className="h-3 w-3 text-muted-foreground/50" />
+              </button>
+            )
           )}
 
           {/* Text with link detection */}
           <p className="text-sm text-foreground/80 whitespace-pre-wrap break-words">
             {msg.text ? renderMessageText(msg.text) : (msg.mediaType ? null : "[empty]")}
           </p>
+
+          {/* Reactions */}
+          {msg.reactions && msg.reactions.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {msg.reactions.map((r) => (
+                <button
+                  key={r.emoji}
+                  onClick={() => handleReaction(msg.id, r.emoji)}
+                  className="inline-flex items-center gap-1 rounded-full bg-white/[0.06] hover:bg-white/[0.12] px-2 py-0.5 text-xs transition-colors"
+                >
+                  <span>{r.emoji}</span>
+                  <span className="text-[10px] text-muted-foreground">{r.count}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Hover actions */}
@@ -898,8 +1143,11 @@ export default function TelegramPage() {
       )}
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Column 1: Filter Sidebar + Folders */}
-        <div className="w-[200px] shrink-0 border-r border-white/[0.06] flex flex-col">
+        {/* Column 1: Filter Sidebar + Folders — hidden on mobile */}
+        <div className={cn(
+          "w-[200px] shrink-0 border-r border-white/[0.06] flex flex-col",
+          "max-lg:hidden"
+        )}>
           <div className="p-3 border-b border-white/[0.06] flex items-center justify-between">
             <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Chats</h2>
             <button
@@ -1020,8 +1268,12 @@ export default function TelegramPage() {
           </div>
         </div>
 
-        {/* Column 2: Conversation List */}
-        <div className="w-[320px] shrink-0 border-r border-white/[0.06] flex flex-col">
+        {/* Column 2: Conversation List — full width on mobile when no dialog selected */}
+        <div className={cn(
+          "w-[320px] shrink-0 border-r border-white/[0.06] flex flex-col",
+          "max-md:w-full",
+          activeDialog && "max-md:hidden"
+        )}>
           <div className="p-3 border-b border-white/[0.06] flex items-center gap-2">
             <div className="relative flex-1">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
@@ -1113,15 +1365,19 @@ export default function TelegramPage() {
           </div>
         </div>
 
-        {/* Column 3: Message View */}
-        <div className="flex-1 flex flex-col min-w-0">
+        {/* Column 3: Message View + Profile Sidebar — full width on mobile when dialog selected */}
+        <div className={cn(
+          "flex-1 flex min-w-0",
+          !activeDialog && "max-md:hidden"
+        )}>
+          <div className={cn("flex-1 flex flex-col min-w-0", showProfile && "border-r border-white/[0.06]")}>
           {activeDialog ? (
             <>
               {/* Header */}
               <div className="flex items-center gap-3 px-4 py-3 border-b border-white/[0.06]">
                 <button
                   onClick={() => setActiveDialog(null)}
-                  className="lg:hidden flex h-8 w-8 items-center justify-center rounded-lg hover:bg-white/[0.06]"
+                  className="md:hidden flex h-8 w-8 items-center justify-center rounded-lg hover:bg-white/[0.06]"
                 >
                   <ArrowLeft className="h-4 w-4" />
                 </button>
@@ -1130,11 +1386,31 @@ export default function TelegramPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <h3 className="text-sm font-medium text-foreground truncate">{activeDialog.title}</h3>
-                  <p className="text-[10px] text-muted-foreground">
-                    {activeDialog.type === "private" ? "Direct Message"
-                      : activeDialog.type === "channel" ? "Channel" : "Group"}
-                    {activeDialog.username && ` @${activeDialog.username}`}
-                    {chatMembers.length > 0 && ` · ${chatMembers.length} members`}
+                  <p className="text-[10px] text-muted-foreground flex items-center gap-1.5">
+                    {activeDialog.type === "private" && onlineStatus ? (
+                      <>
+                        <span className={cn(
+                          "h-1.5 w-1.5 rounded-full shrink-0",
+                          onlineStatus === "online" ? "bg-green-400" :
+                          onlineStatus === "recently" ? "bg-amber-400" :
+                          "bg-muted-foreground/30"
+                        )} />
+                        <span className={onlineStatus === "online" ? "text-green-400" : undefined}>
+                          {onlineStatus === "online" ? "Online" :
+                           onlineStatus === "recently" ? "Recently online" :
+                           onlineStatus === "within_week" ? "Last seen within a week" :
+                           onlineStatus === "within_month" ? "Last seen within a month" :
+                           "Offline"}
+                        </span>
+                      </>
+                    ) : (
+                      <span>
+                        {activeDialog.type === "private" ? "Direct Message"
+                          : activeDialog.type === "channel" ? "Channel" : "Group"}
+                        {activeDialog.username && ` @${activeDialog.username}`}
+                        {chatMembers.length > 0 && ` · ${chatMembers.length} members`}
+                      </span>
+                    )}
                   </p>
                 </div>
                 <button
@@ -1146,6 +1422,16 @@ export default function TelegramPage() {
                   title="Search messages (Cmd+F)"
                 >
                   <Search className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={openProfile}
+                  className={cn(
+                    "flex h-8 w-8 items-center justify-center rounded-lg transition-colors",
+                    showProfile ? "bg-white/10 text-foreground" : "hover:bg-white/[0.06] text-muted-foreground"
+                  )}
+                  title="Contact info"
+                >
+                  <Info className="h-4 w-4" />
                 </button>
                 <div className="flex items-center gap-1 text-[9px] text-primary/50">
                   <Fingerprint className="h-3 w-3" />
@@ -1173,6 +1459,30 @@ export default function TelegramPage() {
                   </button>
                 </div>
               )}
+
+              {/* Pinned message banner */}
+              {(() => {
+                const pinned = messages.find((m) => m.isPinned);
+                if (!pinned) return null;
+                return (
+                  <div className="flex items-center gap-2 px-4 py-2 border-b border-white/[0.06] bg-amber-500/5 shrink-0">
+                    <Pin className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                    <p className="text-xs text-foreground/70 truncate flex-1">
+                      <span className="text-amber-400 font-medium">Pinned: </span>
+                      {pinned.text?.slice(0, 100) || "[media]"}
+                    </p>
+                    <button
+                      onClick={() => {
+                        const el = document.getElementById(`msg-${pinned.id}`);
+                        el?.scrollIntoView({ behavior: "smooth", block: "center" });
+                      }}
+                      className="text-[10px] text-amber-400/70 hover:text-amber-400 shrink-0"
+                    >
+                      Jump
+                    </button>
+                  </div>
+                );
+              })()}
 
               {/* Messages */}
               <div
@@ -1258,11 +1568,11 @@ export default function TelegramPage() {
               {/* Reply / Compose (not when editing) */}
               {activeDialog.type !== "channel" && !editingMsg && (
                 <div className="border-t border-white/[0.06] p-3">
-                  {/* Delivery indicator */}
+                  {/* Delivery confirmation */}
                   {lastSentId && (
-                    <div className="flex items-center gap-1.5 mb-2 text-[10px] text-green-400">
+                    <div className="flex items-center gap-1.5 mb-2 text-[10px] text-green-400/70 animate-in fade-in slide-in-from-bottom-1 duration-200">
                       <Check className="h-3 w-3" />
-                      <span>Message sent</span>
+                      <span>Sent</span>
                     </div>
                   )}
 
@@ -1312,7 +1622,8 @@ export default function TelegramPage() {
                     <input
                       ref={fileInputRef}
                       type="file"
-                      onChange={handleFileUpload}
+                      accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar,.txt,.csv"
+                      onChange={handleFileSelect}
                       className="hidden"
                     />
 
@@ -1356,6 +1667,183 @@ export default function TelegramPage() {
                 <Command className="h-3 w-3" />
                 <span>Press <kbd className="px-1 py-0.5 rounded bg-white/[0.06] text-muted-foreground/60">Cmd+K</kbd> to jump to a conversation</span>
               </div>
+            </div>
+          )}
+          </div>
+
+          {/* Contact Profile Sidebar */}
+          {showProfile && activeDialog && (
+            <div className="w-[300px] shrink-0 flex flex-col overflow-y-auto bg-card max-lg:hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06]">
+                <h3 className="text-sm font-medium text-foreground">
+                  {activeDialog.type === "private" ? "Contact Info" : "Chat Info"}
+                </h3>
+                <button
+                  onClick={() => setShowProfile(false)}
+                  className="flex h-7 w-7 items-center justify-center rounded-lg hover:bg-white/[0.06]"
+                >
+                  <X className="h-4 w-4 text-muted-foreground" />
+                </button>
+              </div>
+
+              {profileLoading ? (
+                <div className="flex items-center justify-center py-16">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : profileData ? (
+                <div className="flex flex-col">
+                  {/* Avatar + Name */}
+                  <div className="flex flex-col items-center py-6 px-4">
+                    {profileData.photoUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={profileData.photoUrl}
+                        alt={activeDialog.title}
+                        className="h-20 w-20 rounded-full object-cover border-2 border-white/10"
+                      />
+                    ) : (
+                      <div className="h-20 w-20 rounded-full bg-primary/10 border-2 border-white/10 flex items-center justify-center text-2xl font-semibold text-primary">
+                        {activeDialog.title.charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    <h4 className="text-base font-semibold text-foreground mt-3">
+                      {"firstName" in profileData
+                        ? [profileData.firstName, profileData.lastName].filter(Boolean).join(" ")
+                        : profileData.title}
+                    </h4>
+
+                    {/* Online status for users */}
+                    {"status" in profileData && (
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <div className={cn(
+                          "h-2 w-2 rounded-full",
+                          profileData.status === "online" ? "bg-green-400" :
+                          profileData.status === "recently" ? "bg-amber-400" :
+                          "bg-muted-foreground/30"
+                        )} />
+                        <span className={cn(
+                          "text-xs",
+                          profileData.status === "online" ? "text-green-400" : "text-muted-foreground"
+                        )}>
+                          {profileData.status === "online" ? "Online" :
+                           profileData.status === "recently" ? "Recently online" :
+                           profileData.status === "within_week" ? "Within a week" :
+                           profileData.status === "within_month" ? "Within a month" :
+                           profileData.lastSeen > 0
+                             ? `Last seen ${timeAgo(new Date(profileData.lastSeen * 1000).toISOString())}`
+                             : "Offline"}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Members count for groups */}
+                    {"membersCount" in profileData && profileData.membersCount > 0 && (
+                      <span className="text-xs text-muted-foreground mt-1">
+                        <Users className="h-3 w-3 inline mr-1" />
+                        {profileData.membersCount.toLocaleString()} members
+                      </span>
+                    )}
+
+                    {/* Bot / Verified badges */}
+                    {"isBot" in profileData && (profileData.isBot || profileData.isVerified) && (
+                      <div className="flex items-center gap-2 mt-2">
+                        {profileData.isBot && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] text-blue-400">
+                            <Bot className="h-3 w-3" /> Bot
+                          </span>
+                        )}
+                        {profileData.isVerified && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] text-primary">
+                            <Shield className="h-3 w-3" /> Verified
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Info rows */}
+                  <div className="border-t border-white/[0.06] px-4 py-3 space-y-3">
+                    {/* Bio / About */}
+                    {(("bio" in profileData && profileData.bio) || ("about" in profileData && profileData.about)) && (
+                      <div className="space-y-1">
+                        <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wider font-medium">
+                          {"bio" in profileData ? "Bio" : "About"}
+                        </p>
+                        <p className="text-xs text-foreground/80 whitespace-pre-wrap">
+                          {"bio" in profileData ? profileData.bio : ("about" in profileData ? profileData.about : "")}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Username */}
+                    {(("username" in profileData && profileData.username)) && (
+                      <div className="flex items-center gap-2.5">
+                        <AtSign className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
+                        <div>
+                          <p className="text-[10px] text-muted-foreground/50">Username</p>
+                          <p className="text-xs text-foreground">@{profileData.username}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Phone (user only, last 4 digits) */}
+                    {"phoneLast4" in profileData && profileData.phoneLast4 && (
+                      <div className="flex items-center gap-2.5">
+                        <Phone className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
+                        <div>
+                          <p className="text-[10px] text-muted-foreground/50">Phone</p>
+                          <p className="text-xs text-foreground">***{profileData.phoneLast4}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Last seen (user only) */}
+                    {"lastSeen" in profileData && profileData.lastSeen > 0 && profileData.status !== "online" && (
+                      <div className="flex items-center gap-2.5">
+                        <Clock className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
+                        <div>
+                          <p className="text-[10px] text-muted-foreground/50">Last seen</p>
+                          <p className="text-xs text-foreground">
+                            {new Date(profileData.lastSeen * 1000).toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Common chats (user only) */}
+                    {"commonChatsCount" in profileData && profileData.commonChatsCount > 0 && (
+                      <div className="flex items-center gap-2.5">
+                        <Users className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
+                        <div>
+                          <p className="text-[10px] text-muted-foreground/50">Common groups</p>
+                          <p className="text-xs text-foreground">{profileData.commonChatsCount}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Channel/group type */}
+                    {"isChannel" in profileData && (
+                      <div className="flex items-center gap-2.5">
+                        <Globe className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
+                        <div>
+                          <p className="text-[10px] text-muted-foreground/50">Type</p>
+                          <p className="text-xs text-foreground">
+                            {profileData.isChannel ? "Channel" : profileData.isMegagroup ? "Supergroup" : "Group"}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Encryption notice */}
+                  <div className="border-t border-white/[0.06] px-4 py-3 mt-auto">
+                    <div className="flex items-center gap-2 text-[10px] text-primary/50">
+                      <Fingerprint className="h-3 w-3 shrink-0" />
+                      <span>Profile loaded via zero-knowledge session</span>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </div>
           )}
         </div>
@@ -1418,6 +1906,13 @@ export default function TelegramPage() {
           >
             <FileText className="h-3.5 w-3.5" />
             Copy text
+          </button>
+          <button
+            onClick={() => handlePin(msgContextMenu.msg)}
+            className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-foreground hover:bg-white/[0.06]"
+          >
+            <Pin className="h-3.5 w-3.5" />
+            {msgContextMenu.msg.isPinned ? "Unpin" : "Pin message"}
           </button>
           {(msgContextMenu.msg.senderId === tg.telegramUserId) && (
             <>
@@ -1509,6 +2004,55 @@ export default function TelegramPage() {
               {paletteItems.length === 0 && (
                 <p className="text-xs text-muted-foreground/40 text-center py-8">No results</p>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── File Upload Preview Modal ───────────────────────────── */}
+      {pendingFile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={cancelFileUpload}>
+          <div className="w-[400px] rounded-xl border border-white/10 bg-card shadow-2xl flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06]">
+              <h3 className="text-sm font-medium text-foreground">Send file</h3>
+              <button onClick={cancelFileUpload}><X className="h-4 w-4 text-muted-foreground" /></button>
+            </div>
+            <div className="p-4 space-y-3">
+              {/* Preview */}
+              {pendingFilePreview ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={pendingFilePreview} alt="Preview" className="max-h-[240px] rounded-lg object-contain mx-auto" />
+              ) : (
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                  <FileText className="h-8 w-8 text-amber-400 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-sm text-foreground truncate">{pendingFile.name}</p>
+                    <p className="text-[10px] text-muted-foreground">
+                      {(pendingFile.size / 1024).toFixed(0)} KB · {pendingFile.type || "Unknown type"}
+                    </p>
+                  </div>
+                </div>
+              )}
+              {/* Caption input */}
+              <textarea
+                value={fileCaption}
+                onChange={(e) => setFileCaption(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleFileSend(); }
+                  if (e.key === "Escape") cancelFileUpload();
+                }}
+                placeholder="Add a caption..."
+                rows={2}
+                className="w-full resize-none rounded-lg bg-white/[0.03] border border-white/[0.06] px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
+                autoFocus
+              />
+            </div>
+            <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-white/[0.06]">
+              <Button variant="ghost" size="sm" onClick={cancelFileUpload}>Cancel</Button>
+              <Button size="sm" onClick={handleFileSend} disabled={uploadingFile}>
+                {uploadingFile ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Send className="h-4 w-4 mr-1" />}
+                Send
+              </Button>
             </div>
           </div>
         </div>

@@ -85,6 +85,11 @@ export interface TgDialog {
   };
 }
 
+export interface TgMessageReaction {
+  emoji: string;
+  count: number;
+}
+
 export interface TgMessage {
   id: number;
   text: string;
@@ -93,14 +98,14 @@ export interface TgMessage {
   senderName?: string;
   replyToId?: number;
   mediaType?: string;
+  /** "voice" | "audio" | "video_note" — sub-type for document media */
+  mediaSubType?: string;
+  /** Duration in seconds for voice/audio/video_note */
+  mediaDuration?: number;
   editDate?: number;
-}
-
-export interface TgFolder {
-  id: number;
-  title: string;
-  includePeerIds: number[];
-  isChatlist: boolean;
+  reactions?: TgMessageReaction[];
+  /** Whether this message is pinned */
+  isPinned?: boolean;
 }
 
 export interface TgFolder {
@@ -118,6 +123,38 @@ export interface TgContact {
   /** Last 4 digits only — full phone number is never exposed from this interface. */
   phoneLast4?: string;
   isMutual: boolean;
+}
+
+export interface TgUserProfile {
+  id: number;
+  firstName: string;
+  lastName?: string;
+  username?: string;
+  phoneLast4?: string;
+  bio?: string;
+  /** Online status: "online" | "recently" | "within_week" | "within_month" | "long_time_ago" | "offline" */
+  status: string;
+  /** Unix timestamp of last seen (0 if hidden/unknown) */
+  lastSeen: number;
+  /** Profile photo as blob URL, or null */
+  photoUrl: string | null;
+  /** Is the user a bot? */
+  isBot: boolean;
+  /** Is the user verified? */
+  isVerified: boolean;
+  /** Common chats count */
+  commonChatsCount: number;
+}
+
+export interface TgChatProfile {
+  id: number;
+  title: string;
+  username?: string;
+  about?: string;
+  membersCount: number;
+  photoUrl: string | null;
+  isChannel: boolean;
+  isMegagroup: boolean;
 }
 
 // ── Singleton Service ─────────────────────────────────────────
@@ -627,6 +664,118 @@ export class TelegramBrowserService {
       }));
   }
 
+  // ── Group Admin Actions ───────────────────────────────────
+
+  /** Ban a user from a channel/supergroup. */
+  async banUser(
+    channelId: number,
+    accessHash: string | undefined,
+    userId: number,
+    userAccessHash: string | undefined
+  ): Promise<void> {
+    this.requireClient();
+    const channel = new Api.InputChannel({ channelId: bigInt(channelId), accessHash: bigInt(accessHash || "0") });
+    const participant = new Api.InputPeerUser({ userId: bigInt(userId), accessHash: bigInt(userAccessHash || "0") });
+    await this.client!.invoke(
+      new Api.channels.EditBanned({
+        channel,
+        participant,
+        bannedRights: new Api.ChatBannedRights({
+          untilDate: 0, // permanent
+          viewMessages: true,
+          sendMessages: true,
+          sendMedia: true,
+          sendStickers: true,
+          sendGifs: true,
+          sendGames: true,
+          sendInline: true,
+          embedLinks: true,
+        }),
+      })
+    );
+  }
+
+  /** Unban / unrestrict a user. */
+  async unbanUser(
+    channelId: number,
+    accessHash: string | undefined,
+    userId: number,
+    userAccessHash: string | undefined
+  ): Promise<void> {
+    this.requireClient();
+    const channel = new Api.InputChannel({ channelId: bigInt(channelId), accessHash: bigInt(accessHash || "0") });
+    const participant = new Api.InputPeerUser({ userId: bigInt(userId), accessHash: bigInt(userAccessHash || "0") });
+    await this.client!.invoke(
+      new Api.channels.EditBanned({
+        channel,
+        participant,
+        bannedRights: new Api.ChatBannedRights({ untilDate: 0 }),
+      })
+    );
+  }
+
+  /** Restrict a user (mute — can view but not send). */
+  async restrictUser(
+    channelId: number,
+    accessHash: string | undefined,
+    userId: number,
+    userAccessHash: string | undefined,
+    untilDate = 0
+  ): Promise<void> {
+    this.requireClient();
+    const channel = new Api.InputChannel({ channelId: bigInt(channelId), accessHash: bigInt(accessHash || "0") });
+    const participant = new Api.InputPeerUser({ userId: bigInt(userId), accessHash: bigInt(userAccessHash || "0") });
+    await this.client!.invoke(
+      new Api.channels.EditBanned({
+        channel,
+        participant,
+        bannedRights: new Api.ChatBannedRights({
+          untilDate,
+          sendMessages: true,
+          sendMedia: true,
+          sendStickers: true,
+          sendGifs: true,
+          sendGames: true,
+          sendInline: true,
+          embedLinks: true,
+        }),
+      })
+    );
+  }
+
+  /** Promote a user to admin in a channel/supergroup. Rights must be explicitly specified. */
+  async promoteUser(
+    channelId: number,
+    accessHash: string | undefined,
+    userId: number,
+    userAccessHash: string | undefined,
+    rights: {
+      deleteMessages?: boolean;
+      banUsers?: boolean;
+      pinMessages?: boolean;
+      inviteUsers?: boolean;
+      changeInfo?: boolean;
+    }
+  ): Promise<void> {
+    this.requireClient();
+    const channel = new Api.InputChannel({ channelId: bigInt(channelId), accessHash: bigInt(accessHash || "0") });
+    const user = new Api.InputUser({ userId: bigInt(userId), accessHash: bigInt(userAccessHash || "0") });
+    await this.client!.invoke(
+      new Api.channels.EditAdmin({
+        channel,
+        userId: user,
+        adminRights: new Api.ChatAdminRights({
+          deleteMessages: rights.deleteMessages ?? false,
+          banUsers: rights.banUsers ?? false,
+          pinMessages: rights.pinMessages ?? false,
+          inviteUsers: rights.inviteUsers ?? false,
+          changeInfo: rights.changeInfo ?? false,
+        }),
+        rank: "",
+      })
+    );
+  }
+
   // ── Contacts ──────────────────────────────────────────────
 
   async getContacts(): Promise<TgContact[]> {
@@ -821,6 +970,37 @@ export class TelegramBrowserService {
     }
   }
 
+  // ── Pinning ──────────────────────────────────────────────
+
+  /** Pin a message in a chat. */
+  async pinMessage(
+    peerType: "user" | "chat" | "channel",
+    id: number,
+    accessHash: string | undefined,
+    msgId: number,
+    silent = false
+  ): Promise<void> {
+    this.requireClient();
+    const peer = this.buildPeer(peerType, id, accessHash);
+    await this.client!.invoke(
+      new Api.messages.UpdatePinnedMessage({ peer, id: msgId, silent })
+    );
+  }
+
+  /** Unpin a message. */
+  async unpinMessage(
+    peerType: "user" | "chat" | "channel",
+    id: number,
+    accessHash: string | undefined,
+    msgId: number
+  ): Promise<void> {
+    this.requireClient();
+    const peer = this.buildPeer(peerType, id, accessHash);
+    await this.client!.invoke(
+      new Api.messages.UpdatePinnedMessage({ peer, id: msgId, unpin: true })
+    );
+  }
+
   // ── Typing ───────────────────────────────────────────────
 
   /** Send typing indicator to a peer. */
@@ -890,6 +1070,9 @@ export class TelegramBrowserService {
     caption?: string
   ): Promise<void> {
     this.requireClient();
+    if (file.size > 50 * 1024 * 1024) {
+      throw new Error("File exceeds 50 MB limit");
+    }
     const peer = this.buildPeer(peerType, id, accessHash);
     const buffer = Buffer.from(await file.arrayBuffer());
 
@@ -1024,6 +1207,158 @@ export class TelegramBrowserService {
     return !!result;
   }
 
+  // ── User/Chat Profiles ───────────────────────────────────
+
+  /** Get full user profile (bio, photo, status, last seen). */
+  async getUserProfile(userId: number, accessHash?: string): Promise<TgUserProfile> {
+    this.requireClient();
+    const inputUser = new Api.InputUser({
+      userId: bigInt(userId),
+      accessHash: bigInt(accessHash || "0"),
+    });
+
+    const result = await this.client!.invoke(
+      new Api.users.GetFullUser({ id: inputUser })
+    );
+
+    const fullUser = result.fullUser;
+    const user = result.users.find(
+      (u): u is Api.User => u instanceof Api.User && Number(u.id) === userId
+    );
+
+    // Extract status
+    let status = "offline";
+    let lastSeen = 0;
+    if (user?.status) {
+      if (user.status instanceof Api.UserStatusOnline) {
+        status = "online";
+      } else if (user.status instanceof Api.UserStatusRecently) {
+        status = "recently";
+      } else if (user.status instanceof Api.UserStatusOffline) {
+        status = "offline";
+        lastSeen = user.status.wasOnline;
+      } else if (user.status instanceof Api.UserStatusLastWeek) {
+        status = "within_week";
+      } else if (user.status instanceof Api.UserStatusLastMonth) {
+        status = "within_month";
+      }
+    }
+
+    // Download profile photo if available
+    let photoUrl: string | null = null;
+    if (user?.photo && user.photo instanceof Api.UserProfilePhoto) {
+      try {
+        const photoBuffer = await this.client!.downloadProfilePhoto(user);
+        if (photoBuffer && typeof photoBuffer !== "string") {
+          const buf = photoBuffer as Buffer;
+          const copy = new ArrayBuffer(buf.byteLength);
+          new Uint8Array(copy).set(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
+          photoUrl = URL.createObjectURL(new Blob([copy], { type: "image/jpeg" }));
+        }
+      } catch {
+        // Profile photo download failed — non-critical
+      }
+    }
+
+    return {
+      id: userId,
+      firstName: user?.firstName ?? "",
+      lastName: user?.lastName ?? undefined,
+      username: user?.username ?? undefined,
+      phoneLast4: user?.phone ? user.phone.slice(-4) : undefined,
+      bio: fullUser.about ?? undefined,
+      status,
+      lastSeen,
+      photoUrl,
+      isBot: user?.bot ?? false,
+      isVerified: user?.verified ?? false,
+      commonChatsCount: fullUser.commonChatsCount ?? 0,
+    };
+  }
+
+  /** Get full chat/channel profile. */
+  async getChatProfile(
+    peerType: "chat" | "channel",
+    id: number,
+    accessHash?: string
+  ): Promise<TgChatProfile> {
+    this.requireClient();
+
+    if (peerType === "chat") {
+      const result = await this.client!.invoke(
+        new Api.messages.GetFullChat({ chatId: bigInt(id) })
+      );
+      const chat = result.chats.find(
+        (c): c is Api.Chat => c instanceof Api.Chat && Number(c.id) === id
+      );
+      const fullChat = result.fullChat as Api.ChatFull;
+
+      let photoUrl: string | null = null;
+      if (chat?.photo && chat.photo instanceof Api.ChatPhoto) {
+        try {
+          const photoBuffer = await this.client!.downloadProfilePhoto(chat);
+          if (photoBuffer && typeof photoBuffer !== "string") {
+            const buf = photoBuffer as Buffer;
+            const copy = new ArrayBuffer(buf.byteLength);
+            new Uint8Array(copy).set(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
+            photoUrl = URL.createObjectURL(new Blob([copy], { type: "image/jpeg" }));
+          }
+        } catch {
+          // Photo download failed
+        }
+      }
+
+      return {
+        id,
+        title: chat?.title ?? "",
+        about: fullChat.about ?? undefined,
+        membersCount: chat?.participantsCount ?? 0,
+        photoUrl,
+        isChannel: false,
+        isMegagroup: false,
+      };
+    }
+
+    // Channel / supergroup
+    const channel = new Api.InputChannel({
+      channelId: bigInt(id),
+      accessHash: bigInt(accessHash || "0"),
+    });
+    const result = await this.client!.invoke(
+      new Api.channels.GetFullChannel({ channel })
+    );
+    const ch = result.chats.find(
+      (c): c is Api.Channel => c instanceof Api.Channel && Number(c.id) === id
+    );
+    const fullChannel = result.fullChat as Api.ChannelFull;
+
+    let photoUrl: string | null = null;
+    if (ch?.photo && ch.photo instanceof Api.ChatPhoto) {
+      try {
+        const photoBuffer = await this.client!.downloadProfilePhoto(ch);
+        if (photoBuffer && typeof photoBuffer !== "string") {
+          const buf = photoBuffer as Buffer;
+          const copy = new ArrayBuffer(buf.byteLength);
+          new Uint8Array(copy).set(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
+          photoUrl = URL.createObjectURL(new Blob([copy], { type: "image/jpeg" }));
+        }
+      } catch {
+        // Photo download failed
+      }
+    }
+
+    return {
+      id,
+      title: ch?.title ?? "",
+      username: ch?.username ?? undefined,
+      about: fullChannel.about ?? undefined,
+      membersCount: fullChannel.participantsCount ?? 0,
+      photoUrl,
+      isChannel: !ch?.megagroup,
+      isMegagroup: ch?.megagroup ?? false,
+    };
+  }
+
   // ── Helpers ───────────────────────────────────────────────
 
   private generateRandomId(): bigInt.BigInteger {
@@ -1053,11 +1388,42 @@ export class TelegramBrowserService {
         if (u) senderName = [u.firstName, u.lastName].filter(Boolean).join(" ");
       }
       let mediaType: string | undefined;
+      let mediaSubType: string | undefined;
+      let mediaDuration: number | undefined;
       if (m.media) {
-        if (m.media instanceof Api.MessageMediaPhoto) mediaType = "photo";
-        else if (m.media instanceof Api.MessageMediaDocument) mediaType = "document";
-        else mediaType = "other";
+        if (m.media instanceof Api.MessageMediaPhoto) {
+          mediaType = "photo";
+        } else if (m.media instanceof Api.MessageMediaDocument) {
+          mediaType = "document";
+          const doc = m.media.document;
+          if (doc instanceof Api.Document) {
+            for (const attr of doc.attributes) {
+              if (attr instanceof Api.DocumentAttributeAudio) {
+                mediaSubType = attr.voice ? "voice" : "audio";
+                mediaDuration = attr.duration;
+              } else if (attr instanceof Api.DocumentAttributeVideo) {
+                if (attr.roundMessage) mediaSubType = "video_note";
+                mediaDuration = attr.duration;
+              }
+            }
+          }
+        } else {
+          mediaType = "other";
+        }
       }
+
+      // Parse reactions
+      let reactions: TgMessageReaction[] | undefined;
+      if (m.reactions?.results) {
+        reactions = m.reactions.results
+          .map((r) => {
+            const emoji = r.reaction instanceof Api.ReactionEmoji ? r.reaction.emoticon : null;
+            return emoji ? { emoji, count: r.count } : null;
+          })
+          .filter((r): r is TgMessageReaction => r !== null);
+        if (reactions.length === 0) reactions = undefined;
+      }
+
       out.push({
         id: m.id,
         text: m.message || "",
@@ -1066,7 +1432,11 @@ export class TelegramBrowserService {
         senderName,
         replyToId: m.replyTo instanceof Api.MessageReplyHeader ? m.replyTo.replyToMsgId : undefined,
         mediaType,
+        mediaSubType,
+        mediaDuration,
         editDate: m.editDate ?? undefined,
+        reactions,
+        isPinned: m.pinned ?? undefined,
       });
     }
     return out;
@@ -1087,6 +1457,8 @@ export class TelegramBrowserService {
         return new Api.InputPeerChat({ chatId: idBig });
       case "channel":
         return new Api.InputPeerChannel({ channelId: idBig, accessHash: hashBig });
+      default:
+        throw new Error(`Invalid peer type: ${type}`);
     }
   }
 
