@@ -40,6 +40,7 @@ import { useNukeMessages } from "@/lib/client/use-nuke-messages";
 import { useNukeGroups } from "@/lib/client/use-nuke-groups";
 import { useTelegramAdminGroups } from "@/lib/client/use-telegram-admin-groups";
 import { useTelegram } from "@/lib/client/telegram-context";
+import { EmojiPicker } from "@/components/ui/emoji-picker";
 
 // ── Chat Label Types & Constants ────────────────────────────────
 
@@ -361,6 +362,11 @@ export default function InboxPage() {
       else next.add(messageId);
       return next;
     });
+  }
+
+  function handleEmojiSelect(emoji: string) {
+    setReplyText((prev) => prev + emoji);
+    replyTextareaRef.current?.focus();
   }
 
   async function handleSendReply() {
@@ -1259,6 +1265,9 @@ export default function InboxPage() {
                         disabled={sending}
                       />
                     </div>
+
+                    {/* Emoji picker */}
+                    <EmojiPicker onSelect={handleEmojiSelect} />
 
                     {/* Send-as toggle */}
                     <button

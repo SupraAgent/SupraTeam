@@ -21,11 +21,16 @@ import {
   TrendingDown,
   TrendingUp,
   Zap,
+  FolderSync,
+  FolderX,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { timeAgo } from "@/lib/utils";
 import { GroupDetailPanel } from "@/components/groups/group-detail-panel";
 import { toast } from "sonner";
+import { useTelegram } from "@/lib/client/telegram-context";
+import { useFolderSync } from "@/lib/client/use-folder-sync";
 
 type HealthStatus = "active" | "quiet" | "stale" | "dead" | "unknown";
 
@@ -389,6 +394,10 @@ export default function GroupsPage() {
   const [refreshingStats, setRefreshingStats] = React.useState(false);
   const [showComparison, setShowComparison] = React.useState(false);
   const [selectedGroup, setSelectedGroup] = React.useState<TgGroup | null>(null);
+
+  const { status: tgStatus } = useTelegram();
+  const tgConnected = tgStatus === "connected";
+  const folderSync = useFolderSync(tgConnected);
 
   const botMap = React.useMemo(() => {
     const m: Record<string, BotInfo> = {};
@@ -779,19 +788,74 @@ export default function GroupsPage() {
           All ({activeGroups.length})
         </button>
         {allSlugs.map((slug) => (
-          <button
-            key={slug}
-            onClick={() => setSlugFilter(slugFilter === slug ? null : slug)}
-            className={cn(
-              "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors flex items-center gap-1",
-              slugFilter === slug
-                ? "bg-primary/20 text-primary"
-                : "text-muted-foreground hover:bg-white/5"
+          <div key={slug} className="flex items-center gap-0.5">
+            <button
+              onClick={() => setSlugFilter(slugFilter === slug ? null : slug)}
+              className={cn(
+                "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors flex items-center gap-1",
+                slugFilter === slug
+                  ? "bg-primary/20 text-primary"
+                  : "text-muted-foreground hover:bg-white/5"
+              )}
+            >
+              <Tag className="h-3 w-3" />
+              {slug} ({activeGroups.filter((g) => g.slugs.includes(slug)).length})
+            </button>
+            {tgConnected && (
+              <>
+                <button
+                  title={folderSync.isSynced(slug) ? `Synced to TG folder "CRM: ${slug}"` : "Sync to TG folder"}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    try {
+                      if (folderSync.isSynced(slug)) {
+                        await folderSync.disableSync(slug);
+                        toast.success(`Folder sync disabled for "${slug}"`);
+                      } else {
+                        await folderSync.enableSync(slug);
+                        toast.success(`TG folder "CRM: ${slug}" created`);
+                      }
+                    } catch (err) {
+                      toast.error(err instanceof Error ? err.message : "Folder sync failed");
+                    }
+                  }}
+                  disabled={folderSync.isSlugLoading(slug)}
+                  className={cn(
+                    "rounded p-1 transition-colors",
+                    folderSync.isSynced(slug)
+                      ? "text-primary hover:text-primary/80"
+                      : "text-muted-foreground/50 hover:text-muted-foreground"
+                  )}
+                >
+                  {folderSync.isSlugLoading(slug) ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : folderSync.isSynced(slug) ? (
+                    <FolderSync className="h-3 w-3" />
+                  ) : (
+                    <FolderX className="h-3 w-3" />
+                  )}
+                </button>
+                {folderSync.isSynced(slug) && (
+                  <button
+                    title="Re-sync folder peers"
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      try {
+                        await folderSync.resyncFolder(slug);
+                        toast.success(`Folder "CRM: ${slug}" re-synced`);
+                      } catch (err) {
+                        toast.error(err instanceof Error ? err.message : "Re-sync failed");
+                      }
+                    }}
+                    disabled={folderSync.isSlugLoading(slug)}
+                    className="rounded p-1 text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                  </button>
+                )}
+              </>
             )}
-          >
-            <Tag className="h-3 w-3" />
-            {slug} ({activeGroups.filter((g) => g.slugs.includes(slug)).length})
-          </button>
+          </div>
         ))}
 
         <div className="h-4 w-px bg-white/10 mx-1" />

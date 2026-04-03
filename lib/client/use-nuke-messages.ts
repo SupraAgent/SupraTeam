@@ -181,7 +181,7 @@ export function useNukeMessages() {
             let success = false;
             while (!success && retries < MAX_RETRIES && !cancelledRef.current) {
               try {
-                const deleted = await service.deleteMessages(
+                const deleted = await service.nukeDeleteMessages(
                   chat.peerType,
                   chat.peerId,
                   chat.accessHash,

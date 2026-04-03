@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { cn, timeAgo } from "@/lib/utils";
+import { createClient } from "@/lib/supabase/client";
 import { Send, Loader2, ExternalLink, Search, ChevronUp, ChevronDown, MessageCircle, Bot, User, Image, FileText, Sparkles, GitBranch, StickyNote, Brain } from "lucide-react";
 
 type Message = {
@@ -120,12 +121,36 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
     fetchMessages().finally(() => setLoading(false));
   }, [fetchMessages]);
 
-  // Auto-refresh polling
+  // Real-time: subscribe to notification inserts for this deal, plus fallback polling
   React.useEffect(() => {
     if (!telegramChatId || loading) return;
-    const interval = setInterval(pollNewMessages, POLL_INTERVAL);
-    return () => clearInterval(interval);
-  }, [telegramChatId, loading, pollNewMessages]);
+
+    // Fallback polling (less frequent — realtime handles most updates)
+    const interval = setInterval(pollNewMessages, 60_000);
+
+    // Supabase Realtime subscription for instant updates
+    const supabase = createClient();
+    if (!supabase) return () => clearInterval(interval);
+
+    const channel = supabase
+      .channel(`timeline-${dealId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "crm_notifications", filter: `deal_id=eq.${dealId}` },
+        () => { pollNewMessages(); }
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "crm_notifications", filter: `deal_id=eq.${dealId}` },
+        () => { pollNewMessages(); }
+      )
+      .subscribe();
+
+    return () => {
+      clearInterval(interval);
+      supabase.removeChannel(channel);
+    };
+  }, [telegramChatId, loading, pollNewMessages, dealId]);
 
   // Track scroll position to determine if user is at bottom
   const handleScroll = React.useCallback(() => {
