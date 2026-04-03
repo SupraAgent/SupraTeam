@@ -25,6 +25,8 @@ interface UseTelegramMessagesResult {
   sendTyping: () => void;
   /** Outgoing read maxId — messages read by the other party. */
   outgoingReadMaxId: number;
+  /** Incoming read maxId — messages delivered/read by us (used for delivery status). */
+  incomingReadMaxId: number;
 }
 
 export function useTelegramMessages(
@@ -40,8 +42,11 @@ export function useTelegramMessages(
   const [hasMore, setHasMore] = React.useState(false);
   const [typingUsers, setTypingUsers] = React.useState<string[]>([]);
   const [outgoingReadMaxId, setOutgoingReadMaxId] = React.useState(0);
+  const [incomingReadMaxId, setIncomingReadMaxId] = React.useState(0);
   const typingTimersRef = React.useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
   const lastTypingSentRef = React.useRef(0);
+
+  const isReconnectRef = React.useRef(false);
 
   const fetchMessages = React.useCallback(async () => {
     if (status !== "connected" || !peerType || !peerId) return;
@@ -49,7 +54,25 @@ export function useTelegramMessages(
     setError(null);
     try {
       const result = await service.getMessagesPage(peerType, peerId, accessHash, limit);
-      setMessages(result.messages.reverse()); // oldest first
+      const fetched = result.messages.reverse(); // oldest first
+
+      if (isReconnectRef.current) {
+        // Merge: keep existing history + add any new messages from the latest page
+        setMessages((prev) => {
+          if (prev.length === 0) return fetched;
+          const existingIds = new Set(prev.map((m) => m.id));
+          const newMsgs = fetched.filter((m) => !existingIds.has(m.id));
+          // Also update any existing messages (edits that happened while offline)
+          const updated = prev.map((existing) => {
+            const fresh = fetched.find((f) => f.id === existing.id);
+            return fresh ?? existing;
+          });
+          return [...updated, ...newMsgs];
+        });
+        isReconnectRef.current = false;
+      } else {
+        setMessages(fetched);
+      }
       setHasMore(result.hasMore);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load messages");
@@ -58,14 +81,24 @@ export function useTelegramMessages(
     }
   }, [service, status, peerType, peerId, accessHash, limit]);
 
-  // Initial fetch
+  // Track previous status to detect reconnects
+  const prevStatusRef = React.useRef(status);
   React.useEffect(() => {
     if (status === "connected" && peerType && peerId) {
+      // If previous status was reconnecting/error/disconnected, this is a reconnect
+      const prev = prevStatusRef.current;
+      if (prev === "reconnecting" || prev === "error" || prev === "disconnected") {
+        isReconnectRef.current = true;
+      }
       fetchMessages();
-    } else {
-      setMessages([]);
-      setHasMore(false);
+    } else if (status !== "connected") {
+      // Don't clear messages during reconnect — preserve history
+      if (status !== "reconnecting" && status !== "error") {
+        setMessages([]);
+        setHasMore(false);
+      }
     }
+    prevStatusRef.current = status;
   }, [status, peerType, peerId, fetchMessages]);
 
   // Subscribe to real-time events
@@ -114,8 +147,12 @@ export function useTelegramMessages(
         );
       },
       onRead(event) {
-        if (event.chatId !== peerId || !event.outgoing) return;
-        setOutgoingReadMaxId((prev) => Math.max(prev, event.maxId));
+        if (event.chatId !== peerId) return;
+        if (event.outgoing) {
+          setOutgoingReadMaxId((prev) => Math.max(prev, event.maxId));
+        } else {
+          setIncomingReadMaxId((prev) => Math.max(prev, event.maxId));
+        }
       },
     });
 
@@ -128,9 +165,10 @@ export function useTelegramMessages(
     };
   }, [service, status, peerId]);
 
-  // Reset outgoing read on dialog change
+  // Reset read state on dialog change
   React.useEffect(() => {
     setOutgoingReadMaxId(0);
+    setIncomingReadMaxId(0);
   }, [peerId]);
 
   const optimisticIdCounter = React.useRef(0);
@@ -215,5 +253,6 @@ export function useTelegramMessages(
     typingUsers,
     sendTyping,
     outgoingReadMaxId,
+    incomingReadMaxId,
   };
 }
