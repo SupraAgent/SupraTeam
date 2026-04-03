@@ -96,6 +96,13 @@ export interface TgMessage {
   editDate?: number;
 }
 
+export interface TgFolder {
+  id: number;
+  title: string;
+  includePeerIds: number[];
+  isChatlist: boolean;
+}
+
 export interface TgContact {
   telegramUserId: number;
   firstName: string;
