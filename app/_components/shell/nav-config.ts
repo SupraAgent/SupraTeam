@@ -17,6 +17,7 @@ import {
   Shield,
   Lightbulb,
   Settings,
+  Crown,
   type LucideIcon,
 } from "lucide-react";
 
@@ -48,6 +49,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { href: "/inbox", label: "Team Inbox", icon: Inbox },
       { href: "/groups", label: "TG Groups", icon: MessageCircle },
+      { href: "/telegram/admin", label: "My Groups", icon: Crown },
       { href: "/contacts", label: "Contacts", icon: Users },
       { href: "/companies", label: "Companies", icon: Building2 },
     ],

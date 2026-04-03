@@ -9,6 +9,10 @@ import { useTelegram } from "@/lib/client/telegram-context";
 import { useTelegramDialogs } from "@/lib/client/use-telegram-dialogs";
 import { useTelegramMessages } from "@/lib/client/use-telegram-messages";
 import type { TgDialog, TgMessage, TgUserProfile, TgChatProfile } from "@/lib/client/telegram-service";
+import { useNukeMessages } from "@/lib/client/use-nuke-messages";
+import { useNukeGroups } from "@/lib/client/use-nuke-groups";
+import { useTelegramAdminGroups } from "@/lib/client/use-telegram-admin-groups";
+import { NukeProgressModal } from "@/components/telegram/nuke-progress-modal";
 import {
   MessageCircle,
   Search,
@@ -22,6 +26,9 @@ import {
   Smartphone,
   Fingerprint,
   ShieldCheck,
+  MoreVertical,
+  Flame,
+  UserX,
   WifiOff,
   Check,
   CheckCheck,
@@ -107,8 +114,22 @@ export default function TelegramPage() {
   const [activeDialog, setActiveDialog] = React.useState<TgDialog | null>(null);
   const [replyText, setReplyText] = React.useState("");
   const [sending, setSending] = React.useState(false);
+  const [actionsOpen, setActionsOpen] = React.useState(false);
   const [lastSentId, setLastSentId] = React.useState<number | null>(null);
   const replyTextareaRef = React.useRef<HTMLTextAreaElement>(null);
+
+  // Close actions dropdown when switching conversations
+  React.useEffect(() => {
+    setActionsOpen(false);
+  }, [activeDialog?.id]);
+  const [nukeTarget, setNukeTarget] = React.useState<{
+    type: "messages" | "groups";
+    name: string;
+  } | null>(null);
+
+  const nukeMessages = useNukeMessages();
+  const nukeGroups = useNukeGroups();
+  const { groups: adminGroups, loading: adminGroupsLoading } = useTelegramAdminGroups();
 
   // Message search
   const [msgSearch, setMsgSearch] = React.useState("");
@@ -399,7 +420,7 @@ export default function TelegramPage() {
   async function handleForward(toDialog: TgDialog) {
     if (!forwardMsg || !activeDialog || !peerType) return;
     const toPeerType = toDialog.type === "private" ? "user" as const
-      : toDialog.type === "group" || toDialog.type === "supergroup" ? "chat" as const : "channel" as const;
+      : toDialog.type === "group" ? "chat" as const : "channel" as const;
     try {
       await tg.service.forwardMessages(
         peerType, activeDialog.telegramId, activeDialog.accessHash,
@@ -1433,6 +1454,49 @@ export default function TelegramPage() {
                 >
                   <Info className="h-4 w-4" />
                 </button>
+                {/* Nuke actions menu */}
+                {activeDialog.type === "private" && (
+                  <div className="relative">
+                    <button
+                      onClick={() => setActionsOpen(!actionsOpen)}
+                      className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-white/[0.06] transition-colors"
+                    >
+                      <MoreVertical className="h-4 w-4 text-muted-foreground" />
+                    </button>
+                    {actionsOpen && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setActionsOpen(false)} />
+                        <div className="absolute right-0 top-full mt-1 z-50 w-52 rounded-lg border border-white/10 bg-[hsl(225,35%,8%)] shadow-xl py-1">
+                          <button
+                            onClick={() => {
+                              setActionsOpen(false);
+                              setNukeTarget({ type: "messages", name: activeDialog.title });
+                            }}
+                            className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-orange-400 hover:bg-white/[0.06] transition-colors"
+                          >
+                            <Flame className="h-3.5 w-3.5" />
+                            Delete All My Messages
+                          </button>
+                          <button
+                            onClick={() => {
+                              setActionsOpen(false);
+                              setNukeTarget({ type: "groups", name: activeDialog.title });
+                            }}
+                            disabled={adminGroupsLoading || adminGroups.length === 0}
+                            className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-red-400 hover:bg-white/[0.06] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                          >
+                            {adminGroupsLoading ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <UserX className="h-3.5 w-3.5" />
+                            )}
+                            Kick from My Groups
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
                 <div className="flex items-center gap-1 text-[9px] text-primary/50">
                   <Fingerprint className="h-3 w-3" />
                   E2E
@@ -2087,6 +2151,39 @@ export default function TelegramPage() {
             )}
           </div>
         </div>
+      )}
+
+      {/* Nuke modal */}
+      {nukeTarget && activeDialog && (
+        <NukeProgressModal
+          open={!!nukeTarget}
+          onClose={() => {
+            setNukeTarget(null);
+            nukeMessages.reset();
+            nukeGroups.reset();
+          }}
+          type={nukeTarget.type}
+          targetName={nukeTarget.name}
+          messagesState={nukeTarget.type === "messages" ? nukeMessages.state : undefined}
+          groupsState={nukeTarget.type === "groups" ? nukeGroups.state : undefined}
+          adminGroups={nukeTarget.type === "groups" ? adminGroups : undefined}
+          onConfirm={(selectedGroups) => {
+            if (nukeTarget.type === "messages") {
+              nukeMessages.start(
+                activeDialog.telegramId,
+                activeDialog.accessHash ?? "",
+                activeDialog.title
+              );
+            } else {
+              nukeGroups.start(
+                activeDialog.telegramId,
+                activeDialog.accessHash,
+                selectedGroups ?? adminGroups
+              );
+            }
+          }}
+          onCancel={nukeTarget.type === "messages" ? nukeMessages.cancel : nukeGroups.cancel}
+        />
       )}
     </div>
   );

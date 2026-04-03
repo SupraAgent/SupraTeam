@@ -8,6 +8,7 @@ import { MobileHeader } from "./mobile-header";
 import { NotificationCenter } from "@/components/notifications/notification-center";
 import { CommandPalette } from "@/components/search/command-palette";
 import { AIChatWidget } from "@/components/ai-chat-widget";
+import { TelegramProvider } from "@/lib/client/telegram-context";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { useShell } from "./shell-context";
@@ -84,7 +85,9 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
 export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <ShellProvider>
-      <AppShellInner>{children}</AppShellInner>
+      <TelegramProvider>
+        <AppShellInner>{children}</AppShellInner>
+      </TelegramProvider>
     </ShellProvider>
   );
 }
