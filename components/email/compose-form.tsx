@@ -18,6 +18,7 @@ export type ComposeFormProps = {
   connectionId?: string;
   onSent?: () => void;
   onSentAndArchive?: () => void;
+  onSentAndNext?: () => void;
   onDiscard: () => void;
   active: boolean;
   compact?: boolean;
@@ -50,6 +51,7 @@ export function ComposeForm({
   connectionId,
   onSent,
   onSentAndArchive,
+  onSentAndNext,
   onDiscard,
   active,
   compact,
@@ -193,10 +195,7 @@ export function ComposeForm({
     const payload = await buildPayload();
     if (!payload) return;
 
-    setSending(true);
     setError("");
-
-    setSending(false);
     queueSend(payload);
     onSent?.();
     onDiscard();
@@ -384,6 +383,18 @@ export function ComposeForm({
                 className="text-xs"
               >
                 Send + Archive
+              </Button>
+            )}
+
+            {onSentAndNext && (mode === "reply" || mode === "replyAll") && (
+              <Button
+                onClick={() => { handleSend().then(() => onSentAndNext?.()); }}
+                disabled={sending}
+                size="sm"
+                variant="ghost"
+                className="text-xs"
+              >
+                Send &amp; Next
               </Button>
             )}
 

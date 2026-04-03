@@ -22,6 +22,8 @@ import { TodoPanel } from "@/components/email/todo-panel";
 import { ComposeForm } from "@/components/email/compose-form";
 import { LabelPicker } from "@/components/email/label-picker";
 import { DragDropZones } from "@/components/email/drag-drop-zones";
+import { PopoutCompose } from "@/components/email/popout-compose";
+import { ResizableDivider, usePaneWidth } from "@/components/email/resizable-pane";
 import { LayoutDashboard, PanelRight } from "lucide-react";
 import { useShell } from "@/app/_components/shell/shell-context";
 
@@ -80,7 +82,19 @@ function EmailPageInner() {
     messageId?: string;
   } | null>(null);
 
-  // Collapse main sidebar when inline compose opens, restore on close
+  // Pop-out compose (detached floating window)
+  const [popoutCompose, setPopoutCompose] = React.useState<{
+    mode: "compose" | "reply" | "replyAll" | "forward";
+    threadId?: string;
+    messageId?: string;
+  } | null>(null);
+
+  // Resizable pane widths
+  const [sidebarWidth, handleSidebarResize] = usePaneWidth("email-sidebar-w", 176, 120, 280);
+  const [listWidth, handleListResize] = usePaneWidth("email-list-w", 320, 220, 500);
+  const [composeWidth, handleComposeResize] = usePaneWidth("email-compose-w", 480, 360, 700);
+
+  // Collapse main app sidebar when inline compose opens, restore on close
   const { sidebarCollapsed, setSidebarCollapsed } = useShell();
   const sidebarStateBeforeCompose = React.useRef<boolean | null>(null);
 
@@ -369,6 +383,11 @@ function EmailPageInner() {
   }
 
   function openCompose(mode: "compose" | "reply" | "replyAll" | "forward", threadId?: string, messageId?: string) {
+    // If already in popout mode, update it
+    if (popoutCompose) {
+      setPopoutCompose({ mode, threadId, messageId });
+      return;
+    }
     // Reply/ReplyAll/Forward use inline sidebar panel (md screens and up)
     const canInline = typeof window !== "undefined" && window.innerWidth >= 768;
     if (mode !== "compose" && threadId && canInline) {
@@ -381,6 +400,53 @@ function EmailPageInner() {
     setComposeThreadId(threadId);
     setComposeMessageId(messageId);
     setComposeOpen(true);
+  }
+
+  /** Pop compose out of inline sidebar into a floating window */
+  function handlePopout() {
+    if (inlineCompose) {
+      setPopoutCompose({
+        mode: inlineCompose.mode,
+        threadId: inlineCompose.threadId,
+        messageId: inlineCompose.messageId,
+      });
+      setInlineCompose(null);
+    }
+  }
+
+  /** Dock popout compose back into the inline sidebar */
+  function handleDock() {
+    if (popoutCompose && popoutCompose.mode !== "compose" && popoutCompose.threadId) {
+      setInlineCompose({
+        mode: popoutCompose.mode as "reply" | "replyAll" | "forward",
+        threadId: popoutCompose.threadId,
+        messageId: popoutCompose.messageId,
+      });
+      setPopoutCompose(null);
+    }
+  }
+
+  /** Send & Next: advance to next unread thread after send */
+  function handleSendAndNext() {
+    if (!selectedThreadId) return;
+    const idx = visibleThreads.findIndex((t) => t.id === selectedThreadId);
+    // Find next unread, or just next thread
+    const remaining = visibleThreads.slice(idx + 1);
+    const nextUnread = remaining.find((t) => t.isUnread);
+    const next = nextUnread ?? remaining[0] ?? null;
+    setInlineCompose(null);
+    setPopoutCompose(null);
+    if (next) {
+      setSelectedThreadId(next.id);
+      setSelectedIndex(visibleThreads.indexOf(next));
+      // Optimistic mark-as-read
+      setThreads((prev) =>
+        prev.map((t) => (t.id === next.id && t.isUnread ? { ...t, isUnread: false } : t))
+      );
+    } else {
+      setSelectedThreadId(null);
+    }
+    refresh();
   }
 
   // ── Keyboard shortcuts ───────────────────────────────────
@@ -676,11 +742,10 @@ function EmailPageInner() {
       )}
 
     <div className="flex flex-1 min-h-0">
-      {/* Label sidebar — hidden when inline composing to maximize space */}
+      {/* Label sidebar — narrower when inline composing to save space */}
       <div className={cn(
-        "w-44 border-r border-white/10 py-3 px-2 shrink-0 overflow-y-auto thin-scroll hidden lg:block",
-        inlineCompose && "lg:hidden"
-      )} style={{ backgroundColor: "hsl(var(--surface-1))" }}>
+        "border-r border-white/10 py-3 px-2 shrink-0 overflow-y-auto thin-scroll hidden lg:block",
+      )} style={{ backgroundColor: "hsl(var(--surface-1))", width: inlineCompose ? Math.min(sidebarWidth, 140) : sidebarWidth }}>
         <LabelSidebar
           labels={labels}
           activeLabel={activeLabel}
@@ -698,13 +763,17 @@ function EmailPageInner() {
         />
       </div>
 
-      {/* Thread list */}
-      {/* Thread list — fully hidden when inline composing */}
+      {/* Divider: sidebar ↔ thread list */}
+      <div className="hidden lg:block">
+        <ResizableDivider direction="left" onResize={handleSidebarResize} />
+      </div>
+
+      {/* Thread list — narrower when inline composing, not hidden */}
       <div className={cn(
-        "w-full md:w-80 border-r border-white/10 flex flex-col md:shrink-0",
-        inlineCompose ? "hidden" : selectedThreadId ? "hidden md:flex" : "flex",
+        "border-r border-white/10 flex flex-col md:shrink-0",
+        (selectedThreadId || inlineCompose) ? "hidden md:flex" : "flex w-full md:w-auto",
         "min-w-0"
-      )}>
+      )} style={{ width: inlineCompose ? Math.min(listWidth, 260) : listWidth }}>
         {/* Header */}
         <div className="px-3 py-2.5 border-b border-white/10 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
@@ -927,6 +996,11 @@ function EmailPageInner() {
         />
       </div>
 
+      {/* Divider: thread list ↔ thread view */}
+      <div className="hidden md:block">
+        <ResizableDivider direction="left" onResize={handleListResize} />
+      </div>
+
       {/* Thread view */}
       <div className={cn(
         "flex-1 flex flex-col",
@@ -995,22 +1069,38 @@ function EmailPageInner() {
         </div>
       )}
 
+      {/* Divider: thread view ↔ inline compose */}
+      {inlineCompose && (
+        <div className="hidden md:block">
+          <ResizableDivider direction="right" onResize={handleComposeResize} />
+        </div>
+      )}
+
       {/* Inline compose sidebar — shown on md+ when replying/forwarding */}
       {inlineCompose && (
         <div
-          className="border-l border-white/10 shrink-0 hidden md:flex flex-col w-[480px]"
-          style={{ backgroundColor: "hsl(var(--surface-1))" }}
+          className="border-l border-white/10 shrink-0 hidden md:flex flex-col"
+          style={{ backgroundColor: "hsl(var(--surface-1))", width: composeWidth }}
         >
           <div className="flex items-center justify-between px-3 py-2 border-b border-white/10 shrink-0">
             <h3 className="text-xs font-semibold text-foreground">
               {inlineCompose.mode === "reply" ? "Reply" : inlineCompose.mode === "replyAll" ? "Reply All" : "Forward"}
             </h3>
-            <button
-              onClick={() => setInlineCompose(null)}
-              className="text-muted-foreground hover:text-foreground transition text-sm leading-none"
-            >
-              &times;
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={handlePopout}
+                className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-white/10 transition"
+                title="Pop out to floating window"
+              >
+                <PopoutIcon className="h-3 w-3" />
+              </button>
+              <button
+                onClick={() => setInlineCompose(null)}
+                className="text-muted-foreground hover:text-foreground transition text-sm leading-none"
+              >
+                &times;
+              </button>
+            </div>
           </div>
           <div className="flex-1 overflow-y-auto thin-scroll p-3">
             <ComposeForm
@@ -1031,12 +1121,34 @@ function EmailPageInner() {
                 setInlineCompose(null);
                 refresh();
               }}
+              onSentAndNext={handleSendAndNext}
               onDiscard={() => setInlineCompose(null)}
               active={true}
               compact
             />
           </div>
         </div>
+      )}
+
+      {/* Pop-out compose (floating, detached) */}
+      {popoutCompose && (
+        <PopoutCompose
+          mode={popoutCompose.mode}
+          threadId={popoutCompose.threadId}
+          messageId={popoutCompose.messageId}
+          connectionId={activeConnectionId}
+          onSent={refresh}
+          onSentAndArchive={() => {
+            if (popoutCompose.threadId) {
+              performAction(popoutCompose.threadId, "archive");
+              toast("Sent & Archived");
+              setSelectedThreadId(null);
+            }
+            refresh();
+          }}
+          onClose={() => setPopoutCompose(null)}
+          onDock={popoutCompose.mode !== "compose" && popoutCompose.threadId ? handleDock : undefined}
+        />
       )}
 
       {/* Drag drop zones (archive + block) */}
@@ -1220,4 +1332,8 @@ function RefreshIcon({ className }: { className?: string }) {
 
 function PlusIcon({ className }: { className?: string }) {
   return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>;
+}
+
+function PopoutIcon({ className }: { className?: string }) {
+  return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /><path d="M21 14v5a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h5" /></svg>;
 }
