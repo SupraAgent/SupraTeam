@@ -23,6 +23,7 @@ import { ComposeForm } from "@/components/email/compose-form";
 import { LabelPicker } from "@/components/email/label-picker";
 import { DragDropZones } from "@/components/email/drag-drop-zones";
 import { LayoutDashboard, PanelRight } from "lucide-react";
+import { useShell } from "@/app/_components/shell/shell-context";
 
 export default function EmailPage() {
   return (
@@ -78,6 +79,25 @@ function EmailPageInner() {
     threadId: string;
     messageId?: string;
   } | null>(null);
+
+  // Collapse main sidebar when inline compose opens, restore on close
+  const { sidebarCollapsed, setSidebarCollapsed } = useShell();
+  const sidebarStateBeforeCompose = React.useRef<boolean | null>(null);
+
+  React.useEffect(() => {
+    if (inlineCompose) {
+      // Save current state only when first opening compose
+      if (sidebarStateBeforeCompose.current === null) {
+        sidebarStateBeforeCompose.current = sidebarCollapsed;
+      }
+      setSidebarCollapsed(true);
+    } else if (sidebarStateBeforeCompose.current !== null) {
+      // Restore previous sidebar state when compose closes
+      setSidebarCollapsed(sidebarStateBeforeCompose.current);
+      sidebarStateBeforeCompose.current = null;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to inlineCompose changes
+  }, [inlineCompose, setSidebarCollapsed]);
 
   // Clear inline compose when thread changes
   React.useEffect(() => {
@@ -349,8 +369,8 @@ function EmailPageInner() {
   }
 
   function openCompose(mode: "compose" | "reply" | "replyAll" | "forward", threadId?: string, messageId?: string) {
-    // Reply/ReplyAll/Forward use inline sidebar panel (xl screens only)
-    const canInline = typeof window !== "undefined" && window.innerWidth >= 1280;
+    // Reply/ReplyAll/Forward use inline sidebar panel (md screens and up)
+    const canInline = typeof window !== "undefined" && window.innerWidth >= 768;
     if (mode !== "compose" && threadId && canInline) {
       setInlineCompose({ mode, threadId, messageId });
       setRightPanelOpen(true);
@@ -656,9 +676,10 @@ function EmailPageInner() {
       )}
 
     <div className="flex flex-1 min-h-0">
-      {/* Label sidebar */}
+      {/* Label sidebar — hidden when inline composing to maximize space */}
       <div className={cn(
-        "w-44 border-r border-white/10 py-3 px-2 shrink-0 overflow-y-auto thin-scroll hidden lg:block"
+        "w-44 border-r border-white/10 py-3 px-2 shrink-0 overflow-y-auto thin-scroll hidden lg:block",
+        inlineCompose && "lg:hidden"
       )} style={{ backgroundColor: "hsl(var(--surface-1))" }}>
         <LabelSidebar
           labels={labels}
@@ -678,6 +699,7 @@ function EmailPageInner() {
       </div>
 
       {/* Thread list */}
+      {/* Thread list — fully hidden when inline composing */}
       <div className={cn(
         "w-full md:w-80 border-r border-white/10 flex flex-col md:shrink-0",
         inlineCompose ? "hidden" : selectedThreadId ? "hidden md:flex" : "flex",
@@ -958,65 +980,62 @@ function EmailPageInner() {
         )}
       </div>
 
-      {/* Right sidebar — Groups panel + inline compose */}
-      {rightPanelOpen && (
+      {/* Right sidebar — To Do panel (no inline compose) or inline compose panel */}
+      {rightPanelOpen && !inlineCompose && (
         <div
-          className={cn(
-            "border-l border-white/10 shrink-0 hidden xl:flex flex-col",
-            inlineCompose ? "w-[400px]" : "w-72"
-          )}
+          className="border-l border-white/10 shrink-0 hidden xl:flex flex-col w-72"
           style={{ backgroundColor: "hsl(var(--surface-1))" }}
         >
-          {/* To Do section */}
-          <div className={cn(
-            inlineCompose ? "max-h-[180px] overflow-y-auto thin-scroll shrink-0 border-b border-white/10" : "flex-1 overflow-y-auto thin-scroll"
-          )}>
+          <div className="flex-1 overflow-y-auto thin-scroll">
             <TodoPanel
               connectionId={activeConnectionId}
               onSelectThread={(threadId) => setSelectedThreadId(threadId)}
             />
           </div>
+        </div>
+      )}
 
-          {/* Inline compose form */}
-          {inlineCompose && (
-            <div className="flex-1 flex flex-col min-h-0">
-              <div className="flex items-center justify-between px-3 py-2 border-b border-white/10 shrink-0">
-                <h3 className="text-xs font-semibold text-foreground">
-                  {inlineCompose.mode === "reply" ? "Reply" : inlineCompose.mode === "replyAll" ? "Reply All" : "Forward"}
-                </h3>
-                <button
-                  onClick={() => setInlineCompose(null)}
-                  className="text-muted-foreground hover:text-foreground transition text-sm leading-none"
-                >
-                  &times;
-                </button>
-              </div>
-              <div className="flex-1 overflow-y-auto thin-scroll p-3">
-                <ComposeForm
-                  mode={inlineCompose.mode}
-                  threadId={inlineCompose.threadId}
-                  messageId={inlineCompose.messageId}
-                  connectionId={activeConnectionId}
-                  onSent={() => {
-                    setInlineCompose(null);
-                    refresh();
-                  }}
-                  onSentAndArchive={() => {
-                    if (inlineCompose.threadId) {
-                      performAction(inlineCompose.threadId, "archive");
-                      toast("Sent & Archived");
-                      setSelectedThreadId(null);
-                    }
-                    setInlineCompose(null);
-                    refresh();
-                  }}
-                  onDiscard={() => setInlineCompose(null)}
-                  active={true}
-                  compact
-                />
-              </div>
-            </div>
-          )}
+      {/* Inline compose sidebar — shown on md+ when replying/forwarding */}
+      {inlineCompose && (
+        <div
+          className="border-l border-white/10 shrink-0 hidden md:flex flex-col w-[480px]"
+          style={{ backgroundColor: "hsl(var(--surface-1))" }}
+        >
+          <div className="flex items-center justify-between px-3 py-2 border-b border-white/10 shrink-0">
+            <h3 className="text-xs font-semibold text-foreground">
+              {inlineCompose.mode === "reply" ? "Reply" : inlineCompose.mode === "replyAll" ? "Reply All" : "Forward"}
+            </h3>
+            <button
+              onClick={() => setInlineCompose(null)}
+              className="text-muted-foreground hover:text-foreground transition text-sm leading-none"
+            >
+              &times;
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto thin-scroll p-3">
+            <ComposeForm
+              mode={inlineCompose.mode}
+              threadId={inlineCompose.threadId}
+              messageId={inlineCompose.messageId}
+              connectionId={activeConnectionId}
+              onSent={() => {
+                setInlineCompose(null);
+                refresh();
+              }}
+              onSentAndArchive={() => {
+                if (inlineCompose.threadId) {
+                  performAction(inlineCompose.threadId, "archive");
+                  toast("Sent & Archived");
+                  setSelectedThreadId(null);
+                }
+                setInlineCompose(null);
+                refresh();
+              }}
+              onDiscard={() => setInlineCompose(null)}
+              active={true}
+              compact
+            />
+          </div>
         </div>
       )}
 
