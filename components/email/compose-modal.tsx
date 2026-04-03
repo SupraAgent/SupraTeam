@@ -39,7 +39,7 @@ export function ComposeModal({
           : "Forward";
 
   return (
-    <Modal open={open} title={title} onClose={onClose}>
+    <Modal open={open} title={title} onClose={onClose} className="max-md:max-w-none max-md:h-[100dvh] max-md:rounded-none max-md:border-0 max-md:m-0">
       <ComposeForm
         mode={mode}
         threadId={threadId}

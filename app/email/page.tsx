@@ -24,6 +24,7 @@ import { LabelPicker } from "@/components/email/label-picker";
 import { DragDropZones } from "@/components/email/drag-drop-zones";
 import { PopoutCompose } from "@/components/email/popout-compose";
 import { ResizableDivider, usePaneWidth } from "@/components/email/resizable-pane";
+import { ReferencePanel } from "@/components/email/reference-panel";
 import { LayoutDashboard, PanelRight } from "lucide-react";
 import { useShell } from "@/app/_components/shell/shell-context";
 
@@ -88,6 +89,10 @@ function EmailPageInner() {
     threadId?: string;
     messageId?: string;
   } | null>(null);
+
+  // Reference panel — pin a second thread while composing
+  const [referenceThreadId, setReferenceThreadId] = React.useState<string | null>(null);
+  const { thread: referenceThread, loading: referenceLoading } = useThread(referenceThreadId, activeConnectionId);
 
   // Resizable pane widths
   const [sidebarWidth, handleSidebarResize] = usePaneWidth("email-sidebar-w", 176, 120, 280);
@@ -404,13 +409,23 @@ function EmailPageInner() {
 
   /** Pop compose out of inline sidebar into a floating window */
   function handlePopout() {
+    // Guard: don't allow popout on mobile — fall back to modal
+    const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
     if (inlineCompose) {
-      setPopoutCompose({
-        mode: inlineCompose.mode,
-        threadId: inlineCompose.threadId,
-        messageId: inlineCompose.messageId,
-      });
-      setInlineCompose(null);
+      if (isMobile) {
+        setComposeMode(inlineCompose.mode);
+        setComposeThreadId(inlineCompose.threadId);
+        setComposeMessageId(inlineCompose.messageId);
+        setComposeOpen(true);
+        setInlineCompose(null);
+      } else {
+        setPopoutCompose({
+          mode: inlineCompose.mode,
+          threadId: inlineCompose.threadId,
+          messageId: inlineCompose.messageId,
+        });
+        setInlineCompose(null);
+      }
     }
   }
 
@@ -940,6 +955,7 @@ function EmailPageInner() {
               <BulkButton label="Star" onClick={handleBulkStar} />
               <BulkButton label="Read" onClick={handleBulkRead} />
               <BulkButton label="Spam" onClick={handleBulkSpam} />
+              <BulkButton label="Label" onClick={() => setLabelPickerOpen(true)} />
               <button onClick={() => setSelectedIds(new Set())} className="text-[10px] text-muted-foreground hover:text-foreground ml-1">
                 Clear
               </button>
@@ -993,6 +1009,9 @@ function EmailPageInner() {
           onContextAction={handleContextAction}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
+          onQuickReplySent={refresh}
+          onRefresh={refresh}
+          connectionId={activeConnectionId}
         />
       </div>
 
@@ -1087,6 +1106,20 @@ function EmailPageInner() {
               {inlineCompose.mode === "reply" ? "Reply" : inlineCompose.mode === "replyAll" ? "Reply All" : "Forward"}
             </h3>
             <div className="flex items-center gap-1">
+              {!referenceThreadId && (
+                <button
+                  onClick={() => {
+                    // Pin the current thread as reference
+                    if (inlineCompose.threadId && inlineCompose.threadId !== referenceThreadId) {
+                      setReferenceThreadId(inlineCompose.threadId);
+                    }
+                  }}
+                  className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-white/10 transition"
+                  title="Pin thread as reference"
+                >
+                  <PinIcon className="h-3 w-3" />
+                </button>
+              )}
               <button
                 onClick={handlePopout}
                 className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-white/10 transition"
@@ -1095,13 +1128,23 @@ function EmailPageInner() {
                 <PopoutIcon className="h-3 w-3" />
               </button>
               <button
-                onClick={() => setInlineCompose(null)}
+                onClick={() => { setInlineCompose(null); setReferenceThreadId(null); }}
                 className="text-muted-foreground hover:text-foreground transition text-sm leading-none"
               >
                 &times;
               </button>
             </div>
           </div>
+
+          {/* Reference panel — pinned thread for reference while composing */}
+          {referenceThreadId && (
+            <ReferencePanel
+              thread={referenceThread}
+              loading={referenceLoading}
+              onClose={() => setReferenceThreadId(null)}
+            />
+          )}
+
           <div className="flex-1 overflow-y-auto thin-scroll p-3">
             <ComposeForm
               mode={inlineCompose.mode}
@@ -1336,4 +1379,8 @@ function PlusIcon({ className }: { className?: string }) {
 
 function PopoutIcon({ className }: { className?: string }) {
   return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /><path d="M21 14v5a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h5" /></svg>;
+}
+
+function PinIcon({ className }: { className?: string }) {
+  return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="17" x2="12" y2="22" /><path d="M5 17h14v-1.76a2 2 0 00-1.11-1.79l-1.78-.9A2 2 0 0115 10.76V6h1a2 2 0 000-4H8a2 2 0 000 4h1v4.76a2 2 0 01-1.11 1.79l-1.78.9A2 2 0 005 15.24V17z" /></svg>;
 }

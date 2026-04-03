@@ -4,10 +4,11 @@ import * as React from "react";
 import { cn, timeAgo } from "@/lib/utils";
 import type { ThreadListItem } from "@/lib/email/types";
 import { ContactAvatar } from "./contact-avatar";
+import { QuickReply } from "./quick-reply";
 import Link from "next/link";
 import { Mail, Building2, Phone } from "lucide-react";
 
-export type ContextMenuAction = "archive" | "trash" | "star" | "read" | "unread" | "snooze" | "spam" | "block";
+export type ContextMenuAction = "archive" | "trash" | "star" | "read" | "unread" | "snooze" | "spam" | "block" | "quickReply";
 
 interface ContextMenuState {
   x: number;
@@ -31,12 +32,48 @@ type ThreadListProps = {
   onContextAction?: (threadIds: string[], action: ContextMenuAction) => void;
   onDragStart?: (threadIds: string[]) => void;
   onDragEnd?: () => void;
+  onQuickReplySent?: () => void;
+  onRefresh?: () => void;
+  connectionId?: string;
 };
 
-export function ThreadList({ threads, selectedId, selectedIds, onSelect, onToggleSelect, onRangeSelect, loading, onLoadMore, hasMore, onPrefetch, onSwipeArchive, onSwipeSnooze, onContextAction, onDragStart, onDragEnd }: ThreadListProps) {
+export function ThreadList({ threads, selectedId, selectedIds, onSelect, onToggleSelect, onRangeSelect, loading, onLoadMore, hasMore, onPrefetch, onSwipeArchive, onSwipeSnooze, onContextAction, onDragStart, onDragEnd, onQuickReplySent, onRefresh, connectionId }: ThreadListProps) {
   const listRef = React.useRef<HTMLDivElement>(null);
   const lastClickedIndexRef = React.useRef<number>(-1);
   const [contextMenu, setContextMenu] = React.useState<ContextMenuState | null>(null);
+  const [quickReplyId, setQuickReplyId] = React.useState<string | null>(null);
+
+  // Pull-to-refresh state
+  const [pullDistance, setPullDistance] = React.useState(0);
+  const [refreshing, setRefreshing] = React.useState(false);
+  const pullStartY = React.useRef(0);
+  const pullTracking = React.useRef(false);
+
+  function handlePullTouchStart(e: React.TouchEvent) {
+    if (listRef.current && listRef.current.scrollTop <= 0) {
+      pullStartY.current = e.touches[0].clientY;
+      pullTracking.current = true;
+    }
+  }
+
+  function handlePullTouchMove(e: React.TouchEvent) {
+    if (!pullTracking.current || refreshing) return;
+    const dy = e.touches[0].clientY - pullStartY.current;
+    if (dy > 0 && listRef.current && listRef.current.scrollTop <= 0) {
+      setPullDistance(Math.min(120, dy * 0.4));
+    }
+  }
+
+  function handlePullTouchEnd() {
+    pullTracking.current = false;
+    if (pullDistance > 60 && onRefresh) {
+      setRefreshing(true);
+      onRefresh();
+      setTimeout(() => { setRefreshing(false); setPullDistance(0); }, 1000);
+    } else {
+      setPullDistance(0);
+    }
+  }
 
   // Close context menu on click outside or scroll
   React.useEffect(() => {
@@ -82,6 +119,11 @@ export function ThreadList({ threads, selectedId, selectedIds, onSelect, onToggl
   }
 
   function handleContextAction(action: ContextMenuAction) {
+    if (action === "quickReply" && contextMenu?.threadIds.length === 1) {
+      setQuickReplyId(contextMenu.threadIds[0]);
+      setContextMenu(null);
+      return;
+    }
     if (contextMenu && onContextAction) {
       onContextAction(contextMenu.threadIds, action);
     }
@@ -107,32 +149,64 @@ export function ThreadList({ threads, selectedId, selectedIds, onSelect, onToggl
 
   const isMultiContext = contextMenu && contextMenu.threadIds.length > 1;
 
+  // Clamp context menu to viewport
+  const menuStyle = contextMenu ? {
+    left: Math.min(contextMenu.x, (typeof window !== "undefined" ? window.innerWidth : 400) - 200),
+    top: Math.min(contextMenu.y, (typeof window !== "undefined" ? window.innerHeight : 800) - 320),
+  } : {};
+
   return (
-    <div ref={listRef} className="flex-1 overflow-y-auto thin-scroll relative">
+    <div
+      ref={listRef}
+      className="flex-1 overflow-y-auto thin-scroll relative"
+      onTouchStart={handlePullTouchStart}
+      onTouchMove={handlePullTouchMove}
+      onTouchEnd={handlePullTouchEnd}
+    >
+      {/* Pull-to-refresh indicator */}
+      {(pullDistance > 0 || refreshing) && (
+        <div
+          className="flex items-center justify-center transition-all overflow-hidden"
+          style={{ height: refreshing ? 40 : pullDistance }}
+        >
+          <div className={cn(
+            "h-5 w-5 rounded-full border-2 border-primary border-t-transparent",
+            (refreshing || pullDistance > 60) && "animate-spin"
+          )} />
+        </div>
+      )}
       {threads.map((thread, index) => (
-        <ThreadRow
-          key={thread.id}
-          thread={thread}
-          isSelected={thread.id === selectedId}
-          isChecked={selectedIds?.has(thread.id) ?? false}
-          showCheckbox={!!selectedIds && selectedIds.size > 0}
-          onClick={(e) => handleClick(index, e)}
-          onContextMenu={(e) => handleContextMenu(index, e)}
-          onToggleSelect={() => onToggleSelect?.(thread.id)}
-          onMouseEnter={() => onPrefetch?.(thread.id)}
-          onSwipeLeft={() => onSwipeArchive?.(thread.id)}
-          onSwipeRight={() => onSwipeSnooze?.(thread.id)}
-          onDragStart={(e) => {
-            // If this thread is multi-selected, drag all selected; otherwise just this one
-            const ids = selectedIds && selectedIds.size > 0 && selectedIds.has(thread.id)
-              ? Array.from(selectedIds)
-              : [thread.id];
-            e.dataTransfer.setData("application/x-thread-ids", JSON.stringify(ids));
-            e.dataTransfer.effectAllowed = "move";
-            onDragStart?.(ids);
-          }}
-          onDragEnd={() => onDragEnd?.()}
-        />
+        <React.Fragment key={thread.id}>
+          <ThreadRow
+            thread={thread}
+            isSelected={thread.id === selectedId}
+            isChecked={selectedIds?.has(thread.id) ?? false}
+            showCheckbox={!!selectedIds && selectedIds.size > 0}
+            onClick={(e) => handleClick(index, e)}
+            onContextMenu={(e) => handleContextMenu(index, e)}
+            onToggleSelect={() => onToggleSelect?.(thread.id)}
+            onMouseEnter={() => onPrefetch?.(thread.id)}
+            onSwipeLeft={() => onSwipeArchive?.(thread.id)}
+            onSwipeRight={() => onSwipeSnooze?.(thread.id)}
+            onDragStart={(e) => {
+              const ids = selectedIds && selectedIds.size > 0 && selectedIds.has(thread.id)
+                ? Array.from(selectedIds)
+                : [thread.id];
+              e.dataTransfer.setData("application/x-thread-ids", JSON.stringify(ids));
+              e.dataTransfer.effectAllowed = "move";
+              onDragStart?.(ids);
+            }}
+            onDragEnd={() => onDragEnd?.()}
+          />
+          {quickReplyId === thread.id && (
+            <QuickReply
+              threadId={thread.id}
+              connectionId={connectionId}
+              onSent={onQuickReplySent}
+              onClose={() => setQuickReplyId(null)}
+            />
+          )}
+        </React.Fragment>
       ))}
       {hasMore && (
         <button
@@ -143,13 +217,12 @@ export function ThreadList({ threads, selectedId, selectedIds, onSelect, onToggl
         </button>
       )}
 
-      {/* Right-click context menu */}
+      {/* Right-click context menu — clamped to viewport */}
       {contextMenu && (
         <div
           className="fixed z-[100] min-w-[180px] rounded-lg border border-white/10 shadow-2xl py-1 overflow-hidden"
           style={{
-            left: contextMenu.x,
-            top: contextMenu.y,
+            ...menuStyle,
             backgroundColor: "hsl(var(--surface-3))",
           }}
           onClick={(e) => e.stopPropagation()}
@@ -158,6 +231,9 @@ export function ThreadList({ threads, selectedId, selectedIds, onSelect, onToggl
             <div className="px-3 py-1.5 text-[10px] text-muted-foreground border-b border-white/5">
               {contextMenu.threadIds.length} threads selected
             </div>
+          )}
+          {!isMultiContext && (
+            <ContextMenuItem icon={<ReplyIcon />} label="Quick reply" onClick={() => handleContextAction("quickReply")} />
           )}
           <ContextMenuItem icon={<ArchiveIcon />} label="Archive" shortcut="e" onClick={() => handleContextAction("archive")} />
           <ContextMenuItem icon={<TrashIcon />} label="Delete" shortcut="#" onClick={() => handleContextAction("trash")} />
@@ -600,4 +676,8 @@ function SpamIcon() {
 
 function BlockIcon() {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5"><circle cx="12" cy="12" r="10" /><line x1="4.93" y1="4.93" x2="19.07" y2="19.07" /></svg>;
+}
+
+function ReplyIcon() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5"><polyline points="9 17 4 12 9 7" /><path d="M20 18v-2a4 4 0 00-4-4H4" /></svg>;
 }
