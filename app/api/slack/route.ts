@@ -79,11 +79,12 @@ export async function POST(request: Request) {
   const admin = createSupabaseAdmin()!;
   const encrypted = encryptToken(token);
 
-  // Upsert — one Slack bot token per workspace
+  // Upsert — one Slack bot token per user
   const { data: existing } = await admin
     .from("user_tokens")
     .select("id")
     .eq("provider", "slack")
+    .eq("user_id", user.id)
     .limit(1)
     .single();
 
