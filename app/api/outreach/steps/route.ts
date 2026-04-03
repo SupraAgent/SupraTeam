@@ -21,7 +21,7 @@ async function verifySequenceAccess(supabase: SupabaseClient, sequenceId: string
 export async function GET(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { user, admin: supabase } = auth;
+  const { user, supabase } = auth;
 
   const { searchParams } = new URL(request.url);
   const sequenceId = searchParams.get("sequence_id");
@@ -45,7 +45,7 @@ export async function GET(request: Request) {
 export async function PUT(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { user, admin: supabase } = auth;
+  const { user, supabase } = auth;
 
   const { sequence_id, steps } = await request.json();
 

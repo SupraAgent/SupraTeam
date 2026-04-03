@@ -5,7 +5,7 @@ import { requireAuth } from "@/lib/auth-guard";
 export async function GET(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const url = new URL(request.url);
   const workflowId = url.searchParams.get("workflow_id");
@@ -32,7 +32,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   let body: Record<string, unknown>;
   try {
@@ -97,7 +97,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const url = new URL(request.url);
   const id = url.searchParams.get("id");
@@ -163,7 +163,7 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const url = new URL(request.url);
   const id = url.searchParams.get("id");

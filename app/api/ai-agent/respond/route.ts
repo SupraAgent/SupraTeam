@@ -11,7 +11,7 @@ import { getAnthropicKey } from "@/lib/ai-key";
 export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const apiKey = await getAnthropicKey(auth.user.id);
   if (!apiKey) {

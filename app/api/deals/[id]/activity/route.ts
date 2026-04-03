@@ -5,7 +5,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const { id } = await params;
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   // Fetch stage history, notifications, and notes in parallel
   const [historyRes, notifsRes, notesRes] = await Promise.all([

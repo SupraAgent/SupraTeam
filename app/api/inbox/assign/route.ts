@@ -16,7 +16,7 @@ import { evaluateAssignment } from "@/lib/assignment";
 export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   let body: { chat_id?: number; message_text?: string; sender_telegram_id?: number };
   try {

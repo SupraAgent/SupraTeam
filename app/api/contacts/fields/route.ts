@@ -5,7 +5,7 @@ import { listFields, bulkUpdateFields } from "@/lib/custom-fields";
 export async function GET() {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { fields, error } = await listFields(supabase, "crm_contact_fields");
   if (error) {
@@ -17,7 +17,7 @@ export async function GET() {
 export async function PUT(request: Request) {
   const auth = await requireLeadRole();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { fields } = await request.json();
   if (!Array.isArray(fields)) {

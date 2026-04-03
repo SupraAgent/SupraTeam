@@ -11,7 +11,7 @@ import { requireAuth } from "@/lib/auth-guard";
 export async function GET(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { searchParams } = new URL(request.url);
   const q = searchParams.get("q")?.toLowerCase();
@@ -40,7 +40,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { user, admin: supabase } = auth;
+  const { user, supabase } = auth;
 
   let body: { title?: string; body?: string; shortcut?: string; category?: string };
   try {
@@ -75,7 +75,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { user, admin: supabase } = auth;
+  const { user, supabase } = auth;
 
   let body: { id?: string; title?: string; body?: string; shortcut?: string; category?: string; increment_usage?: boolean };
   try {
@@ -121,7 +121,7 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { user, admin: supabase } = auth;
+  const { user, supabase } = auth;
 
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");

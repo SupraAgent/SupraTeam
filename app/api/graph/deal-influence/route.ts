@@ -6,7 +6,7 @@ import type { GraphNode, GraphEdge } from "@/lib/types";
 export async function GET(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { user, admin: supabase } = auth;
+  const { user, supabase } = auth;
 
   const { searchParams } = new URL(request.url);
   const dealId = searchParams.get("deal_id");

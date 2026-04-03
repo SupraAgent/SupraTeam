@@ -14,7 +14,7 @@ import { sendTelegramWithTracking, sendTelegramMediaWithTracking } from "@/lib/t
 export async function GET(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const url = new URL(request.url);
   const broadcastId = url.searchParams.get("broadcast_id");
@@ -74,7 +74,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   if (!botToken) {

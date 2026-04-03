@@ -475,7 +475,7 @@ export async function POST(request: Request) {
           break;
         }
 
-        // Block SSRF: reject private/internal IP ranges
+        // Block SSRF: reject private/internal IP ranges, metadata endpoints, and bypass tricks
         const hostname = parsed.hostname.toLowerCase();
         const ssrfBlocked = [
           /^localhost$/i,
@@ -489,8 +489,13 @@ export async function POST(request: Request) {
           /^0\.0\.0\.0$/,
           /^fc00:/i,
           /^fe80:/i,
+          /^\[.*\]$/,                         // All bracketed IPv6
+          /^metadata\.google\.internal$/i,    // GCP metadata
+          /^instance-data$/i,                 // AWS instance data alias
+          /^100\.100\.100\.200$/,             // Alibaba metadata
         ];
-        if (ssrfBlocked.some((p) => p.test(hostname))) {
+        // Also block numeric/decimal IP notation (e.g. 2130706433 = 127.0.0.1)
+        if (/^\d+$/.test(hostname) || ssrfBlocked.some((p) => p.test(hostname))) {
           result = { success: false, error: "URLs targeting private/internal networks are not allowed" };
           break;
         }
@@ -504,7 +509,7 @@ export async function POST(request: Request) {
         const headers: Record<string, string> = { "Content-Type": "application/json" };
         if (cfg.auth_header) headers["Authorization"] = cfg.auth_header;
 
-        const fetchOpts: RequestInit = { method, headers };
+        const fetchOpts: RequestInit = { method, headers, redirect: "error" };
         if (method !== "GET" && cfg.body) {
           fetchOpts.body = cfg.body;
         }

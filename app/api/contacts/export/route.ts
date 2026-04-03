@@ -5,7 +5,7 @@ import { escapeCSV } from "@/lib/utils";
 export async function GET() {
   const auth = await requireLeadRole();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { data: contacts } = await supabase
     .from("crm_contacts")

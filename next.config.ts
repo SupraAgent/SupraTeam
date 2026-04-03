@@ -47,7 +47,7 @@ const nextConfig: NextConfig = {
             key: "Content-Security-Policy",
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline'",
+              "script-src 'self' 'unsafe-inline' 'strict-dynamic'",
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: blob: https://avatars.githubusercontent.com https://github.com https://t.me",
               "font-src 'self' data:",

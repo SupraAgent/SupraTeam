@@ -3,6 +3,7 @@ import { createSupabaseAdmin } from "@/lib/supabase";
 import { createClient as createSupabaseServer } from "@/lib/supabase/server";
 import { validateTelegramInitData } from "@/lib/telegram-auth";
 import { getBotById } from "@/lib/bot-registry";
+import { rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -10,6 +11,11 @@ export const runtime = "nodejs";
 const SUPERDAPP_BOT_ID = process["env"]["SUPERDAPP_BOT_ID"];
 
 export async function POST(request: Request) {
+  // Rate limit by IP — 5 submissions per 10 minutes
+  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+  const limited = rateLimit(`applications:${ip}`, { max: 5, windowSec: 600 });
+  if (limited) return limited;
+
   const admin = createSupabaseAdmin();
   if (!admin) {
     return NextResponse.json({ error: "Service unavailable" }, { status: 503 });

@@ -18,10 +18,10 @@ export async function GET(
   const { id } = await params;
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin } = auth;
+  const { supabase } = auth;
 
   // Get deal's telegram_chat_id
-  const { data: deal } = await admin
+  const { data: deal } = await supabase
     .from("crm_deals")
     .select("telegram_chat_id")
     .eq("id", id)
@@ -46,7 +46,7 @@ export async function GET(
 
   // Polling mode: fetch messages after a timestamp
   if (after) {
-    const { data: newMessages, error } = await admin
+    const { data: newMessages, error } = await supabase
       .from("tg_group_messages")
       .select(
         "id, sender_name, sender_username, sender_telegram_id, message_text, message_type, media_type, media_file_id, media_thumb_id, media_mime, reply_to_message_id, sent_at, is_from_bot"
@@ -61,7 +61,7 @@ export async function GET(
       return NextResponse.json({ error: "Failed to fetch messages" }, { status: 500 });
     }
 
-    const contactMap = await buildContactMap(admin, newMessages ?? []);
+    const contactMap = await buildContactMap(supabase, newMessages ?? []);
 
     return NextResponse.json({
       messages: (newMessages ?? []).map((m) => formatMessage(m, contactMap)),
@@ -71,7 +71,7 @@ export async function GET(
   }
 
   // Paginated mode: fetch limit+1 to detect hasMore, newest first
-  const { data: messages, error } = await admin
+  const { data: messages, error } = await supabase
     .from("tg_group_messages")
     .select(
       "id, sender_name, sender_username, sender_telegram_id, message_text, message_type, media_type, media_file_id, media_thumb_id, media_mime, reply_to_message_id, sent_at, is_from_bot"
@@ -87,7 +87,7 @@ export async function GET(
 
   const hasMore = (messages?.length ?? 0) > limit;
   const trimmed = hasMore ? (messages ?? []).slice(0, limit) : (messages ?? []);
-  const contactMap = await buildContactMap(admin, trimmed);
+  const contactMap = await buildContactMap(supabase, trimmed);
   const reversed = trimmed.reverse(); // oldest first for chat display
 
   return NextResponse.json({
@@ -98,7 +98,7 @@ export async function GET(
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AdminClient = any;
+type SupabaseClient = any;
 
 interface RawMessage {
   sender_telegram_id: number | null;
@@ -107,7 +107,7 @@ interface RawMessage {
 
 /** Batch-lookup CRM contacts by their Telegram IDs for sender enrichment. */
 async function buildContactMap(
-  admin: AdminClient,
+  supabase: SupabaseClient,
   messages: RawMessage[]
 ): Promise<Record<number, { id: string; name: string }>> {
   const senderTgIds = [
@@ -119,7 +119,7 @@ async function buildContactMap(
   const contactMap: Record<number, { id: string; name: string }> = {};
   if (senderTgIds.length === 0) return contactMap;
 
-  const { data: contacts } = await admin
+  const { data: contacts } = await supabase
     .from("crm_contacts")
     .select("id, name, telegram_user_id")
     .in("telegram_user_id", senderTgIds);

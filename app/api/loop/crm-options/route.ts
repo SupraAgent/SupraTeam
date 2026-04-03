@@ -17,7 +17,7 @@ function sanitizeSearch(raw: string): string {
 export async function GET(request: Request) {
   const auth = await requireLeadRole();
   if ("error" in auth) return auth.error;
-  const { admin } = auth;
+  const { supabase } = auth;
 
   const url = new URL(request.url);
   const type = url.searchParams.get("type");
@@ -29,7 +29,7 @@ export async function GET(request: Request) {
   switch (type) {
     case "stages": {
       const board = url.searchParams.get("board");
-      let query = admin.from("pipeline_stages").select("id, name, position, color, board_type").order("position");
+      let query = supabase.from("pipeline_stages").select("id, name, position, color, board_type").order("position");
       if (board) query = query.eq("board_type", board);
       const { data, error } = await query;
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -38,7 +38,7 @@ export async function GET(request: Request) {
 
     case "contacts": {
       const search = sanitizeSearch(url.searchParams.get("search") || "");
-      let query = admin.from("crm_contacts").select("id, name, company, telegram_username").order("name").limit(50);
+      let query = supabase.from("crm_contacts").select("id, name, company, telegram_username").order("name").limit(50);
       if (search) query = query.or(`name.ilike.%${search}%,company.ilike.%${search}%,telegram_username.ilike.%${search}%`);
       const { data, error } = await query;
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -47,7 +47,7 @@ export async function GET(request: Request) {
 
     case "deals": {
       const search = sanitizeSearch(url.searchParams.get("search") || "");
-      let query = admin.from("crm_deals").select("id, deal_name, board_type, value").order("updated_at", { ascending: false }).limit(50);
+      let query = supabase.from("crm_deals").select("id, deal_name, board_type, value").order("updated_at", { ascending: false }).limit(50);
       if (search) query = query.ilike("deal_name", `%${search}%`);
       const { data, error } = await query;
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -55,13 +55,13 @@ export async function GET(request: Request) {
     }
 
     case "groups": {
-      const { data, error } = await admin.from("tg_groups").select("id, telegram_group_id, group_name, group_type").order("group_name");
+      const { data, error } = await supabase.from("tg_groups").select("id, telegram_group_id, group_name, group_type").order("group_name");
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({ options: data?.map((g) => ({ value: g.telegram_group_id, label: g.group_name || `Group ${g.telegram_group_id}`, meta: { type: g.group_type } })) ?? [] });
     }
 
     case "team": {
-      const { data, error } = await admin.from("profiles").select("id, display_name, github_username, avatar_url, crm_role");
+      const { data, error } = await supabase.from("profiles").select("id, display_name, github_username, avatar_url, crm_role");
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({ options: data?.map((p) => ({ value: p.id, label: p.display_name || p.github_username || "Unknown", meta: { role: p.crm_role, avatar: p.avatar_url } })) ?? [] });
     }
@@ -78,7 +78,7 @@ export async function GET(request: Request) {
     }
 
     case "sequences": {
-      const { data, error } = await admin.from("crm_outreach_sequences").select("id, name, status, channel").order("name");
+      const { data, error } = await supabase.from("crm_outreach_sequences").select("id, name, status, channel").order("name");
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({
         options: (data ?? []).map((s) => ({
@@ -90,7 +90,7 @@ export async function GET(request: Request) {
     }
 
     case "slugs": {
-      const { data, error } = await admin.from("tg_group_slugs").select("slug").order("slug");
+      const { data, error } = await supabase.from("tg_group_slugs").select("slug").order("slug");
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       const unique = [...new Set((data ?? []).map((s) => s.slug))];
       return NextResponse.json({

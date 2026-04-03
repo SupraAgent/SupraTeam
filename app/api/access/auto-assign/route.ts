@@ -14,7 +14,7 @@ const SLUG_REGEX = /^[a-z0-9_-]{1,50}$/;
 export async function POST(request: Request) {
   const auth = await requireLeadRole();
   if ("error" in auth) return auth.error;
-  const { user, admin: supabase } = auth;
+  const { user, supabase } = auth;
 
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   if (!botToken) {
@@ -140,7 +140,7 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
   const auth = await requireLeadRole();
   if ("error" in auth) return auth.error;
-  const { user, admin: supabase } = auth;
+  const { user, supabase } = auth;
 
   const { searchParams } = new URL(request.url);
   const userId = searchParams.get("user_id");

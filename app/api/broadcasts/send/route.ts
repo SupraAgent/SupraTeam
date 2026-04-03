@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth-guard";
+import { requireLeadRole } from "@/lib/auth-guard";
 import { formatBroadcastMessage } from "@/lib/telegram-templates";
 import { sendTelegramWithTracking, sendTelegramMediaWithTracking } from "@/lib/telegram-send";
 import { dispatchWebhook } from "@/lib/webhooks";
 
 export async function POST(request: Request) {
-  const auth = await requireAuth();
+  const auth = await requireLeadRole();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   if (!botToken) {

@@ -12,8 +12,13 @@ import { timingSafeEqual } from "crypto";
  * Set RAILWAY_ENVIRONMENT to skip auth for Railway internal cron calls.
  */
 export function verifyCron(request: Request): NextResponse | null {
-  // Railway cron services call via internal network — trust them
-  if (process.env.RAILWAY_ENVIRONMENT) return null;
+  // Railway cron services call via internal network — verify Railway internal header
+  if (process.env.RAILWAY_ENVIRONMENT) {
+    // Only trust if the request comes through Railway's internal network proxy
+    const railwaySource = request.headers.get("x-railway-source");
+    if (railwaySource === "cron") return null;
+    // Fallback: still require CRON_SECRET if header missing
+  }
 
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {

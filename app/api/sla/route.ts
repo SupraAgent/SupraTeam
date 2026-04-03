@@ -4,7 +4,7 @@ import { requireAuth, requireLeadRole } from "@/lib/auth-guard";
 export async function GET() {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { data, error } = await supabase
     .from("crm_sla_config")
@@ -21,7 +21,7 @@ export async function GET() {
 export async function PUT(request: Request) {
   const auth = await requireLeadRole();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { id, warning_hours, breach_hours, is_active, escalate_to_role } = await request.json();
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });

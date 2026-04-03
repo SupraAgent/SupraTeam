@@ -5,7 +5,7 @@ import { requireAuth } from "@/lib/auth-guard";
 export async function GET(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase, user } = auth;
+  const { supabase, user } = auth;
 
   const url = new URL(request.url);
   const all = url.searchParams.get("all") === "1";
@@ -36,7 +36,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase, user } = auth;
+  const { supabase, user } = auth;
 
   const body = await request.json().catch(() => ({}));
 
@@ -153,7 +153,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { id, action, snooze_hours, priority, assigned_to } = await request.json();
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });

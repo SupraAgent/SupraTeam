@@ -151,7 +151,7 @@ export async function POST(request: Request) {
 export async function GET() {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { data: contacts } = await supabase
     .from("crm_contacts")

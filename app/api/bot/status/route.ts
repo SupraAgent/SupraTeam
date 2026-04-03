@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdmin } from "@/lib/supabase";
 import { getAllActiveBots, getDefaultBot } from "@/lib/bot-registry";
+import { requireAuth } from "@/lib/auth-guard";
 
 export async function GET(request: Request) {
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
   const { searchParams } = new URL(request.url);
   const botId = searchParams.get("botId");
 

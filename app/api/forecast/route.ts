@@ -14,7 +14,7 @@ import { requireAuth } from "@/lib/auth-guard";
 export async function GET() {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const ninetyDaysAgo = new Date(Date.now() - 90 * 86400000).toISOString();
   const twelveWeeksAgo = new Date(Date.now() - 84 * 86400000).toISOString();

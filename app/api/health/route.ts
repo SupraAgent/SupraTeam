@@ -7,33 +7,22 @@ import { createSupabaseAdmin } from "@/lib/supabase";
  * Railway pings this to know the service is healthy.
  */
 export async function GET() {
-  const checks: Record<string, boolean> = {
-    app: true,
-    supabase: false,
-    telegram_bot: !!process.env.TELEGRAM_BOT_TOKEN,
-    email: !!process.env.GOOGLE_CLIENT_ID,
-  };
-
-  // Check Supabase connectivity
+  // Minimal health check — no integration details or uptime leaked to unauthenticated callers
+  let supabaseOk = false;
   try {
     const admin = createSupabaseAdmin();
     if (admin) {
       const { error } = await admin.from("pipeline_stages").select("id").limit(1);
-      checks.supabase = !error;
+      supabaseOk = !error;
     }
   } catch {
-    checks.supabase = false;
+    supabaseOk = false;
   }
 
-  const healthy = checks.app && checks.supabase;
+  const healthy = supabaseOk;
 
   return NextResponse.json(
-    {
-      status: healthy ? "healthy" : "degraded",
-      checks,
-      uptime: process.uptime(),
-      timestamp: new Date().toISOString(),
-    },
+    { status: healthy ? "healthy" : "degraded" },
     { status: healthy ? 200 : 503 }
   );
 }

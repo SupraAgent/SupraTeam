@@ -8,7 +8,7 @@ export async function POST(
 ) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { user, admin: supabase } = auth;
+  const { user, supabase } = auth;
   const { id } = await params;
 
   // Verify workflow exists

@@ -4,7 +4,7 @@ import { requireLeadRole } from "@/lib/auth-guard";
 export async function PATCH(request: Request) {
   const auth = await requireLeadRole();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { ids, updates } = await request.json();
 

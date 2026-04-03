@@ -4,7 +4,7 @@ import { requireAuth, requireLeadRole } from "@/lib/auth-guard";
 export async function GET() {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { data: rules } = await supabase
     .from("crm_stage_reminders")
@@ -17,7 +17,7 @@ export async function GET() {
 export async function PUT(request: Request) {
   const auth = await requireLeadRole();
   if ("error" in auth) return auth.error;
-  const { admin: supabase } = auth;
+  const { supabase } = auth;
 
   const { rules } = await request.json();
   if (!Array.isArray(rules)) {
