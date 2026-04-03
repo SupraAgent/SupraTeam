@@ -19,6 +19,13 @@ import bigInt from "big-integer";
 const API_ID = parseInt(process.env.NEXT_PUBLIC_TELEGRAM_API_ID || "0", 10);
 const API_HASH = process.env.NEXT_PUBLIC_TELEGRAM_API_HASH || "";
 
+if (typeof window !== "undefined" && (!API_ID || !API_HASH)) {
+  console.error(
+    "[TelegramBrowserService] NEXT_PUBLIC_TELEGRAM_API_ID or NEXT_PUBLIC_TELEGRAM_API_HASH missing. " +
+    "Restart the dev server after adding them to .env.local."
+  );
+}
+
 // ── Types ─────────────────────────────────────────────────────
 
 export interface TgDialog {
@@ -78,6 +85,13 @@ export class TelegramBrowserService {
 
   /** Connect with an existing session string (from decrypted blob). */
   async connect(sessionString: string = ""): Promise<void> {
+    if (!API_ID || !API_HASH) {
+      throw new Error(
+        "Telegram API credentials not configured. Restart the dev server after setting " +
+        "NEXT_PUBLIC_TELEGRAM_API_ID and NEXT_PUBLIC_TELEGRAM_API_HASH in .env.local."
+      );
+    }
+
     if (this.client?.connected) {
       await this.client.disconnect();
     }
