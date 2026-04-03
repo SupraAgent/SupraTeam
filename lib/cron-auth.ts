@@ -3,18 +3,13 @@ import { timingSafeEqual } from "crypto";
 
 /**
  * Verify cron requests come from a trusted source.
- * Supports:
- *  - Railway cron services (no auth needed — internal network only)
- *  - Vercel cron (Authorization: Bearer <CRON_SECRET>)
- *  - External schedulers (Authorization: Bearer <CRON_SECRET>)
+ * All environments require CRON_SECRET as a Bearer token.
  *
- * Set CRON_SECRET env var to enable auth. Without it, all requests are allowed (dev mode).
- * Set RAILWAY_ENVIRONMENT to skip auth for Railway internal cron calls.
+ * Set CRON_SECRET env var to enable auth. Without it:
+ *   - Development: requests are allowed (no auth)
+ *   - Production: requests are denied by default
  */
 export function verifyCron(request: Request): NextResponse | null {
-  // Railway cron jobs set this header — only skip auth for genuine internal cron calls
-  if (process.env.RAILWAY_ENVIRONMENT && request.headers.get("x-railway-cron") === "true") return null;
-
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
     // Only skip auth in development; deny by default in production

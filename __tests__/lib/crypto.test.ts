@@ -19,6 +19,7 @@ describe("crypto – encryptToken / decryptToken", () => {
     vi.stubEnv("TOKEN_ENCRYPTION_KEY", TEST_KEY);
     delete process.env.CURRENT_ENCRYPTION_KEY_VERSION;
     delete process.env.TOKEN_ENCRYPTION_KEY_V2;
+    delete process.env.DISABLE_LEGACY_DECRYPT;
   });
 
   it("roundtrips a simple string", async () => {
@@ -83,6 +84,7 @@ describe("crypto – key versioning", () => {
     vi.stubEnv("TOKEN_ENCRYPTION_KEY", TEST_KEY);
     vi.stubEnv("TOKEN_ENCRYPTION_KEY_V2", TEST_KEY_V2);
     delete process.env.CURRENT_ENCRYPTION_KEY_VERSION;
+    delete process.env.DISABLE_LEGACY_DECRYPT;
   });
 
   it("encrypts with v1 by default and decrypts automatically", async () => {
@@ -133,6 +135,24 @@ describe("crypto – key versioning", () => {
     expect(decryptToken(legacyHex)).toBe("legacy-data");
   });
 
+  it("rejects legacy format when DISABLE_LEGACY_DECRYPT=true", async () => {
+    // Create a legacy ciphertext
+    const { createCipheriv, randomBytes: rb } = await import("crypto");
+    const key = Buffer.from(TEST_KEY, "hex");
+    const iv = rb(12);
+    const cipher = createCipheriv("aes-256-gcm", key, iv);
+    const encrypted = Buffer.concat([cipher.update("legacy", "utf8"), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    // Force first byte to 0x00 so versioned path is skipped
+    iv[0] = 0;
+    const legacyHex = Buffer.concat([iv, encrypted, tag]).toString("hex");
+
+    vi.stubEnv("DISABLE_LEGACY_DECRYPT", "true");
+    vi.resetModules();
+    const { decryptToken } = await import("@/lib/crypto");
+    expect(() => decryptToken(legacyHex)).toThrow("Invalid encrypted token");
+  });
+
   it("throws generic error when key version env var is missing", async () => {
     vi.resetModules();
     vi.stubEnv("CURRENT_ENCRYPTION_KEY_VERSION", "99");
@@ -140,5 +160,19 @@ describe("crypto – key versioning", () => {
     // Should NOT leak env var name
     expect(() => encryptToken("test")).toThrow("Encryption key not available");
     expect(() => encryptToken("test")).not.toThrow("TOKEN_ENCRYPTION_KEY");
+  });
+
+  it("throws on NaN key version", async () => {
+    vi.stubEnv("CURRENT_ENCRYPTION_KEY_VERSION", "abc");
+    vi.resetModules();
+    const { getCurrentKeyVersion } = await import("@/lib/crypto");
+    expect(() => getCurrentKeyVersion()).toThrow("Encryption key misconfigured");
+  });
+
+  it("throws on negative key version", async () => {
+    vi.stubEnv("CURRENT_ENCRYPTION_KEY_VERSION", "-1");
+    vi.resetModules();
+    const { getCurrentKeyVersion } = await import("@/lib/crypto");
+    expect(() => getCurrentKeyVersion()).toThrow("Encryption key misconfigured");
   });
 });

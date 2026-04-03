@@ -29,11 +29,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const supabase = (await createClient()) ?? createSupabaseAdmin();
-  if (!supabase) return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
-
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  const auth = await requireLeadRole();
+  if ("error" in auth) return auth.error;
+  const { user } = auth;
 
   let body: Record<string, unknown>;
   try {

@@ -20,11 +20,15 @@ const TAG_LENGTH = 16;
  * Wire format (hex-encoded):
  *   [version: 1 byte] [iv: 12 bytes] [ciphertext: N bytes] [authTag: 16 bytes]
  *
- * Legacy format (no version prefix) is auto-detected and treated as version 1.
+ * Legacy format (no version prefix) is supported for backward compatibility
+ * and can be disabled via DISABLE_LEGACY_DECRYPT=true once all tokens are
+ * re-encrypted with the new format.
  */
 
 function getKeyForVersion(version: number): Buffer {
-  if (version < 1 || version > 255) throw new Error("Encryption key not available");
+  if (!Number.isInteger(version) || version < 1 || version > 255) {
+    throw new Error("Encryption key not available");
+  }
   const envVar = version === 1 ? "TOKEN_ENCRYPTION_KEY" : `TOKEN_ENCRYPTION_KEY_V${version}`;
   const key = process.env[envVar];
   if (!key) throw new Error("Encryption key not available");
@@ -38,7 +42,12 @@ function getKeyForVersion(version: number): Buffer {
 /** Returns the current key version used for new encryptions. */
 export function getCurrentKeyVersion(): number {
   const v = process.env.CURRENT_ENCRYPTION_KEY_VERSION;
-  return v ? parseInt(v, 10) : 1;
+  if (!v) return 1;
+  const parsed = parseInt(v, 10);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 255) {
+    throw new Error("Encryption key misconfigured");
+  }
+  return parsed;
 }
 
 /**
@@ -59,12 +68,10 @@ export function encryptToken(plaintext: string): string {
 /**
  * Decrypt a hex-encoded token. Auto-detects format:
  *   - New format (version prefix): reads version byte, uses correct key.
- *   - Legacy format (no prefix): assumes version 1.
+ *   - Legacy format (no prefix): assumes version 1. Disable with DISABLE_LEGACY_DECRYPT=true.
  *
- * Legacy detection: old format is IV(12) + ciphertext + tag(16), minimum 28 bytes.
- * New format is version(1) + IV(12) + ciphertext + tag(16), minimum 29 bytes.
- * We detect legacy by checking if the first byte is 0x00 (no valid version)
- * or by attempting versioned decrypt first and falling back.
+ * Legacy detection: try versioned decrypt first. If it fails and legacy is
+ * enabled, try the entire buffer as IV + ciphertext + authTag with key v1.
  */
 export function decryptToken(hex: string): string {
   const buf = Buffer.from(hex, "hex");
@@ -74,18 +81,19 @@ export function decryptToken(hex: string): string {
 
   const firstByte = buf[0];
 
-  // New format: first byte is the version (1–255).
-  // Legacy format: first byte is the first byte of the 12-byte IV (random, could be anything).
-  // Heuristic: try new format first. If it fails AND buf.length matches old format, try legacy.
-  if (firstByte >= 1 && buf.length >= 1 + IV_LENGTH + TAG_LENGTH) {
+  // Try new format first (version byte + IV + ciphertext + tag)
+  if (firstByte >= 1 && firstByte <= 255 && buf.length >= 1 + IV_LENGTH + TAG_LENGTH) {
     try {
       return decryptWithVersion(buf, firstByte);
     } catch {
-      // Fall through to legacy attempt
+      // Fall through to legacy attempt if enabled
     }
   }
 
   // Legacy format: entire buffer is IV + ciphertext + authTag, assume key v1
+  if (process.env.DISABLE_LEGACY_DECRYPT === "true") {
+    throw new Error("Invalid encrypted token");
+  }
   return decryptLegacy(buf);
 }
 
