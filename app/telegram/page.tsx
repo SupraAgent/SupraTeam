@@ -24,20 +24,23 @@ import {
   ShieldCheck,
   WifiOff,
   Check,
+  CheckCheck,
   Forward,
   Pin,
   BellOff,
-  Archive,
   X,
   Folder,
   FolderPlus,
-  ChevronRight,
-  ChevronDown,
   Image,
   FileText,
   Reply,
   Hash,
   Command,
+  Pencil,
+  Trash2,
+  Download,
+  Paperclip,
+  ArrowUp,
 } from "lucide-react";
 import { EmojiPicker } from "@/components/ui/emoji-picker";
 
@@ -63,6 +66,21 @@ interface ChatContextMenu {
 
 // Quick reaction emojis
 const QUICK_REACTIONS = ["👍", "❤️", "🔥", "😂", "😮", "😢"];
+
+// Draft storage key
+const DRAFTS_KEY = "tg_drafts";
+
+function loadDrafts(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try { return JSON.parse(localStorage.getItem(DRAFTS_KEY) ?? "{}"); }
+  catch { return {}; }
+}
+function saveDraft(dialogId: string, text: string) {
+  const drafts = loadDrafts();
+  if (text.trim()) drafts[dialogId] = text;
+  else delete drafts[dialogId];
+  localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+}
 
 // ── Main Component ─────────────────────────────────────────────
 
@@ -93,8 +111,24 @@ export default function TelegramPage() {
   const [forwardMsg, setForwardMsg] = React.useState<TgMessage | null>(null);
   const [forwardSearch, setForwardSearch] = React.useState("");
 
-  // Context menu
+  // Edit message
+  const [editingMsg, setEditingMsg] = React.useState<TgMessage | null>(null);
+  const [editText, setEditText] = React.useState("");
+
+  // Context menu (conversation list)
   const [contextMenu, setContextMenu] = React.useState<ChatContextMenu | null>(null);
+
+  // Message context menu
+  const [msgContextMenu, setMsgContextMenu] = React.useState<{ x: number; y: number; msg: TgMessage } | null>(null);
+
+  // Media preview — track blob URLs for cleanup
+  const [mediaPreview, setMediaPreview] = React.useState<{ url: string; type: string } | null>(null);
+  const [mediaLoading, setMediaLoading] = React.useState<number | null>(null);
+  const mediaBlobUrlRef = React.useRef<string | null>(null);
+
+  // File upload
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [uploadingFile, setUploadingFile] = React.useState(false);
 
   // Folders
   const [folders, setFolders] = React.useState<ChatFolder[]>([]);
@@ -114,15 +148,13 @@ export default function TelegramPage() {
   // Pinned/muted state (local — persisted in localStorage)
   const [pinnedChats, setPinnedChats] = React.useState<Set<string>>(() => {
     if (typeof window === "undefined") return new Set();
-    try {
-      return new Set(JSON.parse(localStorage.getItem("tg_pinned") ?? "[]"));
-    } catch { return new Set(); }
+    try { return new Set(JSON.parse(localStorage.getItem("tg_pinned") ?? "[]")); }
+    catch { return new Set(); }
   });
   const [mutedChats, setMutedChats] = React.useState<Set<string>>(() => {
     if (typeof window === "undefined") return new Set();
-    try {
-      return new Set(JSON.parse(localStorage.getItem("tg_muted") ?? "[]"));
-    } catch { return new Set(); }
+    try { return new Set(JSON.parse(localStorage.getItem("tg_muted") ?? "[]")); }
+    catch { return new Set(); }
   });
 
   // Persist pinned/muted
@@ -134,12 +166,13 @@ export default function TelegramPage() {
   }, [mutedChats]);
 
   // Messages hook
+  // Telegram API: supergroups are channels with megagroup=true, NOT chats
   const peerType = activeDialog
     ? activeDialog.type === "private"
       ? "user" as const
-      : activeDialog.type === "group" || activeDialog.type === "supergroup"
+      : activeDialog.type === "group"
         ? "chat" as const
-        : "channel" as const
+        : "channel" as const  // supergroup + channel both use InputPeerChannel
     : null;
 
   const {
@@ -147,6 +180,11 @@ export default function TelegramPage() {
     loading: messagesLoading,
     sendMessage,
     refresh: refreshMessages,
+    loadOlder,
+    hasMore,
+    typingUsers,
+    sendTyping,
+    outgoingReadMaxId,
   } = useTelegramMessages(
     peerType,
     activeDialog?.telegramId ?? null,
@@ -154,34 +192,36 @@ export default function TelegramPage() {
   );
 
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
+  const messagesContainerRef = React.useRef<HTMLDivElement>(null);
 
-  // Auto-scroll on new messages
+  // Auto-scroll on new messages (only if near bottom)
+  const prevMsgCountRef = React.useRef(0);
   React.useEffect(() => {
-    if (messages.length > 0 && !msgSearchActive) {
-      setTimeout(
-        () => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }),
-        100
-      );
+    if (messages.length > prevMsgCountRef.current && !msgSearchActive) {
+      const container = messagesContainerRef.current;
+      if (container) {
+        const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
+        if (isNearBottom || messages.length - prevMsgCountRef.current <= 2) {
+          setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+        }
+      }
     }
+    prevMsgCountRef.current = messages.length;
   }, [messages.length, msgSearchActive]);
-
-  // Auto-refresh messages every 5 seconds
-  React.useEffect(() => {
-    if (!activeDialog || tg.status !== "connected") return;
-    const interval = setInterval(refreshMessages, 5000);
-    return () => clearInterval(interval);
-  }, [activeDialog, tg.status, refreshMessages]);
 
   // Mark as read when opening a dialog — track last sent maxId to avoid redundant calls
   const lastReadMaxIdRef = React.useRef<number>(0);
+  const maxMessageId = React.useMemo(() => {
+    return messages.reduce((max, m) => (m.id > 0 && m.id > max ? m.id : max), 0);
+  }, [messages]);
+
   React.useEffect(() => {
-    if (!activeDialog || tg.status !== "connected" || !peerType || messages.length === 0) return;
-    const maxId = Math.max(...messages.map((m) => m.id));
-    if (activeDialog.unreadCount > 0 && maxId > lastReadMaxIdRef.current) {
-      lastReadMaxIdRef.current = maxId;
-      tg.service.markAsRead(peerType, activeDialog.telegramId, activeDialog.accessHash, maxId).catch(() => {});
+    if (!activeDialog || tg.status !== "connected" || !peerType || maxMessageId === 0) return;
+    if (activeDialog.unreadCount > 0 && maxMessageId > lastReadMaxIdRef.current) {
+      lastReadMaxIdRef.current = maxMessageId;
+      tg.service.markAsRead(peerType, activeDialog.telegramId, activeDialog.accessHash, maxMessageId).catch(() => {});
     }
-  }, [activeDialog, messages.length, tg.status, tg.service, peerType]);
+  }, [activeDialog, maxMessageId, tg.status, tg.service, peerType]);
 
   // Reset lastReadMaxId when switching dialogs
   React.useEffect(() => {
@@ -191,7 +231,7 @@ export default function TelegramPage() {
   // Fetch folders
   React.useEffect(() => {
     fetch("/api/telegram/groups")
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error("Failed"); return r.json(); })
       .then((d) => { if (d.data) setFolders(d.data); })
       .catch(() => {});
   }, []);
@@ -206,32 +246,53 @@ export default function TelegramPage() {
       .catch(() => setChatMembers([]));
   }, [activeDialog, tg.status, tg.service]);
 
+  // ── Infinite Scroll ──────────────────────────────────────────
+
+  const scrollThrottleRef = React.useRef(false);
+  const handleScroll = React.useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (!container || !hasMore || scrollThrottleRef.current) return;
+    if (container.scrollTop < 100) {
+      scrollThrottleRef.current = true;
+      const prevHeight = container.scrollHeight;
+      loadOlder().then(() => {
+        requestAnimationFrame(() => {
+          const newHeight = container.scrollHeight;
+          container.scrollTop = newHeight - prevHeight;
+        });
+      }).finally(() => {
+        // Throttle: wait 500ms before allowing another load
+        setTimeout(() => { scrollThrottleRef.current = false; }, 500);
+      });
+    }
+  }, [hasMore, loadOlder]);
+
   // ── Keyboard Shortcuts ────────────────────────────────────────
 
   React.useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      // Cmd+K / Ctrl+K — command palette
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         setShowPalette((v) => !v);
       }
-      // Cmd+F / Ctrl+F in message view — message search
       if ((e.metaKey || e.ctrlKey) && e.key === "f" && activeDialog) {
         e.preventDefault();
         setMsgSearchActive(true);
       }
-      // Escape
       if (e.key === "Escape") {
-        if (showPalette) setShowPalette(false);
+        if (editingMsg) { setEditingMsg(null); setEditText(""); }
+        else if (showPalette) setShowPalette(false);
         else if (forwardMsg) setForwardMsg(null);
         else if (msgSearchActive) { setMsgSearchActive(false); setMsgSearch(""); setSearchResults([]); }
         else if (replyToMsg) setReplyToMsg(null);
         else if (contextMenu) setContextMenu(null);
+        else if (msgContextMenu) setMsgContextMenu(null);
+        else if (mediaPreview) setMediaPreview(null);
       }
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [activeDialog, showPalette, forwardMsg, msgSearchActive, replyToMsg, contextMenu]);
+  }, [activeDialog, showPalette, forwardMsg, msgSearchActive, replyToMsg, contextMenu, editingMsg, msgContextMenu, mediaPreview]);
 
   // ── Message Search ────────────────────────────────────────────
 
@@ -253,6 +314,17 @@ export default function TelegramPage() {
     return () => clearTimeout(timeout);
   }, [msgSearch, activeDialog, peerType, tg.service]);
 
+  // ── Draft persistence ────────────────────────────────────────
+
+  // Save draft on text change (debounced)
+  React.useEffect(() => {
+    if (!activeDialog) return;
+    const timer = setTimeout(() => {
+      saveDraft(activeDialog.id, replyText);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [replyText, activeDialog]);
+
   // ── Handlers ──────────────────────────────────────────────────
 
   async function handleSend() {
@@ -267,10 +339,10 @@ export default function TelegramPage() {
         await sendMessage(replyText.trim());
       }
       setReplyText("");
+      saveDraft(activeDialog.id, "");
       if (replyTextareaRef.current) replyTextareaRef.current.style.height = "auto";
       setLastSentId(Date.now());
       setTimeout(() => setLastSentId(null), 3000);
-      refreshMessages();
     } finally {
       setSending(false);
     }
@@ -303,14 +375,81 @@ export default function TelegramPage() {
     try {
       await tg.service.sendReaction(peerType, activeDialog.telegramId, activeDialog.accessHash, msgId, emoji);
     } catch (err) {
-      console.error("[Telegram] Reaction failed (may not be enabled for this chat):", err);
+      console.error("[Telegram] Reaction failed:", err);
+    }
+  }
+
+  async function handleEditSave() {
+    if (!editingMsg || !editText.trim() || !activeDialog || !peerType) return;
+    try {
+      await tg.service.editMessage(peerType, activeDialog.telegramId, activeDialog.accessHash, editingMsg.id, editText.trim());
+      setEditingMsg(null);
+      setEditText("");
+    } catch (err) {
+      console.error("[Telegram] Edit failed:", err);
+    }
+  }
+
+  async function handleDelete(msg: TgMessage) {
+    if (!activeDialog || !peerType) return;
+    try {
+      await tg.service.deleteMessages(peerType, activeDialog.telegramId, activeDialog.accessHash, [msg.id]);
+    } catch (err) {
+      console.error("[Telegram] Delete failed:", err);
+    }
+    setMsgContextMenu(null);
+  }
+
+  async function handleMediaDownload(msg: TgMessage) {
+    if (!activeDialog || !peerType || !msg.mediaType) return;
+    setMediaLoading(msg.id);
+    try {
+      const url = await tg.service.downloadMedia(peerType, activeDialog.telegramId, activeDialog.accessHash, msg.id);
+      if (url) {
+        // Revoke previous blob URL before setting new one
+        if (mediaBlobUrlRef.current) URL.revokeObjectURL(mediaBlobUrlRef.current);
+        mediaBlobUrlRef.current = url;
+        setMediaPreview({ url, type: msg.mediaType });
+      }
+    } catch (err) {
+      console.error("[Telegram] Download failed:", err);
+    } finally {
+      setMediaLoading(null);
+    }
+  }
+
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !activeDialog || !peerType) return;
+    setUploadingFile(true);
+    try {
+      await tg.service.sendFileSimple(peerType, activeDialog.telegramId, activeDialog.accessHash, file);
+    } catch (err) {
+      console.error("[Telegram] Upload failed:", err);
+    } finally {
+      setUploadingFile(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
 
   function selectDialog(dialog: TgDialog) {
+    // Save current draft before switching
+    if (activeDialog && replyText.trim()) {
+      saveDraft(activeDialog.id, replyText);
+    }
+    // Clean up any open media blob
+    if (mediaBlobUrlRef.current) {
+      URL.revokeObjectURL(mediaBlobUrlRef.current);
+      mediaBlobUrlRef.current = null;
+    }
+    setMediaPreview(null);
     setActiveDialog(dialog);
-    setReplyText("");
+    // Restore draft for new dialog
+    const drafts = loadDrafts();
+    setReplyText(drafts[dialog.id] ?? "");
     setReplyToMsg(null);
+    setEditingMsg(null);
+    setEditText("");
     setMsgSearchActive(false);
     setMsgSearch("");
     setSearchResults([]);
@@ -365,6 +504,8 @@ export default function TelegramPage() {
       setMentionActive(false);
       setMentionQuery("");
     }
+    // Send typing indicator
+    sendTyping();
   }
 
   function insertMention(username: string) {
@@ -411,7 +552,7 @@ export default function TelegramPage() {
     else if (filter === "group") result = result.filter((d) => d.type === "group" || d.type === "supergroup");
     else if (filter === "channel") result = result.filter((d) => d.type === "channel");
 
-    // Text search — includes last message text
+    // Text search
     if (search) {
       const q = search.toLowerCase();
       result = result.filter(
@@ -444,7 +585,6 @@ export default function TelegramPage() {
     return counts;
   }, [dialogs]);
 
-  // Folder unread counts
   const folderUnreadCounts = React.useMemo(() => {
     const counts: Record<string, number> = {};
     for (const folder of folders) {
@@ -453,6 +593,12 @@ export default function TelegramPage() {
     }
     return counts;
   }, [folders, dialogs]);
+
+  // Draft indicator for conversation list — only reload when dialog changes (not on every keystroke)
+  const [draftRevision, setDraftRevision] = React.useState(0);
+  const drafts = React.useMemo(() => loadDrafts(), [draftRevision]);
+  // Bump revision when switching dialogs (draft is saved at that point)
+  React.useEffect(() => { setDraftRevision((r) => r + 1); }, [activeDialog?.id]);
 
   function dialogIcon(type: string) {
     switch (type) {
@@ -463,18 +609,20 @@ export default function TelegramPage() {
     }
   }
 
-  // Close context menu on click outside
+  // Close context menus on click outside
   React.useEffect(() => {
-    if (!contextMenu) return;
-    const handleClick = () => setContextMenu(null);
+    if (!contextMenu && !msgContextMenu) return;
+    const handleClick = () => { setContextMenu(null); setMsgContextMenu(null); };
     document.addEventListener("click", handleClick);
     return () => document.removeEventListener("click", handleClick);
-  }, [contextMenu]);
+  }, [contextMenu, msgContextMenu]);
 
   // ── Render helpers ────────────────────────────────────────────
 
   function renderMessage(msg: TgMessage) {
-    const isOwn = msg.senderId === tg.telegramUserId;
+    const isOwn = msg.senderId === tg.telegramUserId || msg.id < 0; // negative id = optimistic
+    const isOptimistic = msg.id < 0;
+    const isRead = isOwn && msg.id > 0 && msg.id <= outgoingReadMaxId;
 
     return (
       <div
@@ -488,12 +636,21 @@ export default function TelegramPage() {
           </div>
         )}
 
-        <div className={cn(
-          "max-w-[75%] rounded-xl px-3 py-2",
-          isOwn
-            ? "bg-primary/15 rounded-tr-sm"
-            : "bg-white/[0.04] rounded-tl-sm"
-        )}>
+        <div
+          className={cn(
+            "max-w-[75%] rounded-xl px-3 py-2",
+            isOwn
+              ? "bg-primary/15 rounded-tr-sm"
+              : "bg-white/[0.04] rounded-tl-sm",
+            isOptimistic && "opacity-60"
+          )}
+          onContextMenu={(e) => {
+            if (msg.id > 0) {
+              e.preventDefault();
+              setMsgContextMenu({ x: e.clientX, y: e.clientY, msg });
+            }
+          }}
+        >
           {/* Sender + time */}
           <div className="flex items-baseline gap-2 mb-0.5">
             {!isOwn && (
@@ -503,19 +660,42 @@ export default function TelegramPage() {
             )}
             <span className="text-[10px] text-muted-foreground/50">
               {new Date(msg.date * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              {msg.editDate && <span className="ml-1 italic">(edited)</span>}
             </span>
+            {/* Read receipts for own messages */}
+            {isOwn && msg.id > 0 && (
+              <span className="text-[10px]">
+                {isRead ? (
+                  <CheckCheck className="h-3 w-3 text-primary inline" />
+                ) : (
+                  <Check className="h-3 w-3 text-muted-foreground/50 inline" />
+                )}
+              </span>
+            )}
+            {isOptimistic && (
+              <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/50 inline" />
+            )}
           </div>
 
           {/* Media */}
           {msg.mediaType && (
-            <div className="flex items-center gap-1.5 mb-1 px-2 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06]">
-              {msg.mediaType === "photo" ? (
+            <button
+              onClick={() => handleMediaDownload(msg)}
+              disabled={mediaLoading === msg.id}
+              className="flex items-center gap-1.5 mb-1 px-2 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.08] transition-colors cursor-pointer w-full"
+            >
+              {mediaLoading === msg.id ? (
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              ) : msg.mediaType === "photo" ? (
                 <Image className="h-4 w-4 text-blue-400" />
               ) : (
                 <FileText className="h-4 w-4 text-amber-400" />
               )}
-              <span className="text-xs text-muted-foreground">{msg.mediaType === "photo" ? "Photo" : "Document"}</span>
-            </div>
+              <span className="text-xs text-muted-foreground flex-1 text-left">
+                {msg.mediaType === "photo" ? "Photo" : "Document"}
+              </span>
+              <Download className="h-3 w-3 text-muted-foreground/50" />
+            </button>
           )}
 
           {/* Text with link detection */}
@@ -525,33 +705,52 @@ export default function TelegramPage() {
         </div>
 
         {/* Hover actions */}
-        <div className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 -mt-2 mr-1 bg-card border border-white/10 rounded-lg shadow-lg px-1 py-0.5 z-10">
-          <button
-            onClick={() => setReplyToMsg(msg)}
-            className="flex h-6 w-6 items-center justify-center rounded hover:bg-white/10"
-            title="Reply"
-          >
-            <Reply className="h-3 w-3 text-muted-foreground" />
-          </button>
-          <button
-            onClick={() => { setForwardMsg(msg); setForwardSearch(""); }}
-            className="flex h-6 w-6 items-center justify-center rounded hover:bg-white/10"
-            title="Forward"
-          >
-            <Forward className="h-3 w-3 text-muted-foreground" />
-          </button>
-          {/* Quick reactions */}
-          {QUICK_REACTIONS.slice(0, 3).map((emoji) => (
+        {msg.id > 0 && (
+          <div className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 -mt-2 mr-1 bg-card border border-white/10 rounded-lg shadow-lg px-1 py-0.5 z-10">
             <button
-              key={emoji}
-              onClick={() => handleReaction(msg.id, emoji)}
-              className="flex h-6 w-6 items-center justify-center rounded hover:bg-white/10 text-xs"
-              title={`React ${emoji}`}
+              onClick={() => setReplyToMsg(msg)}
+              className="flex h-6 w-6 items-center justify-center rounded hover:bg-white/10"
+              title="Reply"
             >
-              {emoji}
+              <Reply className="h-3 w-3 text-muted-foreground" />
             </button>
-          ))}
-        </div>
+            <button
+              onClick={() => { setForwardMsg(msg); setForwardSearch(""); }}
+              className="flex h-6 w-6 items-center justify-center rounded hover:bg-white/10"
+              title="Forward"
+            >
+              <Forward className="h-3 w-3 text-muted-foreground" />
+            </button>
+            {isOwn && (
+              <>
+                <button
+                  onClick={() => { setEditingMsg(msg); setEditText(msg.text); }}
+                  className="flex h-6 w-6 items-center justify-center rounded hover:bg-white/10"
+                  title="Edit"
+                >
+                  <Pencil className="h-3 w-3 text-muted-foreground" />
+                </button>
+                <button
+                  onClick={() => handleDelete(msg)}
+                  className="flex h-6 w-6 items-center justify-center rounded hover:bg-white/10"
+                  title="Delete"
+                >
+                  <Trash2 className="h-3 w-3 text-red-400" />
+                </button>
+              </>
+            )}
+            {QUICK_REACTIONS.slice(0, 3).map((emoji) => (
+              <button
+                key={emoji}
+                onClick={() => handleReaction(msg.id, emoji)}
+                className="flex h-6 w-6 items-center justify-center rounded hover:bg-white/10 text-xs"
+                title={`React ${emoji}`}
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -562,7 +761,7 @@ export default function TelegramPage() {
       if (/^https?:\/\//.test(part)) {
         return (
           <a
-            key={i}
+            key={`${i}-${part.slice(0, 30)}`}
             href={part}
             target="_blank"
             rel="noopener noreferrer"
@@ -581,7 +780,6 @@ export default function TelegramPage() {
     const items: { label: string; icon: React.ReactNode; action: () => void }[] = [];
     const q = paletteQuery.toLowerCase();
 
-    // Jump to dialog
     for (const d of dialogs.slice(0, 20)) {
       if (q && !d.title.toLowerCase().includes(q)) continue;
       items.push({
@@ -591,7 +789,6 @@ export default function TelegramPage() {
       });
     }
 
-    // Actions
     if (!q || "search messages".includes(q)) {
       items.push({
         label: "Search messages (Cmd+F)",
@@ -608,6 +805,7 @@ export default function TelegramPage() {
     }
 
     return items.slice(0, 15);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paletteQuery, dialogs]);
 
   // ── Loading State ────────────────────────────────────────────
@@ -714,7 +912,6 @@ export default function TelegramPage() {
           </div>
 
           <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-            {/* Type filters */}
             {([
               { key: "all" as FilterType, label: "All Chats", icon: MessageCircle },
               { key: "unread" as FilterType, label: "Unread", icon: Hash },
@@ -884,15 +1081,21 @@ export default function TelegramPage() {
                       )}
                     </div>
                     <div className="flex items-center gap-1.5 mt-0.5">
-                      {dialog.lastMessage ? (
-                        <p className="text-xs text-muted-foreground truncate">
+                      {/* Show draft indicator */}
+                      {drafts[dialog.id] && activeDialog?.id !== dialog.id ? (
+                        <p className="text-xs truncate flex-1">
+                          <span className="text-red-400">Draft: </span>
+                          <span className="text-muted-foreground">{drafts[dialog.id]}</span>
+                        </p>
+                      ) : dialog.lastMessage ? (
+                        <p className="text-xs text-muted-foreground truncate flex-1">
                           {dialog.lastMessage.senderName && (
                             <span className="text-foreground/60">{dialog.lastMessage.senderName}: </span>
                           )}
                           {dialog.lastMessage.text}
                         </p>
                       ) : (
-                        <p className="text-xs text-muted-foreground/40 italic">No messages</p>
+                        <p className="text-xs text-muted-foreground/40 italic flex-1">No messages</p>
                       )}
                       {dialog.unreadCount > 0 && (
                         <span className={cn(
@@ -972,7 +1175,24 @@ export default function TelegramPage() {
               )}
 
               {/* Messages */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              <div
+                ref={messagesContainerRef}
+                onScroll={handleScroll}
+                className="flex-1 overflow-y-auto p-4 space-y-3"
+              >
+                {/* Load more indicator */}
+                {hasMore && (
+                  <div className="flex justify-center py-2">
+                    <button
+                      onClick={() => loadOlder()}
+                      className="flex items-center gap-1.5 text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+                    >
+                      <ArrowUp className="h-3 w-3" />
+                      Load older messages
+                    </button>
+                  </div>
+                )}
+
                 {messagesLoading ? (
                   <div className="flex items-center justify-center py-12">
                     <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -990,8 +1210,53 @@ export default function TelegramPage() {
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* Reply */}
-              {activeDialog.type !== "channel" && (
+              {/* Typing indicator */}
+              {typingUsers.length > 0 && (
+                <div className="px-4 py-1.5 border-t border-white/[0.03]">
+                  <p className="text-[11px] text-primary/70 animate-pulse">
+                    {typingUsers.length === 1
+                      ? `${typingUsers[0]} is typing...`
+                      : typingUsers.length === 2
+                        ? `${typingUsers[0]} and ${typingUsers[1]} are typing...`
+                        : `${typingUsers[0]} and ${typingUsers.length - 1} others are typing...`}
+                  </p>
+                </div>
+              )}
+
+              {/* Edit message inline */}
+              {editingMsg && (
+                <div className="border-t border-white/[0.06] p-3">
+                  <div className="flex items-center gap-2 mb-2 px-3 py-1.5 rounded-lg bg-blue-500/5 border border-blue-500/10">
+                    <Pencil className="h-3.5 w-3.5 text-blue-400 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <span className="text-[10px] text-blue-400 font-medium">Editing message</span>
+                      <p className="text-[10px] text-muted-foreground truncate">{editingMsg.text?.slice(0, 80)}</p>
+                    </div>
+                    <button onClick={() => { setEditingMsg(null); setEditText(""); }}>
+                      <X className="h-3 w-3 text-muted-foreground" />
+                    </button>
+                  </div>
+                  <div className="flex items-end gap-2">
+                    <textarea
+                      value={editText}
+                      onChange={(e) => setEditText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleEditSave(); }
+                        if (e.key === "Escape") { setEditingMsg(null); setEditText(""); }
+                      }}
+                      rows={1}
+                      className="flex-1 resize-none rounded-lg bg-white/[0.03] border border-blue-500/20 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-blue-500/50 min-h-[38px] max-h-[120px]"
+                      autoFocus
+                    />
+                    <Button size="sm" onClick={handleEditSave} disabled={!editText.trim()} className="h-[38px] w-[38px] p-0">
+                      <Check className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Reply / Compose (not when editing) */}
+              {activeDialog.type !== "channel" && !editingMsg && (
                 <div className="border-t border-white/[0.06] p-3">
                   {/* Delivery indicator */}
                   {lastSentId && (
@@ -1035,6 +1300,22 @@ export default function TelegramPage() {
                   )}
 
                   <div className="flex items-end gap-2">
+                    {/* File upload button */}
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploadingFile}
+                      className="flex h-[38px] w-[38px] items-center justify-center rounded-lg border border-white/10 bg-white/5 text-muted-foreground hover:text-foreground hover:bg-white/[0.06] transition-colors shrink-0"
+                      title="Attach file"
+                    >
+                      {uploadingFile ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
+                    </button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                    />
+
                     <textarea
                       ref={replyTextareaRef}
                       value={replyText}
@@ -1080,7 +1361,7 @@ export default function TelegramPage() {
         </div>
       </div>
 
-      {/* ── Context Menu ──────────────────────────────────────── */}
+      {/* ── Context Menu (Conversation List) ──────────────────── */}
       {contextMenu && (
         <div
           className="fixed z-50 min-w-[180px] rounded-lg border border-white/10 bg-card shadow-2xl shadow-black/50 py-1"
@@ -1108,6 +1389,55 @@ export default function TelegramPage() {
             <MessageCircle className="h-3.5 w-3.5" />
             Open conversation
           </button>
+        </div>
+      )}
+
+      {/* ── Message Context Menu ─────────────────────────────── */}
+      {msgContextMenu && (
+        <div
+          className="fixed z-50 min-w-[180px] rounded-lg border border-white/10 bg-card shadow-2xl shadow-black/50 py-1"
+          style={{ left: msgContextMenu.x, top: msgContextMenu.y }}
+        >
+          <button
+            onClick={() => { setReplyToMsg(msgContextMenu.msg); setMsgContextMenu(null); }}
+            className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-foreground hover:bg-white/[0.06]"
+          >
+            <Reply className="h-3.5 w-3.5" />
+            Reply
+          </button>
+          <button
+            onClick={() => { setForwardMsg(msgContextMenu.msg); setForwardSearch(""); setMsgContextMenu(null); }}
+            className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-foreground hover:bg-white/[0.06]"
+          >
+            <Forward className="h-3.5 w-3.5" />
+            Forward
+          </button>
+          <button
+            onClick={() => { navigator.clipboard.writeText(msgContextMenu.msg.text); setMsgContextMenu(null); }}
+            className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-foreground hover:bg-white/[0.06]"
+          >
+            <FileText className="h-3.5 w-3.5" />
+            Copy text
+          </button>
+          {(msgContextMenu.msg.senderId === tg.telegramUserId) && (
+            <>
+              <div className="border-t border-white/[0.06] my-1" />
+              <button
+                onClick={() => { setEditingMsg(msgContextMenu.msg); setEditText(msgContextMenu.msg.text); setMsgContextMenu(null); }}
+                className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-foreground hover:bg-white/[0.06]"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                Edit
+              </button>
+              <button
+                onClick={() => handleDelete(msgContextMenu.msg)}
+                className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-red-400 hover:bg-white/[0.06]"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete
+              </button>
+            </>
+          )}
         </div>
       )}
 
@@ -1180,6 +1510,37 @@ export default function TelegramPage() {
                 <p className="text-xs text-muted-foreground/40 text-center py-8">No results</p>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Media Preview Modal ────────────────────────────────── */}
+      {mediaPreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={() => { URL.revokeObjectURL(mediaPreview.url); setMediaPreview(null); }}>
+          <div className="max-w-[90vw] max-h-[90vh] relative" onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={() => { URL.revokeObjectURL(mediaPreview.url); setMediaPreview(null); }}
+              className="absolute -top-10 right-0 text-white/60 hover:text-white"
+            >
+              <X className="h-6 w-6" />
+            </button>
+            {mediaPreview.type === "photo" ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={mediaPreview.url} alt="Media" className="max-w-full max-h-[85vh] rounded-lg" />
+            ) : (
+              <div className="bg-card rounded-xl border border-white/10 p-8 text-center">
+                <FileText className="h-12 w-12 text-amber-400 mx-auto mb-3" />
+                <p className="text-sm text-foreground mb-4">Document downloaded</p>
+                <a
+                  href={mediaPreview.url}
+                  download
+                  className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm text-white hover:bg-primary/90"
+                >
+                  <Download className="h-4 w-4" />
+                  Save to disk
+                </a>
+              </div>
+            )}
           </div>
         </div>
       )}

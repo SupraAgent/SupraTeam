@@ -19,6 +19,48 @@ import bigInt from "big-integer";
 const API_ID = parseInt(process.env.NEXT_PUBLIC_TELEGRAM_API_ID || "0", 10);
 const API_HASH = process.env.NEXT_PUBLIC_TELEGRAM_API_HASH || "";
 
+// ── Event Types ──────────────────────────────────────────────
+
+export interface TgNewMessageEvent {
+  chatId: number;
+  message: TgMessage;
+}
+
+export interface TgMessageEditEvent {
+  chatId: number;
+  messageId: number;
+  newText: string;
+  editDate: number;
+}
+
+export interface TgMessageDeleteEvent {
+  chatId: number;
+  messageIds: number[];
+}
+
+export interface TgTypingEvent {
+  chatId: number;
+  userId: number;
+  userName?: string;
+  action: "typing" | "cancel";
+}
+
+export interface TgReadEvent {
+  chatId: number;
+  maxId: number;
+  outgoing: boolean;
+}
+
+type TgEventHandler = {
+  onNewMessage?: (event: TgNewMessageEvent) => void;
+  onMessageEdit?: (event: TgMessageEditEvent) => void;
+  onMessageDelete?: (event: TgMessageDeleteEvent) => void;
+  onTyping?: (event: TgTypingEvent) => void;
+  onRead?: (event: TgReadEvent) => void;
+};
+
+type TgEventUnsubscribe = () => void;
+
 if (typeof window !== "undefined" && (!API_ID || !API_HASH)) {
   console.error(
     "[TelegramBrowserService] NEXT_PUBLIC_TELEGRAM_API_ID or NEXT_PUBLIC_TELEGRAM_API_HASH missing. " +
@@ -51,6 +93,7 @@ export interface TgMessage {
   senderName?: string;
   replyToId?: number;
   mediaType?: string;
+  editDate?: number;
 }
 
 export interface TgContact {
@@ -69,6 +112,9 @@ export class TelegramBrowserService {
   private static instance: TelegramBrowserService | null = null;
   private client: TelegramClient | null = null;
   private _connected = false;
+  private eventHandlers = new Set<TgEventHandler>();
+  private eventHandlerRegistered = false;
+  private userCache = new Map<string, { firstName: string; lastName?: string }>();
 
   static getInstance(): TelegramBrowserService {
     if (!TelegramBrowserService.instance) {
@@ -119,6 +165,9 @@ export class TelegramBrowserService {
       this.client = null;
     }
     this._connected = false;
+    this.eventHandlerRegistered = false;
+    this.eventHandlers.clear();
+    this.userCache.clear();
   }
 
   // ── Auth: Phone Login ─────────────────────────────────────
@@ -259,7 +308,13 @@ export class TelegramBrowserService {
     const chats = new Map<string, Api.Chat | Api.Channel>();
 
     for (const u of dialogs.users) {
-      if (u instanceof Api.User) users.set(u.id.toString(), u);
+      if (u instanceof Api.User) {
+        users.set(u.id.toString(), u);
+        // Cache for event handler name resolution
+        if (!u.deleted) {
+          this.userCache.set(u.id.toString(), { firstName: u.firstName ?? "", lastName: u.lastName ?? undefined });
+        }
+      }
     }
     for (const c of dialogs.chats) {
       if (c instanceof Api.Chat || c instanceof Api.Channel) {
@@ -585,6 +640,299 @@ export class TelegramBrowserService {
       });
   }
 
+  // ── Real-time Events ──────────────────────────────────────
+
+  /** Subscribe to real-time events. Returns unsubscribe function. */
+  subscribe(handler: TgEventHandler): TgEventUnsubscribe {
+    this.eventHandlers.add(handler);
+    this.ensureEventHandlers();
+    return () => { this.eventHandlers.delete(handler); };
+  }
+
+  private ensureEventHandlers(): void {
+    if (this.eventHandlerRegistered || !this.client) return;
+    this.eventHandlerRegistered = true;
+
+    this.client.addEventHandler((update: Api.TypeUpdate) => {
+      // New messages
+      if (update instanceof Api.UpdateNewMessage || update instanceof Api.UpdateNewChannelMessage) {
+        const msg = update.message;
+        if (!(msg instanceof Api.Message)) return;
+
+        const chatId = this.extractChatId(msg);
+        if (!chatId) return;
+
+        let senderId: number | undefined;
+        let senderName: string | undefined;
+        if (msg.fromId instanceof Api.PeerUser) {
+          senderId = Number(msg.fromId.userId);
+          senderName = this.userCache.get(msg.fromId.userId.toString())?.firstName;
+        }
+
+        let mediaType: string | undefined;
+        if (msg.media) {
+          if (msg.media instanceof Api.MessageMediaPhoto) mediaType = "photo";
+          else if (msg.media instanceof Api.MessageMediaDocument) mediaType = "document";
+          else mediaType = "other";
+        }
+
+        const tgMsg: TgMessage = {
+          id: msg.id,
+          text: msg.message || "",
+          date: msg.date,
+          senderId,
+          senderName,
+          replyToId: msg.replyTo instanceof Api.MessageReplyHeader ? msg.replyTo.replyToMsgId : undefined,
+          mediaType,
+        };
+        for (const h of this.eventHandlers) h.onNewMessage?.({ chatId, message: tgMsg });
+      }
+
+      // Edited messages
+      if (update instanceof Api.UpdateEditMessage || update instanceof Api.UpdateEditChannelMessage) {
+        const msg = update.message;
+        if (!(msg instanceof Api.Message)) return;
+        const chatId = this.extractChatId(msg);
+        if (!chatId) return;
+        for (const h of this.eventHandlers) {
+          h.onMessageEdit?.({ chatId, messageId: msg.id, newText: msg.message || "", editDate: msg.editDate ?? msg.date });
+        }
+      }
+
+      // Deleted messages — non-channel deletes don't include chatId in Telegram's API,
+      // so we can only safely handle channel deletes. Private/group deletes are ignored
+      // to prevent cross-conversation message removal due to ID collisions.
+      if (update instanceof Api.UpdateDeleteChannelMessages) {
+        const chatId = Number(update.channelId);
+        for (const h of this.eventHandlers) {
+          h.onMessageDelete?.({ chatId, messageIds: update.messages });
+        }
+      }
+
+      // Typing indicators
+      if (update instanceof Api.UpdateUserTyping) {
+        const userId = Number(update.userId);
+        const cached = this.userCache.get(update.userId.toString());
+        const action = update.action instanceof Api.SendMessageCancelAction ? "cancel" as const : "typing" as const;
+        for (const h of this.eventHandlers) {
+          h.onTyping?.({ chatId: userId, userId, userName: cached?.firstName, action });
+        }
+      }
+      if (update instanceof Api.UpdateChatUserTyping) {
+        const chatId = Number(update.chatId);
+        const userId = update.fromId instanceof Api.PeerUser ? Number(update.fromId.userId) : 0;
+        const cached = userId ? this.userCache.get(userId.toString()) : undefined;
+        const action = update.action instanceof Api.SendMessageCancelAction ? "cancel" as const : "typing" as const;
+        for (const h of this.eventHandlers) {
+          h.onTyping?.({ chatId, userId, userName: cached?.firstName, action });
+        }
+      }
+      if (update instanceof Api.UpdateChannelUserTyping) {
+        const chatId = Number(update.channelId);
+        const userId = update.fromId instanceof Api.PeerUser ? Number(update.fromId.userId) : 0;
+        const cached = userId ? this.userCache.get(userId.toString()) : undefined;
+        const action = update.action instanceof Api.SendMessageCancelAction ? "cancel" as const : "typing" as const;
+        for (const h of this.eventHandlers) {
+          h.onTyping?.({ chatId, userId, userName: cached?.firstName, action });
+        }
+      }
+
+      // Read receipts — outgoing reads (other party read our message)
+      if (update instanceof Api.UpdateReadHistoryOutbox) {
+        const peer = update.peer;
+        const chatId = peer instanceof Api.PeerUser ? Number(peer.userId) : peer instanceof Api.PeerChat ? Number(peer.chatId) : 0;
+        for (const h of this.eventHandlers) h.onRead?.({ chatId, maxId: update.maxId, outgoing: true });
+      }
+      if (update instanceof Api.UpdateReadChannelOutbox) {
+        for (const h of this.eventHandlers) h.onRead?.({ chatId: Number(update.channelId), maxId: update.maxId, outgoing: true });
+      }
+      // Incoming reads
+      if (update instanceof Api.UpdateReadHistoryInbox) {
+        const peer = update.peer;
+        const chatId = peer instanceof Api.PeerUser ? Number(peer.userId) : peer instanceof Api.PeerChat ? Number(peer.chatId) : 0;
+        for (const h of this.eventHandlers) h.onRead?.({ chatId, maxId: update.maxId, outgoing: false });
+      }
+      if (update instanceof Api.UpdateReadChannelInbox) {
+        for (const h of this.eventHandlers) h.onRead?.({ chatId: Number(update.channelId), maxId: update.maxId, outgoing: false });
+      }
+    });
+  }
+
+  private extractChatId(msg: Api.Message): number | null {
+    const peer = msg.peerId;
+    if (peer instanceof Api.PeerUser) return Number(peer.userId);
+    if (peer instanceof Api.PeerChat) return Number(peer.chatId);
+    if (peer instanceof Api.PeerChannel) return Number(peer.channelId);
+    return null;
+  }
+
+  // ── Edit / Delete ────────────────────────────────────────
+
+  /** Edit a sent message's text. */
+  async editMessage(
+    peerType: "user" | "chat" | "channel",
+    id: number,
+    accessHash: string | undefined,
+    msgId: number,
+    newText: string
+  ): Promise<void> {
+    this.requireClient();
+    const peer = this.buildPeer(peerType, id, accessHash);
+    await this.client!.invoke(
+      new Api.messages.EditMessage({ peer, id: msgId, message: newText })
+    );
+  }
+
+  /** Delete messages. */
+  async deleteMessages(
+    peerType: "user" | "chat" | "channel",
+    id: number,
+    accessHash: string | undefined,
+    msgIds: number[],
+    revoke = true
+  ): Promise<void> {
+    this.requireClient();
+    if (peerType === "channel") {
+      const channel = new Api.InputChannel({
+        channelId: bigInt(id),
+        accessHash: bigInt(accessHash || "0"),
+      });
+      await this.client!.invoke(
+        new Api.channels.DeleteMessages({ channel, id: msgIds })
+      );
+    } else {
+      await this.client!.invoke(
+        new Api.messages.DeleteMessages({ id: msgIds, revoke })
+      );
+    }
+  }
+
+  // ── Typing ───────────────────────────────────────────────
+
+  /** Send typing indicator to a peer. */
+  async sendTyping(
+    peerType: "user" | "chat" | "channel",
+    id: number,
+    accessHash: string | undefined
+  ): Promise<void> {
+    this.requireClient();
+    const peer = this.buildPeer(peerType, id, accessHash);
+    await this.client!.invoke(
+      new Api.messages.SetTyping({ peer, action: new Api.SendMessageTypingAction() })
+    );
+  }
+
+  // ── Media Download ───────────────────────────────────────
+
+  /** Download media from a message. Returns object URL. */
+  async downloadMedia(
+    peerType: "user" | "chat" | "channel",
+    id: number,
+    accessHash: string | undefined,
+    msgId: number
+  ): Promise<string | null> {
+    this.requireClient();
+    // Fetch the message to get its media — channels require channels.GetMessages
+    let msg: Api.Message | undefined;
+    if (peerType === "channel") {
+      const channel = new Api.InputChannel({ channelId: bigInt(id), accessHash: bigInt(accessHash || "0") });
+      const result = await this.client!.invoke(
+        new Api.channels.GetMessages({ channel, id: [new Api.InputMessageID({ id: msgId })] })
+      );
+      const msgs = result as Api.messages.ChannelMessages;
+      msg = msgs.messages.find((m): m is Api.Message => m instanceof Api.Message && m.id === msgId);
+    } else {
+      const result = await this.client!.invoke(
+        new Api.messages.GetMessages({ id: [new Api.InputMessageID({ id: msgId })] })
+      );
+      const msgs = result as Api.messages.Messages;
+      msg = msgs.messages.find((m): m is Api.Message => m instanceof Api.Message && m.id === msgId);
+    }
+    if (!msg?.media) return null;
+
+    const buffer = await this.client!.downloadMedia(msg, {});
+    if (!buffer) return null;
+
+    // GramJS downloadMedia returns Buffer | string | undefined
+    let blob: Blob;
+    if (typeof buffer === "string") {
+      blob = new Blob([buffer]);
+    } else {
+      // Buffer → copy to a fresh ArrayBuffer to satisfy strict TS (avoids SharedArrayBuffer union)
+      const buf = buffer as Buffer;
+      const copy = new ArrayBuffer(buf.byteLength);
+      new Uint8Array(copy).set(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
+      blob = new Blob([copy]);
+    }
+    return URL.createObjectURL(blob);
+  }
+
+  /** Upload and send a file/photo via GramJS sendFile. */
+  async sendFileSimple(
+    peerType: "user" | "chat" | "channel",
+    id: number,
+    accessHash: string | undefined,
+    file: File,
+    caption?: string
+  ): Promise<void> {
+    this.requireClient();
+    const peer = this.buildPeer(peerType, id, accessHash);
+    const buffer = Buffer.from(await file.arrayBuffer());
+
+    await this.client!.sendFile(peer, {
+      file: buffer,
+      caption: caption || "",
+      forceDocument: !file.type.startsWith("image/"),
+    });
+  }
+
+  // ── Messages with pagination ─────────────────────────────
+
+  /** Get messages with pagination support via offsetId. */
+  async getMessagesPage(
+    peerType: "user" | "chat" | "channel",
+    id: number,
+    accessHash: string | undefined,
+    limit = 50,
+    offsetId = 0
+  ): Promise<{ messages: TgMessage[]; hasMore: boolean }> {
+    this.requireClient();
+    const peer = this.buildPeer(peerType, id, accessHash);
+
+    const result = await this.client!.invoke(
+      new Api.messages.GetHistory({
+        peer,
+        offsetId,
+        offsetDate: 0,
+        addOffset: 0,
+        limit,
+        maxId: 0,
+        minId: 0,
+        hash: bigInt(0),
+      })
+    );
+
+    if (result instanceof Api.messages.MessagesNotModified) return { messages: [], hasMore: false };
+
+    const msgs = result as Api.messages.Messages | Api.messages.MessagesSlice | Api.messages.ChannelMessages;
+    const parsed = this.parseMessagesFromResult(msgs);
+
+    // Cache users for event handler name resolution
+    for (const u of msgs.users) {
+      if (u instanceof Api.User && !u.deleted) {
+        this.userCache.set(u.id.toString(), {
+          firstName: u.firstName ?? "",
+          lastName: u.lastName ?? undefined,
+        });
+      }
+    }
+
+    const totalCount = "count" in msgs ? (msgs as Api.messages.MessagesSlice).count : parsed.length;
+    const hasMore = parsed.length === limit;
+
+    return { messages: parsed, hasMore };
+  }
+
   // ── Helpers ───────────────────────────────────────────────
 
   private generateRandomId(): bigInt.BigInteger {
@@ -627,6 +975,7 @@ export class TelegramBrowserService {
         senderName,
         replyToId: m.replyTo instanceof Api.MessageReplyHeader ? m.replyTo.replyToMsgId : undefined,
         mediaType,
+        editDate: m.editDate ?? undefined,
       });
     }
     return out;
