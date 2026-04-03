@@ -71,16 +71,20 @@ export function useNukeMessages() {
           currentChat: userName,
         }));
 
-        const dmIds: number[] = [];
+        const dmIdSet = new Set<number>();
         let offsetId = 0;
         let hasMore = true;
         while (hasMore && !cancelledRef.current) {
           const result = await service.searchMyMessages("user", userId, userAccessHash, offsetId);
-          dmIds.push(...result.messageIds);
+          let newCount = 0;
+          for (const id of result.messageIds) {
+            if (!dmIdSet.has(id)) { dmIdSet.add(id); newCount++; }
+          }
           hasMore = result.hasMore;
           offsetId = result.nextOffsetId;
-          setState((s) => ({ ...s, totalFound: s.totalFound + result.messageIds.length }));
+          if (newCount > 0) setState((s) => ({ ...s, totalFound: s.totalFound + newCount }));
         }
+        const dmIds = Array.from(dmIdSet);
 
         if (dmIds.length > 0) {
           allMessages.push({
@@ -118,22 +122,25 @@ export function useNukeMessages() {
           }));
 
           const peerType = chat.type === "group" ? "chat" as const : "channel" as const;
-          const chatIds: number[] = [];
+          const chatIdSet = new Set<number>();
           let chatOffset = 0;
           let chatHasMore = true;
 
           while (chatHasMore && !cancelledRef.current) {
             try {
               const result = await service.searchMyMessages(peerType, chat.id, chat.accessHash, chatOffset);
-              chatIds.push(...result.messageIds);
+              let newCount = 0;
+              for (const id of result.messageIds) {
+                if (!chatIdSet.has(id)) { chatIdSet.add(id); newCount++; }
+              }
               chatHasMore = result.hasMore;
               chatOffset = result.nextOffsetId;
-              setState((s) => ({ ...s, totalFound: s.totalFound + result.messageIds.length }));
+              if (newCount > 0) setState((s) => ({ ...s, totalFound: s.totalFound + newCount }));
             } catch {
-              // Skip chats where search fails (permissions, etc.)
               break;
             }
           }
+          const chatIds = Array.from(chatIdSet);
 
           if (chatIds.length > 0) {
             allMessages.push({

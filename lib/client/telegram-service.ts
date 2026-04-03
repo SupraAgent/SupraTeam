@@ -508,7 +508,7 @@ export class TelegramBrowserService {
   /** Get all groups/supergroups where the current user is admin or creator. */
   async getAdminGroups(): Promise<TgAdminGroup[]> {
     this.requireClient();
-    const allDialogs = await this.getDialogs(500);
+    const allDialogs = await this.getDialogs(200);
     const adminGroups: TgAdminGroup[] = [];
 
     // getDialogs only returns basic info — we need to check admin rights
@@ -516,6 +516,7 @@ export class TelegramBrowserService {
     for (const d of allDialogs) {
       if (d.type !== "group" && d.type !== "supergroup") continue;
 
+      for (let attempt = 0; attempt < 2; attempt++) {
       try {
         if (d.type === "supergroup" && d.accessHash) {
           await this.rateLimit();
@@ -587,9 +588,17 @@ export class TelegramBrowserService {
             });
           }
         }
-      } catch {
-        // Skip groups where we can't check admin status
-        continue;
+        break; // success — exit retry loop
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "";
+        const floodMatch = msg.match(/FLOOD_WAIT_(\d+)/i);
+        if (floodMatch && attempt === 0) {
+          const wait = parseInt(floodMatch[1], 10);
+          await new Promise((r) => setTimeout(r, wait * 1000));
+          continue; // retry this group once after flood wait
+        }
+        break; // skip on non-flood errors or second attempt
+      }
       }
     }
 
@@ -630,33 +639,35 @@ export class TelegramBrowserService {
         if (u instanceof Api.User) users.set(u.id.toString(), u);
       }
 
-      return result.participants.map((p) => {
-        let userId: bigint;
+      return result.participants.flatMap((p) => {
+        let odId: number;
         let role: TgGroupParticipant["role"] = "member";
 
         if (p instanceof Api.ChannelParticipantCreator) {
-          userId = p.userId as unknown as bigint;
+          odId = Number(p.userId);
           role = "creator";
         } else if (p instanceof Api.ChannelParticipantAdmin) {
-          userId = p.userId as unknown as bigint;
+          odId = Number(p.userId);
           role = "admin";
         } else if (p instanceof Api.ChannelParticipantBanned) {
-          userId = (p.peer as Api.PeerUser).userId as unknown as bigint;
+          // peer can be PeerUser, PeerChannel, or PeerChat — only process users
+          if (!(p.peer instanceof Api.PeerUser)) return [];
+          odId = Number(p.peer.userId);
           role = "banned";
         } else {
-          userId = (p as Api.ChannelParticipant).userId as unknown as bigint;
+          odId = Number((p as Api.ChannelParticipant).userId);
           role = "member";
         }
 
-        const u = users.get(userId.toString());
-        return {
-          telegramUserId: Number(userId),
+        const u = users.get(odId.toString());
+        return [{
+          telegramUserId: odId,
           accessHash: u?.accessHash?.toString(),
           firstName: u?.firstName ?? "",
           lastName: u?.lastName ?? undefined,
           username: u?.username ?? undefined,
           role,
-        };
+        }];
       });
     }
 

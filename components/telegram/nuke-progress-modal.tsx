@@ -54,7 +54,13 @@ export function NukeProgressModal({
     ? messagesState?.status === "error"
     : groupsState?.status === "error";
 
-  const confirmMatch = confirmText.toLowerCase() === targetName.toLowerCase();
+  const confirmMatch = confirmText === targetName;
+
+  // Stable key for adminGroups to avoid re-triggering on reference changes
+  const adminGroupKey = React.useMemo(
+    () => adminGroups?.map((g) => g.telegramId).join(",") ?? "",
+    [adminGroups]
+  );
 
   // Initialize all groups as selected when modal opens
   React.useEffect(() => {
@@ -64,7 +70,8 @@ export function NukeProgressModal({
     } else if (adminGroups) {
       setSelectedGroupIds(new Set(adminGroups.map((g) => g.telegramId)));
     }
-  }, [open, adminGroups]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, adminGroupKey]);
 
   const toggleGroup = (id: number) => {
     setSelectedGroupIds((prev) => {
@@ -98,7 +105,7 @@ export function NukeProgressModal({
   const Icon = type === "messages" ? Flame : UserX;
 
   return (
-    <Modal open={open} onClose={isDone || isError ? onClose : () => {}} title={title}>
+    <Modal open={open} onClose={isRunning ? () => { onCancel(); } : onClose} title={title}>
       {/* Confirmation state */}
       {isIdle && (
         <div className="space-y-4">
@@ -146,11 +153,14 @@ export function NukeProgressModal({
                     </label>
                   ))}
                 </div>
-                {adminGroups.length === 0 && (
-                  <p className="text-xs text-muted-foreground/50 text-center py-2">
-                    No admin groups found.
-                  </p>
-                )}
+              </div>
+            )}
+            {type === "groups" && adminGroups && adminGroups.length === 0 && (
+              <div className="rounded-lg border border-white/10 bg-white/[0.02] p-4 text-center">
+                <Users className="h-5 w-5 text-muted-foreground/30 mx-auto mb-2" />
+                <p className="text-xs text-muted-foreground">
+                  No admin groups found. You need to be an admin in at least one group to use this feature.
+                </p>
               </div>
             )}
 

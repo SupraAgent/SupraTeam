@@ -4,7 +4,6 @@ import * as React from "react";
 import { SlideOver } from "@/components/ui/slide-over";
 import { useTelegram } from "@/lib/client/telegram-context";
 import { useTelegramGroupParticipants } from "@/lib/client/use-telegram-group-participants";
-import { useTelegramAdminGroups } from "@/lib/client/use-telegram-admin-groups";
 import { useNukeMessages } from "@/lib/client/use-nuke-messages";
 import { useNukeGroups } from "@/lib/client/use-nuke-groups";
 import { NukeProgressModal } from "./nuke-progress-modal";
@@ -28,11 +27,11 @@ interface AdminGroupDetailPanelProps {
   group: TgAdminGroup | null;
   open: boolean;
   onClose: () => void;
+  adminGroups: TgAdminGroup[];
 }
 
-export function AdminGroupDetailPanel({ group, open, onClose }: AdminGroupDetailPanelProps) {
-  const { service } = useTelegram();
-  const { groups: adminGroups } = useTelegramAdminGroups();
+export function AdminGroupDetailPanel({ group, open, onClose, adminGroups }: AdminGroupDetailPanelProps) {
+  const { service, status: tgStatus } = useTelegram();
   const { participants, loading, refresh } = useTelegramGroupParticipants(
     group?.type ?? null,
     group?.telegramId ?? null,
@@ -60,8 +59,10 @@ export function AdminGroupDetailPanel({ group, open, onClose }: AdminGroupDetail
   const nukeGroups = useNukeGroups();
 
   React.useEffect(() => {
-    service.getSelfId().then(setSelfId).catch(() => {});
-  }, [service]);
+    if (tgStatus === "connected") {
+      service.getSelfId().then(setSelfId).catch(() => {});
+    }
+  }, [service, tgStatus]);
 
   const handleKick = async (userId: number, accessHash: string | undefined, name: string) => {
     if (!group) return;
@@ -240,21 +241,23 @@ export function AdminGroupDetailPanel({ group, open, onClose }: AdminGroupDetail
                             <UserMinus className="h-3.5 w-3.5" />
                           )}
                         </button>
-                        {/* Nuke from all groups */}
-                        <button
-                          onClick={() =>
-                            setNukeTarget({
-                              userId: p.telegramUserId,
-                              accessHash: p.accessHash,
-                              name,
-                              type: "groups",
-                            })
-                          }
-                          title="Kick from all groups"
-                          className="p-2 rounded text-muted-foreground/30 hover:text-red-500 transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        {/* Nuke from all groups — hidden when no admin groups */}
+                        {adminGroups.length > 0 && (
+                          <button
+                            onClick={() =>
+                              setNukeTarget({
+                                userId: p.telegramUserId,
+                                accessHash: p.accessHash,
+                                name,
+                                type: "groups",
+                              })
+                            }
+                            title="Kick from all groups"
+                            className="p-2 rounded text-muted-foreground/30 hover:text-red-500 transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>

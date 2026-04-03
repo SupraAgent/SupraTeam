@@ -178,6 +178,7 @@ export default function TelegramAdminPage() {
         group={selectedGroup}
         open={!!selectedGroup}
         onClose={() => setSelectedGroup(null)}
+        adminGroups={groups}
       />
     </div>
   );

@@ -48,6 +48,11 @@ export default function TelegramPage() {
   const [replyText, setReplyText] = React.useState("");
   const [sending, setSending] = React.useState(false);
   const [actionsOpen, setActionsOpen] = React.useState(false);
+
+  // Close actions dropdown when switching conversations
+  React.useEffect(() => {
+    setActionsOpen(false);
+  }, [activeDialog?.id]);
   const [nukeTarget, setNukeTarget] = React.useState<{
     type: "messages" | "groups";
     name: string;
@@ -55,7 +60,7 @@ export default function TelegramPage() {
 
   const nukeMessages = useNukeMessages();
   const nukeGroups = useNukeGroups();
-  const { groups: adminGroups } = useTelegramAdminGroups();
+  const { groups: adminGroups, loading: adminGroupsLoading } = useTelegramAdminGroups();
 
   // Messages hook — driven by active dialog
   const peerType = activeDialog
@@ -458,9 +463,14 @@ export default function TelegramPage() {
                             setActionsOpen(false);
                             setNukeTarget({ type: "groups", name: activeDialog.title });
                           }}
-                          className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-red-400 hover:bg-white/[0.06] transition-colors"
+                          disabled={adminGroupsLoading || adminGroups.length === 0}
+                          className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-red-400 hover:bg-white/[0.06] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                         >
-                          <UserX className="h-3.5 w-3.5" />
+                          {adminGroupsLoading ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <UserX className="h-3.5 w-3.5" />
+                          )}
                           Kick from My Groups
                         </button>
                       </div>

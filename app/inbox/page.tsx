@@ -1362,17 +1362,22 @@ export default function InboxPage() {
                 active={getLabel(contextMenu.chatId)?.is_archived}
                 onClick={() => { toggleLabel(contextMenu.chatId, contextMenu.groupName, "is_archived"); setContextMenu(null); }}
               />
-              <div className="border-t border-white/10 my-1" />
-              <CtxItem
-                icon={<Flame className="h-3.5 w-3.5 text-orange-400" />}
-                label="Delete My Messages"
-                onClick={() => { setNukeTarget({ chatId: contextMenu.chatId, name: contextMenu.groupName, type: "messages" }); setContextMenu(null); }}
-              />
-              <CtxItem
-                icon={<UserX className="h-3.5 w-3.5 text-red-400" />}
-                label="Kick from My Groups"
-                onClick={() => { setNukeTarget({ chatId: contextMenu.chatId, name: contextMenu.groupName, type: "groups" }); setContextMenu(null); }}
-              />
+              {/* Nuke actions only for private chats (positive chat IDs = user IDs) */}
+              {contextMenu.chatId > 0 && (
+                <>
+                  <div className="border-t border-white/10 my-1" />
+                  <CtxItem
+                    icon={<Flame className="h-3.5 w-3.5 text-orange-400" />}
+                    label="Delete My Messages"
+                    onClick={() => { setNukeTarget({ chatId: contextMenu.chatId, name: contextMenu.groupName, type: "messages" }); setContextMenu(null); }}
+                  />
+                  <CtxItem
+                    icon={<UserX className="h-3.5 w-3.5 text-red-400" />}
+                    label="Kick from My Groups"
+                    onClick={() => { setNukeTarget({ chatId: contextMenu.chatId, name: contextMenu.groupName, type: "groups" }); setContextMenu(null); }}
+                  />
+                </>
+              )}
             </>
           )}
 
