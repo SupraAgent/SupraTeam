@@ -13,14 +13,14 @@
  */
 
 import type { TelegramClient } from "telegram";
-import { createHmac } from "crypto";
+import { createHmac, createHash } from "crypto";
 import { createSupabaseAdmin } from "@/lib/supabase";
 
 // ── Phone login pending sessions ──
 
 export type PendingPhoneLogin = {
   client: TelegramClient;
-  phone: string;
+  phoneHash: string;
   phoneCodeHash: string;
   expiresAt: number;
 };
@@ -83,12 +83,12 @@ export async function getOrCreateSupabaseSession(
 ) {
   const tgId = Number(tgUser.id);
   const email = `tg_${tgId}@supracrm.tg`;
-  const botToken = process.env.TELEGRAM_BOT_TOKEN;
-  if (!botToken) {
-    console.error("[telegram-login-store] TELEGRAM_BOT_TOKEN is not set — cannot derive password");
+  const encryptionKey = process.env.TOKEN_ENCRYPTION_KEY;
+  if (!encryptionKey) {
+    console.error("[telegram-login-store] TOKEN_ENCRYPTION_KEY is not set — cannot derive password");
     return null;
   }
-  const password = createHmac("sha256", botToken).update(`tg-user:${tgId}`).digest("hex");
+  const password = createHmac("sha256", encryptionKey).update(`tg_user_${tgId}`).digest("hex");
   const displayName =
     [tgUser.firstName, tgUser.lastName].filter(Boolean).join(" ") ||
     `User ${tgId}`;
@@ -162,7 +162,8 @@ export async function getOrCreateSupabaseSession(
   return session;
 }
 
-/** Strip non-digits from phone for use as map key */
+/** SHA-256 hash of stripped phone digits — used as map key so plaintext phone is never stored */
 export function phoneKey(phone: string): string {
-  return phone.replace(/\D/g, "");
+  const stripped = phone.replace(/\D/g, "");
+  return createHash("sha256").update(stripped).digest("hex");
 }

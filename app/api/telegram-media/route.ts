@@ -51,9 +51,15 @@ export async function GET(request: Request) {
     const contentType = downloadRes.headers.get("content-type") ?? "application/octet-stream";
     const body = downloadRes.body;
 
+    // Inline display only for safe media types; force download for everything else
+    const isSafeMedia = /^(image|video)\//.test(contentType);
+    const disposition = isSafeMedia ? "inline" : "attachment";
+
     return new Response(body, {
       headers: {
         "Content-Type": contentType,
+        "X-Content-Type-Options": "nosniff",
+        "Content-Disposition": disposition,
         "Cache-Control": "private, max-age=3600",
       },
     });

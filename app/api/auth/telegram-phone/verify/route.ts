@@ -27,8 +27,8 @@ import {
 } from "@/lib/telegram-login-store";
 
 export async function POST(request: Request) {
-  // Legacy route — hard-disabled in production, opt-in in dev only.
-  if (process.env.NODE_ENV === "production" || process.env.ALLOW_LEGACY_TG_AUTH !== "true") {
+  // Legacy route — blocked in ALL environments unless explicitly opted in.
+  if (process.env.ALLOW_LEGACY_TG_AUTH !== "true") {
     return NextResponse.json(
       { error: "Legacy Telegram auth is disabled. Use the zero-knowledge client flow." },
       { status: 410 }

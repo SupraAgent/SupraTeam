@@ -16,8 +16,8 @@ import { pendingPhoneLogins, phoneKey } from "@/lib/telegram-login-store";
 import { rateLimit } from "@/lib/rate-limit";
 
 export async function POST(request: Request) {
-  // Legacy route — hard-disabled in production, opt-in in dev only.
-  if (process.env.NODE_ENV === "production" || process.env.ALLOW_LEGACY_TG_AUTH !== "true") {
+  // Legacy route — blocked in ALL environments unless explicitly opted in.
+  if (process.env.ALLOW_LEGACY_TG_AUTH !== "true") {
     return NextResponse.json(
       { error: "Legacy Telegram auth is disabled. Use the zero-knowledge client flow." },
       { status: 410 }
@@ -80,7 +80,7 @@ export async function POST(request: Request) {
 
     pendingPhoneLogins.set(key, {
       client,
-      phone,
+      phoneHash: key,
       phoneCodeHash,
       expiresAt: Date.now() + 5 * 60 * 1000,
     });
