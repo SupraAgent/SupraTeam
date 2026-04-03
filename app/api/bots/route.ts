@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseAdmin } from "@/lib/supabase";
 import { createClient } from "@/lib/supabase/server";
 import { encryptToken, decryptToken } from "@/lib/crypto";
+import { requireLeadRole } from "@/lib/auth-guard";
 
 export async function GET() {
   const supabase = (await createClient()) ?? createSupabaseAdmin();
@@ -126,13 +127,11 @@ export async function POST(request: Request) {
   return NextResponse.json({ data: bot, source: "supabase" }, { status: 201 });
 }
 
-/** PATCH /api/bots — re-verify a bot token (token rotation health check) */
+/** PATCH /api/bots — re-verify a bot token (token rotation health check). Requires lead role. */
 export async function PATCH(request: Request) {
-  const supabase = (await createClient()) ?? createSupabaseAdmin();
-  if (!supabase) return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
-
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  const auth = await requireLeadRole();
+  if ("error" in auth) return auth.error;
+  const { user } = auth;
 
   let body: Record<string, unknown>;
   try {

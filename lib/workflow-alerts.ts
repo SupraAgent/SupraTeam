@@ -156,7 +156,7 @@ async function sendAlert(
 
       let tokenQuery = supabase
         .from("user_tokens")
-        .select("token_encrypted")
+        .select("encrypted_token")
         .eq("provider", "slack")
         .limit(1);
 
@@ -170,17 +170,17 @@ async function sendAlert(
         if (workflow?.created_by) {
           const { data: fallback } = await supabase
             .from("user_tokens")
-            .select("token_encrypted")
+            .select("encrypted_token")
             .eq("provider", "slack")
             .limit(1)
             .single();
           if (!fallback) break;
-          await sendSlackMessage(fallback.token_encrypted, channelId, message);
+          await sendSlackMessage(fallback.encrypted_token, channelId, message);
         }
         break;
       }
 
-      await sendSlackMessage(slackToken.token_encrypted, channelId, message);
+      await sendSlackMessage(slackToken.encrypted_token, channelId, message);
       break;
     }
   }

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseAdmin } from "@/lib/supabase";
 import { createClient } from "@/lib/supabase/server";
 import { decryptToken } from "@/lib/crypto";
+import { requireLeadRole } from "@/lib/auth-guard";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -50,14 +51,11 @@ export async function GET(_req: Request, ctx: RouteContext) {
   return NextResponse.json({ data: { ...botWithoutToken, telegram_status: telegramStatus }, source: "supabase" });
 }
 
-// PATCH — update label, set as default, activate/deactivate
+// PATCH — update label, set as default, activate/deactivate. Requires lead role.
 export async function PATCH(request: Request, ctx: RouteContext) {
   const { id } = await ctx.params;
-  const supabase = (await createClient()) ?? createSupabaseAdmin();
-  if (!supabase) return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
-
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  const auth = await requireLeadRole();
+  if ("error" in auth) return auth.error;
 
   let body: Record<string, unknown>;
   try {
@@ -93,16 +91,13 @@ export async function PATCH(request: Request, ctx: RouteContext) {
   return NextResponse.json({ data: bot, source: "supabase" });
 }
 
-// DELETE — remove bot registration
+// DELETE — remove bot registration. Requires lead role.
 export async function DELETE(_req: Request, ctx: RouteContext) {
   const { id } = await ctx.params;
-  const supabase = (await createClient()) ?? createSupabaseAdmin();
-  if (!supabase) return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
+  const auth = await requireLeadRole();
+  if ("error" in auth) return auth.error;
 
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-  const admin = createSupabaseAdmin()!;
+  const { admin } = auth;
 
   // Get bot info before deleting
   const { data: bot } = await admin.from("crm_bots").select("id, token_id, is_default").eq("id", id).single();

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import { randomBytes } from "crypto";
 
-// Set a deterministic 32-byte hex key before importing the module
+// Set deterministic 32-byte hex keys before importing the module
 const TEST_KEY = randomBytes(32).toString("hex");
 const TEST_KEY_V2 = randomBytes(32).toString("hex");
 
@@ -17,7 +17,6 @@ describe("crypto – encryptToken / decryptToken", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.stubEnv("TOKEN_ENCRYPTION_KEY", TEST_KEY);
-    // Reset to version 1 by default
     delete process.env.CURRENT_ENCRYPTION_KEY_VERSION;
     delete process.env.TOKEN_ENCRYPTION_KEY_V2;
   });
@@ -64,9 +63,17 @@ describe("crypto – encryptToken / decryptToken", () => {
     delete process.env.TOKEN_ENCRYPTION_KEY;
     vi.resetModules();
     const { encryptToken: freshEncrypt } = await import("@/lib/crypto");
-    expect(() => freshEncrypt("test")).toThrow("TOKEN_ENCRYPTION_KEY is not set");
+    expect(() => freshEncrypt("test")).toThrow("Encryption key not available");
     // Restore
     process.env.TOKEN_ENCRYPTION_KEY = TEST_KEY;
+  });
+
+  it("embeds version byte as first byte of ciphertext", async () => {
+    const { encryptToken } = await import("@/lib/crypto");
+    const encrypted = encryptToken("test");
+    const buf = Buffer.from(encrypted, "hex");
+    // Default version is 1
+    expect(buf[0]).toBe(1);
   });
 });
 
@@ -78,11 +85,11 @@ describe("crypto – key versioning", () => {
     delete process.env.CURRENT_ENCRYPTION_KEY_VERSION;
   });
 
-  it("encrypts with v1 by default and decrypts with v1", async () => {
+  it("encrypts with v1 by default and decrypts automatically", async () => {
     const { encryptToken, decryptToken, getCurrentKeyVersion } = await import("@/lib/crypto");
     expect(getCurrentKeyVersion()).toBe(1);
     const encrypted = encryptToken("hello");
-    expect(decryptToken(encrypted, 1)).toBe("hello");
+    expect(decryptToken(encrypted)).toBe("hello");
   });
 
   it("encrypts with v2 when CURRENT_ENCRYPTION_KEY_VERSION=2", async () => {
@@ -91,13 +98,14 @@ describe("crypto – key versioning", () => {
     const { encryptToken, decryptToken, getCurrentKeyVersion } = await import("@/lib/crypto");
     expect(getCurrentKeyVersion()).toBe(2);
     const encrypted = encryptToken("secret-v2");
-    // Decrypt with v2 key succeeds
-    expect(decryptToken(encrypted, 2)).toBe("secret-v2");
-    // Decrypt with v1 key fails (wrong key)
-    expect(() => decryptToken(encrypted, 1)).toThrow();
+    // Version byte is 2
+    const buf = Buffer.from(encrypted, "hex");
+    expect(buf[0]).toBe(2);
+    // Auto-detects version on decrypt
+    expect(decryptToken(encrypted)).toBe("secret-v2");
   });
 
-  it("decrypts old v1 data even when current version is v2", async () => {
+  it("decrypts old v1 data after switching to v2", async () => {
     // Encrypt with v1
     const { encryptToken: encV1 } = await import("@/lib/crypto");
     const v1Encrypted = encV1("old-data");
@@ -106,13 +114,31 @@ describe("crypto – key versioning", () => {
     vi.stubEnv("CURRENT_ENCRYPTION_KEY_VERSION", "2");
     vi.resetModules();
     const { decryptToken: decV2 } = await import("@/lib/crypto");
-    // Still decryptable with explicit v1
-    expect(decV2(v1Encrypted, 1)).toBe("old-data");
+    // Auto-detects v1 from version byte
+    expect(decV2(v1Encrypted)).toBe("old-data");
   });
 
-  it("throws when referenced key version env var is missing", async () => {
+  it("decrypts legacy format (no version prefix) as v1", async () => {
+    // Simulate legacy format: IV(12) + ciphertext + tag(16), no version byte
+    const { createCipheriv, randomBytes: rb } = await import("crypto");
+    const key = Buffer.from(TEST_KEY, "hex");
+    const iv = rb(12);
+    const cipher = createCipheriv("aes-256-gcm", key, iv);
+    const encrypted = Buffer.concat([cipher.update("legacy-data", "utf8"), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    const legacyHex = Buffer.concat([iv, encrypted, tag]).toString("hex");
+
     vi.resetModules();
     const { decryptToken } = await import("@/lib/crypto");
-    expect(() => decryptToken("aabbccdd", 3)).toThrow("TOKEN_ENCRYPTION_KEY_V3 is not set");
+    expect(decryptToken(legacyHex)).toBe("legacy-data");
+  });
+
+  it("throws generic error when key version env var is missing", async () => {
+    vi.resetModules();
+    vi.stubEnv("CURRENT_ENCRYPTION_KEY_VERSION", "99");
+    const { encryptToken } = await import("@/lib/crypto");
+    // Should NOT leak env var name
+    expect(() => encryptToken("test")).toThrow("Encryption key not available");
+    expect(() => encryptToken("test")).not.toThrow("TOKEN_ENCRYPTION_KEY");
   });
 });

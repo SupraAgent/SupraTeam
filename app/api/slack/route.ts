@@ -7,6 +7,9 @@ import { requireAuth } from "@/lib/auth-guard";
 
 /** GET — Check if Slack is connected and return workspace info */
 export async function GET() {
+  const auth = await requireAuth();
+  if ("error" in auth) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+
   // Check DB first
   const admin = createSupabaseAdmin();
   if (admin) {
@@ -118,6 +121,6 @@ export async function DELETE() {
     return NextResponse.json({ error: "Supabase not configured" }, { status: 503 });
   }
 
-  await admin.from("user_tokens").delete().eq("provider", "slack");
+  await admin.from("user_tokens").delete().eq("provider", "slack").eq("user_id", auth.user.id);
   return NextResponse.json({ ok: true });
 }

@@ -222,7 +222,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   // Fallback: use bot token (scoped to current user)
   const { data: botToken } = await admin
     .from("user_tokens")
-    .select("token_encrypted")
+    .select("encrypted_token")
     .eq("provider", "telegram_bot")
     .eq("user_id", user.id)
     .single();
@@ -233,7 +233,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   try {
     const { decryptToken } = await import("@/lib/crypto");
-    const token = decryptToken(botToken.token_encrypted);
+    const token = decryptToken(botToken.encrypted_token);
     const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

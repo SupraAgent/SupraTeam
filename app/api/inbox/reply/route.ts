@@ -79,7 +79,7 @@ export async function POST(request: Request) {
   // Fallback (or explicit): use bot token
   const { data: botToken } = await admin
     .from("user_tokens")
-    .select("token_encrypted")
+    .select("encrypted_token")
     .eq("provider", "telegram_bot")
     .single();
 
@@ -92,7 +92,7 @@ export async function POST(request: Request) {
 
   try {
     const { decryptToken } = await import("@/lib/crypto");
-    const token = decryptToken(botToken.token_encrypted);
+    const token = decryptToken(botToken.encrypted_token);
     const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
