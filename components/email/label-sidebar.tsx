@@ -3,6 +3,8 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import type { Label } from "@/lib/email/types";
+import { Plus, Check, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 // System labels we care about, in order
 const SYSTEM_LABELS = [
@@ -21,13 +23,43 @@ type LabelSidebarProps = {
   unreadCounts: Record<string, number>;
   onDeleteLabel?: (labelId: string) => void;
   onAddThreadsToLabel?: (threadIds: string[], labelId: string) => void;
+  connectionId?: string;
+  onLabelsRefresh?: () => void;
 };
 
-export function LabelSidebar({ labels, activeLabel, onSelectLabel, unreadCounts, onDeleteLabel, onAddThreadsToLabel }: LabelSidebarProps) {
+export function LabelSidebar({ labels, activeLabel, onSelectLabel, unreadCounts, onDeleteLabel, onAddThreadsToLabel, connectionId, onLabelsRefresh }: LabelSidebarProps) {
   const userLabels = labels.filter((l) => l.type === "user");
   const [confirmDelete, setConfirmDelete] = React.useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = React.useState<string | null>(null);
   const [dropFlashId, setDropFlashId] = React.useState<string | null>(null);
+  const [showCreateLabel, setShowCreateLabel] = React.useState(false);
+  const [newLabelName, setNewLabelName] = React.useState("");
+  const [creating, setCreating] = React.useState(false);
+
+  async function handleCreateLabel() {
+    if (!newLabelName.trim() || !connectionId) return;
+    setCreating(true);
+    try {
+      const res = await fetch("/api/email/groups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newLabelName.trim(), connection_id: connectionId }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        toast.error(json.error ?? "Failed to create label");
+        return;
+      }
+      toast("Label created");
+      setNewLabelName("");
+      setShowCreateLabel(false);
+      onLabelsRefresh?.();
+    } catch {
+      toast.error("Failed to create label");
+    } finally {
+      setCreating(false);
+    }
+  }
 
   return (
     <div className="w-full space-y-1">
@@ -53,101 +85,133 @@ export function LabelSidebar({ labels, activeLabel, onSelectLabel, unreadCounts,
         </button>
       ))}
 
-      {/* User labels (Groups) */}
-      {userLabels.length > 0 && (
-        <>
-          <div className="pt-2 pb-1 px-2.5">
-            <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">
-              Groups
-            </span>
+      {/* User labels */}
+      <>
+        <div className="pt-2 pb-1 px-2.5 flex items-center justify-between">
+          <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">
+            Labels
+          </span>
+          <button
+            onClick={() => setShowCreateLabel(!showCreateLabel)}
+            className="rounded p-0.5 text-muted-foreground/50 hover:text-foreground hover:bg-white/5 transition"
+            title="Create label"
+          >
+            <Plus className="h-3 w-3" />
+          </button>
+        </div>
+
+        {/* Inline create label */}
+        {showCreateLabel && (
+          <div className="px-2.5 pb-1">
+            <div className="flex items-center gap-1">
+              <input
+                type="text"
+                value={newLabelName}
+                onChange={(e) => setNewLabelName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleCreateLabel();
+                  if (e.key === "Escape") { setShowCreateLabel(false); setNewLabelName(""); }
+                }}
+                placeholder="Label name..."
+                className="flex-1 min-w-0 rounded-md px-2 py-1 text-[11px] bg-white/5 border border-white/10 text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary/50"
+                autoFocus
+              />
+              <button
+                onClick={handleCreateLabel}
+                disabled={creating || !newLabelName.trim()}
+                className="rounded p-1 text-primary hover:bg-primary/10 transition disabled:opacity-30"
+              >
+                {creating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+              </button>
+            </div>
           </div>
-          {userLabels.map((label) => {
-            const displayName = label.name.includes("/") ? label.name.split("/").pop()! : label.name;
-            return (
-              <div key={label.id} className="relative group">
-                {confirmDelete === label.id ? (
-                  <div className="rounded-lg px-2.5 py-1.5 bg-red-500/10 border border-red-500/20">
-                    <p className="text-[10px] text-red-400 mb-1.5">
-                      Delete &ldquo;{displayName}&rdquo;?
-                    </p>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => { onDeleteLabel?.(label.id); setConfirmDelete(null); }}
-                        className="rounded px-2 py-0.5 text-[10px] font-medium bg-red-500/20 text-red-400 hover:bg-red-500/30 transition"
-                      >
-                        Yes
-                      </button>
-                      <button
-                        onClick={() => setConfirmDelete(null)}
-                        className="rounded px-2 py-0.5 text-[10px] font-medium bg-white/5 text-muted-foreground hover:bg-white/10 transition"
-                      >
-                        No
-                      </button>
-                    </div>
+        )}
+        {userLabels.map((label) => {
+          const displayName = label.name.includes("/") ? label.name.split("/").pop()! : label.name;
+          return (
+            <div key={label.id} className="relative group">
+              {confirmDelete === label.id ? (
+                <div className="rounded-lg px-2.5 py-1.5 bg-red-500/10 border border-red-500/20">
+                  <p className="text-[10px] text-red-400 mb-1.5">
+                    Delete &ldquo;{displayName}&rdquo;?
+                  </p>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => { onDeleteLabel?.(label.id); setConfirmDelete(null); }}
+                      className="rounded px-2 py-0.5 text-[10px] font-medium bg-red-500/20 text-red-400 hover:bg-red-500/30 transition"
+                    >
+                      Yes
+                    </button>
+                    <button
+                      onClick={() => setConfirmDelete(null)}
+                      className="rounded px-2 py-0.5 text-[10px] font-medium bg-white/5 text-muted-foreground hover:bg-white/10 transition"
+                    >
+                      No
+                    </button>
                   </div>
-                ) : (
-                  <button
-                    onClick={() => onSelectLabel(label.id)}
-                    onDragOver={(e) => {
-                      if (e.dataTransfer.types.includes("application/x-thread-ids")) {
-                        e.preventDefault();
-                        e.dataTransfer.dropEffect = "copy";
-                        setDropTargetId(label.id);
-                      }
-                    }}
-                    onDragLeave={() => setDropTargetId(null)}
-                    onDrop={(e) => {
+                </div>
+              ) : (
+                <button
+                  onClick={() => onSelectLabel(label.id)}
+                  onDragOver={(e) => {
+                    if (e.dataTransfer.types.includes("application/x-thread-ids")) {
                       e.preventDefault();
-                      setDropTargetId(null);
-                      const raw = e.dataTransfer.getData("application/x-thread-ids");
-                      if (!raw) return;
-                      try {
-                        const ids = JSON.parse(raw) as string[];
-                        onAddThreadsToLabel?.(ids, label.id);
-                        setDropFlashId(label.id);
-                        setTimeout(() => setDropFlashId(null), 600);
-                      } catch { /* ignore */ }
-                    }}
-                    className={cn(
-                      "w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors",
-                      dropFlashId === label.id
-                        ? "bg-green-500/20 text-green-400 ring-1 ring-green-500/40"
-                        : dropTargetId === label.id
-                          ? "bg-primary/20 text-primary ring-1 ring-primary/40"
-                          : activeLabel === label.id
-                            ? "bg-white/10 text-foreground"
-                            : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
-                    )}
-                  >
-                    <div
-                      className="h-2.5 w-2.5 rounded-full shrink-0"
-                      style={{ backgroundColor: label.color ?? "hsl(var(--primary))" }}
-                    />
-                    <span className="flex-1 text-left truncate">{displayName}</span>
-                    {(label.unreadCount ?? 0) > 0 && (
-                      <span className="text-[10px] text-muted-foreground">
-                        {label.unreadCount}
-                      </span>
-                    )}
-                    {onDeleteLabel && (
-                      <span
-                        role="button"
-                        tabIndex={0}
-                        onClick={(e) => { e.stopPropagation(); setConfirmDelete(label.id); }}
-                        onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); setConfirmDelete(label.id); } }}
-                        className="opacity-0 group-hover:opacity-100 shrink-0 rounded p-0.5 text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition"
-                        title="Delete group"
-                      >
-                        <DeleteIcon className="h-3 w-3" />
-                      </span>
-                    )}
-                  </button>
-                )}
-              </div>
-            );
-          })}
-        </>
-      )}
+                      e.dataTransfer.dropEffect = "copy";
+                      setDropTargetId(label.id);
+                    }
+                  }}
+                  onDragLeave={() => setDropTargetId(null)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setDropTargetId(null);
+                    const raw = e.dataTransfer.getData("application/x-thread-ids");
+                    if (!raw) return;
+                    try {
+                      const ids = JSON.parse(raw) as string[];
+                      onAddThreadsToLabel?.(ids, label.id);
+                      setDropFlashId(label.id);
+                      setTimeout(() => setDropFlashId(null), 600);
+                    } catch { /* ignore */ }
+                  }}
+                  className={cn(
+                    "w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors",
+                    dropFlashId === label.id
+                      ? "bg-green-500/20 text-green-400 ring-1 ring-green-500/40"
+                      : dropTargetId === label.id
+                        ? "bg-primary/20 text-primary ring-1 ring-primary/40"
+                        : activeLabel === label.id
+                          ? "bg-white/10 text-foreground"
+                          : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+                  )}
+                >
+                  <div
+                    className="h-2.5 w-2.5 rounded-full shrink-0"
+                    style={{ backgroundColor: label.color ?? "hsl(var(--primary))" }}
+                  />
+                  <span className="flex-1 text-left truncate">{displayName}</span>
+                  {(label.unreadCount ?? 0) > 0 && (
+                    <span className="text-[10px] text-muted-foreground">
+                      {label.unreadCount}
+                    </span>
+                  )}
+                  {onDeleteLabel && (
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onClick={(e) => { e.stopPropagation(); setConfirmDelete(label.id); }}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); setConfirmDelete(label.id); } }}
+                      className="opacity-0 group-hover:opacity-100 shrink-0 rounded p-0.5 text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition"
+                      title="Delete label"
+                    >
+                      <DeleteIcon className="h-3 w-3" />
+                    </span>
+                  )}
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </>
     </div>
   );
 }
