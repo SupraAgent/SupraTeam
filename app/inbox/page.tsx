@@ -33,6 +33,7 @@ import {
 import { cn, timeAgo } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
+import { EmojiPicker } from "@/components/ui/emoji-picker";
 
 // ── Chat Label Types & Constants ────────────────────────────────
 
@@ -347,6 +348,11 @@ export default function InboxPage() {
       else next.add(messageId);
       return next;
     });
+  }
+
+  function handleEmojiSelect(emoji: string) {
+    setReplyText((prev) => prev + emoji);
+    replyTextareaRef.current?.focus();
   }
 
   async function handleSendReply() {
@@ -1245,6 +1251,9 @@ export default function InboxPage() {
                         disabled={sending}
                       />
                     </div>
+
+                    {/* Emoji picker */}
+                    <EmojiPicker onSelect={handleEmojiSelect} />
 
                     {/* Send-as toggle */}
                     <button

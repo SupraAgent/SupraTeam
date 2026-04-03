@@ -202,6 +202,39 @@ export async function POST(request: Request) {
         isTeamMember = !!teamProfile;
       }
 
+      // --- Outreach reply auto-detection (batched) ---
+      // Single query: find all active enrollments for this chat linked to any of these deals
+      if (!isBot && !isTeamMember && deals.length > 0) {
+        const dealIds = deals.map((d) => d.id);
+        const contactIds = deals.map((d) => d.contact_id).filter(Boolean);
+        const orClauses = [`deal_id.in.(${dealIds.join(",")})`];
+        if (contactIds.length > 0) orClauses.push(`contact_id.in.(${contactIds.join(",")})`);
+
+        const { data: activeEnrollments } = await supabase
+          .from("crm_outreach_enrollments")
+          .select("id, reply_count")
+          .eq("tg_chat_id", chat.id)
+          .in("status", ["active", "paused"])
+          .or(orClauses.join(","));
+
+        if (activeEnrollments && activeEnrollments.length > 0) {
+          const now = new Date().toISOString();
+          // Batch update all enrollments in parallel
+          await Promise.all(
+            activeEnrollments.map((enrollment) =>
+              supabase
+                .from("crm_outreach_enrollments")
+                .update({
+                  status: "replied",
+                  reply_count: (enrollment.reply_count ?? 0) + 1,
+                  completed_at: now,
+                })
+                .eq("id", enrollment.id)
+            )
+          );
+        }
+      }
+
       for (const deal of deals) {
         // Smart notification grouping: batch messages from same group+deal
         const groupKey = `tg:${tgGroup.id}:${deal.id}`;

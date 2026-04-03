@@ -364,46 +364,7 @@ export class TelegramBrowserService {
     );
 
     if (result instanceof Api.messages.MessagesNotModified) return [];
-
-    const msgs = result as Api.messages.Messages | Api.messages.MessagesSlice | Api.messages.ChannelMessages;
-    const users = new Map<string, Api.User>();
-    for (const u of msgs.users) {
-      if (u instanceof Api.User) users.set(u.id.toString(), u);
-    }
-
-    const out: TgMessage[] = [];
-    for (const m of msgs.messages) {
-      if (!(m instanceof Api.Message)) continue;
-
-      let senderId: number | undefined;
-      let senderName: string | undefined;
-      if (m.fromId instanceof Api.PeerUser) {
-        senderId = Number(m.fromId.userId);
-        const u = users.get(m.fromId.userId.toString());
-        if (u) senderName = [u.firstName, u.lastName].filter(Boolean).join(" ");
-      }
-
-      let mediaType: string | undefined;
-      if (m.media) {
-        if (m.media instanceof Api.MessageMediaPhoto) mediaType = "photo";
-        else if (m.media instanceof Api.MessageMediaDocument) mediaType = "document";
-        else mediaType = "other";
-      }
-
-      out.push({
-        id: m.id,
-        text: m.message || "",
-        date: m.date,
-        senderId,
-        senderName,
-        replyToId: m.replyTo instanceof Api.MessageReplyHeader
-          ? m.replyTo.replyToMsgId
-          : undefined,
-        mediaType,
-      });
-    }
-
-    return out;
+    return this.parseMessagesFromResult(result as Api.messages.Messages | Api.messages.MessagesSlice | Api.messages.ChannelMessages);
   }
 
   /** Send a text message. */
@@ -415,16 +376,186 @@ export class TelegramBrowserService {
   ): Promise<void> {
     this.requireClient();
     const peer = this.buildPeer(peerType, id, accessHash);
-    const randomId = bigInt(
-      Array.from(crypto.getRandomValues(new Uint8Array(8)))
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join(""),
-      16
+    await this.client!.invoke(
+      new Api.messages.SendMessage({ peer, message, randomId: this.generateRandomId() })
     );
+  }
+
+  /** Send a text message replying to a specific message. */
+  async sendReply(
+    peerType: "user" | "chat" | "channel",
+    id: number,
+    accessHash: string | undefined,
+    message: string,
+    replyToMsgId: number
+  ): Promise<void> {
+    this.requireClient();
+    const peer = this.buildPeer(peerType, id, accessHash);
+    await this.client!.invoke(
+      new Api.messages.SendMessage({
+        peer,
+        message,
+        randomId: this.generateRandomId(),
+        replyTo: new Api.InputReplyToMessage({ replyToMsgId }),
+      })
+    );
+  }
+
+  /** Forward messages to another peer. */
+  async forwardMessages(
+    fromPeerType: "user" | "chat" | "channel",
+    fromId: number,
+    fromAccessHash: string | undefined,
+    toPeerType: "user" | "chat" | "channel",
+    toId: number,
+    toAccessHash: string | undefined,
+    messageIds: number[]
+  ): Promise<void> {
+    this.requireClient();
+    const fromPeer = this.buildPeer(fromPeerType, fromId, fromAccessHash);
+    const toPeer = this.buildPeer(toPeerType, toId, toAccessHash);
+
+    const randomIds = messageIds.map(() => this.generateRandomId());
 
     await this.client!.invoke(
-      new Api.messages.SendMessage({ peer, message, randomId })
+      new Api.messages.ForwardMessages({
+        fromPeer,
+        id: messageIds,
+        randomId: randomIds,
+        toPeer,
+      })
     );
+  }
+
+  /** Search messages within a peer. */
+  async searchMessages(
+    peerType: "user" | "chat" | "channel",
+    id: number,
+    accessHash: string | undefined,
+    query: string,
+    limit = 30
+  ): Promise<TgMessage[]> {
+    this.requireClient();
+    const peer = this.buildPeer(peerType, id, accessHash);
+
+    const result = await this.client!.invoke(
+      new Api.messages.Search({
+        peer,
+        q: query,
+        filter: new Api.InputMessagesFilterEmpty(),
+        minDate: 0,
+        maxDate: 0,
+        offsetId: 0,
+        addOffset: 0,
+        limit,
+        maxId: 0,
+        minId: 0,
+        hash: bigInt(0),
+      })
+    );
+
+    if (result instanceof Api.messages.MessagesNotModified) return [];
+    return this.parseMessagesFromResult(result as Api.messages.Messages | Api.messages.MessagesSlice | Api.messages.ChannelMessages);
+  }
+
+  /** Send a reaction emoji to a message. */
+  async sendReaction(
+    peerType: "user" | "chat" | "channel",
+    id: number,
+    accessHash: string | undefined,
+    msgId: number,
+    emoji: string
+  ): Promise<void> {
+    this.requireClient();
+    const peer = this.buildPeer(peerType, id, accessHash);
+    await this.client!.invoke(
+      new Api.messages.SendReaction({
+        peer,
+        msgId,
+        reaction: [new Api.ReactionEmoji({ emoticon: emoji })],
+      })
+    );
+  }
+
+  /** Mark messages as read in a peer. */
+  async markAsRead(
+    peerType: "user" | "chat" | "channel",
+    id: number,
+    accessHash: string | undefined,
+    maxId: number
+  ): Promise<void> {
+    this.requireClient();
+    if (peerType === "channel") {
+      const peer = this.buildPeer(peerType, id, accessHash) as Api.InputPeerChannel;
+      await this.client!.invoke(
+        new Api.channels.ReadHistory({ channel: new Api.InputChannel({ channelId: peer.channelId, accessHash: peer.accessHash }), maxId })
+      );
+    } else {
+      const peer = this.buildPeer(peerType, id, accessHash);
+      await this.client!.invoke(
+        new Api.messages.ReadHistory({ peer, maxId })
+      );
+    }
+  }
+
+  /** Get participants of a chat/channel (first N). */
+  async getChatMembers(
+    peerType: "chat" | "channel",
+    id: number,
+    accessHash: string | undefined,
+    limit = 50
+  ): Promise<{ userId: number; firstName: string; lastName?: string; username?: string }[]> {
+    this.requireClient();
+
+    if (peerType === "chat") {
+      const result = await this.client!.invoke(
+        new Api.messages.GetFullChat({ chatId: bigInt(id) })
+      );
+      const users = new Map<string, Api.User>();
+      for (const u of result.users) {
+        if (u instanceof Api.User) users.set(u.id.toString(), u);
+      }
+      const chat = result.fullChat;
+      if (chat instanceof Api.ChatFull && chat.participants instanceof Api.ChatParticipants) {
+        return chat.participants.participants
+          .map((p) => {
+            const uid = "userId" in p ? Number(p.userId) : 0;
+            const u = users.get(uid.toString());
+            return u ? {
+              userId: Number(u.id),
+              firstName: u.firstName ?? "",
+              lastName: u.lastName ?? undefined,
+              username: u.username ?? undefined,
+            } : null;
+          })
+          .filter((x): x is NonNullable<typeof x> => x !== null);
+      }
+      return [];
+    }
+
+    // Channel/supergroup
+    const channel = new Api.InputChannel({ channelId: bigInt(id), accessHash: bigInt(accessHash || "0") });
+    const result = await this.client!.invoke(
+      new Api.channels.GetParticipants({
+        channel,
+        filter: new Api.ChannelParticipantsRecent(),
+        offset: 0,
+        limit,
+        hash: bigInt(0),
+      })
+    );
+
+    if (result instanceof Api.channels.ChannelParticipantsNotModified) return [];
+    const participants = result as Api.channels.ChannelParticipants;
+
+    return participants.users
+      .filter((u): u is Api.User => u instanceof Api.User && !u.deleted)
+      .map((u) => ({
+        userId: Number(u.id),
+        firstName: u.firstName ?? "",
+        lastName: u.lastName ?? undefined,
+        username: u.username ?? undefined,
+      }));
   }
 
   // ── Contacts ──────────────────────────────────────────────
@@ -455,6 +586,51 @@ export class TelegramBrowserService {
   }
 
   // ── Helpers ───────────────────────────────────────────────
+
+  private generateRandomId(): bigInt.BigInteger {
+    return bigInt(
+      Array.from(crypto.getRandomValues(new Uint8Array(8)))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join(""),
+      16
+    );
+  }
+
+  private parseMessagesFromResult(
+    msgs: { messages: Api.TypeMessage[]; users: Api.TypeUser[] }
+  ): TgMessage[] {
+    const users = new Map<string, Api.User>();
+    for (const u of msgs.users) {
+      if (u instanceof Api.User) users.set(u.id.toString(), u);
+    }
+    const out: TgMessage[] = [];
+    for (const m of msgs.messages) {
+      if (!(m instanceof Api.Message)) continue;
+      let senderId: number | undefined;
+      let senderName: string | undefined;
+      if (m.fromId instanceof Api.PeerUser) {
+        senderId = Number(m.fromId.userId);
+        const u = users.get(m.fromId.userId.toString());
+        if (u) senderName = [u.firstName, u.lastName].filter(Boolean).join(" ");
+      }
+      let mediaType: string | undefined;
+      if (m.media) {
+        if (m.media instanceof Api.MessageMediaPhoto) mediaType = "photo";
+        else if (m.media instanceof Api.MessageMediaDocument) mediaType = "document";
+        else mediaType = "other";
+      }
+      out.push({
+        id: m.id,
+        text: m.message || "",
+        date: m.date,
+        senderId,
+        senderName,
+        replyToId: m.replyTo instanceof Api.MessageReplyHeader ? m.replyTo.replyToMsgId : undefined,
+        mediaType,
+      });
+    }
+    return out;
+  }
 
   private buildPeer(
     type: "user" | "chat" | "channel",
