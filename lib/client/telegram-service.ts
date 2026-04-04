@@ -126,10 +126,20 @@ export class TelegramBrowserService {
   /** Step 1: Send verification code to phone number. */
   async sendCode(phone: string): Promise<{ phoneCodeHash: string }> {
     await this.ensureClient();
-    const result = await this.client!.sendCode(
-      { apiId: API_ID, apiHash: API_HASH },
-      phone
+    // Use raw invoke instead of client.sendCode() — the wrapper goes through
+    // an auth helper that relies on dynamic TL constructors which break
+    // under Turbopack bundling ("u.default.type is not a function").
+    const result = await this.client!.invoke(
+      new Api.auth.SendCode({
+        phoneNumber: phone,
+        apiId: API_ID,
+        apiHash: API_HASH,
+        settings: new Api.CodeSettings({}),
+      })
     );
+    if (result instanceof Api.auth.SentCodeSuccess) {
+      throw new Error("Logged in immediately — no code needed");
+    }
     return { phoneCodeHash: result.phoneCodeHash };
   }
 
