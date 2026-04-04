@@ -48,12 +48,12 @@ export default function TMAGroupsPage() {
   useTelegramWebApp();
 
   // Offline cache for groups
-  const groupsCache = useOfflineCache<{ groups: TgGroup[] }>("/api/groups", { maxAgeMs: 10 * 60_000 });
+  const groupsCache = useOfflineCache<{ groups: TgGroup[] }>("/api/groups?per_page=200", { maxAgeMs: 10 * 60_000 });
 
   const fetchData = React.useCallback(async () => {
     try {
       const [groupsRes, slugsRes] = await Promise.all([
-        fetch("/api/groups"),
+        fetch("/api/groups?per_page=200"),
         fetch("/api/groups/slugs"),
       ]);
 

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Mic, ChevronLeft, Loader2, Search, CheckSquare } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
 import { useTelegramWebApp } from "@/components/tma/use-telegram";
+import { useOfflineCache } from "@/lib/client/tma-offline";
 import { PullToRefresh } from "@/components/tma/pull-to-refresh";
 import { hapticImpact } from "@/components/tma/haptic";
 
@@ -50,6 +51,10 @@ export default function TMAVoicePage() {
 
   useTelegramWebApp();
 
+  // Offline cache for voice transcriptions
+  const voiceUrl = search ? null : "/api/voice/transcriptions?limit=30";
+  const voiceCache = useOfflineCache<{ data: VoiceTranscription[] }>(voiceUrl, { maxAgeMs: 5 * 60_000 });
+
   const fetchData = React.useCallback(async () => {
     try {
       const params = new URLSearchParams({ limit: "30" });
@@ -59,11 +64,14 @@ export default function TMAVoicePage() {
       const json = await res.json();
       setTranscriptions(json.data ?? []);
     } catch {
-      // Silent fail
+      // Network failed — fall back to offline cache
+      if (voiceCache.data) {
+        setTranscriptions(voiceCache.data.data ?? []);
+      }
     } finally {
       setLoading(false);
     }
-  }, [search]);
+  }, [search, voiceCache.data]);
 
   React.useEffect(() => {
     fetchData();
