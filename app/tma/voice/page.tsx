@@ -57,7 +57,8 @@ export default function TMAVoicePage() {
   const chunksRef = React.useRef<Blob[]>([]);
   const timerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
 
-  useTelegramWebApp();
+  const goBack = React.useCallback(() => router.back(), [router]);
+  useTelegramWebApp({ onBack: goBack });
 
   async function startRecording() {
     try {

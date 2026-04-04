@@ -56,44 +56,42 @@ $$;
 
 COMMENT ON FUNCTION crm_analytics_heatmap IS 'Activity heatmap by day/hour with timezone support. Pass p_timezone (e.g. America/New_York).';
 
--- ── Background bulk reindex RPC ─────────────────────────────
--- Used to reindex existing messages in batches. Returns count of processed rows.
+-- ── Background bulk reindex: find unindexed messages ────────
+-- Returns unindexed message IDs + metadata so the client can decrypt,
+-- extract plaintext, and call crm_bulk_index_messages to update the tsvector.
+-- Zero-knowledge: server cannot compute tsvector from encrypted_text.
 
-CREATE OR REPLACE FUNCTION crm_bulk_reindex_messages(
+CREATE OR REPLACE FUNCTION crm_unindexed_messages(
   p_user_id uuid,
-  p_batch_size int DEFAULT 500,
-  p_offset int DEFAULT 0
+  p_batch_size int DEFAULT 500
 )
-RETURNS TABLE(processed int, total bigint)
-LANGUAGE plpgsql SECURITY DEFINER
+RETURNS TABLE(
+  id uuid,
+  chat_id bigint,
+  message_id bigint,
+  sender_id bigint,
+  sent_at timestamptz,
+  encrypted_text text
+)
+LANGUAGE sql STABLE SECURITY DEFINER
 AS $$
-DECLARE
-  v_total bigint;
-  v_processed int := 0;
-  rec record;
-BEGIN
-  SELECT count(*) INTO v_total
+  SELECT m.id, m.chat_id, m.message_id, m.sender_id, m.sent_at, m.encrypted_text
+  FROM crm_message_index m
+  WHERE m.user_id = p_user_id
+    AND m.search_vector IS NULL
+  ORDER BY m.sent_at DESC
+  LIMIT p_batch_size;
+$$;
+
+-- Count of unindexed messages (for progress display)
+CREATE OR REPLACE FUNCTION crm_unindexed_message_count(p_user_id uuid)
+RETURNS bigint
+LANGUAGE sql STABLE SECURITY DEFINER
+AS $$
+  SELECT count(*)
   FROM crm_message_index
   WHERE user_id = p_user_id
     AND search_vector IS NULL;
-
-  FOR rec IN
-    SELECT id, encrypted_text
-    FROM crm_message_index
-    WHERE user_id = p_user_id
-      AND search_vector IS NULL
-    ORDER BY sent_at DESC
-    LIMIT p_batch_size
-    OFFSET p_offset
-  LOOP
-    -- Note: encrypted_text cannot be indexed server-side (zero-knowledge).
-    -- This RPC marks rows as needing client-side reindex by setting a flag.
-    -- The actual tsvector update happens via crm_bulk_index_messages from the client.
-    v_processed := v_processed + 1;
-  END LOOP;
-
-  RETURN QUERY SELECT v_processed, v_total;
-END;
 $$;
 
 -- ── Group engagement scoring ────────────────────────────────
@@ -207,7 +205,7 @@ BEGIN
 END;
 $$;
 
--- Update search to use language-aware config
+-- Update search to use language-aware config matching the indexing config
 CREATE OR REPLACE FUNCTION crm_search_messages_ranked(
   p_user_id uuid,
   p_query text,
@@ -226,12 +224,20 @@ RETURNS TABLE(
 )
 LANGUAGE sql STABLE SECURITY DEFINER
 AS $$
+  -- Use the same language detection for the query as we use for indexing.
+  -- This ensures stemmed tokens match at search time.
   SELECT
     m.id, m.chat_id, m.message_id, m.sender_id, m.sent_at, m.encrypted_text,
-    ts_rank(m.search_vector, websearch_to_tsquery('simple', p_query)) AS rank
+    greatest(
+      ts_rank(m.search_vector, websearch_to_tsquery('english', p_query)),
+      ts_rank(m.search_vector, websearch_to_tsquery('simple', p_query))
+    ) AS rank
   FROM crm_message_index m
   WHERE m.user_id = p_user_id
-    AND m.search_vector @@ websearch_to_tsquery('simple', p_query)
+    AND (
+      m.search_vector @@ websearch_to_tsquery('english', p_query)
+      OR m.search_vector @@ websearch_to_tsquery('simple', p_query)
+    )
     AND (p_chat_id IS NULL OR m.chat_id = p_chat_id)
   ORDER BY rank DESC, m.sent_at DESC
   LIMIT p_limit

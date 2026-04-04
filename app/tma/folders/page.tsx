@@ -41,7 +41,8 @@ export default function TMAFoldersPage() {
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [editName, setEditName] = React.useState("");
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
-  const { webApp } = useTelegramWebApp();
+  const goBack = React.useCallback(() => router.back(), [router]);
+  useTelegramWebApp({ onBack: goBack });
 
   React.useEffect(() => {
     fetchFolders();
