@@ -1,0 +1,181 @@
+{
+  "id": "supra-crm",
+  "name": "SupraCRM",
+  "version": "1.0.0",
+  "description": "Multi-channel engagement CRM — Telegram, Gmail, Calendar unified into a deal pipeline with AI triage and visual automations",
+  "developer": "SupraTeam",
+  "icon": "CRM",
+  "lifeFactor": "work",
+  "primaryColor": "#6366f1",
+
+  "pages": ["overview", "agents"],
+  "customPages": [
+    { "id": "crm-dashboard",     "label": "Dashboard",      "icon": "H",  "href": "/vms/supra-crm/dashboard" },
+    { "id": "crm-pipeline",      "label": "Pipeline",       "icon": "K",  "href": "/vms/supra-crm/pipeline" },
+    { "id": "crm-telegram",      "label": "Telegram",       "icon": "T",  "href": "/vms/supra-crm/telegram" },
+    { "id": "crm-inbox",         "label": "Team Inbox",     "icon": "I",  "href": "/vms/supra-crm/inbox" },
+    { "id": "crm-email",         "label": "Email",          "icon": "E",  "href": "/vms/supra-crm/email" },
+    { "id": "crm-contacts",      "label": "Contacts",       "icon": "C",  "href": "/vms/supra-crm/contacts" },
+    { "id": "crm-companies",     "label": "Companies",      "icon": "B",  "href": "/vms/supra-crm/companies" },
+    { "id": "crm-groups",        "label": "TG Groups",      "icon": "G",  "href": "/vms/supra-crm/groups" },
+    { "id": "crm-broadcasts",    "label": "Broadcasts",     "icon": "R",  "href": "/vms/supra-crm/broadcasts" },
+    { "id": "crm-outreach",      "label": "Outreach",       "icon": "O",  "href": "/vms/supra-crm/outreach" },
+    { "id": "crm-automations",   "label": "Automations",    "icon": "W",  "href": "/vms/supra-crm/automations" },
+    { "id": "crm-calendar",      "label": "Calendar",       "icon": "D",  "href": "/vms/supra-crm/calendar" },
+    { "id": "crm-reports",       "label": "Reports",        "icon": "A",  "href": "/vms/supra-crm/reports" },
+    { "id": "crm-settings",      "label": "Settings",       "icon": "S",  "href": "/vms/supra-crm/settings" }
+  ],
+
+  "requiredServices": [
+    "telegram",
+    "telegram_client",
+    "google_gmail",
+    "google_calendar",
+    "anthropic"
+  ],
+
+  "agents": [
+    {
+      "name": "Triage Agent",
+      "role": "Reads incoming TG messages, classifies by urgency, moves to pipeline lanes",
+      "contextId": "supra-crm",
+      "provider": "anthropic"
+    },
+    {
+      "name": "AI Chat Agent",
+      "role": "Conversational lead qualification — responds to DMs/mentions, extracts company/role/interest/budget, escalates on keywords",
+      "contextId": "supra-crm",
+      "provider": "anthropic"
+    },
+    {
+      "name": "Summarizer Agent",
+      "role": "Generates thread summaries, action items, and sentiment tags across email and TG conversations",
+      "contextId": "supra-crm",
+      "provider": "anthropic"
+    }
+  ],
+
+  "bots": [
+    {
+      "type": "telegram",
+      "role": "CRM bot — manages groups, broadcasts, AI responses, member tracking",
+      "contextId": "supra-crm",
+      "runtime": "external_process"
+    }
+  ],
+
+  "permissions": [
+    "send_notification",
+    "external_api",
+    "telegram_bot",
+    "telegram_client",
+    "google_oauth",
+    "encryption"
+  ],
+
+  "database": {
+    "tablePrefix": "crm_",
+    "additionalPrefixes": ["tg_"],
+    "migrations": "supabase/migrations/",
+    "requiresRLS": true,
+    "sharedTables": {
+      "extends": ["profiles"],
+      "reads": ["auth.users", "user_tokens"]
+    }
+  },
+
+  "workflows": {
+    "triggers": [
+      "deal_stage_change", "deal_created", "deal_value_change", "deal_stale", "deal_won", "deal_lost",
+      "email_received", "tg_message", "tg_member_joined", "tg_member_left", "bot_dm_received",
+      "contact_created", "task_overdue", "lead_qualified",
+      "calendar_event", "webhook", "manual", "scheduled"
+    ],
+    "actions": [
+      "send_telegram", "send_email", "send_slack", "send_broadcast",
+      "update_deal", "update_contact", "assign_deal", "create_task", "create_deal",
+      "add_tag", "remove_tag",
+      "add_to_sequence", "remove_from_sequence",
+      "delay", "condition",
+      "http_request", "tg_manage_access",
+      "ai_summarize", "ai_classify"
+    ]
+  },
+
+  "dashboardPanels": [
+    "metrics-strip", "deal-spotlight", "followup-tracker",
+    "contact-card", "outreach-queue", "ai-summary",
+    "activity-feed", "broadcast-composer", "calendar-view"
+  ],
+
+  "navigation": {
+    "topItems": [
+      { "href": "/dashboard",  "label": "Dashboard",  "icon": "Home" },
+      { "href": "/telegram",   "label": "Telegram",   "icon": "MessageCircle" },
+      { "href": "/email",      "label": "Email",      "icon": "Mail" },
+      { "href": "/pipeline",   "label": "Pipeline",   "icon": "KanbanSquare" }
+    ],
+    "sections": [
+      {
+        "key": "contacts",
+        "label": "Team & Groups",
+        "items": [
+          { "href": "/inbox",             "label": "Team Inbox",  "icon": "Inbox" },
+          { "href": "/groups",            "label": "TG Groups",   "icon": "MessageCircle" },
+          { "href": "/telegram/admin",    "label": "My Groups",   "icon": "Crown" },
+          { "href": "/telegram/folders",  "label": "Folder Sync", "icon": "FolderSync" },
+          { "href": "/contacts",          "label": "Contacts",    "icon": "Users" },
+          { "href": "/companies",         "label": "Companies",   "icon": "Building2" }
+        ]
+      },
+      {
+        "key": "messaging",
+        "label": "Messaging",
+        "items": [
+          { "href": "/broadcasts", "label": "Broadcasts", "icon": "Bell",  "requiredRole": ["admin_lead"] },
+          { "href": "/outreach",   "label": "Outreach",   "icon": "Send",  "requiredRole": ["admin_lead"] }
+        ]
+      },
+      {
+        "key": "automation",
+        "label": "Automation",
+        "items": [
+          { "href": "/automations",      "label": "Automations", "icon": "Workflow" },
+          { "href": "/automations/runs", "label": "Runs",        "icon": "Clock" }
+        ]
+      },
+      {
+        "key": "tools",
+        "label": "Tools",
+        "items": [
+          { "href": "/calendar",    "label": "Calendar",       "icon": "Calendar" },
+          { "href": "/reports",     "label": "Reports",        "icon": "BarChart3",  "requiredRole": ["admin_lead"] },
+          { "href": "/access",      "label": "Access Control", "icon": "Shield",     "requiredRole": ["admin_lead"] },
+          { "href": "/qr-codes",    "label": "QR Codes",       "icon": "QrCode" },
+          { "href": "/suggestions", "label": "Suggestions",    "icon": "Lightbulb" }
+        ]
+      }
+    ]
+  },
+
+  "auth": {
+    "currentProvider": "supabase_github_oauth",
+    "identityField": "user.id",
+    "roleField": "profiles.crm_role",
+    "roles": ["bd_lead", "marketing_lead", "admin_lead"],
+    "note": "VMS fork would swap to wallet auth — replace useAuth() with useWallet(), user.id with supraAddress"
+  },
+
+  "runtime": {
+    "framework": "nextjs",
+    "port": 3002,
+    "externalProcesses": [
+      {
+        "name": "telegram-bot",
+        "entry": "bot/index.ts",
+        "runtime": "node",
+        "note": "Must run as separate process, NOT inside API routes"
+      }
+    ]
+  }
+}
