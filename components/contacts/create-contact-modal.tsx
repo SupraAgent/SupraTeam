@@ -7,8 +7,18 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { AlertTriangle, ShieldAlert } from "lucide-react";
+import { AlertTriangle, ShieldAlert, QrCode } from "lucide-react";
 import type { PipelineStage, LifecycleStage, ContactSource, Company } from "@/lib/types";
+
+interface QrCodeRecipe {
+  id: string;
+  name: string;
+  type: string;
+  bot_id: string;
+  bot?: { id: string; label: string; bot_username: string | null } | null;
+  group_name_template: string;
+  auto_add_members: { type: string; id: string; label: string }[];
+}
 
 type Duplicate = { id: string; name: string; email: string | null; company: string | null; telegram_username: string | null; phone: string | null; title: string | null; confidence: number; signals: string[] };
 
@@ -61,6 +71,10 @@ export function CreateContactModal({ open, onClose, onCreated }: CreateContactMo
   const [customFields, setCustomFields] = React.useState<CField[]>([]);
   const [customValues, setCustomValues] = React.useState<Record<string, string>>({});
 
+  // QR code recipes (group creation templates)
+  const [qrRecipes, setQrRecipes] = React.useState<QrCodeRecipe[]>([]);
+  const [selectedRecipeId, setSelectedRecipeId] = React.useState<string>("");
+
   React.useEffect(() => {
     if (open) {
       Promise.all([
@@ -71,6 +85,7 @@ export function CreateContactModal({ open, onClose, onCreated }: CreateContactMo
           }
         }).catch(() => {}),
         fetch("/api/contacts/fields").then((r) => r.json()).then((d) => setCustomFields(d.fields ?? [])).catch(() => {}),
+        fetch("/api/qr-codes").then((r) => r.json()).then((d) => setQrRecipes(d.data ?? [])).catch(() => {}),
       ]);
     }
   }, [open, stageId]);
@@ -147,6 +162,7 @@ export function CreateContactModal({ open, onClose, onCreated }: CreateContactMo
           lifecycle_stage: lifecycle,
           source,
           custom_fields: customValues,
+          qr_recipe_id: selectedRecipeId || null,
         }),
       });
 
@@ -154,7 +170,7 @@ export function CreateContactModal({ open, onClose, onCreated }: CreateContactMo
         toast.success("Contact added");
         setName(""); setCompany(""); setCompanyId(null); setEmail(""); setPhone("");
         setTelegram(""); setXHandle(""); setWalletAddress(""); setTitle(""); setNotes(""); setLifecycle("prospect");
-        setSource("manual"); setStageId(stages[0]?.id ?? ""); setDuplicates([]); setCustomValues({});
+        setSource("manual"); setStageId(stages[0]?.id ?? ""); setDuplicates([]); setCustomValues({}); setSelectedRecipeId("");
         onCreated();
         onClose();
       } else {
@@ -304,6 +320,37 @@ export function CreateContactModal({ open, onClose, onCreated }: CreateContactMo
             />
           </div>
         </div>
+
+        {/* Group creation recipe */}
+        {qrRecipes.length > 0 && (
+          <div>
+            <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+              <QrCode className="h-3 w-3" /> Create Telegram group
+            </label>
+            <Select
+              value={selectedRecipeId}
+              onChange={(e) => setSelectedRecipeId(e.target.value)}
+              options={[
+                { value: "", label: "None" },
+                ...qrRecipes.map((r) => ({
+                  value: r.id,
+                  label: `${r.name} (${r.auto_add_members.length} auto-add)`,
+                })),
+              ]}
+              className="mt-1"
+            />
+            {selectedRecipeId && (() => {
+              const recipe = qrRecipes.find((r) => r.id === selectedRecipeId);
+              if (!recipe) return null;
+              return (
+                <p className="text-[10px] text-muted-foreground/60 mt-1">
+                  Bot: @{recipe.bot?.bot_username ?? "unknown"}
+                  {recipe.auto_add_members.length > 0 && ` · Auto-adds: ${recipe.auto_add_members.map((m) => m.label).join(", ")}`}
+                </p>
+              );
+            })()}
+          </div>
+        )}
 
         <div>
           <label className="text-xs font-medium text-muted-foreground">Notes</label>
