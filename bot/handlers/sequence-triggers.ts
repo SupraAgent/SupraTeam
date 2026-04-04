@@ -57,6 +57,24 @@ async function getActiveSequences(): Promise<OutreachSequence[]> {
   return cachedSequences;
 }
 
+// ── Rate limiting ────────────────────────────────────────────
+// Prevent enrollment spam at scale (150+ groups)
+
+const MAX_ENROLLMENTS_PER_HOUR = 50;
+const enrollmentCounts = new Map<string, { count: number; resetAt: number }>();
+
+function checkRateLimit(sequenceId: string): boolean {
+  const now = Date.now();
+  const entry = enrollmentCounts.get(sequenceId);
+  if (!entry || now > entry.resetAt) {
+    enrollmentCounts.set(sequenceId, { count: 1, resetAt: now + 3600_000 });
+    return true;
+  }
+  if (entry.count >= MAX_ENROLLMENTS_PER_HOUR) return false;
+  entry.count++;
+  return true;
+}
+
 // ── Helpers ──────────────────────────────────────────────────
 
 function matchesGroup(seq: OutreachSequence, chatId: number): boolean {
@@ -81,6 +99,12 @@ async function enrollInSequence(
   tgChatId: number,
   triggerData?: Record<string, unknown>
 ): Promise<void> {
+  // Rate limit check — prevent enrollment spam at scale
+  if (!checkRateLimit(sequenceId)) {
+    console.warn(`[sequence-triggers] Rate limit hit for seq ${sequenceId}, skipping enrollment`);
+    return;
+  }
+
   // Look up contact + deal + first step delay in parallel
   const [contactRes, dealRes, firstStepRes] = await Promise.all([
     supabase

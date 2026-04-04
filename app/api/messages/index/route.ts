@@ -159,8 +159,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "messages array is required" }, { status: 400 });
   }
 
-  if (body.messages.length > 100) {
-    return NextResponse.json({ error: "Maximum 100 messages per batch" }, { status: 400 });
+  if (body.messages.length > 500) {
+    return NextResponse.json({ error: "Maximum 500 messages per batch" }, { status: 400 });
   }
 
   const indexedChats: number[] = config.indexed_chats ?? [];
