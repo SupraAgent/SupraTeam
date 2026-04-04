@@ -51,14 +51,22 @@ function DealActions({ deal, onDealUpdated }: { deal: Deal; onDealUpdated?: () =
   const [taskDue, setTaskDue] = React.useState("");
   const [creatingTask, setCreatingTask] = React.useState(false);
 
+  const [confirmOutcome, setConfirmOutcome] = React.useState<"won" | "lost" | null>(null);
+
+  // Prefetch stages on mount for "next stage" button
   React.useEffect(() => {
-    if (showStages && stages.length === 0) {
-      fetch(`/api/pipeline?board_type=${deal.board_type}`)
-        .then((r) => r.json())
-        .then((d) => setStages(d.stages ?? []))
-        .catch(() => {});
-    }
-  }, [showStages, stages.length, deal.board_type]);
+    fetch(`/api/pipeline?board_type=${deal.board_type}`)
+      .then((r) => r.json())
+      .then((d) => setStages(d.stages ?? []))
+      .catch(() => {});
+  }, [deal.board_type]);
+
+  const nextStage = React.useMemo(() => {
+    if (!deal.stage_id || stages.length === 0) return null;
+    const currentIdx = stages.findIndex((s) => s.id === deal.stage_id);
+    if (currentIdx < 0 || currentIdx >= stages.length - 1) return null;
+    return stages[currentIdx + 1];
+  }, [stages, deal.stage_id]);
 
   async function handleStageMove(newStageId: string) {
     if (movingStage) return;
@@ -133,6 +141,11 @@ function DealActions({ deal, onDealUpdated }: { deal: Deal; onDealUpdated?: () =
   }
 
   async function handleOutcome(outcome: "won" | "lost") {
+    if (confirmOutcome !== outcome) {
+      setConfirmOutcome(outcome);
+      return;
+    }
+    setConfirmOutcome(null);
     const res = await fetch(`/api/deals/${deal.id}/outcome`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -148,6 +161,18 @@ function DealActions({ deal, onDealUpdated }: { deal: Deal; onDealUpdated?: () =
 
   return (
     <div className="space-y-1.5 pt-1">
+      {/* Quick advance button */}
+      {nextStage && (
+        <button
+          onClick={() => handleStageMove(nextStage.id)}
+          disabled={movingStage}
+          className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded bg-primary/10 text-primary text-[10px] font-medium hover:bg-primary/20 disabled:opacity-50 transition-colors"
+        >
+          <ChevronRight className="h-3 w-3" />
+          {movingStage ? "Moving..." : `Advance to ${nextStage.name}`}
+        </button>
+      )}
+
       {/* Action buttons row */}
       <div className="flex items-center gap-1">
         <button
@@ -185,21 +210,33 @@ function DealActions({ deal, onDealUpdated }: { deal: Deal; onDealUpdated?: () =
         </button>
       </div>
 
-      {/* Outcome buttons */}
+      {/* Outcome buttons (double-click to confirm) */}
       <div className="flex items-center gap-1">
         <button
           onClick={() => handleOutcome("won")}
-          className="flex-1 flex items-center justify-center gap-1 px-1.5 py-1 rounded text-[10px] font-medium bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors"
+          onBlur={() => setConfirmOutcome(null)}
+          className={cn(
+            "flex-1 flex items-center justify-center gap-1 px-1.5 py-1 rounded text-[10px] font-medium transition-colors",
+            confirmOutcome === "won"
+              ? "bg-emerald-500/30 text-emerald-300 ring-1 ring-emerald-500/50"
+              : "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
+          )}
         >
           <Trophy className="h-2.5 w-2.5" />
-          Won
+          {confirmOutcome === "won" ? "Confirm Won?" : "Won"}
         </button>
         <button
           onClick={() => handleOutcome("lost")}
-          className="flex-1 flex items-center justify-center gap-1 px-1.5 py-1 rounded text-[10px] font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
+          onBlur={() => setConfirmOutcome(null)}
+          className={cn(
+            "flex-1 flex items-center justify-center gap-1 px-1.5 py-1 rounded text-[10px] font-medium transition-colors",
+            confirmOutcome === "lost"
+              ? "bg-red-500/30 text-red-300 ring-1 ring-red-500/50"
+              : "bg-red-500/10 text-red-400 hover:bg-red-500/20"
+          )}
         >
           <XCircle className="h-2.5 w-2.5" />
-          Lost
+          {confirmOutcome === "lost" ? "Confirm Lost?" : "Lost"}
         </button>
       </div>
 

@@ -140,6 +140,35 @@ interface CannedResponse {
 
 type InboxTab = "mine" | "unassigned" | "open" | "vip" | "archived" | "closed";
 
+// ── Infinite Scroll Sentinel ──────────────────────────────────
+
+function InboxLoadMore({ loading, onVisible }: { loading: boolean; onVisible: () => void }) {
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && !loading) {
+          onVisible();
+        }
+      },
+      { rootMargin: "200px" }
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [loading, onVisible]);
+
+  return (
+    <div ref={ref} className="p-3 flex justify-center">
+      {loading && <span className="text-xs text-muted-foreground/50">Loading...</span>}
+    </div>
+  );
+}
+
 // ── Main Component ─────────────────────────────────────────────
 
 export default function InboxPage() {
@@ -969,15 +998,7 @@ export default function InboxPage() {
                 );
               })}
               {hasMore && (
-                <div className="p-3 flex justify-center">
-                  <button
-                    onClick={loadMore}
-                    disabled={loadingMore}
-                    className="text-xs text-primary hover:text-primary/80 disabled:opacity-50"
-                  >
-                    {loadingMore ? "Loading..." : "Load more conversations"}
-                  </button>
-                </div>
+                <InboxLoadMore loading={loadingMore} onVisible={loadMore} />
               )}
             </div>
           </div>

@@ -86,8 +86,13 @@ export default function TMAVoicePage() {
       timerRef.current = setInterval(() => {
         setRecordingTime((t) => t + 1);
       }, 1000);
-    } catch {
-      // Microphone access denied
+    } catch (err) {
+      // Microphone access denied — show feedback
+      const msg = err instanceof DOMException && err.name === "NotAllowedError"
+        ? "Microphone access denied. Please allow microphone in your browser settings."
+        : "Could not access microphone.";
+      // Use a simple alert in TMA context since toast may not be available
+      if (typeof window !== "undefined") window.alert(msg);
     }
   }
 

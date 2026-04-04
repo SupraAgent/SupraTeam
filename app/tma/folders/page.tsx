@@ -126,6 +126,8 @@ export default function TMAFoldersPage() {
   }
 
   async function deleteFolder(folderId: string) {
+    const folder = folders.find((f) => f.id === folderId);
+    if (!window.confirm(`Delete "${folder?.folder_name ?? "folder"}"? This cannot be undone.`)) return;
     hapticImpact("heavy");
     setDeletingId(folderId);
     try {
