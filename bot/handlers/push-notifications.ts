@@ -150,7 +150,9 @@ export async function sendTMAPush(bot: Bot, params: PushParams): Promise<boolean
     if (dealId && (triggerType === "tg_message" || triggerType === "escalation")) {
       kb.row()
         .text("\u2705 Mark Follow-up", `crm:followup:${dealId}`)
-        .text("\u23e9 Skip Stage", `crm:skip_stage:${dealId}`);
+        .text("\u23e9 Skip Stage", `crm:skip_stage:${dealId}`)
+        .row()
+        .text("\ud83d\udcc5 Send Booking Link", `crm:book:${dealId}`);
     }
 
     await bot.api.sendMessage(recipient.telegramId, messageText, {
