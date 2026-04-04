@@ -65,8 +65,9 @@ export async function GET(request: Request) {
     .limit(limit);
 
   if (q) {
-    // Use Postgres full-text search via the search_vector column
-    query = query.textSearch("search_vector", q, { type: "websearch" });
+    // Use Postgres full-text search via the search_vector column.
+    // Config 'simple' matches the insert-time tsvector config for language-agnostic search.
+    query = query.textSearch("search_vector", q, { type: "websearch", config: "simple" });
   }
 
   if (chatId) {

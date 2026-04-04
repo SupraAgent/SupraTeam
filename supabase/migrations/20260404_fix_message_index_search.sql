@@ -47,7 +47,9 @@ BEGIN
       coalesce((msg->>'has_media')::boolean, false),
       (msg->>'reply_to_message_id')::bigint,
       (msg->>'sent_at')::timestamptz,
-      to_tsvector('english', coalesce(msg->>'plain_text', ''))
+      -- Use 'simple' config for language-agnostic tokenization (no stemming).
+      -- This supports international teams without broken English-only stemming.
+      to_tsvector('simple', coalesce(msg->>'plain_text', ''))
     )
     ON CONFLICT (user_id, chat_id, message_id) DO UPDATE SET
       message_text = EXCLUDED.message_text,
