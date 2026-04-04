@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS crm_booking_links (
   booked_at TIMESTAMPTZ,
   canceled_at TIMESTAMPTZ,
   no_show_detected_at TIMESTAMPTZ,
+  google_calendar_event_id TEXT,
   tg_chat_id BIGINT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -85,6 +86,10 @@ CREATE INDEX idx_booking_links_scheduled ON crm_booking_links(scheduled_at)
   WHERE status = 'booked';
 CREATE UNIQUE INDEX idx_booking_links_event_uri ON crm_booking_links(calendly_event_uri)
   WHERE calendly_event_uri IS NOT NULL;
+CREATE INDEX idx_booking_links_gcal_event ON crm_booking_links(google_calendar_event_id)
+  WHERE google_calendar_event_id IS NOT NULL;
+CREATE INDEX idx_booking_links_match ON crm_booking_links(scheduled_at, invitee_email)
+  WHERE scheduled_at IS NOT NULL;
 
 ALTER TABLE crm_booking_links ENABLE ROW LEVEL SECURITY;
 
@@ -113,9 +118,10 @@ CREATE TABLE IF NOT EXISTS crm_meeting_transcripts (
   action_items JSONB DEFAULT '[]',
   key_topics JSONB DEFAULT '[]',
   sentiment JSONB DEFAULT '{}',
-  transcript_url TEXT NOT NULL,
+  transcript_url TEXT,
   speakers JSONB DEFAULT '[]',
   created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(fireflies_meeting_id)
 );
 
@@ -128,6 +134,8 @@ CREATE POLICY "Team reads transcripts"
   ON crm_meeting_transcripts FOR SELECT USING (true);
 CREATE POLICY "Users create transcripts"
   ON crm_meeting_transcripts FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users update own transcripts"
+  ON crm_meeting_transcripts FOR UPDATE USING (auth.uid() = user_id);
 
 -- ============================================================
 -- 5. Unified Deal Activity Timeline

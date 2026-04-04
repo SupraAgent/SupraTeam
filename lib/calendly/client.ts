@@ -8,6 +8,9 @@ const CALENDLY_AUTH_BASE = "https://auth.calendly.com";
 // Cache TTLs
 const EVENT_TYPES_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
+// Mutex: prevent concurrent token refreshes per user (singleton promise pattern)
+const refreshInFlight = new Map<string, Promise<{ token: string; connection: CalendlyConnection }>>();
+
 interface CalendlyConnection {
   id: string;
   user_id: string;
@@ -66,7 +69,15 @@ export async function getCalendlyAccessToken(userId: string): Promise<{
 
   // Refresh if token expires within 5 minutes
   if (Date.now() > expiresAt - 5 * 60 * 1000) {
-    return refreshCalendlyToken(connection, admin);
+    // Singleton promise: concurrent callers share one refresh attempt
+    const existing = refreshInFlight.get(userId);
+    if (existing) return existing;
+
+    const promise = refreshCalendlyToken(connection, admin).finally(() => {
+      refreshInFlight.delete(userId);
+    });
+    refreshInFlight.set(userId, promise);
+    return promise;
   }
 
   return {
