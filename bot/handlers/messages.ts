@@ -667,8 +667,25 @@ export function registerMessageHandlers(bot: Bot) {
       const teamIds = await getTeamTelegramIds();
       const isTeamMember = teamIds.has(ctx.from.id);
 
-      // Create a notification for each linked deal + push DM to assigned rep
+      // Create a notification + activity log for each linked deal
       for (const deal of deals) {
+        // Log TG message as deal activity (non-blocking)
+        supabase.from("crm_deal_activities").insert({
+          deal_id: deal.id,
+          user_id: deal.assigned_to ?? null,
+          activity_type: "tg_message",
+          title: `${senderName}: ${(messageText || "").slice(0, 100)}${(messageText || "").length > 100 ? "..." : ""}`,
+          metadata: {
+            sender_name: senderName,
+            sender_username: senderUsername || null,
+            telegram_message_id: messageId,
+            telegram_chat_id: chatId,
+            is_from_bot: false,
+            tg_deep_link: tgDeepLink,
+            group_name: tgGroup.group_name,
+          },
+        }).then(({ error }) => { if (error) console.error("[bot/messages] activity log error:", error); });
+
         await supabase.from("crm_notifications").insert({
           type: "tg_message",
           deal_id: deal.id,
