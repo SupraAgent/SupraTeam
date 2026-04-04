@@ -47,7 +47,6 @@ import {
   Trash2,
   Download,
   Paperclip,
-  ArrowUp,
   Info,
   AtSign,
   Phone,
@@ -61,6 +60,7 @@ import {
   Volume2,
 } from "lucide-react";
 import { EmojiPicker } from "@/components/ui/emoji-picker";
+import { VirtualMessageList } from "@/components/telegram/virtual-message-list";
 import { toast } from "sonner";
 
 // ── Types ──────────────────────────────────────────────────────
@@ -236,29 +236,19 @@ export default function TelegramPage() {
     sendTyping,
     outgoingReadMaxId,
     incomingReadMaxId,
+    newMessageCount,
+    clearNewMessageCount,
+    jumpToMessage,
   } = useTelegramMessages(
     peerType,
     activeDialog?.telegramId ?? null,
     activeDialog?.accessHash
   );
 
-  const messagesEndRef = React.useRef<HTMLDivElement>(null);
-  const messagesContainerRef = React.useRef<HTMLDivElement>(null);
-
-  // Auto-scroll on new messages (only if near bottom)
-  const prevMsgCountRef = React.useRef(0);
-  React.useEffect(() => {
-    if (messages.length > prevMsgCountRef.current && !msgSearchActive) {
-      const container = messagesContainerRef.current;
-      if (container) {
-        const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
-        if (isNearBottom || messages.length - prevMsgCountRef.current <= 2) {
-          setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
-        }
-      }
-    }
-    prevMsgCountRef.current = messages.length;
-  }, [messages.length, msgSearchActive]);
+  // Stable callback for VirtualMessageList
+  const handleBottomReached = React.useCallback(() => {
+    clearNewMessageCount();
+  }, [clearNewMessageCount]);
 
   // Mark as read when opening a dialog — track last sent maxId to avoid redundant calls
   const lastReadMaxIdRef = React.useRef<number>(0);
@@ -308,26 +298,7 @@ export default function TelegramPage() {
       .catch(() => setChatMembers([]));
   }, [activeDialog, tg.status, tg.service]);
 
-  // ── Infinite Scroll ──────────────────────────────────────────
-
-  const scrollThrottleRef = React.useRef(false);
-  const handleScroll = React.useCallback(() => {
-    const container = messagesContainerRef.current;
-    if (!container || !hasMore || scrollThrottleRef.current) return;
-    if (container.scrollTop < 100) {
-      scrollThrottleRef.current = true;
-      const prevHeight = container.scrollHeight;
-      loadOlder().then(() => {
-        requestAnimationFrame(() => {
-          const newHeight = container.scrollHeight;
-          container.scrollTop = newHeight - prevHeight;
-        });
-      }).finally(() => {
-        // Throttle: wait 500ms before allowing another load
-        setTimeout(() => { scrollThrottleRef.current = false; }, 500);
-      });
-    }
-  }, [hasMore, loadOlder]);
+  // ── Infinite Scroll (handled by VirtualMessageList / react-virtuoso) ──
 
   // ── Keyboard Shortcuts ────────────────────────────────────────
 
@@ -1536,9 +1507,13 @@ export default function TelegramPage() {
                       {pinned.text?.slice(0, 100) || "[media]"}
                     </p>
                     <button
-                      onClick={() => {
-                        const el = document.getElementById(`msg-${pinned.id}`);
-                        el?.scrollIntoView({ behavior: "smooth", block: "center" });
+                      onClick={async () => {
+                        await jumpToMessage(pinned.id);
+                        // After loading, scroll to the element
+                        setTimeout(() => {
+                          const el = document.getElementById(`msg-${pinned.id}`);
+                          el?.scrollIntoView({ behavior: "smooth", block: "center" });
+                        }, 100);
                       }}
                       className="text-[10px] text-amber-400/70 hover:text-amber-400 shrink-0"
                     >
@@ -1548,41 +1523,26 @@ export default function TelegramPage() {
                 );
               })()}
 
-              {/* Messages */}
-              <div
-                ref={messagesContainerRef}
-                onScroll={handleScroll}
-                className="flex-1 overflow-y-auto p-4 space-y-3"
-              >
-                {/* Load more indicator */}
-                {hasMore && (
-                  <div className="flex justify-center py-2">
-                    <button
-                      onClick={() => loadOlder()}
-                      className="flex items-center gap-1.5 text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors"
-                    >
-                      <ArrowUp className="h-3 w-3" />
-                      Load older messages
-                    </button>
-                  </div>
-                )}
-
-                {messagesLoading ? (
-                  <div className="flex items-center justify-center py-12">
-                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                  </div>
-                ) : (msgSearchActive && searchResults.length > 0 ? searchResults : messages).length === 0 ? (
+              {/* Messages — virtualized, input is outside this scroll container */}
+              <VirtualMessageList
+                messages={messages}
+                hasMore={hasMore}
+                loading={messagesLoading}
+                loadOlder={loadOlder}
+                renderMessage={renderMessage}
+                newMessageCount={newMessageCount}
+                onBottomReached={handleBottomReached}
+                searchActive={msgSearchActive}
+                searchResults={searchResults}
+                emptyState={
                   <div className="flex flex-col items-center justify-center py-12 text-center">
                     <MessageCircle className="h-8 w-8 text-muted-foreground/20 mb-2" />
                     <p className="text-sm text-muted-foreground">
                       {msgSearchActive && msgSearch ? "No messages match your search" : "No messages"}
                     </p>
                   </div>
-                ) : (
-                  (msgSearchActive && searchResults.length > 0 ? searchResults : messages).map(renderMessage)
-                )}
-                <div ref={messagesEndRef} />
-              </div>
+                }
+              />
 
               {/* Typing indicator */}
               {typingUsers.length > 0 && (
