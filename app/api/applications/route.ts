@@ -4,6 +4,7 @@ import { createClient as createSupabaseServer } from "@/lib/supabase/server";
 import { validateTelegramInitData } from "@/lib/telegram-auth";
 import { getBotById } from "@/lib/bot-registry";
 import { rateLimit } from "@/lib/rate-limit";
+import { dispatchWebhook } from "@/lib/webhooks";
 
 export const runtime = "nodejs";
 
@@ -282,6 +283,27 @@ export async function POST(request: Request) {
     if (fieldValues.length > 0) {
       await admin.from("crm_deal_field_values").insert(fieldValues);
     }
+  }
+
+  // Dispatch webhooks (non-blocking)
+  dispatchWebhook("deal.created", {
+    deal_id: deal.id,
+    deal_name: project_name.trim(),
+    contact_id: contactId,
+    source: dealSource,
+    stage_id: dealStageId,
+    assigned_to: dealAssignedTo,
+  });
+
+  if (qr_code_id) {
+    dispatchWebhook("qr.converted", {
+      qr_code_id,
+      deal_id: deal.id,
+      contact_id: contactId,
+      campaign: qr_campaign ?? null,
+      source: qr_source ?? null,
+      telegram_user_id: tgUser?.id ?? null,
+    });
   }
 
   // Send confirmation message via Telegram (non-blocking, TMA only)

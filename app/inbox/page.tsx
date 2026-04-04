@@ -110,9 +110,14 @@ interface Deal {
   id: string;
   deal_name: string;
   board_type: string;
+  stage_id: string | null;
   stage: { name: string; color: string } | null;
   assigned_to: string | null;
   contact: { id: string; name: string } | null;
+  value?: number | null;
+  probability?: number | null;
+  health_score?: number | null;
+  ai_summary?: string | null;
 }
 
 interface InboxStatus {
@@ -152,6 +157,9 @@ export default function InboxPage() {
   const [expandedThreads, setExpandedThreads] = React.useState<Set<number>>(new Set());
   const [refreshing, setRefreshing] = React.useState(false);
   const [activeTab, setActiveTab] = React.useState<InboxTab>("mine");
+  const [hasMore, setHasMore] = React.useState(false);
+  const [loadingMore, setLoadingMore] = React.useState(false);
+  const [nextCursor, setNextCursor] = React.useState<string | null>(null);
 
   // Chat labels (VIP, tags, notes, archive, pin, mute)
   const [labels, setLabels] = React.useState<Record<string, ChatLabel>>({});
@@ -222,6 +230,8 @@ export default function InboxPage() {
           messages: c.messages.filter((m: ThreadMessage) => !String(m.id).startsWith("optimistic-")),
         })));
         setDeals(data.deals ?? {});
+        setHasMore(data.hasMore ?? false);
+        setNextCursor(data.nextCursor ?? null);
       }
       if (statusRes.status === "fulfilled" && statusRes.value.ok) {
         const data = await statusRes.value.json();
@@ -244,6 +254,30 @@ export default function InboxPage() {
       setRefreshing(false);
     }
   }, [selectedBotId]);
+
+  const loadMore = React.useCallback(async () => {
+    if (loadingMore || !hasMore || !nextCursor) return;
+    setLoadingMore(true);
+    try {
+      const params = new URLSearchParams();
+      if (selectedBotId) params.set("bot_id", selectedBotId);
+      params.set("before", nextCursor);
+      const res = await fetch(`/api/inbox?${params.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        const newConvs = (data.conversations ?? []).map((c: Conversation) => ({
+          ...c,
+          messages: c.messages.filter((m: ThreadMessage) => !String(m.id).startsWith("optimistic-")),
+        }));
+        setConversations((prev) => [...prev, ...newConvs]);
+        setDeals((prev) => ({ ...prev, ...(data.deals ?? {}) }));
+        setHasMore(data.hasMore ?? false);
+        setNextCursor(data.nextCursor ?? null);
+      }
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, hasMore, nextCursor, selectedBotId]);
 
   // Get current user ID + team members
   React.useEffect(() => {
@@ -934,6 +968,17 @@ export default function InboxPage() {
                   </button>
                 );
               })}
+              {hasMore && (
+                <div className="p-3 flex justify-center">
+                  <button
+                    onClick={loadMore}
+                    disabled={loadingMore}
+                    className="text-xs text-primary hover:text-primary/80 disabled:opacity-50"
+                  >
+                    {loadingMore ? "Loading..." : "Load more conversations"}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
@@ -1313,6 +1358,7 @@ export default function InboxPage() {
               deals={deals[selectedChat] ?? []}
               chatId={selectedChat}
               onClose={() => setShowDealSidebar(false)}
+              onDealUpdated={fetchInbox}
             />
           )}
         </div>

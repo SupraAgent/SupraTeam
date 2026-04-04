@@ -126,6 +126,7 @@ export function useOfflineStatus(): OfflineStatus {
 interface OfflineCacheResult<T> {
   data: T | null;
   isStale: boolean;
+  isRevalidating: boolean;
   lastSyncedAt: number | null;
   refetch: () => Promise<void>;
 }
@@ -143,9 +144,24 @@ export function useOfflineCache<T>(
   const [data, setData] = React.useState<T | null>(null);
   const [isStale, setIsStale] = React.useState(false);
   const [lastSyncedAt, setLastSyncedAt] = React.useState<number | null>(null);
+  const [isRevalidating, setIsRevalidating] = React.useState(false);
 
   const fetchWithCache = React.useCallback(async () => {
     if (!url) return;
+
+    // Stale-while-revalidate: show cached data immediately, then fetch fresh
+    const cached = await getCached(url, maxAgeMs).catch(() => null);
+    if (cached) {
+      setData(cached.data as T);
+      setIsStale(cached.isStale);
+      setLastSyncedAt(cached.timestamp);
+
+      // If cache is fresh enough, skip network
+      if (!cached.isStale) return;
+    }
+
+    // Fetch from network (in background if we already have cached data)
+    if (cached) setIsRevalidating(true);
 
     try {
       const response = await fetch(url);
@@ -155,21 +171,22 @@ export function useOfflineCache<T>(
         setIsStale(false);
         setLastSyncedAt(Date.now());
 
-        // Cache the response in IndexedDB
         const etag = response.headers.get("etag");
         await setCached(url, json, etag);
-        return;
       }
     } catch {
-      // Network failed — try cache
-    }
-
-    // Fall back to IndexedDB cache
-    const cached = await getCached(url, maxAgeMs);
-    if (cached) {
-      setData(cached.data as T);
-      setIsStale(cached.isStale);
-      setLastSyncedAt(cached.timestamp);
+      // Network failed — cached data already shown if available
+      if (!cached) {
+        // No cache at all — try to get even expired cache
+        const expiredCache = await getCached(url, Infinity).catch(() => null);
+        if (expiredCache) {
+          setData(expiredCache.data as T);
+          setIsStale(true);
+          setLastSyncedAt(expiredCache.timestamp);
+        }
+      }
+    } finally {
+      setIsRevalidating(false);
     }
   }, [url, maxAgeMs]);
 
@@ -177,7 +194,7 @@ export function useOfflineCache<T>(
     fetchWithCache();
   }, [fetchWithCache]);
 
-  return { data, isStale, lastSyncedAt, refetch: fetchWithCache };
+  return { data, isStale, lastSyncedAt, refetch: fetchWithCache, isRevalidating };
 }
 
 // --- Offline Action Queue ---
@@ -194,10 +211,19 @@ export async function queueOfflineAction(action: OfflineAction): Promise<number>
   return addPendingAction(action);
 }
 
+interface ConflictInfo {
+  actionId: number;
+  url: string;
+  method: string;
+  status: number;
+  serverMessage: string;
+}
+
 /** Process all queued actions. Call when back online. */
 export async function syncOfflineActions(): Promise<{
   synced: number;
   failed: number;
+  conflicts: ConflictInfo[];
 }> {
   const actions = await getPendingActions();
   let synced = 0;
@@ -214,10 +240,12 @@ export async function syncOfflineActions(): Promise<{
         body: a.body,
       })),
     });
-    return { synced: actions.length, failed: 0 };
+    return { synced: actions.length, failed: 0, conflicts: [] };
   }
 
   // Fallback: sync directly if SW is not available
+  const conflicts: ConflictInfo[] = [];
+
   for (const action of actions) {
     try {
       const response = await fetch(action.url, {
@@ -229,6 +257,17 @@ export async function syncOfflineActions(): Promise<{
       if (response.ok) {
         await removePendingAction(action.id as number);
         synced++;
+      } else if (response.status === 409) {
+        // Conflict: server state has changed since the action was queued
+        const body = await response.json().catch(() => ({ error: "Conflict" }));
+        conflicts.push({
+          actionId: action.id as number,
+          url: action.url,
+          method: action.method,
+          status: 409,
+          serverMessage: body.error || "Conflict with server state",
+        });
+        failed++;
       } else {
         failed++;
       }
@@ -237,5 +276,36 @@ export async function syncOfflineActions(): Promise<{
     }
   }
 
-  return { synced, failed };
+  return { synced, failed, conflicts };
+}
+
+/** Discard a conflicting offline action (user chose to accept server state). */
+export async function discardOfflineAction(actionId: number): Promise<void> {
+  await removePendingAction(actionId);
+}
+
+/** Retry a conflicting offline action with updated data. */
+export async function retryOfflineAction(
+  actionId: number,
+  updatedBody: unknown
+): Promise<boolean> {
+  const actions = await getPendingActions();
+  const action = actions.find((a) => a.id === actionId);
+  if (!action) return false;
+
+  try {
+    const response = await fetch(action.url, {
+      method: action.method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updatedBody),
+    });
+
+    if (response.ok) {
+      await removePendingAction(actionId);
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
 }

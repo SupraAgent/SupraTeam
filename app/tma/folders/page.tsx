@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { cn, timeAgo } from "@/lib/utils";
-import { Folder, ChevronRight, MessageSquare, RefreshCw, Users } from "lucide-react";
+import { Folder, ChevronRight, MessageSquare, Users, Plus, Pencil, Trash2, X, Check } from "lucide-react";
 import { BottomTabBar } from "@/components/tma/bottom-tab-bar";
 import { PullToRefresh } from "@/components/tma/pull-to-refresh";
 import { useTelegramWebApp } from "@/components/tma/use-telegram";
@@ -34,6 +34,13 @@ export default function TMAFoldersPage() {
   const [folders, setFolders] = React.useState<TgFolder[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [expandedId, setExpandedId] = React.useState<string | null>(null);
+  const [showCreate, setShowCreate] = React.useState(false);
+  const [newName, setNewName] = React.useState("");
+  const [newEmoji, setNewEmoji] = React.useState("📁");
+  const [creating, setCreating] = React.useState(false);
+  const [editingId, setEditingId] = React.useState<string | null>(null);
+  const [editName, setEditName] = React.useState("");
+  const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const { webApp } = useTelegramWebApp();
 
   React.useEffect(() => {
@@ -77,6 +84,60 @@ export default function TMAFoldersPage() {
     }
   }
 
+  async function createFolder() {
+    if (!newName.trim() || creating) return;
+    setCreating(true);
+    hapticImpact("medium");
+    try {
+      const res = await fetch("/api/telegram/folders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ folder_name: newName.trim(), folder_emoji: newEmoji }),
+      });
+      if (res.ok) {
+        setNewName("");
+        setNewEmoji("📁");
+        setShowCreate(false);
+        await fetchFolders();
+      }
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function renameFolder(folderId: string) {
+    if (!editName.trim()) return;
+    hapticImpact("light");
+    try {
+      const res = await fetch(`/api/telegram/folders/${folderId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ folder_name: editName.trim() }),
+      });
+      if (res.ok) {
+        setEditingId(null);
+        setFolders((prev) =>
+          prev.map((f) => f.id === folderId ? { ...f, folder_name: editName.trim() } : f)
+        );
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  async function deleteFolder(folderId: string) {
+    hapticImpact("heavy");
+    setDeletingId(folderId);
+    try {
+      const res = await fetch(`/api/telegram/folders/${folderId}`, { method: "DELETE" });
+      if (res.ok) {
+        setFolders((prev) => prev.filter((f) => f.id !== folderId));
+      }
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   const totalUnread = folders.reduce((sum, f) =>
     sum + (f.chats?.reduce((s, c) => s + c.unread_count, 0) ?? 0), 0
   );
@@ -85,11 +146,48 @@ export default function TMAFoldersPage() {
     <div className="flex flex-col min-h-screen bg-black text-white">
       <PullToRefresh onRefresh={fetchFolders}>
         <div className="px-4 pt-4 pb-2">
-          <h1 className="text-lg font-semibold">Telegram Folders</h1>
-          <p className="text-xs text-white/50 mt-0.5">
-            {folders.length} synced folder{folders.length !== 1 ? "s" : ""}
-            {totalUnread > 0 && ` · ${totalUnread} unread`}
-          </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-lg font-semibold">Telegram Folders</h1>
+              <p className="text-xs text-white/50 mt-0.5">
+                {folders.length} synced folder{folders.length !== 1 ? "s" : ""}
+                {totalUnread > 0 && ` · ${totalUnread} unread`}
+              </p>
+            </div>
+            <button
+              onClick={() => { setShowCreate(!showCreate); hapticImpact("light"); }}
+              className="h-8 w-8 rounded-full bg-blue-500/20 flex items-center justify-center active:scale-95"
+            >
+              {showCreate ? <X className="h-4 w-4 text-blue-400" /> : <Plus className="h-4 w-4 text-blue-400" />}
+            </button>
+          </div>
+
+          {showCreate && (
+            <div className="mt-2 rounded-xl bg-white/[0.06] p-3 space-y-2">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setNewEmoji(newEmoji === "📁" ? "📂" : newEmoji === "📂" ? "⭐" : newEmoji === "⭐" ? "🔥" : "📁")}
+                  className="h-8 w-8 rounded-lg bg-white/[0.08] flex items-center justify-center text-base active:scale-95"
+                >
+                  {newEmoji}
+                </button>
+                <input
+                  type="text"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="Folder name..."
+                  className="flex-1 bg-white/[0.06] rounded-lg px-3 py-1.5 text-sm text-white placeholder:text-white/30 outline-none"
+                />
+              </div>
+              <button
+                onClick={createFolder}
+                disabled={creating || !newName.trim()}
+                className="w-full rounded-lg bg-blue-500 py-2 text-sm font-medium active:scale-[0.98] disabled:opacity-50"
+              >
+                {creating ? "Creating..." : "Create Folder"}
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="px-4 pb-24 space-y-2">
@@ -131,11 +229,51 @@ export default function TMAFoldersPage() {
                         {folderUnread}
                       </span>
                     )}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingId(folder.id);
+                        setEditName(folder.folder_name);
+                        hapticImpact("light");
+                      }}
+                      className="h-6 w-6 rounded flex items-center justify-center active:bg-white/[0.1]"
+                    >
+                      <Pencil className="h-3 w-3 text-white/30" />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteFolder(folder.id);
+                      }}
+                      disabled={deletingId === folder.id}
+                      className="h-6 w-6 rounded flex items-center justify-center active:bg-white/[0.1]"
+                    >
+                      <Trash2 className="h-3 w-3 text-red-400/50" />
+                    </button>
                     <ChevronRight className={cn(
                       "h-4 w-4 text-white/30 transition-transform",
                       isExpanded && "rotate-90"
                     )} />
                   </button>
+
+                  {editingId === folder.id && (
+                    <div className="flex items-center gap-2 px-3 py-2 border-t border-white/5">
+                      <input
+                        type="text"
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        autoFocus
+                        className="flex-1 bg-white/[0.06] rounded-lg px-2 py-1 text-xs text-white outline-none"
+                        onKeyDown={(e) => { if (e.key === "Enter") renameFolder(folder.id); }}
+                      />
+                      <button onClick={() => renameFolder(folder.id)} className="h-6 w-6 rounded bg-blue-500/20 flex items-center justify-center">
+                        <Check className="h-3 w-3 text-blue-400" />
+                      </button>
+                      <button onClick={() => setEditingId(null)} className="h-6 w-6 rounded bg-white/[0.06] flex items-center justify-center">
+                        <X className="h-3 w-3 text-white/40" />
+                      </button>
+                    </div>
+                  )}
 
                   {isExpanded && folder.chats && (
                     <div className="border-t border-white/5">

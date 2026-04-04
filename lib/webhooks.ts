@@ -20,7 +20,10 @@ export type WebhookEvent =
   | "group.member_joined"
   | "group.member_left"
   | "broadcast.sent"
-  | "sequence.completed";
+  | "sequence.completed"
+  | "qr.scanned"
+  | "qr.converted"
+  | "sequence.enrolled";
 
 /**
  * Dispatch a webhook event to all active endpoints subscribed to this event type.

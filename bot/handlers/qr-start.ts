@@ -1,6 +1,7 @@
 import type { Bot } from "grammy";
 import { supabase } from "../lib/supabase.js";
 import { executeChatbotFlow } from "./chatbot-flow-executor.js";
+import { dispatchBotWebhook } from "../lib/webhooks.js";
 
 /**
  * Handle /start commands with qr_ prefix for QR code lead capture.
@@ -47,6 +48,14 @@ export function registerQrStartHandler(bot: Bot) {
       qr_code_id: qrCode.id,
       telegram_user_id: telegramUserId ?? null,
       ip_hint: null, // Not available in bot context
+    });
+
+    // Dispatch qr.scanned webhook (non-blocking)
+    dispatchBotWebhook("qr.scanned", {
+      qr_code_id: qrCode.id,
+      telegram_user_id: telegramUserId ?? null,
+      campaign: qrCode.campaign ?? null,
+      source: qrCode.source ?? null,
     });
 
     // Increment scan count on the QR code

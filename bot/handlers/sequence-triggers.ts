@@ -35,14 +35,36 @@ interface OutreachSequence {
   };
 }
 
-// ── Sequence cache (refreshed every 60s) ─────────────────────
+// ── Sequence cache (refreshed every 60s or on bust signal) ──
 
 let cachedSequences: OutreachSequence[] = [];
 let cacheTimestamp = 0;
+let lastBustCheck = 0;
 const CACHE_TTL_MS = 60_000;
+const BUST_CHECK_MS = 10_000; // Check bust signal every 10s
+
+async function isCacheBusted(): Promise<boolean> {
+  if (Date.now() - lastBustCheck < BUST_CHECK_MS) return false;
+  lastBustCheck = Date.now();
+
+  try {
+    const { data } = await supabase
+      .from("crm_cache_bust")
+      .select("busted_at")
+      .eq("key", "outreach_sequences")
+      .single();
+
+    if (!data?.busted_at) return false;
+    const bustedAt = new Date(data.busted_at as string).getTime();
+    return bustedAt > cacheTimestamp;
+  } catch {
+    return false;
+  }
+}
 
 async function getActiveSequences(): Promise<OutreachSequence[]> {
-  if (cacheTimestamp > 0 && Date.now() - cacheTimestamp < CACHE_TTL_MS) {
+  const busted = await isCacheBusted();
+  if (!busted && cacheTimestamp > 0 && Date.now() - cacheTimestamp < CACHE_TTL_MS) {
     return cachedSequences;
   }
 

@@ -6,6 +6,7 @@
 
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
+import { dispatchWebhook } from "@/lib/webhooks";
 
 export async function GET(request: Request) {
   const auth = await requireAuth();
@@ -99,6 +100,16 @@ export async function POST(request: Request) {
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+
+  // Dispatch enrollment webhook
+  dispatchWebhook("sequence.enrolled", {
+    enrollment_id: enrollment.id,
+    sequence_id,
+    deal_id: deal_id || null,
+    contact_id: contact_id || null,
+    tg_chat_id: chatId || null,
+    enrolled_by: user.id,
+  });
 
   return NextResponse.json({ enrollment, ok: true });
 }

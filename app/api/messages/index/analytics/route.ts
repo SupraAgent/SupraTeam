@@ -38,6 +38,7 @@ export async function GET(request: Request) {
   const before = searchParams.get("before");
   const rawLimit = Number(searchParams.get("limit") ?? 20);
   const limit = Math.min(isNaN(rawLimit) ? 20 : rawLimit, 100);
+  const timezone = searchParams.get("timezone") ?? "UTC";
 
   if (!metric) {
     return NextResponse.json(
@@ -116,7 +117,10 @@ export async function GET(request: Request) {
     }
 
     case "heatmap": {
-      const { data, error } = await supabase.rpc("crm_analytics_heatmap", rpcParams);
+      const { data, error } = await supabase.rpc("crm_analytics_heatmap", {
+        ...rpcParams,
+        p_timezone: timezone,
+      });
 
       if (error) {
         console.error("[api/messages/analytics] heatmap error:", error);

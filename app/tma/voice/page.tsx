@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Mic, ChevronLeft, Loader2, Search, CheckSquare } from "lucide-react";
+import { Mic, MicOff, ChevronLeft, Loader2, Search, CheckSquare, Send } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
 import { useTelegramWebApp } from "@/components/tma/use-telegram";
 import { useOfflineCache } from "@/lib/client/tma-offline";
@@ -49,7 +49,94 @@ export default function TMAVoicePage() {
   const [expandedId, setExpandedId] = React.useState<string | null>(null);
   const [search, setSearch] = React.useState("");
 
+  // Recording state
+  const [isRecording, setIsRecording] = React.useState(false);
+  const [recordingTime, setRecordingTime] = React.useState(0);
+  const [uploading, setUploading] = React.useState(false);
+  const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
+  const chunksRef = React.useRef<Blob[]>([]);
+  const timerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+
   useTelegramWebApp();
+
+  async function startRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+          ? "audio/webm;codecs=opus"
+          : "audio/webm",
+      });
+      chunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+      };
+
+      mediaRecorder.start(1000);
+      mediaRecorderRef.current = mediaRecorder;
+      setIsRecording(true);
+      setRecordingTime(0);
+      hapticImpact("medium");
+
+      timerRef.current = setInterval(() => {
+        setRecordingTime((t) => t + 1);
+      }, 1000);
+    } catch {
+      // Microphone access denied
+    }
+  }
+
+  async function stopRecording() {
+    if (!mediaRecorderRef.current) return;
+    mediaRecorderRef.current.stop();
+    setIsRecording(false);
+    if (timerRef.current) clearInterval(timerRef.current);
+    hapticImpact("heavy");
+
+    // Wait for chunks to finalize
+    await new Promise((r) => setTimeout(r, 200));
+
+    if (chunksRef.current.length === 0) return;
+
+    const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+    setUploading(true);
+
+    try {
+      const formData = new FormData();
+      formData.append("audio", blob, `recording_${Date.now()}.webm`);
+      formData.append("duration_seconds", String(recordingTime));
+
+      const res = await fetch("/api/voice/transcriptions", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (res.ok) {
+        hapticImpact("light");
+        await fetchData();
+      }
+    } catch {
+      // Upload failed
+    } finally {
+      setUploading(false);
+      setRecordingTime(0);
+    }
+  }
+
+  // Cleanup on unmount
+  React.useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+      if (mediaRecorderRef.current?.state === "recording") {
+        mediaRecorderRef.current.stop();
+      }
+    };
+  }, []);
 
   // Offline cache for voice transcriptions
   const voiceUrl = search ? null : "/api/voice/transcriptions?limit=30";
@@ -354,6 +441,47 @@ export default function TMAVoicePage() {
               </div>
             );
           })}
+        </div>
+      </div>
+
+      {/* Floating record button */}
+      <div className="fixed bottom-6 left-0 right-0 flex justify-center z-20 pointer-events-none">
+        <div className="pointer-events-auto flex flex-col items-center gap-2">
+          {isRecording && (
+            <div className="rounded-full bg-red-500/20 px-4 py-1.5 flex items-center gap-2 animate-pulse">
+              <span className="h-2 w-2 rounded-full bg-red-500" />
+              <span className="text-xs font-medium text-red-400">
+                {formatDuration(recordingTime)}
+              </span>
+            </div>
+          )}
+          {uploading && (
+            <div className="rounded-full bg-violet-500/20 px-4 py-1.5 flex items-center gap-2">
+              <Loader2 className="h-3 w-3 animate-spin text-violet-400" />
+              <span className="text-xs font-medium text-violet-400">Uploading...</span>
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={isRecording ? stopRecording : startRecording}
+            disabled={uploading}
+            className={cn(
+              "h-14 w-14 rounded-full flex items-center justify-center shadow-lg active:scale-95 transition-all",
+              isRecording
+                ? "bg-red-500 animate-pulse"
+                : uploading
+                  ? "bg-zinc-700 opacity-50"
+                  : "bg-violet-500 hover:bg-violet-400"
+            )}
+          >
+            {isRecording ? (
+              <MicOff className="h-6 w-6 text-white" />
+            ) : uploading ? (
+              <Loader2 className="h-6 w-6 text-white animate-spin" />
+            ) : (
+              <Mic className="h-6 w-6 text-white" />
+            )}
+          </button>
         </div>
       </div>
     </PullToRefresh>

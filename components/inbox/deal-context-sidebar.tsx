@@ -2,13 +2,18 @@
 
 import * as React from "react";
 import { cn, timeAgo } from "@/lib/utils";
-import { ExternalLink, TrendingUp, TrendingDown, Minus, Clock, X } from "lucide-react";
+import {
+  ExternalLink, TrendingUp, TrendingDown, Minus, Clock, X,
+  ChevronRight, StickyNote, Plus, Trophy, XCircle, AlarmClock, Send,
+} from "lucide-react";
+import { toast } from "sonner";
 
 interface Deal {
   id: string;
   deal_name: string;
   board_type: string;
   stage: { name: string; color: string } | null;
+  stage_id?: string | null;
   assigned_to: string | null;
   contact: { id: string; name: string } | null;
   value?: number | null;
@@ -20,13 +25,267 @@ interface Deal {
   updated_at?: string;
 }
 
+interface Stage {
+  id: string;
+  name: string;
+  position: number;
+  color: string;
+}
+
 interface DealContextSidebarProps {
   deals: Deal[];
   chatId: number;
   onClose: () => void;
+  onDealUpdated?: () => void;
 }
 
-export function DealContextSidebar({ deals, onClose }: DealContextSidebarProps) {
+function DealActions({ deal, onDealUpdated }: { deal: Deal; onDealUpdated?: () => void }) {
+  const [stages, setStages] = React.useState<Stage[]>([]);
+  const [showStages, setShowStages] = React.useState(false);
+  const [movingStage, setMovingStage] = React.useState(false);
+  const [showNote, setShowNote] = React.useState(false);
+  const [noteText, setNoteText] = React.useState("");
+  const [sendingNote, setSendingNote] = React.useState(false);
+  const [showTask, setShowTask] = React.useState(false);
+  const [taskMsg, setTaskMsg] = React.useState("");
+  const [taskDue, setTaskDue] = React.useState("");
+  const [creatingTask, setCreatingTask] = React.useState(false);
+
+  React.useEffect(() => {
+    if (showStages && stages.length === 0) {
+      fetch(`/api/pipeline?board_type=${deal.board_type}`)
+        .then((r) => r.json())
+        .then((d) => setStages(d.stages ?? []))
+        .catch(() => {});
+    }
+  }, [showStages, stages.length, deal.board_type]);
+
+  async function handleStageMove(newStageId: string) {
+    if (movingStage) return;
+    setMovingStage(true);
+    try {
+      const res = await fetch(`/api/deals/${deal.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stage_id: newStageId }),
+      });
+      if (res.ok) {
+        const stage = stages.find((s) => s.id === newStageId);
+        toast.success(`Moved to ${stage?.name ?? "new stage"}`);
+        setShowStages(false);
+        onDealUpdated?.();
+      } else {
+        toast.error("Failed to move stage");
+      }
+    } catch {
+      toast.error("Network error");
+    } finally {
+      setMovingStage(false);
+    }
+  }
+
+  async function handleAddNote() {
+    if (!noteText.trim()) return;
+    setSendingNote(true);
+    try {
+      const res = await fetch(`/api/deals/${deal.id}/notes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: noteText }),
+      });
+      if (res.ok) {
+        toast.success("Note added");
+        setNoteText("");
+        setShowNote(false);
+      } else {
+        toast.error("Failed to add note");
+      }
+    } finally {
+      setSendingNote(false);
+    }
+  }
+
+  async function handleCreateTask(e: React.FormEvent) {
+    e.preventDefault();
+    if (!taskMsg.trim()) return;
+    setCreatingTask(true);
+    try {
+      const res = await fetch("/api/reminders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: taskMsg.trim(),
+          deal_id: deal.id,
+          due_at: taskDue ? new Date(taskDue).toISOString() : undefined,
+        }),
+      });
+      if (res.ok) {
+        toast.success("Task created");
+        setTaskMsg("");
+        setTaskDue("");
+        setShowTask(false);
+      } else {
+        toast.error("Failed to create task");
+      }
+    } finally {
+      setCreatingTask(false);
+    }
+  }
+
+  async function handleOutcome(outcome: "won" | "lost") {
+    const res = await fetch(`/api/deals/${deal.id}/outcome`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ outcome }),
+    });
+    if (res.ok) {
+      toast.success(`Deal marked as ${outcome}`);
+      onDealUpdated?.();
+    } else {
+      toast.error("Failed to update outcome");
+    }
+  }
+
+  return (
+    <div className="space-y-1.5 pt-1">
+      {/* Action buttons row */}
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => { setShowStages(!showStages); setShowNote(false); setShowTask(false); }}
+          className={cn(
+            "flex-1 flex items-center justify-center gap-1 px-1.5 py-1 rounded text-[10px] font-medium transition-colors",
+            showStages ? "bg-primary/20 text-primary" : "bg-white/[0.04] text-muted-foreground hover:bg-white/[0.08] hover:text-foreground"
+          )}
+          title="Move stage"
+        >
+          <ChevronRight className="h-2.5 w-2.5" />
+          Stage
+        </button>
+        <button
+          onClick={() => { setShowNote(!showNote); setShowStages(false); setShowTask(false); }}
+          className={cn(
+            "flex-1 flex items-center justify-center gap-1 px-1.5 py-1 rounded text-[10px] font-medium transition-colors",
+            showNote ? "bg-primary/20 text-primary" : "bg-white/[0.04] text-muted-foreground hover:bg-white/[0.08] hover:text-foreground"
+          )}
+          title="Add note"
+        >
+          <StickyNote className="h-2.5 w-2.5" />
+          Note
+        </button>
+        <button
+          onClick={() => { setShowTask(!showTask); setShowStages(false); setShowNote(false); }}
+          className={cn(
+            "flex-1 flex items-center justify-center gap-1 px-1.5 py-1 rounded text-[10px] font-medium transition-colors",
+            showTask ? "bg-primary/20 text-primary" : "bg-white/[0.04] text-muted-foreground hover:bg-white/[0.08] hover:text-foreground"
+          )}
+          title="Create task"
+        >
+          <AlarmClock className="h-2.5 w-2.5" />
+          Task
+        </button>
+      </div>
+
+      {/* Outcome buttons */}
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => handleOutcome("won")}
+          className="flex-1 flex items-center justify-center gap-1 px-1.5 py-1 rounded text-[10px] font-medium bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors"
+        >
+          <Trophy className="h-2.5 w-2.5" />
+          Won
+        </button>
+        <button
+          onClick={() => handleOutcome("lost")}
+          className="flex-1 flex items-center justify-center gap-1 px-1.5 py-1 rounded text-[10px] font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
+        >
+          <XCircle className="h-2.5 w-2.5" />
+          Lost
+        </button>
+      </div>
+
+      {/* Stage picker */}
+      {showStages && (
+        <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-1.5 space-y-0.5">
+          {stages.length === 0 ? (
+            <p className="text-[10px] text-muted-foreground/50 text-center py-1">Loading...</p>
+          ) : (
+            stages.map((s) => (
+              <button
+                key={s.id}
+                disabled={movingStage || s.id === deal.stage_id}
+                onClick={() => handleStageMove(s.id)}
+                className={cn(
+                  "w-full flex items-center gap-1.5 px-2 py-1 rounded text-[10px] transition-colors",
+                  s.id === deal.stage_id
+                    ? "bg-white/[0.06] text-foreground font-medium"
+                    : "text-muted-foreground hover:bg-white/[0.06] hover:text-foreground"
+                )}
+              >
+                <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
+                {s.name}
+                {s.id === deal.stage_id && <span className="ml-auto text-[9px] text-muted-foreground/50">current</span>}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* Note form */}
+      {showNote && (
+        <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-1.5">
+          <textarea
+            value={noteText}
+            onChange={(e) => setNoteText(e.target.value)}
+            placeholder="Add a note..."
+            className="w-full bg-transparent text-[11px] text-foreground placeholder:text-muted-foreground/40 resize-none outline-none min-h-[48px]"
+            rows={2}
+          />
+          <div className="flex justify-end mt-1">
+            <button
+              disabled={sendingNote || !noteText.trim()}
+              onClick={handleAddNote}
+              className="flex items-center gap-1 px-2 py-0.5 rounded bg-primary/20 text-primary text-[10px] font-medium hover:bg-primary/30 disabled:opacity-50 transition-colors"
+            >
+              <Send className="h-2.5 w-2.5" />
+              {sendingNote ? "Saving..." : "Save"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Task form */}
+      {showTask && (
+        <form onSubmit={handleCreateTask} className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-1.5 space-y-1">
+          <input
+            type="text"
+            value={taskMsg}
+            onChange={(e) => setTaskMsg(e.target.value)}
+            placeholder="Task description..."
+            className="w-full bg-transparent text-[11px] text-foreground placeholder:text-muted-foreground/40 outline-none px-1 py-0.5"
+          />
+          <input
+            type="datetime-local"
+            value={taskDue}
+            onChange={(e) => setTaskDue(e.target.value)}
+            className="w-full bg-transparent text-[10px] text-muted-foreground outline-none px-1 py-0.5"
+          />
+          <div className="flex justify-end">
+            <button
+              type="submit"
+              disabled={creatingTask || !taskMsg.trim()}
+              className="flex items-center gap-1 px-2 py-0.5 rounded bg-primary/20 text-primary text-[10px] font-medium hover:bg-primary/30 disabled:opacity-50 transition-colors"
+            >
+              <Plus className="h-2.5 w-2.5" />
+              {creatingTask ? "Creating..." : "Create"}
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}
+
+export function DealContextSidebar({ deals, onClose, onDealUpdated }: DealContextSidebarProps) {
   if (deals.length === 0) {
     return (
       <div className="w-[260px] shrink-0 border-l border-white/[0.06] bg-white/[0.01] flex flex-col">
@@ -160,6 +419,9 @@ export function DealContextSidebar({ deals, onClose }: DealContextSidebarProps) 
               Contact: <span className="text-foreground/70">{deal.contact.name}</span>
             </div>
           )}
+
+          {/* Inline actions */}
+          <DealActions deal={deal} onDealUpdated={onDealUpdated} />
         </div>
       ))}
     </div>

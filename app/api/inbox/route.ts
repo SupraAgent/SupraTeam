@@ -31,7 +31,7 @@ export async function GET(request: Request) {
   const { supabase } = auth;
 
   const { searchParams } = new URL(request.url);
-  const limit = Math.min(Number(searchParams.get("limit") ?? 30), 50);
+  const limit = Math.min(Number(searchParams.get("limit") ?? 30), 100);
   const before = searchParams.get("before");
   const chatIdFilter = searchParams.get("chat_id");
   const botIdFilter = searchParams.get("bot_id");
@@ -160,7 +160,7 @@ export async function GET(request: Request) {
   if (dealChatIds.length > 0) {
     const { data } = await supabase
       .from("crm_deals")
-      .select("id, deal_name, board_type, telegram_chat_id, stage:pipeline_stages(name, color), assigned_to, contact:crm_contacts(id, name)")
+      .select("id, deal_name, board_type, stage_id, value, probability, health_score, ai_summary, telegram_chat_id, stage:pipeline_stages(name, color), assigned_to, contact:crm_contacts(id, name)")
       .in("telegram_chat_id", dealChatIds)
       .eq("outcome", "open");
     deals = data;
@@ -173,8 +173,14 @@ export async function GET(request: Request) {
     dealsByChat[chatId].push(deal);
   }
 
+  const page = conversations.slice(0, limit);
+  const hasMore = conversations.length > limit;
+  const nextCursor = hasMore && page.length > 0 ? page[page.length - 1].latest_at : null;
+
   return NextResponse.json({
-    conversations: conversations.slice(0, limit),
+    conversations: page,
     deals: dealsByChat,
+    hasMore,
+    nextCursor,
   });
 }
