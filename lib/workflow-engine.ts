@@ -329,6 +329,13 @@ export async function triggerWorkflowsByEvent(
         if (!payload.message_text.toLowerCase().includes(cfg.keyword.toLowerCase())) continue;
       }
     }
+    if (triggerType === "conversation_gap_reply" && cfg.min_gap_hours) {
+      const gap = Number(payload.gap_hours ?? 0);
+      if (gap < Number(cfg.min_gap_hours)) continue;
+    }
+    if ((triggerType === "sla_breach" || triggerType === "sla_warning") && cfg.board_type) {
+      if (cfg.board_type !== payload.board_type) continue;
+    }
 
     matching.push(wf);
   }

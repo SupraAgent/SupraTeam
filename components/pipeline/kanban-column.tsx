@@ -24,8 +24,10 @@ type KanbanColumnProps = {
   unreadCounts?: Record<string, number>;
   slamDealId?: string | null;
   ripple?: boolean;
+  conversionRate?: number | null;
   onHoverPreview?: (deal: Deal, rect: DOMRect) => void;
   onHoverEnd?: () => void;
+  sortByUrgency?: boolean;
 };
 
 function avgDaysInStage(deals: Deal[]): number | null {
@@ -48,13 +50,24 @@ export function KanbanColumn({
   highlightDealId, highlightedDealIds, highlightDetails,
   collapsed, onToggleCollapse,
   unreadCounts,
-  slamDealId, ripple,
+  slamDealId, ripple, conversionRate,
   onHoverPreview, onHoverEnd,
+  sortByUrgency,
 }: KanbanColumnProps) {
-  const totalValue = deals.reduce((sum, d) => sum + Number(d.value ?? 0), 0);
-  const avgDays = avgDaysInStage(deals);
-  const overWip = deals.length > WIP_LIMIT;
-  const weightedValue = deals.reduce((s, d) => s + Number(d.value ?? 0) * (Number(d.probability ?? 50) / 100), 0);
+  // Sort by urgency: awaiting response first (oldest wait at top), then unread, then rest
+  const sortedDeals = sortByUrgency ? [...deals].sort((a, b) => {
+    const aWait = a.awaiting_response_since ? new Date(a.awaiting_response_since).getTime() : Infinity;
+    const bWait = b.awaiting_response_since ? new Date(b.awaiting_response_since).getTime() : Infinity;
+    if (aWait !== bWait) return aWait - bWait;
+    const aUnread = unreadCounts?.[a.id] ?? 0;
+    const bUnread = unreadCounts?.[b.id] ?? 0;
+    if (aUnread !== bUnread) return bUnread - aUnread;
+    return 0;
+  }) : deals;
+  const totalValue = sortedDeals.reduce((sum, d) => sum + Number(d.value ?? 0), 0);
+  const avgDays = avgDaysInStage(sortedDeals);
+  const overWip = sortedDeals.length > WIP_LIMIT;
+  const weightedValue = sortedDeals.reduce((s, d) => s + Number(d.value ?? 0) * (Number(d.probability ?? 50) / 100), 0);
 
   // Collapsed column — vertical label
   if (collapsed) {
@@ -103,6 +116,11 @@ export function KanbanColumn({
               />
             )}
             <span className="text-xs font-medium text-foreground">{stage.name}</span>
+            {conversionRate != null && conversionRate > 0 && (
+              <span className="text-[9px] text-muted-foreground/30 ml-1" title={`${conversionRate}% from previous stage`}>
+                &larr;{conversionRate}%
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-1.5">
             {overWip && (
@@ -155,12 +173,12 @@ export function KanbanColumn({
               snapshot.isDraggingOver ? "bg-primary/5" : ""
             }`}
           >
-            {deals.length === 0 && !snapshot.isDraggingOver && (
+            {sortedDeals.length === 0 && !snapshot.isDraggingOver && (
               <div className="flex items-center justify-center h-[60px]">
                 <p className="text-[11px] text-muted-foreground/40">No deals</p>
               </div>
             )}
-            {deals.map((deal, index) => (
+            {sortedDeals.map((deal, index) => (
               <DealCard
                 key={deal.id}
                 deal={deal}
