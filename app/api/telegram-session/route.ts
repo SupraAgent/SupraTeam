@@ -163,6 +163,7 @@ export async function DELETE(req: NextRequest) {
       phone_last4: null,
       telegram_user_id: null,
       phone_number_hash: null,
+      encryption_method: "server", // Reset to default — no valid session
       last_used_at: new Date().toISOString(),
     })
     .eq("user_id", user.id);
