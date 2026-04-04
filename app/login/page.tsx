@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Github } from "lucide-react";
 
 declare global {
   interface Window {
@@ -41,6 +42,34 @@ export default function LoginPage() {
 
   // Dev login state
   const [devPassword, setDevPassword] = React.useState("");
+  const [showTelegramMethods, setShowTelegramMethods] = React.useState(false);
+
+  // ── GitHub OAuth handler ──
+
+  async function handleGitHubLogin() {
+    setLoading(true);
+    setError(null);
+    try {
+      const supabase = createClient();
+      if (!supabase) {
+        setError("Supabase not configured.");
+        return;
+      }
+      const { error: oauthError } = await supabase.auth.signInWithOAuth({
+        provider: "github",
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+        },
+      });
+      if (oauthError) {
+        setError(oauthError.message);
+      }
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   // QR login state
   const [qrUrl, setQrUrl] = React.useState("");
@@ -269,7 +298,31 @@ export default function LoginPage() {
           </div>
         )}
 
-        {/* Method tabs */}
+        {/* GitHub OAuth — primary login */}
+        <Button
+          onClick={handleGitHubLogin}
+          disabled={loading}
+          className="w-full gap-2 bg-white text-black hover:bg-white/90 font-medium"
+          size="lg"
+        >
+          <Github className="h-5 w-5" />
+          {loading && !showTelegramMethods ? "Redirecting..." : "Continue with GitHub"}
+        </Button>
+
+        {/* Divider */}
+        <div className="flex items-center gap-3">
+          <div className="h-px flex-1 bg-white/10" />
+          <button
+            onClick={() => setShowTelegramMethods(!showTelegramMethods)}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {showTelegramMethods ? "Hide" : "Or sign in with Telegram"}
+          </button>
+          <div className="h-px flex-1 bg-white/10" />
+        </div>
+
+        {/* Telegram method tabs — hidden by default */}
+        {showTelegramMethods && (
         <div className="flex gap-1 rounded-xl bg-white/5 p-1">
           {([
             ["phone", "Phone"],
@@ -290,9 +343,10 @@ export default function LoginPage() {
             </button>
           ))}
         </div>
+        )}
 
         {/* ── Phone Login ── */}
-        {method === "phone" && (
+        {showTelegramMethods && method === "phone" && (
           <div className="space-y-4 text-left">
             {phoneStep === "input" && (
               <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5 space-y-4">
@@ -380,7 +434,7 @@ export default function LoginPage() {
         )}
 
         {/* ── QR Code Login ── */}
-        {method === "qr" && (
+        {showTelegramMethods && method === "qr" && (
           <div className="space-y-4">
             {!qrUrl ? (
               <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5 space-y-4">
@@ -426,7 +480,7 @@ export default function LoginPage() {
         )}
 
         {/* ── Widget Login ── */}
-        {method === "widget" && (
+        {showTelegramMethods && method === "widget" && (
           <div className="space-y-4">
             {loading ? (
               <div className="py-4">
@@ -442,7 +496,7 @@ export default function LoginPage() {
         )}
 
         {/* ── Dev Access ── */}
-        {method === "dev" && (
+        {showTelegramMethods && method === "dev" && (
           <div className="space-y-4 text-left">
             <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5 space-y-4">
               <div>
