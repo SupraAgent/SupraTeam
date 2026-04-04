@@ -1,9 +1,10 @@
 import type { Bot } from "grammy";
 import { supabase } from "../lib/supabase.js";
+import { executeChatbotFlow } from "./chatbot-flow-executor.js";
 
 /**
  * Handle /start commands with qr_ prefix for QR code lead capture.
- * Flow: scan QR -> /start qr_UUID -> record scan -> open TMA apply flow.
+ * Flow: scan QR -> /start qr_UUID -> record scan -> trigger chatbot flow OR open TMA apply flow.
  */
 export function registerQrStartHandler(bot: Bot) {
   bot.on("message:text", async (ctx, next) => {
@@ -20,7 +21,7 @@ export function registerQrStartHandler(bot: Bot) {
     // Look up QR code config
     const { data: qrCode, error } = await supabase
       .from("crm_qr_codes")
-      .select("id, name, campaign, source, pipeline_stage_id, assigned_to, custom_fields, redirect_url, is_active, expires_at")
+      .select("id, name, campaign, source, pipeline_stage_id, assigned_to, custom_fields, redirect_url, chatbot_flow_id, is_active, expires_at")
       .eq("id", qrCodeId)
       .single();
 
@@ -61,6 +62,23 @@ export function registerQrStartHandler(bot: Bot) {
         .eq("id", qrCode.id)
         .then(null, () => {});
     });
+
+    // If QR code has a chatbot flow, trigger it instead of TMA apply
+    if (qrCode.chatbot_flow_id && telegramUserId) {
+      try {
+        const handled = await executeChatbotFlow(
+          bot,
+          qrCode.chatbot_flow_id as string,
+          ctx.chat.id,
+          telegramUserId,
+          text
+        );
+        if (handled) return;
+      } catch (err) {
+        console.error("[qr-start] chatbot flow error:", err);
+        // Fall through to TMA flow
+      }
+    }
 
     // Build TMA URL with QR context params
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;

@@ -8,6 +8,7 @@ import { BottomTabBar } from "@/components/tma/bottom-tab-bar";
 import { PullToRefresh } from "@/components/tma/pull-to-refresh";
 import { GroupHealthCard } from "@/components/tma/group-health-card";
 import { useTelegramWebApp } from "@/components/tma/use-telegram";
+import { useOfflineCache } from "@/lib/client/tma-offline";
 
 type HealthStatus = "active" | "quiet" | "stale" | "dead" | "unknown";
 
@@ -46,6 +47,9 @@ export default function TMAGroupsPage() {
 
   useTelegramWebApp();
 
+  // Offline cache for groups
+  const groupsCache = useOfflineCache<{ groups: TgGroup[] }>("/api/groups", { maxAgeMs: 10 * 60_000 });
+
   const fetchData = React.useCallback(async () => {
     try {
       const [groupsRes, slugsRes] = await Promise.all([
@@ -77,9 +81,22 @@ export default function TMAGroupsPage() {
         }))
       );
     } catch {
-      // Silently handle network errors
+      // Network failed — fall back to offline cache
+      if (groupsCache.data) {
+        setGroups(
+          (groupsCache.data.groups ?? []).map((g) => ({
+            ...g,
+            slugs: g.slugs ?? [],
+            message_count_7d: g.message_count_7d ?? 0,
+            message_count_30d: g.message_count_30d ?? 0,
+            health_status: g.health_status ?? "unknown",
+            message_history: g.message_history ?? [],
+            is_archived: g.is_archived ?? false,
+          }))
+        );
+      }
     }
-  }, []);
+  }, [groupsCache.data]);
 
   React.useEffect(() => {
     fetchData().finally(() => setLoading(false));

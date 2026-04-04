@@ -8,6 +8,7 @@ import { BottomTabBar } from "@/components/tma/bottom-tab-bar";
 import { PullToRefresh } from "@/components/tma/pull-to-refresh";
 import { useTelegramWebApp } from "@/components/tma/use-telegram";
 import { hapticImpact } from "@/components/tma/haptic";
+import { useOfflineCache } from "@/lib/client/tma-offline";
 
 type Conversation = {
   chat_id: number;
@@ -53,6 +54,12 @@ export default function TMAInboxPage() {
 
   useTelegramWebApp();
 
+  // Offline cache for inbox conversations
+  const inboxCache = useOfflineCache<{ conversations: Conversation[]; deals: Record<number, Deal[]> }>(
+    "/api/inbox?limit=30",
+    { maxAgeMs: 5 * 60_000 }
+  );
+
   const fetchData = React.useCallback(async () => {
     try {
       const [inboxRes, statusRes] = await Promise.all([
@@ -67,7 +74,6 @@ export default function TMAInboxPage() {
       if (statusRes.ok) {
         const data = await statusRes.json();
         const map = new Map<number, InboxStatus>();
-        // API returns statuses as a Record<chat_id, status> object, not an array
         const statusObj = data.statuses ?? {};
         for (const key of Object.keys(statusObj)) {
           const s = statusObj[key];
@@ -75,10 +81,14 @@ export default function TMAInboxPage() {
         }
         setStatuses(map);
       }
-    } catch (err) {
-      console.error("[tma/inbox] fetch error:", err);
+    } catch {
+      // Network failed — fall back to offline cache
+      if (inboxCache.data) {
+        setConversations(inboxCache.data.conversations ?? []);
+        setDeals(inboxCache.data.deals ?? {});
+      }
     }
-  }, []);
+  }, [inboxCache.data]);
 
   React.useEffect(() => {
     fetchData().finally(() => setLoading(false));

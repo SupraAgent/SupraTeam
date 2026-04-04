@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Mic, ChevronLeft, Loader2, Search } from "lucide-react";
+import { Mic, ChevronLeft, Loader2, Search, CheckSquare } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
 import { useTelegramWebApp } from "@/components/tma/use-telegram";
 import { PullToRefresh } from "@/components/tma/pull-to-refresh";
@@ -77,6 +77,56 @@ export default function TMAVoicePage() {
   const handleDealTap = (dealId: string) => {
     hapticImpact("medium");
     router.push(`/tma/deals/${dealId}`);
+  };
+
+  const [creatingTask, setCreatingTask] = React.useState<string | null>(null);
+
+  const handleCreateTask = async (
+    transcriptionId: string,
+    item: ActionItem,
+    dealId?: string
+  ) => {
+    const key = `${transcriptionId}-${item.text}`;
+    if (creatingTask) return;
+    setCreatingTask(key);
+    hapticImpact("medium");
+    try {
+      const dueAt = item.deadline_hint
+        ? new Date(item.deadline_hint).toISOString()
+        : undefined;
+      const res = await fetch("/api/reminders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: item.text,
+          deal_id: dealId ?? undefined,
+          due_at: dueAt,
+          priority: item.priority,
+          source: "voice_note",
+          source_id: transcriptionId,
+        }),
+      });
+      if (res.ok) {
+        hapticImpact("light");
+        // Mark item as done locally
+        setTranscriptions((prev) =>
+          prev.map((t) =>
+            t.id === transcriptionId
+              ? {
+                  ...t,
+                  action_items: t.action_items.map((ai) =>
+                    ai.text === item.text ? { ...ai, done: true } : ai
+                  ),
+                }
+              : t
+          )
+        );
+      }
+    } catch {
+      // Silent fail
+    } finally {
+      setCreatingTask(null);
+    }
   };
 
   return (
@@ -194,27 +244,45 @@ export default function TMAVoicePage() {
                         <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
                           Action Items
                         </span>
-                        {t.action_items.map((item, i) => (
-                          <div
-                            key={i}
-                            className={cn(
-                              "flex items-start gap-2 rounded px-2 py-1 text-sm",
-                              item.done ? "text-zinc-600 line-through" : "text-zinc-300"
-                            )}
-                          >
-                            <span
+                        {t.action_items.map((item, i) => {
+                          const taskKey = `${t.id}-${item.text}`;
+                          return (
+                            <div
+                              key={i}
                               className={cn(
-                                "mt-1 h-1.5 w-1.5 shrink-0 rounded-full",
-                                item.priority === "high"
-                                  ? "bg-red-400"
-                                  : item.priority === "medium"
-                                    ? "bg-amber-400"
-                                    : "bg-zinc-500"
+                                "flex items-center gap-2 rounded px-2 py-1 text-sm",
+                                item.done ? "text-zinc-600 line-through" : "text-zinc-300"
                               )}
-                            />
-                            <span>{item.text}</span>
-                          </div>
-                        ))}
+                            >
+                              <span
+                                className={cn(
+                                  "mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full",
+                                  item.priority === "high"
+                                    ? "bg-red-400"
+                                    : item.priority === "medium"
+                                      ? "bg-amber-400"
+                                      : "bg-zinc-500"
+                                )}
+                              />
+                              <span className="flex-1">{item.text}</span>
+                              {!item.done && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleCreateTask(t.id, item, t.deal?.id)}
+                                  disabled={creatingTask === taskKey}
+                                  className="shrink-0 rounded p-1 text-violet-400 hover:bg-violet-500/10 disabled:opacity-50"
+                                  title="Create task"
+                                >
+                                  {creatingTask === taskKey ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <CheckSquare className="h-3.5 w-3.5" />
+                                  )}
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
 
