@@ -25,7 +25,7 @@ interface Transcript {
   summary: string | null;
   action_items: Array<{ text: string; assignee?: string; completed?: boolean }>;
   sentiment: Record<string, unknown>;
-  transcript_url: string;
+  transcript_url: string | null;
   speakers: Array<{ name: string; email?: string; talk_time_pct?: number }>;
 }
 
