@@ -8,6 +8,7 @@ import {
   Mail,
   Calendar,
   CalendarCheck,
+  Mic,
   Webhook,
   Link2,
   Key,
@@ -84,6 +85,15 @@ export default function IntegrationsOverviewPage() {
       connected: null,
     },
     {
+      key: "fireflies",
+      label: "Fireflies.ai",
+      description: "Auto-transcribe meetings, enrich deals with summaries and action items",
+      href: "/settings/integrations/fireflies",
+      icon: <Mic className="h-5 w-5 text-purple-400" />,
+      iconBg: "bg-purple-500/10",
+      connected: null,
+    },
+    {
       key: "webhooks",
       label: "Webhooks",
       description: "Receive and send webhook events for external integrations",
@@ -157,6 +167,14 @@ export default function IntegrationsOverviewPage() {
         }
       })
       .catch(() => updateStatus("calendly", false));
+
+    // Check Fireflies
+    fetch("/api/fireflies/connection")
+      .then((r) => (r.ok ? r.json() : { data: null }))
+      .then(({ data }) => {
+        updateStatus("fireflies", !!data, data ? data.email : undefined);
+      })
+      .catch(() => updateStatus("fireflies", false));
 
     // TG Connect + Webhooks — mark as configured (no API check needed)
     updateStatus("tg-connect", false);
