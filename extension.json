@@ -4,27 +4,6 @@
   "version": "1.0.0",
   "description": "Multi-channel engagement CRM — Telegram, Gmail, Calendar unified into a deal pipeline with AI triage and visual automations",
   "developer": "SupraTeam",
-  "icon": "CRM",
-  "lifeFactor": "work",
-  "primaryColor": "#6366f1",
-
-  "pages": ["overview", "agents"],
-  "customPages": [
-    { "id": "crm-dashboard",     "label": "Dashboard",      "icon": "H",  "href": "/vms/supra-crm/dashboard" },
-    { "id": "crm-pipeline",      "label": "Pipeline",       "icon": "K",  "href": "/vms/supra-crm/pipeline" },
-    { "id": "crm-telegram",      "label": "Telegram",       "icon": "T",  "href": "/vms/supra-crm/telegram" },
-    { "id": "crm-inbox",         "label": "Team Inbox",     "icon": "I",  "href": "/vms/supra-crm/inbox" },
-    { "id": "crm-email",         "label": "Email",          "icon": "E",  "href": "/vms/supra-crm/email" },
-    { "id": "crm-contacts",      "label": "Contacts",       "icon": "C",  "href": "/vms/supra-crm/contacts" },
-    { "id": "crm-companies",     "label": "Companies",      "icon": "B",  "href": "/vms/supra-crm/companies" },
-    { "id": "crm-groups",        "label": "TG Groups",      "icon": "G",  "href": "/vms/supra-crm/groups" },
-    { "id": "crm-broadcasts",    "label": "Broadcasts",     "icon": "R",  "href": "/vms/supra-crm/broadcasts" },
-    { "id": "crm-outreach",      "label": "Outreach",       "icon": "O",  "href": "/vms/supra-crm/outreach" },
-    { "id": "crm-automations",   "label": "Automations",    "icon": "W",  "href": "/vms/supra-crm/automations" },
-    { "id": "crm-calendar",      "label": "Calendar",       "icon": "D",  "href": "/vms/supra-crm/calendar" },
-    { "id": "crm-reports",       "label": "Reports",        "icon": "A",  "href": "/vms/supra-crm/reports" },
-    { "id": "crm-settings",      "label": "Settings",       "icon": "S",  "href": "/vms/supra-crm/settings" }
-  ],
 
   "requiredServices": [
     "telegram",
@@ -159,11 +138,15 @@
   },
 
   "auth": {
-    "currentProvider": "supabase_github_oauth",
+    "provider": "supabase_github_oauth",
     "identityField": "user.id",
     "roleField": "profiles.crm_role",
     "roles": ["bd_lead", "marketing_lead", "admin_lead"],
-    "note": "VMS fork would swap to wallet auth — replace useAuth() with useWallet(), user.id with supraAddress"
+    "hooks": {
+      "getUser": "useAuth()",
+      "requireAuth": "requireAuth()",
+      "identityAccess": "user.id"
+    }
   },
 
   "runtime": {
@@ -173,8 +156,7 @@
       {
         "name": "telegram-bot",
         "entry": "bot/index.ts",
-        "runtime": "node",
-        "note": "Must run as separate process, NOT inside API routes"
+        "runtime": "node"
       }
     ]
   }
