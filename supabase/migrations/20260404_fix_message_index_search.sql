@@ -63,3 +63,46 @@ $$;
 
 COMMENT ON FUNCTION crm_bulk_index_messages IS
   'Bulk-indexes messages: stores encrypted message_text + computes search_vector from plaintext. Plaintext is never persisted.';
+
+-- ── Ranked search RPC ────────────────────────────────────────
+-- Returns results ranked by relevance (ts_rank) instead of just recency.
+CREATE OR REPLACE FUNCTION crm_search_messages_ranked(
+  p_user_id uuid,
+  p_query text,
+  p_chat_id bigint DEFAULT NULL,
+  p_after timestamptz DEFAULT NULL,
+  p_before timestamptz DEFAULT NULL,
+  p_limit int DEFAULT 50
+)
+RETURNS TABLE(
+  id bigint,
+  chat_id bigint,
+  message_id bigint,
+  sender_id bigint,
+  sender_name text,
+  message_text text,
+  message_type text,
+  has_media boolean,
+  reply_to_message_id bigint,
+  sent_at timestamptz,
+  rank real
+)
+LANGUAGE sql STABLE SECURITY DEFINER
+AS $$
+  SELECT
+    m.id, m.chat_id, m.message_id, m.sender_id, m.sender_name,
+    m.message_text, m.message_type, m.has_media, m.reply_to_message_id,
+    m.sent_at,
+    ts_rank(m.search_vector, websearch_to_tsquery('simple', p_query)) AS rank
+  FROM crm_message_index m
+  WHERE m.user_id = p_user_id
+    AND m.search_vector @@ websearch_to_tsquery('simple', p_query)
+    AND (p_chat_id IS NULL OR m.chat_id = p_chat_id)
+    AND (p_after IS NULL OR m.sent_at >= p_after)
+    AND (p_before IS NULL OR m.sent_at <= p_before)
+  ORDER BY rank DESC, m.sent_at DESC
+  LIMIT p_limit;
+$$;
+
+COMMENT ON FUNCTION crm_search_messages_ranked IS
+  'Full-text search with ts_rank relevance scoring. Returns results by match quality, not just recency.';

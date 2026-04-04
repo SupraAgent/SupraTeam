@@ -83,14 +83,19 @@ function matchesGroup(seq: OutreachSequence, chatId: number): boolean {
   return groupIds.includes(chatId);
 }
 
-async function isAlreadyEnrolled(sequenceId: string, tgChatId: string): Promise<boolean> {
-  const { count } = await supabase
+/**
+ * Batch check which sequence IDs already have active enrollments for a chat.
+ * Returns a Set of enrolled sequence IDs. Single query instead of N queries.
+ */
+async function getEnrolledSequenceIds(sequenceIds: string[], tgChatId: string): Promise<Set<string>> {
+  if (sequenceIds.length === 0) return new Set();
+  const { data } = await supabase
     .from("crm_outreach_enrollments")
-    .select("id", { count: "exact", head: true })
-    .eq("sequence_id", sequenceId)
+    .select("sequence_id")
     .eq("tg_chat_id", tgChatId)
+    .in("sequence_id", sequenceIds)
     .in("status", ["active", "paused"]);
-  return (count ?? 0) > 0;
+  return new Set((data ?? []).map((r) => r.sequence_id as string));
 }
 
 async function enrollInSequence(
@@ -185,9 +190,11 @@ export function registerSequenceTriggers(bot: Bot) {
     const chatTitle = chat.title;
     const userName = user.first_name + (user.last_name ? ` ${user.last_name}` : "");
 
+    // Batch check enrollments (1 query instead of N)
+    const enrolledIds = await getEnrolledSequenceIds(matching.map((s) => s.id), String(chat.id));
+
     for (const seq of matching) {
-      const enrolled = await isAlreadyEnrolled(seq.id, String(chat.id));
-      if (enrolled) continue;
+      if (enrolledIds.has(seq.id)) continue;
       await enrollInSequence(seq.id, user.id, chat.id, {
         trigger: "group_join",
         group_name: chatTitle,
@@ -239,21 +246,24 @@ export function registerSequenceTriggers(bot: Bot) {
       (s) => s.trigger_type === "keyword_match" && matchesGroup(s, chatId)
     );
 
-    const lowerText = messageText.toLowerCase();
-    for (const seq of kwSequences) {
-      const keywords = seq.trigger_config?.keywords ?? [];
-      const matchedKw = keywords.find((kw) => lowerText.includes(kw.toLowerCase()));
-      if (!matchedKw) continue;
+    if (kwSequences.length > 0) {
+      // Batch check enrollments for all keyword sequences
+      const kwEnrolledIds = await getEnrolledSequenceIds(kwSequences.map((s) => s.id), String(chatId));
 
-      const enrolled = await isAlreadyEnrolled(seq.id, String(chatId));
-      if (enrolled) continue;
+      const lowerText = messageText.toLowerCase();
+      for (const seq of kwSequences) {
+        const keywords = seq.trigger_config?.keywords ?? [];
+        const matchedKw = keywords.find((kw) => lowerText.includes(kw.toLowerCase()));
+        if (!matchedKw) continue;
+        if (kwEnrolledIds.has(seq.id)) continue;
 
-      await enrollInSequence(seq.id, tgUserId, chatId, {
-        trigger: "keyword_match",
-        matched_keyword: matchedKw,
-        message_text: messageText.slice(0, 200),
-        user_name: userName,
-      });
+        await enrollInSequence(seq.id, tgUserId, chatId, {
+          trigger: "keyword_match",
+          matched_keyword: matchedKw,
+          message_text: messageText.slice(0, 200),
+          user_name: userName,
+        });
+      }
     }
   });
 }

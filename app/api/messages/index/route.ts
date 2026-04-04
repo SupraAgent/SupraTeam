@@ -57,18 +57,44 @@ export async function GET(request: Request) {
   const rawLimit = Number(searchParams.get("limit") ?? 50);
   const limit = Math.min(isNaN(rawLimit) ? 50 : rawLimit, 100);
 
+  // When a search query is provided, use the ranked RPC for relevance-sorted results.
+  // Otherwise, use standard query with filters.
+  if (q) {
+    const { data: rankedMessages, error: rpcError } = await supabase.rpc("crm_search_messages_ranked", {
+      p_user_id: user.id,
+      p_query: q,
+      p_chat_id: chatId ? Number(chatId) : null,
+      p_after: after,
+      p_before: before,
+      p_limit: limit,
+    });
+
+    if (rpcError) {
+      console.error("[api/messages/index] ranked search error:", rpcError);
+      return NextResponse.json({ error: "Failed to search messages" }, { status: 500 });
+    }
+
+    const decryptedMessages = (rankedMessages ?? []).map((msg: Record<string, unknown>) => ({
+      ...msg,
+      message_text: msg.message_text ? safeDecrypt(msg.message_text as string) : null,
+      rank: msg.rank,
+    }));
+
+    return NextResponse.json({
+      data: decryptedMessages,
+      total: decryptedMessages.length,
+      limit,
+      source: "rpc_ranked",
+    });
+  }
+
+  // Non-search query: standard filters + pagination
   let query = supabase
     .from("crm_message_index")
     .select("*", { count: "exact" })
     .eq("user_id", user.id)
     .order("sent_at", { ascending: false })
     .limit(limit);
-
-  if (q) {
-    // Use Postgres full-text search via the search_vector column.
-    // Config 'simple' matches the insert-time tsvector config for language-agnostic search.
-    query = query.textSearch("search_vector", q, { type: "websearch", config: "simple" });
-  }
 
   if (chatId) {
     query = query.eq("chat_id", Number(chatId));
