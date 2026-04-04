@@ -29,6 +29,11 @@ export async function loadSession(): Promise<{
   needsReauth?: boolean;
 }> {
   const res = await fetch("/api/telegram-session");
+  if (!res.ok) {
+    // Server error or auth expired — don't silently swallow
+    console.error("[telegram-session-store] loadSession failed:", res.status);
+    return { sessionString: null };
+  }
   const data: SessionResponse = await res.json();
 
   if (!data.connected || !data.sessionEncrypted) {
@@ -77,6 +82,10 @@ export async function saveSession(
 
 /** Clear the session from server and delete local encryption key. */
 export async function clearSession(): Promise<void> {
-  await fetch("/api/telegram-session", { method: "DELETE" });
+  const res = await fetch("/api/telegram-session", { method: "DELETE" });
+  if (!res.ok) {
+    console.error("[telegram-session-store] clearSession server DELETE failed:", res.status);
+    // Still delete local key — server blob is useless without it
+  }
   await deleteEncryptionKey();
 }

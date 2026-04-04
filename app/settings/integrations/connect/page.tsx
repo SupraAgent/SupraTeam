@@ -21,12 +21,19 @@ export default function TelegramConnectPage() {
   const [loading, setLoading] = React.useState(false);
   const waitForScanRef = React.useRef<(() => Promise<Api.User>) | null>(null);
 
-  // Sync step with context status
+  // Sync step with context status — but don't reset active auth flows
   React.useEffect(() => {
     if (tg.status === "connected") setStep("connected");
     else if (tg.status === "needs-reauth") setStep("needs-reauth");
-    else if (tg.status === "disconnected" && step !== "privacy") setStep("idle");
-  }, [tg.status, step]);
+    else if (tg.status === "disconnected") {
+      // Don't interrupt active auth steps (code entry, 2FA, QR scan)
+      setStep((prev) => {
+        if (prev === "code" || prev === "2fa" || prev === "qr") return prev;
+        if (prev === "privacy") return prev;
+        return "idle";
+      });
+    }
+  }, [tg.status]);
 
   async function handleSendCode() {
     if (!phone.trim()) return;
@@ -77,7 +84,18 @@ export default function TelegramConnectPage() {
       await tg.persistSession(user, last4);
       setStep("connected");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "2FA verification failed");
+      const msg = err instanceof Error ? err.message : "2FA verification failed";
+      if (msg.includes("PASSWORD_HASH_INVALID")) {
+        setError("Incorrect cloud password. Please try again.");
+      } else if (msg.includes("AUTH_USER_CANCEL")) {
+        setError("Login was cancelled by Telegram. Check your Telegram app for a login confirmation, then try again from the start.");
+        setStep("idle");
+        setCode("");
+        setPassword("");
+        setPhoneCodeHash("");
+      } else {
+        setError(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -87,6 +105,10 @@ export default function TelegramConnectPage() {
     setLoading(true);
     setError("");
     try {
+      // Ensure encryption key exists before QR auth (matches phone sendCode flow)
+      const { getOrCreateEncryptionKey } = await import("@/lib/client/telegram-crypto");
+      await getOrCreateEncryptionKey();
+
       const result = await tg.service.connect("");
       void result; // ensure client is ready
       const qr = await tg.service.requestQRLogin();
@@ -411,6 +433,9 @@ export default function TelegramConnectPage() {
               {loading ? "Verifying..." : "Submit"}
             </Button>
           </div>
+          <Button size="sm" variant="ghost" onClick={() => { setStep("idle"); setPassword(""); setCode(""); setPhoneCodeHash(""); }}>
+            Back
+          </Button>
         </div>
       )}
 

@@ -294,19 +294,30 @@ export class TelegramBrowserService {
     return auth.user as Api.User;
   }
 
-  /** Step 2b: Sign in with 2FA password. */
+  /**
+   * Step 2b: Sign in with 2FA password.
+   *
+   * Uses GramJS's signInWithPassword which handles SRP computation
+   * with proper browser crypto polyfills. The onError callback re-throws
+   * instead of returning true (which would swallow the real error and
+   * emit a fake AUTH_USER_CANCEL).
+   */
   async signIn2FA(password: string): Promise<Api.User> {
     this.requireClient();
     const result = await this.client!.signInWithPassword(
       { apiId: API_ID, apiHash: API_HASH },
       {
         password: () => Promise.resolve(password),
-        onError: async () => true,
+        onError: async (err: Error) => {
+          // Re-throw the real error instead of returning true (which
+          // causes GramJS to throw a fake "AUTH_USER_CANCEL").
+          throw err;
+        },
       }
     );
     if (result instanceof Api.User) return result;
     const auth = result as { user?: Api.User };
-    if (auth.user instanceof Api.User) return auth.user;
+    if (auth?.user instanceof Api.User) return auth.user;
     throw new Error("Unexpected 2FA sign-in response");
   }
 
