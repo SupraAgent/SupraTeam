@@ -3,7 +3,8 @@
 import * as React from "react";
 import { useParams, useRouter } from "next/navigation";
 import { cn, timeAgo } from "@/lib/utils";
-import { ArrowLeft, MessageCircle, Send, GitBranch, StickyNote, ExternalLink } from "lucide-react";
+import { ArrowLeft, MessageCircle, Send, GitBranch, StickyNote, ExternalLink, Calendar } from "lucide-react";
+import { BookingLinkButton } from "@/components/calendly/booking-link-button";
 import { useTelegramWebApp } from "@/components/tma/use-telegram";
 
 type Deal = {
@@ -205,6 +206,11 @@ export default function TMADealDetailPage() {
           </a>
         </div>
       )}
+
+      {/* Quick actions: TG Chat + Booking Link */}
+      <div className="px-4 pb-3 flex gap-2">
+        <BookingLinkButton dealId={id} contactId={deal.contact?.name ? undefined : undefined} compact />
+      </div>
 
       {/* Quick stage move */}
       {stages.length > 0 && deal.outcome === "open" && (
