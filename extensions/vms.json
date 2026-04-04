@@ -1,0 +1,67 @@
+{
+  "$comment": "VMS-specific adapter — maps SupraCRM's universal manifest to VMS app-extension conventions",
+  "extends": "../extension.json",
+  "host": "vms",
+
+  "icon": "CRM",
+  "lifeFactor": "work",
+  "primaryColor": "#6366f1",
+
+  "pages": ["overview", "agents"],
+  "customPages": [
+    { "id": "crm-dashboard",     "label": "Dashboard",      "icon": "H",  "href": "/vms/supra-crm/dashboard" },
+    { "id": "crm-pipeline",      "label": "Pipeline",       "icon": "K",  "href": "/vms/supra-crm/pipeline" },
+    { "id": "crm-telegram",      "label": "Telegram",       "icon": "T",  "href": "/vms/supra-crm/telegram" },
+    { "id": "crm-inbox",         "label": "Team Inbox",     "icon": "I",  "href": "/vms/supra-crm/inbox" },
+    { "id": "crm-email",         "label": "Email",          "icon": "E",  "href": "/vms/supra-crm/email" },
+    { "id": "crm-contacts",      "label": "Contacts",       "icon": "C",  "href": "/vms/supra-crm/contacts" },
+    { "id": "crm-companies",     "label": "Companies",      "icon": "B",  "href": "/vms/supra-crm/companies" },
+    { "id": "crm-groups",        "label": "TG Groups",      "icon": "G",  "href": "/vms/supra-crm/groups" },
+    { "id": "crm-broadcasts",    "label": "Broadcasts",     "icon": "R",  "href": "/vms/supra-crm/broadcasts" },
+    { "id": "crm-outreach",      "label": "Outreach",       "icon": "O",  "href": "/vms/supra-crm/outreach" },
+    { "id": "crm-automations",   "label": "Automations",    "icon": "W",  "href": "/vms/supra-crm/automations" },
+    { "id": "crm-calendar",      "label": "Calendar",       "icon": "D",  "href": "/vms/supra-crm/calendar" },
+    { "id": "crm-reports",       "label": "Reports",        "icon": "A",  "href": "/vms/supra-crm/reports" },
+    { "id": "crm-settings",      "label": "Settings",       "icon": "S",  "href": "/vms/supra-crm/settings" }
+  ],
+
+  "authMapping": {
+    "replace": {
+      "useAuth()": "useWallet()",
+      "user.id": "supraAddress",
+      "profiles.crm_role": "vms_role",
+      "requireAuth()": "authenticateRequest()"
+    },
+    "note": "VMS uses Supra wallet auth instead of GitHub OAuth. Identity is wallet address, not user.id."
+  },
+
+  "styleMapping": {
+    "replace": {
+      "tailwind": "inline styles with t.* theme tokens",
+      "css-variables": "VMS CSS vars (--bg, --t0, --border, --vms-font-body)"
+    },
+    "themeTokens": "See VMS GETTING-STARTED.md for full token reference",
+    "note": "VMS uses inline styles + 37 color tokens from useVMSTheme(). No Tailwind."
+  },
+
+  "shellMapping": {
+    "remove": ["AppShell", "desktop-sidebar", "mobile-header", "theme-provider"],
+    "note": "VMS provides its own shell (VMSShell). Remove SupraCRM shell wrapper, pages render inside VMS layout."
+  },
+
+  "fontMapping": {
+    "replace": {
+      "tailwind font classes": "VMS_FONTS.body / VMS_FONTS.mono / VMS_FONTS.display"
+    },
+    "note": "VMS uses IBM Plex (Sans + Mono). Import from @/lib/vms/design-tokens."
+  },
+
+  "componentMapping": {
+    "replace": {
+      "components/ui/button": "ExtButton from @/components/vms/extension-kit",
+      "components/ui/card": "ExtCard from @/components/vms/extension-kit",
+      "components/ui/input": "ExtInput from @/components/vms/extension-kit",
+      "components/ui/badge": "ExtBadge from @/components/vms/extension-kit"
+    }
+  }
+}

@@ -9,8 +9,14 @@ import { detectPriority, detectSentiment } from "../../lib/priority-detector.js"
  */
 async function fireWorkflowTriggers(triggerType: string, payload: Record<string, unknown>) {
   try {
-    const { triggerWorkflowsByEvent } = await import("../../lib/workflow-engine");
-    await triggerWorkflowsByEvent(triggerType, payload);
+    const [{ triggerWorkflowsByEvent }, { triggerLoopWorkflowsByEvent }] = await Promise.all([
+      import("../../lib/workflow-engine"),
+      import("../../lib/loop-workflow-engine"),
+    ]);
+    await Promise.allSettled([
+      triggerWorkflowsByEvent(triggerType, payload),
+      triggerLoopWorkflowsByEvent(triggerType, payload),
+    ]);
   } catch (err) {
     console.error(`[bot/messages] ${triggerType} workflow trigger error:`, err);
   }
@@ -661,8 +667,25 @@ export function registerMessageHandlers(bot: Bot) {
       const teamIds = await getTeamTelegramIds();
       const isTeamMember = teamIds.has(ctx.from.id);
 
-      // Create a notification for each linked deal + push DM to assigned rep
+      // Create a notification + activity log for each linked deal
       for (const deal of deals) {
+        // Log TG message as deal activity (non-blocking)
+        supabase.from("crm_deal_activities").insert({
+          deal_id: deal.id,
+          user_id: deal.assigned_to ?? null,
+          activity_type: "tg_message",
+          title: `${senderName}: ${(messageText || "").slice(0, 100)}${(messageText || "").length > 100 ? "..." : ""}`,
+          metadata: {
+            sender_name: senderName,
+            sender_username: senderUsername || null,
+            telegram_message_id: messageId,
+            telegram_chat_id: chatId,
+            is_from_bot: false,
+            tg_deep_link: tgDeepLink,
+            group_name: tgGroup.group_name,
+          },
+        }).then(({ error }) => { if (error) console.error("[bot/messages] activity log error:", error); });
+
         await supabase.from("crm_notifications").insert({
           type: "tg_message",
           deal_id: deal.id,
@@ -828,6 +851,35 @@ export function registerMessageHandlers(bot: Bot) {
                   .from("crm_deals")
                   .update({ awaiting_response_since: new Date().toISOString() })
                   .eq("id", deal.id);
+
+                // Fire conversation_gap_reply trigger if there was a gap since last non-bot message
+                try {
+                  const { data: prevMsg } = await supabase
+                    .from("tg_group_messages")
+                    .select("sent_at")
+                    .eq("telegram_chat_id", chatId)
+                    .neq("sender_name", "bot")
+                    .order("sent_at", { ascending: false })
+                    .range(1, 1) // Skip the current message, get the previous one
+                    .single();
+
+                  if (prevMsg?.sent_at) {
+                    const gapHours = (Date.now() - new Date(prevMsg.sent_at).getTime()) / 3600000;
+                    if (gapHours > 0) {
+                      fireWorkflowTriggers("conversation_gap_reply", {
+                        chat_id: String(chatId),
+                        deal_id: deal.id,
+                        deal_name: deal.deal_name,
+                        sender_name: senderName,
+                        gap_hours: Math.round(gapHours * 10) / 10,
+                        message_text: messageText,
+                        tg_group_id: tgGroup.id,
+                      });
+                    }
+                  }
+                } catch {
+                  // Non-critical — don't block message processing
+                }
               }
             }
           }

@@ -6,7 +6,7 @@ import type { Deal, PipelineStage, BoardType } from "@/lib/types";
 import { KanbanColumn } from "./kanban-column";
 import { DealHoverPreview } from "./deal-hover-preview";
 import { cn } from "@/lib/utils";
-import { Zap } from "lucide-react";
+import { Zap, Clock } from "lucide-react";
 
 type KanbanBoardProps = {
   stages: PipelineStage[];
@@ -37,6 +37,7 @@ export function KanbanBoard({
   const filteredDeals = board === "All" ? deals : deals.filter((d) => d.board_type === board);
   const allFilteredDeals = board === "All" ? allDeals : allDeals.filter((d) => d.board_type === board);
   const [collapsedColumns, setCollapsedColumns] = React.useState<Set<string>>(new Set());
+  const [sortByUrgency, setSortByUrgency] = React.useState(false);
   const [slamDealId, setSlamDealId] = React.useState<string | null>(null);
   const [rippleStageId, setRippleStageId] = React.useState<string | null>(null);
   const [hoverDeal, setHoverDeal] = React.useState<Deal | null>(null);
@@ -104,8 +105,27 @@ export function KanbanBoard({
     return Math.round((st.count / stageStats[i - 1].count) * 100);
   });
 
+  const awaitingCount = filteredDeals.filter((d) => d.awaiting_response_since && d.outcome !== "won" && d.outcome !== "lost").length;
+
   return (
     <div className="space-y-3">
+      {/* Urgency sort toggle */}
+      {awaitingCount > 0 && (
+        <button
+          onClick={() => setSortByUrgency((v) => !v)}
+          className={cn(
+            "flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-colors",
+            sortByUrgency
+              ? "bg-amber-500/15 text-amber-400 border border-amber-500/20"
+              : "bg-white/5 text-muted-foreground hover:text-foreground border border-white/10"
+          )}
+        >
+          <Clock className="h-3 w-3" />
+          {awaitingCount} awaiting response
+          {sortByUrgency && <span className="text-[9px] ml-1 opacity-70">(sorted)</span>}
+        </button>
+      )}
+
       {/* Weighted pipeline bar */}
       {totalPipelineValue > 0 && (
         <div className="space-y-1.5">
@@ -171,6 +191,7 @@ export function KanbanBoard({
                 slamDealId={slamDealId}
                 ripple={rippleStageId === stage.id}
                 conversionRate={conversionRates[stageIndex]}
+                sortByUrgency={sortByUrgency}
                 onHoverPreview={(deal, rect) => { setHoverDeal(deal); setHoverRect(rect); }}
                 onHoverEnd={() => { setHoverDeal(null); setHoverRect(null); }}
               />

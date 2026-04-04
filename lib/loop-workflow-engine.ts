@@ -846,6 +846,13 @@ export async function triggerLoopWorkflowsByEvent(
         if (triggerType === "deal_created" && triggerConfig.board_type) {
           if (triggerConfig.board_type !== payload.board_type) return;
         }
+        if (triggerType === "conversation_gap_reply" && triggerConfig.min_gap_hours) {
+          const gap = Number(payload.gap_hours ?? 0);
+          if (gap < Number(triggerConfig.min_gap_hours)) return;
+        }
+        if ((triggerType === "sla_breach" || triggerType === "sla_warning") && triggerConfig.board_type) {
+          if (triggerConfig.board_type !== payload.board_type) return;
+        }
         // Skip scheduled workflows here — they are handled by cron matching
         if (triggerType === "scheduled") return;
 

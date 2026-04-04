@@ -17,6 +17,7 @@ const SETTINGS_GROUPS: { label: string; items: SettingsItem[] }[] = [
     items: [
       { href: "/settings", label: "Profile" },
       { href: "/settings/team", label: "Team" },
+      { href: "/settings/qr-codes", label: "QR Codes" },
     ],
   },
   {

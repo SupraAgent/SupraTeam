@@ -7,6 +7,8 @@ import {
   Hash,
   Mail,
   Calendar,
+  CalendarCheck,
+  Mic,
   Webhook,
   Link2,
   Key,
@@ -74,6 +76,24 @@ export default function IntegrationsOverviewPage() {
       connected: null,
     },
     {
+      key: "calendly",
+      label: "Calendly",
+      description: "Send booking links from TG conversations, auto-advance deals on booking",
+      href: "/settings/integrations/calendly",
+      icon: <CalendarCheck className="h-5 w-5 text-[#006BFF]" />,
+      iconBg: "bg-[#006BFF]/10",
+      connected: null,
+    },
+    {
+      key: "fireflies",
+      label: "Fireflies.ai",
+      description: "Auto-transcribe meetings, enrich deals with summaries and action items",
+      href: "/settings/integrations/fireflies",
+      icon: <Mic className="h-5 w-5 text-purple-400" />,
+      iconBg: "bg-purple-500/10",
+      connected: null,
+    },
+    {
       key: "webhooks",
       label: "Webhooks",
       description: "Receive and send webhook events for external integrations",
@@ -136,6 +156,25 @@ export default function IntegrationsOverviewPage() {
         updateStatus("calendar", count > 0, count > 0 ? `${count} account${count !== 1 ? "s" : ""} connected` : undefined);
       })
       .catch(() => updateStatus("calendar", false));
+
+    // Check Calendly
+    fetch("/api/calendly/event-types")
+      .then((r) => {
+        if (r.ok) {
+          updateStatus("calendly", true, "Account connected");
+        } else {
+          updateStatus("calendly", false);
+        }
+      })
+      .catch(() => updateStatus("calendly", false));
+
+    // Check Fireflies
+    fetch("/api/fireflies/connection")
+      .then((r) => (r.ok ? r.json() : { data: null }))
+      .then(({ data }) => {
+        updateStatus("fireflies", !!data, data ? data.email : undefined);
+      })
+      .catch(() => updateStatus("fireflies", false));
 
     // TG Connect + Webhooks — mark as configured (no API check needed)
     updateStatus("tg-connect", false);

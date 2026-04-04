@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from "crypto";
 
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
@@ -115,4 +115,12 @@ function decryptLegacy(buf: Buffer): string {
   const decipher = createDecipheriv(ALGORITHM, key, iv);
   decipher.setAuthTag(tag);
   return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
+}
+
+/**
+ * Hash PII (email, name) for structured logging.
+ * Returns a truncated SHA-256 hex digest that is grep-able but not reversible.
+ */
+export function hashPII(value: string): string {
+  return createHash("sha256").update(value.toLowerCase().trim()).digest("hex").slice(0, 12);
 }

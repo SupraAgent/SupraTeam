@@ -41,6 +41,7 @@ import { useNukeGroups } from "@/lib/client/use-nuke-groups";
 import { useTelegramAdminGroups } from "@/lib/client/use-telegram-admin-groups";
 import { useTelegram } from "@/lib/client/telegram-context";
 import { EmojiPicker } from "@/components/ui/emoji-picker";
+import { DealContextSidebar } from "@/components/inbox/deal-context-sidebar";
 
 // ── Chat Label Types & Constants ────────────────────────────────
 
@@ -147,6 +148,7 @@ export default function InboxPage() {
   const [loading, setLoading] = React.useState(true);
   const [search, setSearch] = React.useState("");
   const [selectedChat, setSelectedChat] = React.useState<number | null>(null);
+  const [showDealSidebar, setShowDealSidebar] = React.useState(true);
   const [expandedThreads, setExpandedThreads] = React.useState<Set<number>>(new Set());
   const [refreshing, setRefreshing] = React.useState(false);
   const [activeTab, setActiveTab] = React.useState<InboxTab>("mine");
@@ -814,7 +816,7 @@ export default function InboxPage() {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4 min-h-[60vh]">
+        <div className={cn("grid grid-cols-1 gap-4 min-h-[60vh]", showDealSidebar && selectedChat && (deals[selectedChat] ?? []).length > 0 ? "lg:grid-cols-[320px_1fr_260px]" : "lg:grid-cols-[320px_1fr]")}>
           {/* Conversation list */}
           <div className="rounded-xl border border-white/10 bg-white/[0.02] overflow-hidden">
             <div className="divide-y divide-white/5 max-h-[70vh] overflow-y-auto thin-scroll">
@@ -1305,6 +1307,14 @@ export default function InboxPage() {
               </div>
             )}
           </div>
+          {/* Deal context sidebar */}
+          {showDealSidebar && selectedChat && (deals[selectedChat] ?? []).length > 0 && (
+            <DealContextSidebar
+              deals={deals[selectedChat] ?? []}
+              chatId={selectedChat}
+              onClose={() => setShowDealSidebar(false)}
+            />
+          )}
         </div>
       )}
 
