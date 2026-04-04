@@ -9,6 +9,25 @@ import type { Bot } from "grammy";
 import { supabase } from "../lib/supabase.js";
 import { sendTMAPush } from "./push-notifications.js";
 
+/**
+ * Fire workflow automations for SLA events.
+ * Uses dynamic import to avoid bundling the workflow engine in the bot process.
+ */
+async function fireWorkflowTriggers(triggerType: string, payload: Record<string, unknown>) {
+  try {
+    const [{ triggerWorkflowsByEvent }, { triggerLoopWorkflowsByEvent }] = await Promise.all([
+      import("../../lib/workflow-engine"),
+      import("../../lib/loop-workflow-engine"),
+    ]);
+    await Promise.allSettled([
+      triggerWorkflowsByEvent(triggerType, payload),
+      triggerLoopWorkflowsByEvent(triggerType, payload),
+    ]);
+  } catch (err) {
+    console.error(`[bot/sla] ${triggerType} workflow trigger error:`, err);
+  }
+}
+
 const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
 interface SlaConfig {
@@ -119,6 +138,16 @@ async function handleSlaEvent(
     deal_id: deal.id,
     breach_type: breachType,
     hours_elapsed: Math.round(hoursElapsed * 10) / 10,
+  });
+
+  // Fire workflow automations for SLA events (non-blocking)
+  fireWorkflowTriggers(breachType === "breach" ? "sla_breach" : "sla_warning", {
+    deal_id: deal.id,
+    deal_name: deal.deal_name,
+    board_type: deal.board_type,
+    assigned_to: deal.assigned_to,
+    hours_elapsed: Math.round(hoursElapsed * 10) / 10,
+    threshold_hours: breachType === "breach" ? config.breach_hours : config.warning_hours,
   });
 
   const hoursLabel = `${Math.floor(hoursElapsed)}h ${Math.round((hoursElapsed % 1) * 60)}m`;

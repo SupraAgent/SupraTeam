@@ -24,6 +24,14 @@ type Deal = {
 type Stage = { id: string; name: string; position: number; color: string };
 type Note = { id: string; text: string; created_at: string };
 type Activity = { id: string; type: string; title: string; body?: string; tg_deep_link?: string; created_at: string };
+type ChatMessage = {
+  id: string;
+  sender_name: string;
+  text: string;
+  sent_at: string;
+  is_from_bot: boolean;
+  source: "synced" | "notification";
+};
 
 export default function TMADealDetailPage() {
   const rawId = useParams().id;
@@ -32,12 +40,17 @@ export default function TMADealDetailPage() {
   const [deal, setDeal] = React.useState<Deal | null>(null);
   const [notes, setNotes] = React.useState<Note[]>([]);
   const [activities, setActivities] = React.useState<Activity[]>([]);
-  const [tab, setTab] = React.useState<"info" | "notes" | "activity">("info");
+  const [tab, setTab] = React.useState<"info" | "notes" | "activity" | "chat">("info");
   const [stages, setStages] = React.useState<Stage[]>([]);
   const [movingStage, setMovingStage] = React.useState(false);
   const [newNote, setNewNote] = React.useState("");
   const [sending, setSending] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
+  const [chatMessages, setChatMessages] = React.useState<ChatMessage[]>([]);
+  const [chatLoading, setChatLoading] = React.useState(false);
+  const [chatReply, setChatReply] = React.useState("");
+  const [chatSending, setChatSending] = React.useState(false);
+  const chatEndRef = React.useRef<HTMLDivElement>(null);
 
   const goBack = React.useCallback(() => router.back(), [router]);
   useTelegramWebApp({ onBack: goBack });
@@ -65,6 +78,47 @@ export default function TMADealDetailPage() {
       setStages(stagesData.stages ?? []);
     }).finally(() => setLoading(false));
   }, [id]);
+
+  // Fetch chat messages when switching to chat tab
+  React.useEffect(() => {
+    if (tab !== "chat" || chatMessages.length > 0 || chatLoading) return;
+    setChatLoading(true);
+    fetch(`/api/deals/${id}/conversation?limit=30`)
+      .then((r) => r.ok ? r.json() : { messages: [] })
+      .then((data) => setChatMessages(data.messages ?? []))
+      .catch(() => {})
+      .finally(() => setChatLoading(false));
+  }, [tab, id, chatMessages.length, chatLoading]);
+
+  // Auto-scroll to bottom when messages load
+  React.useEffect(() => {
+    if (tab === "chat") chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatMessages.length, tab]);
+
+  async function handleSendReply() {
+    if (!chatReply.trim() || chatSending) return;
+    setChatSending(true);
+    try {
+      const res = await fetch(`/api/deals/${id}/conversation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: chatReply }),
+      });
+      if (res.ok) {
+        setChatMessages((prev) => [...prev, {
+          id: `temp-${Date.now()}`,
+          sender_name: "You",
+          text: chatReply,
+          sent_at: new Date().toISOString(),
+          is_from_bot: true,
+          source: "synced",
+        }]);
+        setChatReply("");
+      }
+    } finally {
+      setChatSending(false);
+    }
+  }
 
   async function handleMoveStage(stageId: string) {
     if (!deal || deal.stage_id === stageId) return;
@@ -180,7 +234,7 @@ export default function TMADealDetailPage() {
 
       {/* Tabs */}
       <div className="flex border-b border-white/10 px-4">
-        {(["info", "notes", "activity"] as const).map((t) => (
+        {(["info", "chat", "notes", "activity"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -319,6 +373,55 @@ export default function TMADealDetailPage() {
               </div>
             ))
           )}
+        </div>
+      )}
+
+      {/* Chat tab */}
+      {tab === "chat" && (
+        <div className="px-4 pt-3 flex flex-col" style={{ maxHeight: "calc(100vh - 260px)" }}>
+          {chatLoading ? (
+            <div className="space-y-2 py-4">{[1, 2, 3].map((i) => <div key={i} className="h-8 bg-white/[0.02] rounded-lg animate-pulse" />)}</div>
+          ) : chatMessages.length === 0 ? (
+            <div className="text-center py-8">
+              <MessageCircle className="mx-auto h-6 w-6 text-muted-foreground/20" />
+              <p className="mt-2 text-xs text-muted-foreground">No messages yet</p>
+              {deal.telegram_chat_link && (
+                <a href={deal.telegram_chat_link} target="_blank" rel="noopener noreferrer" className="text-xs text-primary mt-1 inline-block">
+                  Open in Telegram
+                </a>
+              )}
+            </div>
+          ) : (
+            <div className="flex-1 overflow-y-auto space-y-1.5 pb-2 thin-scroll">
+              {chatMessages.map((msg) => (
+                <div key={msg.id} className={cn("max-w-[85%] rounded-xl px-3 py-1.5", msg.is_from_bot || msg.sender_name === "You" ? "ml-auto bg-primary/15 text-foreground" : "bg-white/[0.06] text-foreground")}>
+                  {!msg.is_from_bot && msg.sender_name !== "You" && (
+                    <p className="text-[10px] font-medium text-primary/70">{msg.sender_name}</p>
+                  )}
+                  <p className="text-xs leading-relaxed">{msg.text}</p>
+                  <p className="text-[9px] text-muted-foreground/40 text-right mt-0.5">{timeAgo(msg.sent_at)}</p>
+                </div>
+              ))}
+              <div ref={chatEndRef} />
+            </div>
+          )}
+          {/* Reply input */}
+          <div className="flex gap-2 pt-2 pb-1 border-t border-white/10 mt-auto">
+            <input
+              value={chatReply}
+              onChange={(e) => setChatReply(e.target.value)}
+              placeholder="Reply via bot..."
+              className="flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-foreground outline-none"
+              onKeyDown={(e) => e.key === "Enter" && handleSendReply()}
+            />
+            <button
+              onClick={handleSendReply}
+              disabled={chatSending || !chatReply.trim()}
+              className="rounded-xl bg-primary px-3 py-2 text-primary-foreground disabled:opacity-50"
+            >
+              <Send className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       )}
 

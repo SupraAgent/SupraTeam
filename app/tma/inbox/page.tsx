@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { cn, timeAgo } from "@/lib/utils";
-import { Inbox, MessageCircle, ChevronRight, User } from "lucide-react";
+import { Inbox, MessageCircle, ChevronRight, Send } from "lucide-react";
 import { BottomTabBar } from "@/components/tma/bottom-tab-bar";
 import { PullToRefresh } from "@/components/tma/pull-to-refresh";
 import { useTelegramWebApp } from "@/components/tma/use-telegram";
@@ -47,6 +47,9 @@ export default function TMAInboxPage() {
   const [deals, setDeals] = React.useState<Record<number, Deal[]>>({});
   const [loading, setLoading] = React.useState(true);
   const [filter, setFilter] = React.useState<Filter>("all");
+  const [replyOpen, setReplyOpen] = React.useState<number | null>(null);
+  const [replyText, setReplyText] = React.useState("");
+  const [replySending, setReplySending] = React.useState(false);
 
   useTelegramWebApp();
 
@@ -107,6 +110,25 @@ export default function TMAInboxPage() {
       });
     } catch {
       await fetchData();
+    }
+  }
+
+  async function handleInlineReply(chatId: number) {
+    if (!replyText.trim() || replySending) return;
+    setReplySending(true);
+    try {
+      const res = await fetch("/api/inbox/reply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, message: replyText, send_as: "bot" }),
+      });
+      if (res.ok) {
+        hapticImpact("light");
+        setReplyText("");
+        setReplyOpen(null);
+      }
+    } finally {
+      setReplySending(false);
     }
   }
 
@@ -254,6 +276,19 @@ export default function TMAInboxPage() {
                   {status === "open" && (
                     <div className="flex items-center border-t border-white/5 divide-x divide-white/5">
                       <button
+                        onClick={() => {
+                          hapticImpact("light");
+                          setReplyOpen(replyOpen === conv.chat_id ? null : conv.chat_id);
+                          setReplyText("");
+                        }}
+                        className={cn(
+                          "flex-1 text-[10px] py-2 transition active:bg-white/[0.04]",
+                          replyOpen === conv.chat_id ? "text-primary" : "text-muted-foreground"
+                        )}
+                      >
+                        Reply
+                      </button>
+                      <button
                         onClick={() => handleStatusChange(conv.chat_id, "snoozed")}
                         className="flex-1 text-[10px] text-muted-foreground py-2 transition active:bg-white/[0.04]"
                       >
@@ -264,6 +299,26 @@ export default function TMAInboxPage() {
                         className="flex-1 text-[10px] text-muted-foreground py-2 transition active:bg-white/[0.04]"
                       >
                         Close
+                      </button>
+                    </div>
+                  )}
+                  {/* Inline reply input */}
+                  {replyOpen === conv.chat_id && (
+                    <div className="flex items-center gap-2 px-3 py-2 border-t border-white/5 bg-white/[0.02]">
+                      <input
+                        value={replyText}
+                        onChange={(e) => setReplyText(e.target.value)}
+                        placeholder="Reply via bot..."
+                        className="flex-1 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs text-foreground outline-none"
+                        onKeyDown={(e) => e.key === "Enter" && handleInlineReply(conv.chat_id)}
+                        autoFocus
+                      />
+                      <button
+                        onClick={() => handleInlineReply(conv.chat_id)}
+                        disabled={replySending || !replyText.trim()}
+                        className="rounded-lg bg-primary p-1.5 text-primary-foreground disabled:opacity-50"
+                      >
+                        <Send className="h-3.5 w-3.5" />
                       </button>
                     </div>
                   )}
