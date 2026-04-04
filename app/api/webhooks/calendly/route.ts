@@ -19,13 +19,16 @@ export async function POST(request: Request) {
     // Verify webhook signature
     const signature = request.headers.get("calendly-webhook-signature");
     const body = await request.text();
+    const signingKey = process.env.CALENDLY_WEBHOOK_SIGNING_KEY;
 
-    if (signature && process.env.CALENDLY_WEBHOOK_SIGNING_KEY) {
-      const isValid = verifyCalendlySignature(body, signature);
-      if (!isValid) {
-        console.error("[calendly/webhook] Invalid signature");
+    if (signingKey) {
+      if (!signature || !verifyCalendlySignature(body, signature, signingKey)) {
+        console.error("[calendly/webhook] Missing or invalid signature");
         return new NextResponse(null, { status: 200 });
       }
+    } else if (process.env.NODE_ENV === "production") {
+      console.error("[calendly/webhook] CALENDLY_WEBHOOK_SIGNING_KEY not set in production");
+      return new NextResponse(null, { status: 200 });
     }
 
     const payload = JSON.parse(body);
@@ -45,11 +48,8 @@ export async function POST(request: Request) {
   }
 }
 
-function verifyCalendlySignature(body: string, signatureHeader: string): boolean {
+function verifyCalendlySignature(body: string, signatureHeader: string, key: string): boolean {
   try {
-    const key = process.env.CALENDLY_WEBHOOK_SIGNING_KEY;
-    if (!key) return false;
-
     // Calendly sends: t=timestamp,v1=signature
     const parts = signatureHeader.split(",");
     const timestamp = parts.find((p) => p.startsWith("t="))?.slice(2);
@@ -106,14 +106,27 @@ async function handleInviteeCreated(
     }
   }
 
+  // Resolve the host user first — this is the primary identification signal
+  let userId: string | null = null;
+  const eventHostUri = (data as Record<string, unknown>).event_memberships as Array<{ user: string }> | undefined;
+  if (eventHostUri?.[0]?.user) {
+    const { data: conn } = await admin
+      .from("crm_calendly_connections")
+      .select("user_id")
+      .eq("calendly_user_uri", eventHostUri[0].user)
+      .eq("is_active", true)
+      .single();
+
+    if (conn) userId = conn.user_id;
+  }
+
   // Try to match booking link via UTM deal_id
   let bookingLink: Record<string, unknown> | null = null;
   let dealId: string | null = utmCampaign || null;
-  let userId: string | null = null;
 
   if (utmSource === "supracrm" && utmCampaign) {
     // Match by deal_id from UTM
-    const { data: links } = await admin
+    const query = admin
       .from("crm_booking_links")
       .select("*")
       .eq("deal_id", utmCampaign)
@@ -121,27 +134,36 @@ async function handleInviteeCreated(
       .order("created_at", { ascending: false })
       .limit(1);
 
+    // Scope to user if known
+    if (userId) query.eq("user_id", userId);
+
+    const { data: links } = await query;
+
     if (links?.[0]) {
       bookingLink = links[0];
-      userId = links[0].user_id;
+      userId = userId || links[0].user_id;
     }
   }
 
-  // If no match via UTM, try to find by calendly event type match + recent pending links
-  if (!bookingLink && eventUri) {
+  // Fallback: find most recent pending link for THIS user only
+  if (!bookingLink && userId) {
     const { data: links } = await admin
       .from("crm_booking_links")
       .select("*")
+      .eq("user_id", userId)
       .eq("status", "pending")
       .order("created_at", { ascending: false })
-      .limit(10);
+      .limit(1);
 
-    // Match the most recent pending link for this user
     if (links?.[0]) {
       bookingLink = links[0];
-      userId = links[0].user_id;
       dealId = dealId || (links[0].deal_id as string);
     }
+  }
+
+  if (!userId) {
+    console.error("[calendly/webhook] Could not determine user for booking");
+    return;
   }
 
   // Update the matched booking link
@@ -158,7 +180,7 @@ async function handleInviteeCreated(
         updated_at: new Date().toISOString(),
       })
       .eq("id", bookingLink.id);
-  } else if (userId) {
+  } else {
     // Create a new booking link record for untracked bookings
     const { data: newLink } = await admin
       .from("crm_booking_links")
@@ -178,26 +200,6 @@ async function handleInviteeCreated(
       .single();
 
     bookingLink = newLink;
-  }
-
-  if (!userId) {
-    // Try to find user by looking up Calendly connections matching the event host
-    const eventHostUri = (data as Record<string, unknown>).event_memberships as Array<{ user: string }> | undefined;
-    if (eventHostUri?.[0]?.user) {
-      const { data: conn } = await admin
-        .from("crm_calendly_connections")
-        .select("user_id")
-        .eq("calendly_user_uri", eventHostUri[0].user)
-        .eq("is_active", true)
-        .single();
-
-      if (conn) userId = conn.user_id;
-    }
-  }
-
-  if (!userId) {
-    console.error("[calendly/webhook] Could not determine user for booking");
-    return;
   }
 
   // Match or create contact

@@ -19,7 +19,7 @@ type Deal = {
   outcome: string | null;
   stage_id: string | null;
   stage: { name: string; color: string } | null;
-  contact: { name: string; company: string | null; telegram_username: string | null } | null;
+  contact: { id: string; name: string; company: string | null; telegram_username: string | null } | null;
 };
 
 type Stage = { id: string; name: string; position: number; color: string };
@@ -210,7 +210,7 @@ export default function TMADealDetailPage() {
 
       {/* Quick actions: TG Chat + Booking Link */}
       <div className="px-4 pb-3 flex gap-2">
-        <BookingLinkButton dealId={id} contactId={deal.contact?.name ? undefined : undefined} compact />
+        <BookingLinkButton dealId={id} contactId={deal.contact?.id} compact />
       </div>
 
       {/* Quick stage move */}
