@@ -49,6 +49,7 @@ export default function TMADealDetailPage() {
   const [loading, setLoading] = React.useState(true);
   const [chatMessages, setChatMessages] = React.useState<ChatMessage[]>([]);
   const [chatLoading, setChatLoading] = React.useState(false);
+  const [chatFetched, setChatFetched] = React.useState(false);
   const [chatReply, setChatReply] = React.useState("");
   const [chatSending, setChatSending] = React.useState(false);
   const chatEndRef = React.useRef<HTMLDivElement>(null);
@@ -82,14 +83,14 @@ export default function TMADealDetailPage() {
 
   // Fetch chat messages when switching to chat tab
   React.useEffect(() => {
-    if (tab !== "chat" || chatMessages.length > 0 || chatLoading) return;
+    if (tab !== "chat" || chatFetched || chatLoading) return;
     setChatLoading(true);
     fetch(`/api/deals/${id}/conversation?limit=30`)
       .then((r) => r.ok ? r.json() : { messages: [] })
       .then((data) => setChatMessages(data.messages ?? []))
       .catch(() => {})
-      .finally(() => setChatLoading(false));
-  }, [tab, id, chatMessages.length, chatLoading]);
+      .finally(() => { setChatLoading(false); setChatFetched(true); });
+  }, [tab, id, chatFetched, chatLoading]);
 
   // Auto-scroll to bottom when messages load
   React.useEffect(() => {
