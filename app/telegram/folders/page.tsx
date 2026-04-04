@@ -369,6 +369,7 @@ export default function TelegramFoldersPage() {
     loading,
     syncing,
     error,
+    fetchFolders,
     syncAllFolders,
     syncSingleFolder,
     updateFolder,
@@ -393,12 +394,9 @@ export default function TelegramFoldersPage() {
     const { buildFolderSyncPayload, syncFolderToServer } = await import("@/lib/client/telegram-folders");
     const payload = buildFolderSyncPayload(tgFolder, dialogs);
     await syncFolderToServer(payload);
-    // Refresh the folder list in the hook
-    const res = await fetch("/api/telegram/folders");
-    if (res.ok) {
-      // Re-trigger by remounting — simple but effective
-      window.location.reload();
-    }
+    // Refresh the folder list and close modal
+    await fetchFolders();
+    setShowAddModal(false);
   }
 
   return (

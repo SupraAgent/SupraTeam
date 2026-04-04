@@ -176,24 +176,26 @@ export async function POST(request: Request) {
     return NextResponse.json({ data: { inserted: 0 }, source: "filtered" });
   }
 
-  // Encrypt message_text and prepare rows
-  const rows = filteredMessages.map((msg) => ({
-    user_id: user.id,
+  // Build RPC payload: send both encrypted text (for storage) and
+  // plaintext (for tsvector computation). The RPC computes search_vector
+  // from plain_text server-side — plaintext is never persisted.
+  const rpcRows = filteredMessages.map((msg) => ({
     chat_id: msg.chat_id,
     message_id: msg.message_id,
     sender_id: msg.sender_id,
     sender_name: msg.sender_name,
-    message_text: msg.message_text ? encryptToken(msg.message_text) : null,
+    encrypted_text: msg.message_text ? encryptToken(msg.message_text) : null,
+    plain_text: msg.message_text ?? "",
     message_type: msg.message_type || "text",
     has_media: msg.has_media ?? false,
     reply_to_message_id: msg.reply_to_message_id,
     sent_at: msg.sent_at,
   }));
 
-  const { data, error } = await supabase
-    .from("crm_message_index")
-    .upsert(rows, { onConflict: "user_id,chat_id,message_id", ignoreDuplicates: true })
-    .select("id");
+  const { data: insertedCount, error } = await supabase.rpc("crm_bulk_index_messages", {
+    p_user_id: user.id,
+    p_messages: rpcRows,
+  });
 
   if (error) {
     console.error("[api/messages/index] insert error:", error);
@@ -201,7 +203,7 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json({
-    data: { inserted: data?.length ?? 0 },
+    data: { inserted: insertedCount ?? 0 },
     source: "supabase",
   });
 }
