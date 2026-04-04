@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Search, Users, Zap } from "lucide-react";
+import { Search, Users, Zap, TrendingUp } from "lucide-react";
 import { BottomTabBar } from "@/components/tma/bottom-tab-bar";
 import { PullToRefresh } from "@/components/tma/pull-to-refresh";
 import { GroupHealthCard } from "@/components/tma/group-health-card";
@@ -44,6 +44,7 @@ export default function TMAGroupsPage() {
   const [loading, setLoading] = React.useState(true);
   const [search, setSearch] = React.useState("");
   const [filter, setFilter] = React.useState<FilterTab>("all");
+  const [engagementScores, setEngagementScores] = React.useState<Map<string, number>>(new Map());
 
   useTelegramWebApp();
 
@@ -52,9 +53,10 @@ export default function TMAGroupsPage() {
 
   const fetchData = React.useCallback(async () => {
     try {
-      const [groupsRes, slugsRes] = await Promise.all([
+      const [groupsRes, slugsRes, engagementRes] = await Promise.all([
         fetch("/api/groups?per_page=200"),
         fetch("/api/groups/slugs"),
+        fetch("/api/groups/engagement?days=30&limit=100"),
       ]);
 
       if (!groupsRes.ok) return;
@@ -67,6 +69,16 @@ export default function TMAGroupsPage() {
       for (const s of slugsData.slugs ?? []) {
         if (!slugMap[s.group_id]) slugMap[s.group_id] = [];
         slugMap[s.group_id].push(s.slug);
+      }
+
+      // Parse engagement scores
+      if (engagementRes.ok) {
+        const engData = await engagementRes.json();
+        const scoreMap = new Map<string, number>();
+        for (const s of engData.scores ?? []) {
+          scoreMap.set(String(s.chat_id), Math.round(s.engagement_score));
+        }
+        setEngagementScores(scoreMap);
       }
 
       setGroups(
@@ -192,6 +204,7 @@ export default function TMAGroupsPage() {
               messageCount7d={group.message_count_7d}
               messageHistory={group.message_history}
               slugs={group.slugs}
+              engagementScore={engagementScores.get(group.id) ?? null}
               onTap={handleGroupTap}
             />
           ))}

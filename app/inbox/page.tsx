@@ -138,7 +138,7 @@ interface CannedResponse {
   usage_count: number;
 }
 
-type InboxTab = "mine" | "unassigned" | "open" | "vip" | "archived" | "closed";
+type InboxTab = "mine" | "unassigned" | "awaiting" | "open" | "vip" | "archived" | "closed";
 
 // ── Infinite Scroll Sentinel ──────────────────────────────────
 
@@ -663,6 +663,13 @@ export default function InboxPage() {
         const s = statuses[c.chat_id];
         return (!s || !s.assigned_to) && (!s || s.status !== "closed") && !getLabel(c.chat_id)?.is_archived;
       });
+    } else if (activeTab === "awaiting") {
+      result = result.filter((c) => {
+        const s = statuses[c.chat_id];
+        if (s?.status === "closed" || getLabel(c.chat_id)?.is_archived) return false;
+        const lastMsg = c.messages[0];
+        return lastMsg && !lastMsg.is_from_bot;
+      });
     } else if (activeTab === "vip") {
       result = result.filter((c) => getLabel(c.chat_id)?.is_vip && !getLabel(c.chat_id)?.is_archived);
     } else if (activeTab === "archived") {
@@ -710,6 +717,12 @@ export default function InboxPage() {
     return s?.assigned_to === currentUserId && s?.status !== "closed";
   }).length;
 
+  const awaitingCount = conversations.filter((c) => {
+    const s = statuses[c.chat_id];
+    if (s?.status === "closed" || getLabel(c.chat_id)?.is_archived) return false;
+    const lastMsg = c.messages[0];
+    return lastMsg && !lastMsg.is_from_bot;
+  }).length;
   const vipCount = conversations.filter((c) => getLabel(c.chat_id)?.is_vip && !getLabel(c.chat_id)?.is_archived).length;
   const archivedCount = conversations.filter((c) => getLabel(c.chat_id)?.is_archived).length;
 
@@ -808,6 +821,7 @@ export default function InboxPage() {
           {([
             { key: "mine" as InboxTab, label: "Mine", count: mineCount },
             { key: "unassigned" as InboxTab, label: "Unassigned", count: unassignedCount },
+            { key: "awaiting" as InboxTab, label: "Awaiting", count: awaitingCount },
             { key: "open" as InboxTab, label: "Open" },
             { key: "vip" as InboxTab, label: "VIP", count: vipCount },
             { key: "archived" as InboxTab, label: "Archived", count: archivedCount },
@@ -829,6 +843,7 @@ export default function InboxPage() {
                 <span className={cn(
                   "ml-1 rounded-full px-1.5 py-0.5 text-[10px]",
                   tab.key === "unassigned" ? "bg-amber-500/20 text-amber-400" :
+                  tab.key === "awaiting" ? "bg-red-500/20 text-red-400" :
                   tab.key === "vip" ? "bg-amber-500/20 text-amber-400" : "bg-white/10"
                 )}>
                   {tab.count}
@@ -872,6 +887,7 @@ export default function InboxPage() {
             {search ? "No conversations match your search." :
              activeTab === "mine" ? "No conversations assigned to you." :
              activeTab === "unassigned" ? "All conversations are assigned." :
+             activeTab === "awaiting" ? "No conversations awaiting your response." :
              activeTab === "vip" ? "No VIP conversations. Right-click a conversation to mark as VIP." :
              activeTab === "archived" ? "No archived conversations." :
              activeTab === "closed" ? "No closed conversations." :
@@ -981,8 +997,16 @@ export default function InboxPage() {
                         <span className="text-[10px] text-muted-foreground/50">{timeAgo(conv.latest_at)}</span>
                       )}
                       {slaLabel && status?.status !== "closed" && (
-                        <span className={cn("text-[10px] font-medium", slaColor)} title="Time since last customer message">
-                          {slaLabel}
+                        <span
+                          className={cn(
+                            "font-medium",
+                            slaHours && slaHours >= 4
+                              ? "text-[10px] rounded-full px-1.5 py-0.5 bg-red-500/15 text-red-400"
+                              : cn("text-[10px]", slaColor)
+                          )}
+                          title="Time since last customer message"
+                        >
+                          {slaHours && slaHours >= 4 ? `⏱ ${slaLabel}` : slaLabel}
                         </span>
                       )}
                       {assignee && (

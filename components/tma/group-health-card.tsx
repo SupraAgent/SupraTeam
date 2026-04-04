@@ -20,6 +20,7 @@ interface GroupHealthCardProps {
   messageCount7d: number;
   messageHistory: MessageHistoryEntry[];
   slugs: string[];
+  engagementScore?: number | null;
   onTap: (id: string) => void;
 }
 
@@ -81,6 +82,12 @@ function MiniSparkline({
   );
 }
 
+const ENGAGEMENT_COLOR = (score: number) =>
+  score >= 75 ? "text-emerald-400 bg-emerald-400/15" :
+  score >= 50 ? "text-yellow-400 bg-yellow-400/15" :
+  score >= 25 ? "text-orange-400 bg-orange-400/15" :
+  "text-red-400 bg-red-400/15";
+
 export function GroupHealthCard({
   id,
   name,
@@ -89,6 +96,7 @@ export function GroupHealthCard({
   messageCount7d,
   messageHistory,
   slugs,
+  engagementScore,
   onTap,
 }: GroupHealthCardProps) {
   function handleTap() {
@@ -134,8 +142,15 @@ export function GroupHealthCard({
         )}
       </div>
 
-      {/* Sparkline */}
-      <MiniSparkline data={messageHistory} healthStatus={healthStatus} />
+      {/* Engagement score + Sparkline */}
+      <div className="flex items-center gap-2 shrink-0">
+        {engagementScore != null && (
+          <span className={cn("text-[10px] font-bold rounded-md px-1.5 py-0.5", ENGAGEMENT_COLOR(engagementScore))}>
+            {engagementScore}
+          </span>
+        )}
+        <MiniSparkline data={messageHistory} healthStatus={healthStatus} />
+      </div>
     </button>
   );
 }
