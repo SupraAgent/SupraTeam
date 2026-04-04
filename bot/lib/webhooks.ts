@@ -4,7 +4,42 @@
  */
 
 import { supabase } from "./supabase.js";
-import { createHmac } from "crypto";
+import { createHmac, createDecipheriv } from "crypto";
+
+/** Decrypt AES-256-GCM encrypted token (same format as lib/crypto.ts). */
+function decryptSecret(hex: string): string {
+  const key = process.env.TOKEN_ENCRYPTION_KEY;
+  if (!key) return hex; // No key = treat as plaintext
+
+  try {
+    const buf = Buffer.from(hex, "hex");
+    // Format: version(1) + iv(12) + ciphertext + authTag(16)
+    // Or legacy: iv(12) + ciphertext + authTag(16)
+    let iv: Buffer, ciphertext: Buffer, authTag: Buffer;
+
+    if (buf[0] === 1 && buf.length > 1 + 12 + 16) {
+      // Versioned format
+      iv = buf.subarray(1, 13);
+      authTag = buf.subarray(buf.length - 16);
+      ciphertext = buf.subarray(13, buf.length - 16);
+    } else if (buf.length > 12 + 16) {
+      // Legacy format
+      iv = buf.subarray(0, 12);
+      authTag = buf.subarray(buf.length - 16);
+      ciphertext = buf.subarray(12, buf.length - 16);
+    } else {
+      return hex;
+    }
+
+    const keyBuf = Buffer.from(key, "hex");
+    const decipher = createDecipheriv("aes-256-gcm", keyBuf, iv);
+    decipher.setAuthTag(authTag);
+    const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    return decrypted.toString("utf8");
+  } catch {
+    return hex; // If decryption fails, return raw value
+  }
+}
 
 type WebhookEvent = string;
 
@@ -52,10 +87,8 @@ async function deliverWebhook(
   };
 
   if (secret) {
-    // Note: in bot context, secret may be stored encrypted.
-    // For simplicity, compute HMAC with raw value — if encrypted, the signature won't match
-    // and the webhook consumer should use the delivery log instead.
-    const signature = createHmac("sha256", secret).update(body).digest("hex");
+    const plaintextSecret = decryptSecret(secret);
+    const signature = createHmac("sha256", plaintextSecret).update(body).digest("hex");
     headers["X-Webhook-Signature"] = `sha256=${signature}`;
   }
 

@@ -10,9 +10,17 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdmin } from "@/lib/supabase";
 import { dispatchWebhook } from "@/lib/webhooks";
+import { rateLimit } from "@/lib/rate-limit";
 import { createHmac } from "crypto";
 
-async function validateApiKey(request: Request): Promise<{ userId: string } | null> {
+const API_KEY_SALT = process.env.API_KEY_HMAC_SALT || "crm-api-key-salt";
+
+interface ApiKeyAuth {
+  userId: string;
+  scopes: string[];
+}
+
+async function validateApiKey(request: Request): Promise<ApiKeyAuth | null> {
   const authHeader = request.headers.get("authorization");
   if (!authHeader?.startsWith("Bearer ")) return null;
 
@@ -22,14 +30,13 @@ async function validateApiKey(request: Request): Promise<{ userId: string } | nu
   const admin = createSupabaseAdmin();
   if (!admin) return null;
 
-  // Hash the key to compare against stored hash
-  const keyHash = createHmac("sha256", "crm-api-key-salt")
+  const keyHash = createHmac("sha256", API_KEY_SALT)
     .update(token)
     .digest("hex");
 
   const { data } = await admin
     .from("crm_api_keys")
-    .select("id, user_id, is_active, expires_at")
+    .select("id, user_id, scopes, is_active, expires_at")
     .eq("key_hash", keyHash)
     .eq("is_active", true)
     .single();
@@ -44,15 +51,31 @@ async function validateApiKey(request: Request): Promise<{ userId: string } | nu
     .eq("id", data.id)
     .then(null, () => {});
 
-  return { userId: data.user_id as string };
+  return {
+    userId: data.user_id as string,
+    scopes: (data.scopes as string[]) ?? [],
+  };
 }
 
 export async function POST(request: Request) {
+  // Rate limit by IP — 60 requests per minute
+  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+  const limited = rateLimit(`public-enroll:${ip}`, { max: 60, windowSec: 60 });
+  if (limited) return limited;
+
   const auth = await validateApiKey(request);
   if (!auth) {
     return NextResponse.json(
       { error: "Invalid or missing API key" },
       { status: 401 }
+    );
+  }
+
+  // Check scope
+  if (!auth.scopes.includes("enroll") && !auth.scopes.includes("*")) {
+    return NextResponse.json(
+      { error: "API key does not have 'enroll' scope" },
+      { status: 403 }
     );
   }
 

@@ -15,11 +15,11 @@
 
 import type { Bot } from "grammy";
 import { supabase } from "../lib/supabase.js";
+import { dispatchBotWebhook } from "../lib/webhooks.js";
 
 async function fireWebhookEvent(eventType: string, payload: Record<string, unknown>) {
   try {
-    const { dispatchWebhook } = await import("../../lib/webhooks");
-    await dispatchWebhook(eventType as import("../../lib/webhooks").WebhookEvent, payload);
+    await dispatchBotWebhook(eventType, payload);
   } catch (err) {
     console.error(`[sequence-triggers] webhook ${eventType} error:`, err);
   }
