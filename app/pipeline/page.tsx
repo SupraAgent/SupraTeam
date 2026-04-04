@@ -105,6 +105,7 @@ export default function PipelinePage() {
   const [showInsights, setShowInsights] = React.useState(false);
   const [bulkSentimentLoading, setBulkSentimentLoading] = React.useState(false);
   const [unreadCounts, setUnreadCounts] = React.useState<Record<string, number>>({});
+  const [teamMembers, setTeamMembers] = React.useState<{ id: string; display_name: string }[]>([]);
   const [showSuggestions, setShowSuggestions] = React.useState(true);
 
   const searchParams = useSearchParams();
@@ -224,11 +225,12 @@ export default function PipelinePage() {
 
   const fetchData = React.useCallback(async () => {
     try {
-      const [stagesRes, dealsRes, highlightsRes, unreadRes] = await Promise.all([
+      const [stagesRes, dealsRes, highlightsRes, unreadRes, teamRes] = await Promise.all([
         fetch("/api/pipeline"),
         fetch("/api/deals"),
         fetch("/api/highlights"),
         fetch("/api/deals/unread-counts"),
+        fetch("/api/team"),
       ]);
 
       let fetchedStages: PipelineStage[] = [];
@@ -268,6 +270,11 @@ export default function PipelinePage() {
       if (unreadRes.ok) {
         const unreadData = await unreadRes.json();
         setUnreadCounts(unreadData.counts ?? {});
+      }
+
+      if (teamRes.ok) {
+        const teamData = await teamRes.json();
+        setTeamMembers(teamData.members ?? []);
       }
 
       // Refresh contacts if previously loaded (non-blocking)
@@ -856,6 +863,8 @@ export default function PipelinePage() {
         onClose={() => setSelectedDeal(null)}
         onDeleted={fetchData}
         onUpdated={fetchData}
+        cachedStages={stages}
+        cachedTeamMembers={teamMembers}
       />
 
       <AutomateDealModal

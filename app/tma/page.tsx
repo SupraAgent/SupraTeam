@@ -3,10 +3,11 @@
 import * as React from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, Clock, Flame, ChevronRight, Zap } from "lucide-react";
+import { AlertTriangle, Flame, ChevronRight, Zap, WifiOff } from "lucide-react";
 import { BottomTabBar } from "@/components/tma/bottom-tab-bar";
 import { PullToRefresh } from "@/components/tma/pull-to-refresh";
 import { useTelegramWebApp } from "@/components/tma/use-telegram";
+import { cacheGet, cacheSet } from "@/components/tma/offline-cache";
 
 type Deal = {
   id: string;
@@ -23,25 +24,90 @@ type Stats = {
   hotConversations: { name: string; count: number; deal_id: string }[];
 };
 
+type Group = {
+  id: string;
+  group_name: string;
+  member_count: number | null;
+  health_status: "active" | "quiet" | "stale" | "dead" | "unknown";
+  is_archived: boolean;
+  message_count_7d: number | null;
+  last_message_at: string | null;
+};
+
 export default function TMAHomePage() {
   const [deals, setDeals] = React.useState<Deal[]>([]);
   const [stats, setStats] = React.useState<Stats | null>(null);
+  const [groups, setGroups] = React.useState<Group[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [fromCache, setFromCache] = React.useState(false);
 
   const { tgUser } = useTelegramWebApp();
 
   const fetchData = React.useCallback(async () => {
-    const [dealsData, statsData] = await Promise.all([
-      fetch("/api/deals").then((r) => r.ok ? r.json() : { deals: [] }).catch(() => ({ deals: [] })),
-      fetch("/api/stats").then((r) => r.ok ? r.json() : null).catch(() => null),
+    // Try loading from cache first
+    const [cachedDeals, cachedStats, cachedGroups] = await Promise.all([
+      cacheGet<Deal[]>("deals", "tma-home"),
+      cacheGet<Stats>("stats", "tma-home"),
+      cacheGet<Group[]>("groups", "tma-home"),
     ]);
-    setDeals(dealsData.deals ?? []);
-    setStats(statsData ? {
-      totalDeals: statsData.totalDeals ?? 0,
-      staleDeals: statsData.staleDeals ?? [],
-      followUps: statsData.followUps ?? [],
-      hotConversations: statsData.hotConversations ?? [],
-    } : { totalDeals: 0, staleDeals: [], followUps: [], hotConversations: [] });
+
+    if (cachedDeals || cachedStats || cachedGroups) {
+      if (cachedDeals) setDeals(cachedDeals);
+      if (cachedStats) setStats(cachedStats);
+      if (cachedGroups) setGroups(cachedGroups);
+      setFromCache(true);
+      setLoading(false);
+    }
+
+    // Fetch fresh data from network
+    try {
+      const [dealsData, statsData, groupsData] = await Promise.all([
+        fetch("/api/deals").then((r) => r.ok ? r.json() : { deals: [] }).catch(() => ({ deals: [] })),
+        fetch("/api/stats").then((r) => r.ok ? r.json() : null).catch(() => null),
+        fetch("/api/groups").then((r) => r.ok ? r.json() : { groups: [] }).catch(() => ({ groups: [] })),
+      ]);
+
+      const parsedDeals: Deal[] = dealsData.deals ?? [];
+      const parsedStats: Stats = statsData ? {
+        totalDeals: statsData.totalDeals ?? 0,
+        staleDeals: statsData.staleDeals ?? [],
+        followUps: statsData.followUps ?? [],
+        hotConversations: statsData.hotConversations ?? [],
+      } : { totalDeals: 0, staleDeals: [], followUps: [], hotConversations: [] };
+      const parsedGroups: Group[] = (groupsData.groups ?? [])
+        .filter((g: Group) => !g.is_archived)
+        .sort((a: Group, b: Group) => {
+          const order = { active: 0, quiet: 1, stale: 2, dead: 3, unknown: 4 };
+          return (order[a.health_status] ?? 4) - (order[b.health_status] ?? 4);
+        });
+
+      setDeals(parsedDeals);
+      setStats(parsedStats);
+      setGroups(parsedGroups);
+      setFromCache(false);
+
+      // Cache the fresh data
+      await Promise.all([
+        cacheSet("deals", "tma-home", parsedDeals),
+        cacheSet("stats", "tma-home", parsedStats),
+        cacheSet("groups", "tma-home", parsedGroups),
+      ]);
+    } catch {
+      // Network error — fall back to stale cache if nothing was loaded yet
+      if (!cachedDeals && !cachedStats && !cachedGroups) {
+        const [staleDeals, staleStats, staleGroups] = await Promise.all([
+          cacheGet<Deal[]>("deals", "tma-home", Infinity),
+          cacheGet<Stats>("stats", "tma-home", Infinity),
+          cacheGet<Group[]>("groups", "tma-home", Infinity),
+        ]);
+        if (staleDeals) setDeals(staleDeals);
+        if (staleStats) setStats(staleStats);
+        if (staleGroups) setGroups(staleGroups);
+        if (staleDeals || staleStats || staleGroups) setFromCache(true);
+      }
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   React.useEffect(() => {
@@ -65,7 +131,14 @@ export default function TMAHomePage() {
         <h1 className="text-lg font-semibold text-foreground">
           {tgUser ? `Hi ${tgUser.first_name}` : "SupraTeam"}
         </h1>
-        <p className="text-xs text-muted-foreground">{deals.length} active deals</p>
+        <p className="text-xs text-muted-foreground">
+          {deals.length} active deals
+          {fromCache && (
+            <span className="inline-flex items-center gap-1 ml-2 text-[10px] text-amber-400">
+              <WifiOff className="h-2.5 w-2.5" /> Offline
+            </span>
+          )}
+        </p>
       </div>
 
       {/* Urgent section */}
@@ -95,6 +168,45 @@ export default function TMAHomePage() {
                 <span className="text-[10px] text-blue-400">{c.count} msgs</span>
               </Link>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Group Health */}
+      {groups.length > 0 && (
+        <div className="px-4 mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Group Health</p>
+            <span className="text-[10px] text-muted-foreground">{groups.length} groups</span>
+          </div>
+          <div className="space-y-1.5">
+            {groups.slice(0, 5).map((group) => {
+              const statusColor =
+                group.health_status === "active" ? "bg-green-400" :
+                group.health_status === "quiet" ? "bg-amber-400" :
+                group.health_status === "stale" ? "bg-orange-400" :
+                group.health_status === "dead" ? "bg-red-400" :
+                "bg-zinc-400";
+              return (
+                <div
+                  key={group.id}
+                  className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className={cn("h-2 w-2 rounded-full shrink-0", statusColor)} />
+                    <span className="text-xs text-foreground truncate">{group.group_name}</span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {group.message_count_7d != null && group.message_count_7d > 0 && (
+                      <span className="text-[10px] text-muted-foreground">{group.message_count_7d} msgs/wk</span>
+                    )}
+                    <span className="text-[10px] text-muted-foreground">
+                      {group.member_count ?? 0} members
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

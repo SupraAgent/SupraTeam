@@ -18,6 +18,8 @@ import {
   Lightbulb,
   Settings,
   Crown,
+  FolderSync,
+  QrCode,
   type LucideIcon,
 } from "lucide-react";
 
@@ -50,6 +52,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { href: "/inbox", label: "Team Inbox", icon: Inbox },
       { href: "/groups", label: "TG Groups", icon: MessageCircle },
       { href: "/telegram/admin", label: "My Groups", icon: Crown },
+      { href: "/telegram/folders", label: "Folder Sync", icon: FolderSync },
       { href: "/contacts", label: "Contacts", icon: Users },
       { href: "/companies", label: "Companies", icon: Building2 },
     ],
@@ -77,6 +80,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { href: "/calendar", label: "Calendar & Tasks", icon: Calendar },
       { href: "/reports", label: "Reports", icon: BarChart3, requiredRole: ["admin_lead"] },
       { href: "/access", label: "Access Control", icon: Shield, requiredRole: ["admin_lead"] },
+      { href: "/qr-codes", label: "QR Codes", icon: QrCode },
       { href: "/suggestions", label: "Suggestions", icon: Lightbulb },
     ],
   },

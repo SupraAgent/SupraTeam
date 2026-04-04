@@ -1,6 +1,15 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 
+const VALID_MODULES = [
+  "platform", "telegram", "email", "pipeline", "inbox",
+  "tg_groups", "contacts", "companies", "automation",
+  "calendar", "broadcasts", "outreach", "settings", "tma",
+];
+
+const VALID_TYPES = ["bug", "improvement", "feature"];
+const VALID_PAIN = ["nice_to_have", "slows_me_down", "blocks_my_work"];
+
 export async function GET(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
@@ -9,7 +18,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const status = searchParams.get("status");
   const category = searchParams.get("category");
-  const sort = searchParams.get("sort") ?? "newest";
+  const sort = searchParams.get("sort") ?? "impact";
 
   let query = supabase
     .from("crm_feature_suggestions")
@@ -27,6 +36,7 @@ export async function GET(request: Request) {
   } else if (sort === "upvotes") {
     query = query.order("upvotes", { ascending: false });
   } else {
+    // "newest" and "impact" (impact is sorted client-side)
     query = query.order("created_at", { ascending: false });
   }
 
@@ -46,7 +56,7 @@ export async function POST(request: Request) {
   const { user, supabase } = auth;
 
   const body = await request.json();
-  const { title, description, category } = body;
+  const { title, description, category, suggestion_type, pain_level, workaround } = body;
 
   if (!title?.trim() || !description?.trim()) {
     return NextResponse.json({ error: "Title and description are required" }, { status: 400 });
@@ -64,7 +74,10 @@ export async function POST(request: Request) {
     .insert({
       title: title.trim(),
       description: description.trim(),
-      category: ["ux", "telegram", "pipeline", "automation", "reporting", "integration", "other"].includes(category) ? category : "other",
+      category: VALID_MODULES.includes(category) ? category : "platform",
+      suggestion_type: VALID_TYPES.includes(suggestion_type) ? suggestion_type : "improvement",
+      pain_level: VALID_PAIN.includes(pain_level) ? pain_level : "nice_to_have",
+      workaround: workaround?.trim() || null,
       submitted_by: user.id,
       submitted_by_name: profile?.display_name ?? user.email ?? "Unknown",
     })
@@ -134,10 +147,16 @@ export async function PATCH(request: Request) {
 
   // Handle status update (lead role required)
   if (action === "update_status") {
-    const { status: newStatus } = body;
-    const validStatuses = ["pending", "approved", "deferred", "rejected"];
+    const { status: newStatus, close_reason } = body;
+    const validStatuses = ["pending", "approved", "planned", "shipped", "deferred", "rejected"];
     if (!validStatuses.includes(newStatus)) {
       return NextResponse.json({ error: "Invalid status" }, { status: 400 });
+    }
+
+    // Require close reason for terminal statuses
+    const terminalStatuses = ["shipped", "rejected", "deferred"];
+    if (terminalStatuses.includes(newStatus) && !close_reason?.trim()) {
+      return NextResponse.json({ error: "A reason is required when closing or shipping a suggestion" }, { status: 400 });
     }
 
     // Check lead role for status changes
@@ -151,9 +170,18 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "Only leads can change suggestion status" }, { status: 403 });
     }
 
+    const updatePayload: Record<string, string> = {
+      status: newStatus,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (close_reason?.trim()) {
+      updatePayload.close_reason = close_reason.trim();
+    }
+
     const { error } = await supabase
       .from("crm_feature_suggestions")
-      .update({ status: newStatus, updated_at: new Date().toISOString() })
+      .update(updatePayload)
       .eq("id", id);
 
     if (error) {

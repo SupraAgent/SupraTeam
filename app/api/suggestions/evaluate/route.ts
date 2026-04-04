@@ -59,16 +59,21 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Suggestion not found" }, { status: 404 });
   }
 
-  // Optimistic lock: only evaluate if still pending
+  // Optimistic lock: only evaluate if not currently evaluating
+  const evaluableStatuses = ["pending", "approved", "deferred", "rejected", "planned"];
+  if (!evaluableStatuses.includes(suggestion.status)) {
+    return NextResponse.json({ error: "Suggestion is already being evaluated" }, { status: 409 });
+  }
+
   const { data: lockResult } = await supabase
     .from("crm_feature_suggestions")
     .update({ status: "evaluating" })
     .eq("id", suggestion_id)
-    .eq("status", "pending")
+    .in("status", evaluableStatuses)
     .select("id");
 
   if (!lockResult || lockResult.length === 0) {
-    return NextResponse.json({ error: "Suggestion is already being evaluated or was already evaluated" }, { status: 409 });
+    return NextResponse.json({ error: "Suggestion is already being evaluated" }, { status: 409 });
   }
 
   // Fetch recent approved suggestions for context
@@ -83,11 +88,24 @@ export async function POST(request: Request) {
     ? `\n\nAlready approved features for context:\n${recentApproved.map((s) => `- ${s.title} (${s.cpo_priority}, score: ${s.cpo_score})`).join("\n")}`
     : "";
 
+  const painLabels: Record<string, string> = {
+    nice_to_have: "Nice to have",
+    slows_me_down: "Slows them down daily",
+    blocks_my_work: "Blocks their workflow",
+  };
+  const typeLabels: Record<string, string> = {
+    bug: "Bug Fix",
+    improvement: "Improvement",
+    feature: "New Feature",
+  };
+
   const userMessage = `Evaluate this feature suggestion:
 
-Title: ${suggestion.title}
-Category: ${suggestion.category}
-Description: ${suggestion.description}
+Module: ${suggestion.category}
+Type: ${typeLabels[suggestion.suggestion_type] ?? "Improvement"}
+Title: I wish I could ${suggestion.title}
+Pain Level: ${painLabels[suggestion.pain_level] ?? "Nice to have"}
+What they're trying to do: ${suggestion.description}${suggestion.workaround ? `\nCurrent workaround: ${suggestion.workaround}` : ""}
 Submitted by: ${suggestion.submitted_by_name}
 Upvotes: ${suggestion.upvotes}${roadmapContext}`;
 

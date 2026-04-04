@@ -1,5 +1,12 @@
-import { redirect } from "next/navigation";
+"use client";
 
-export default function DripPage() {
-  redirect("/outreach");
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+
+export default function DripRedirect() {
+  const router = useRouter();
+  useEffect(() => {
+    router.replace("/outreach");
+  }, [router]);
+  return null;
 }
