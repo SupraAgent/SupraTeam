@@ -8,7 +8,10 @@ const CALENDLY_AUTH_BASE = "https://auth.calendly.com";
 // Cache TTLs
 const EVENT_TYPES_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-// Mutex: prevent concurrent token refreshes per user (singleton promise pattern)
+// Mutex: prevent concurrent token refreshes per user (singleton promise pattern).
+// Note: module-scoped — only protects within a single serverless instance.
+// In multi-instance deployments, concurrent refreshes across instances are rare
+// (small time window) and the worst case is a redundant refresh, not a broken one.
 const refreshInFlight = new Map<string, Promise<{ token: string; connection: CalendlyConnection }>>();
 
 interface CalendlyConnection {
