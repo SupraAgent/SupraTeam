@@ -1086,6 +1086,15 @@ export default function TelegramPage() {
 
   // ── Not Connected CTA ───────────────────────────────────────
 
+  // Show loading spinner while session is being restored
+  if (tg.status === "loading" || tg.status === "connecting") {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
   if (tg.status !== "connected" && tg.status !== "reconnecting" && tg.status !== "error") {
     return (
       <div className="flex h-full items-center justify-center p-8">

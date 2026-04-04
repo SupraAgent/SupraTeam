@@ -297,27 +297,46 @@ export class TelegramBrowserService {
   /**
    * Step 2b: Sign in with 2FA password.
    *
-   * Uses GramJS's signInWithPassword which handles SRP computation
-   * with proper browser crypto polyfills. The onError callback re-throws
-   * instead of returning true (which would swallow the real error and
-   * emit a fake AUTH_USER_CANCEL).
+   * Uses raw invoke for SRP auth: GetPassword → computeCheck → CheckPassword.
+   *
+   * GramJS's computeCheck returns Buffer instances for the SRP proof, but
+   * Turbopack may provide different Buffer polyfills to different modules,
+   * causing `serializeBytes` to fail with "Bytes or str expected, not Buffer"
+   * (instanceof check across different Buffer references). We convert Buffer
+   * fields to Uint8Array before invoking to avoid this cross-realm issue.
    */
   async signIn2FA(password: string): Promise<Api.User> {
     this.requireClient();
-    const result = await this.client!.signInWithPassword(
-      { apiId: API_ID, apiHash: API_HASH },
-      {
-        password: () => Promise.resolve(password),
-        onError: async (err: Error) => {
-          // Re-throw the real error instead of returning true (which
-          // causes GramJS to throw a fake "AUTH_USER_CANCEL").
-          throw err;
-        },
-      }
+
+    // 1. Get SRP parameters
+    const passwordInfo = await this.client!.invoke(
+      new Api.account.GetPassword()
     );
-    if (result instanceof Api.User) return result;
-    const auth = result as { user?: Api.User };
-    if (auth?.user instanceof Api.User) return auth.user;
+
+    // 2. Compute SRP proof
+    const { computeCheck } = await import("telegram/Password");
+    const srpResult = await computeCheck(passwordInfo, password);
+
+    // 3. Fix cross-realm Buffer polyfill issue.
+    //    Turbopack may give Password.js and generationHelpers.js different
+    //    Buffer polyfills. serializeBytes does `instanceof Buffer` which fails
+    //    when the Buffer was created by a different polyfill. Re-wrapping with
+    //    the global Buffer.from() ensures the instanceof check passes.
+    if (srpResult.A) {
+      srpResult.A = Buffer.from(srpResult.A);
+    }
+    if (srpResult.M1) {
+      srpResult.M1 = Buffer.from(srpResult.M1);
+    }
+
+    // 4. Submit SRP proof
+    const result = await this.client!.invoke(
+      new Api.auth.CheckPassword({ password: srpResult })
+    );
+
+    if (result instanceof Api.auth.Authorization) {
+      return result.user as Api.User;
+    }
     throw new Error("Unexpected 2FA sign-in response");
   }
 
