@@ -294,19 +294,27 @@ export class TelegramBrowserService {
     return auth.user as Api.User;
   }
 
-  /** Step 2b: Sign in with 2FA password. */
+  /** Step 2b: Sign in with 2FA password (raw invoke to avoid signInWithPassword re-auth). */
   async signIn2FA(password: string): Promise<Api.User> {
     this.requireClient();
-    const result = await this.client!.signInWithPassword(
-      { apiId: API_ID, apiHash: API_HASH },
-      {
-        password: () => Promise.resolve(password),
-        onError: async () => true,
-      }
+
+    // 1. Get the SRP parameters from Telegram
+    const passwordInfo = await this.client!.invoke(
+      new Api.account.GetPassword()
     );
-    if (result instanceof Api.User) return result;
-    const auth = result as { user?: Api.User };
-    if (auth.user instanceof Api.User) return auth.user;
+
+    // 2. Compute SRP check using GramJS's computeCheck helper
+    const { computeCheck } = await import("telegram/Password");
+    const srpResult = await computeCheck(passwordInfo, password);
+
+    // 3. Submit the SRP proof
+    const result = await this.client!.invoke(
+      new Api.auth.CheckPassword({ password: srpResult })
+    );
+
+    if (result instanceof Api.auth.Authorization) {
+      return result.user as Api.User;
+    }
     throw new Error("Unexpected 2FA sign-in response");
   }
 

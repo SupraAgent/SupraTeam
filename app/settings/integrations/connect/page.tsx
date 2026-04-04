@@ -84,7 +84,12 @@ export default function TelegramConnectPage() {
       await tg.persistSession(user, last4);
       setStep("connected");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "2FA verification failed");
+      const msg = err instanceof Error ? err.message : "2FA verification failed";
+      if (msg.includes("PASSWORD_HASH_INVALID")) {
+        setError("Incorrect cloud password. Please try again.");
+      } else {
+        setError(msg);
+      }
     } finally {
       setLoading(false);
     }
