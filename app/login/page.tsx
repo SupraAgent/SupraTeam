@@ -5,33 +5,20 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Github } from "lucide-react";
+import { Github, ArrowLeft } from "lucide-react";
 
-declare global {
-  interface Window {
-    onTelegramAuth: (user: TelegramUser) => void;
-  }
-}
+// Lazy-load GramJS service — only when user picks Telegram login
+const getTgService = () =>
+  import("@/lib/client/telegram-service").then((m) => m.TelegramBrowserService.getInstance());
 
-type TelegramUser = {
-  id: number;
-  first_name: string;
-  last_name?: string;
-  username?: string;
-  photo_url?: string;
-  auth_date: number;
-  hash: string;
-};
-
-type LoginMethod = "widget" | "phone" | "qr" | "dev";
+type LoginMethod = "choose" | "github" | "phone" | "qr";
 type PhoneStep = "input" | "code" | "2fa";
 
 export default function LoginPage() {
   const router = useRouter();
-  const widgetRef = React.useRef<HTMLDivElement>(null);
+  const [method, setMethod] = React.useState<LoginMethod>("choose");
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(false);
-  const [method, setMethod] = React.useState<LoginMethod>("qr");
 
   // Phone login state
   const [phone, setPhone] = React.useState("");
@@ -40,11 +27,78 @@ export default function LoginPage() {
   const [password, setPassword] = React.useState("");
   const [phoneCodeHash, setPhoneCodeHash] = React.useState("");
 
-  // Dev login state
-  const [devPassword, setDevPassword] = React.useState("");
-  const [showTelegramMethods, setShowTelegramMethods] = React.useState(false);
+  // QR login state
+  const [qrUrl, setQrUrl] = React.useState("");
 
-  // ── GitHub OAuth handler ──
+  // Store the authenticated TG user for session creation
+  const tgUserRef = React.useRef<{
+    id: number;
+    firstName: string;
+    lastName?: string;
+    username?: string;
+  } | null>(null);
+
+  // ── Complete login: set Supabase session + redirect ──
+
+  async function completeLogin(accessToken: string, refreshToken: string) {
+    const supabase = createClient();
+    if (supabase && accessToken && refreshToken) {
+      await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      });
+    }
+    router.push("/");
+    router.refresh();
+  }
+
+  // ── Challenge/verify: prove TG auth to server, get Supabase tokens ──
+
+  async function challengeAndVerify(tgUser: {
+    id: number;
+    firstName: string;
+    lastName?: string;
+    username?: string;
+  }) {
+    // Step 1: Get challenge from server
+    const challengeRes = await fetch("/api/auth/telegram-zk/challenge", {
+      method: "POST",
+    });
+    if (!challengeRes.ok) {
+      const err = await challengeRes.json();
+      throw new Error(err.error || "Failed to get challenge");
+    }
+    const { challengeId, nonce } = await challengeRes.json();
+
+    // Step 2: Verify with server
+    const verifyRes = await fetch("/api/auth/telegram-zk/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ challengeId, nonce, telegramUser: tgUser }),
+    });
+    if (!verifyRes.ok) {
+      const err = await verifyRes.json();
+      throw new Error(err.error || "Verification failed");
+    }
+    const { access_token, refresh_token } = await verifyRes.json();
+
+    // Step 3: Save TG session string for TelegramProvider to pick up
+    try {
+      const service = await getTgService();
+      const sessionString = service.getSessionString();
+      if (sessionString) {
+        sessionStorage.setItem("tg-pending-session", sessionString);
+        // Store user info for session persistence
+        sessionStorage.setItem("tg-pending-user", JSON.stringify(tgUser));
+      }
+    } catch {
+      // Non-critical — TG connect can be done again later
+    }
+
+    await completeLogin(access_token, refresh_token);
+  }
+
+  // ── GitHub OAuth ──
 
   async function handleGitHubLogin() {
     setLoading(true);
@@ -61,9 +115,7 @@ export default function LoginPage() {
           redirectTo: `${window.location.origin}/auth/callback`,
         },
       });
-      if (oauthError) {
-        setError(oauthError.message);
-      }
+      if (oauthError) setError(oauthError.message);
     } catch {
       setError("Something went wrong. Please try again.");
     } finally {
@@ -71,118 +123,20 @@ export default function LoginPage() {
     }
   }
 
-  // QR login state
-  const [qrUrl, setQrUrl] = React.useState("");
-  const [loginToken, setLoginToken] = React.useState("");
-  const qrPollRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
-
-  // Cleanup QR polling on unmount
-  React.useEffect(() => {
-    return () => {
-      if (qrPollRef.current) clearInterval(qrPollRef.current);
-    };
-  }, []);
-
-  // Load Telegram widget when that tab is selected
-  React.useEffect(() => {
-    if (method !== "widget") return;
-
-    window.onTelegramAuth = async (user: TelegramUser) => {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await fetch("/api/auth/telegram", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(user),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          setError(data.error ?? "Authentication failed.");
-          setLoading(false);
-          return;
-        }
-        await completeLogin(data.access_token, data.refresh_token);
-      } catch {
-        setError("Something went wrong. Please try again.");
-        setLoading(false);
-      }
-    };
-
-    if (widgetRef.current && !widgetRef.current.querySelector("script")) {
-      const script = document.createElement("script");
-      script.src = "https://telegram.org/js/telegram-widget.js?22";
-      script.async = true;
-      script.setAttribute("data-telegram-login", "SupraAdmin_bot");
-      script.setAttribute("data-size", "large");
-      script.setAttribute("data-radius", "12");
-      script.setAttribute("data-onauth", "onTelegramAuth(user)");
-      script.setAttribute("data-request-access", "write");
-      widgetRef.current.appendChild(script);
-    }
-  }, [method]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function completeLogin(accessToken: string, refreshToken: string) {
-    const supabase = createClient();
-    if (supabase && accessToken && refreshToken) {
-      await supabase.auth.setSession({
-        access_token: accessToken,
-        refresh_token: refreshToken,
-      });
-    }
-    router.push("/");
-    router.refresh();
-  }
-
-  // ── Dev login handler ──
-
-  async function handleDevLogin() {
-    if (!devPassword.trim()) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/auth/dev-login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: devPassword }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Invalid password");
-        return;
-      }
-      router.push("/");
-      router.refresh();
-    } catch {
-      setError("Network error. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // ── Phone login handlers ──
+  // ── Phone login: client-side GramJS ──
 
   async function handleSendCode() {
     if (!phone.trim()) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/auth/telegram-phone", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: phone.trim() }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(res.status === 503
-          ? "Telegram API not configured. Ask an admin to set TELEGRAM_API_ID and TELEGRAM_API_HASH."
-          : data.error || "Failed to send code");
-        return;
-      }
-      setPhoneCodeHash(data.phoneCodeHash);
+      const service = await getTgService();
+      await service.connect("");
+      const result = await service.sendCode(phone.trim());
+      setPhoneCodeHash(result.phoneCodeHash);
       setPhoneStep("code");
-    } catch {
-      setError("Network error. Please try again.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to send code");
     } finally {
       setLoading(false);
     }
@@ -193,86 +147,94 @@ export default function LoginPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/auth/telegram-phone/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          phone: phone.trim(),
-          code: code.trim(),
-          phoneCodeHash,
-          password: password || undefined,
-        }),
-      });
-      const data = await res.json();
-
-      if (data.error === "2FA_REQUIRED") {
+      const service = await getTgService();
+      const user = await service.signIn(phone.trim(), code.trim(), phoneCodeHash);
+      const tgUser = {
+        id: Number(user.id),
+        firstName: user.firstName ?? "User",
+        lastName: user.lastName ?? undefined,
+        username: user.username ?? undefined,
+      };
+      tgUserRef.current = tgUser;
+      setCode("");
+      await challengeAndVerify(tgUser);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Verification failed";
+      if (msg.includes("SESSION_PASSWORD_NEEDED")) {
         setPhoneStep("2fa");
-        return;
+      } else {
+        setError(msg);
       }
-      if (!res.ok) {
-        setError(data.error || "Verification failed");
-        return;
-      }
-      await completeLogin(data.access_token, data.refresh_token);
-    } catch {
-      setError("Network error. Please try again.");
     } finally {
       setLoading(false);
     }
   }
 
-  // ── QR login handlers ──
+  async function handle2FA() {
+    if (!password.trim()) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const service = await getTgService();
+      const user = await service.signIn2FA(password.trim());
+      const tgUser = {
+        id: Number(user.id),
+        firstName: user.firstName ?? "User",
+        lastName: user.lastName ?? undefined,
+        username: user.username ?? undefined,
+      };
+      tgUserRef.current = tgUser;
+      setPassword("");
+      await challengeAndVerify(tgUser);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "2FA verification failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ── QR login: client-side GramJS ──
 
   async function handleQRLogin() {
     setLoading(true);
     setError(null);
-    if (qrPollRef.current) clearInterval(qrPollRef.current);
-
     try {
-      const res = await fetch("/api/auth/telegram-qr", { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(res.status === 503
-          ? "Telegram API not configured. Ask an admin to set TELEGRAM_API_ID and TELEGRAM_API_HASH."
-          : data.error || "QR login failed");
-        return;
-      }
-      setQrUrl(data.qrUrl);
-      setLoginToken(data.loginToken);
+      const service = await getTgService();
+      await service.connect("");
+      const qr = await service.requestQRLogin();
+      setQrUrl(qr.qrUrl);
+      setLoading(false);
 
-      // Poll for confirmation
-      qrPollRef.current = setInterval(async () => {
-        try {
-          const pollRes = await fetch(`/api/auth/telegram-qr?token=${data.loginToken}`);
-          const pollData = await pollRes.json();
-          if (pollData.status === "confirmed") {
-            if (qrPollRef.current) clearInterval(qrPollRef.current);
-            await completeLogin(pollData.access_token, pollData.refresh_token);
-          } else if (pollData.status === "expired") {
-            if (qrPollRef.current) clearInterval(qrPollRef.current);
-            setError("QR code expired. Try again.");
-            setQrUrl("");
-            setLoginToken("");
-          }
-        } catch {
-          // Ignore transient poll errors
-        }
-      }, 2000);
-    } catch {
-      setError("Network error. Please try again.");
-    } finally {
+      // Wait for scan in background
+      qr.waitForScan()
+        .then(async (user) => {
+          const tgUser = {
+            id: Number(user.id),
+            firstName: user.firstName ?? "User",
+            lastName: user.lastName ?? undefined,
+            username: user.username ?? undefined,
+          };
+          tgUserRef.current = tgUser;
+          await challengeAndVerify(tgUser);
+        })
+        .catch((err) => {
+          setError(err instanceof Error ? err.message : "QR login failed");
+          setQrUrl("");
+        });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "QR login failed");
       setLoading(false);
     }
   }
 
-  function resetToMethodSelect() {
+  function goBack() {
+    setMethod("choose");
     setPhoneStep("input");
     setCode("");
     setPassword("");
-    setError(null);
-    if (qrPollRef.current) clearInterval(qrPollRef.current);
+    setPhone("");
     setQrUrl("");
-    setLoginToken("");
+    setError(null);
   }
 
   return (
@@ -298,56 +260,68 @@ export default function LoginPage() {
           </div>
         )}
 
-        {/* GitHub OAuth — primary login */}
-        <Button
-          onClick={handleGitHubLogin}
-          disabled={loading}
-          className="w-full gap-2 bg-white text-black hover:bg-white/90 font-medium"
-          size="lg"
-        >
-          <Github className="h-5 w-5" />
-          {loading && !showTelegramMethods ? "Redirecting..." : "Continue with GitHub"}
-        </Button>
-
-        {/* Divider */}
-        <div className="flex items-center gap-3">
-          <div className="h-px flex-1 bg-white/10" />
-          <button
-            onClick={() => setShowTelegramMethods(!showTelegramMethods)}
-            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
-            {showTelegramMethods ? "Hide" : "Or sign in with Telegram"}
-          </button>
-          <div className="h-px flex-1 bg-white/10" />
-        </div>
-
-        {/* Telegram method tabs — hidden by default */}
-        {showTelegramMethods && (
-        <div className="flex gap-1 rounded-xl bg-white/5 p-1">
-          {([
-            ["phone", "Phone"],
-            ["qr", "QR Code"],
-            ["widget", "Widget"],
-            ["dev", "Dev"],
-          ] as [LoginMethod, string][]).map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => { setMethod(key); resetToMethodSelect(); }}
-              className={`flex-1 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
-                method === key
-                  ? "bg-white/10 text-foreground"
-                  : "text-muted-foreground hover:text-foreground/80"
-              }`}
+        {/* ── Method selection ── */}
+        {method === "choose" && (
+          <div className="space-y-3">
+            {/* Telegram Phone */}
+            <Button
+              onClick={() => setMethod("phone")}
+              className="w-full gap-2 bg-[#2AABEE] text-white hover:bg-[#2AABEE]/90 font-medium"
+              size="lg"
             >
-              {label}
-            </button>
-          ))}
-        </div>
+              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
+              </svg>
+              Sign in with Telegram
+            </Button>
+
+            {/* Telegram QR */}
+            <Button
+              onClick={() => setMethod("qr")}
+              variant="outline"
+              className="w-full gap-2 font-medium"
+              size="lg"
+            >
+              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="7" height="7" />
+                <rect x="14" y="3" width="7" height="7" />
+                <rect x="3" y="14" width="7" height="7" />
+                <rect x="14" y="14" width="3" height="3" />
+                <rect x="18" y="14" width="3" height="3" />
+                <rect x="14" y="18" width="3" height="3" />
+                <rect x="18" y="18" width="3" height="3" />
+              </svg>
+              QR Code Login
+            </Button>
+
+            {/* Divider */}
+            <div className="flex items-center gap-3 py-1">
+              <div className="h-px flex-1 bg-white/10" />
+              <span className="text-xs text-muted-foreground">or</span>
+              <div className="h-px flex-1 bg-white/10" />
+            </div>
+
+            {/* GitHub */}
+            <Button
+              onClick={handleGitHubLogin}
+              disabled={loading}
+              variant="outline"
+              className="w-full gap-2 font-medium"
+              size="lg"
+            >
+              <Github className="h-5 w-5" />
+              {loading ? "Redirecting..." : "Continue with GitHub"}
+            </Button>
+          </div>
         )}
 
-        {/* ── Phone Login ── */}
-        {showTelegramMethods && method === "phone" && (
+        {/* ── Phone Login Flow ── */}
+        {method === "phone" && (
           <div className="space-y-4 text-left">
+            <button onClick={goBack} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
+              <ArrowLeft className="h-3 w-3" /> Back
+            </button>
+
             {phoneStep === "input" && (
               <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5 space-y-4">
                 <div>
@@ -397,12 +371,6 @@ export default function LoginPage() {
                     {loading ? "Verifying..." : "Verify"}
                   </Button>
                 </div>
-                <button
-                  onClick={() => { setPhoneStep("input"); setCode(""); setError(null); }}
-                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  Back
-                </button>
               </div>
             )}
 
@@ -422,9 +390,9 @@ export default function LoginPage() {
                     placeholder="Cloud password"
                     className="flex-1"
                     autoFocus
-                    onKeyDown={(e) => e.key === "Enter" && handleVerifyCode()}
+                    onKeyDown={(e) => e.key === "Enter" && handle2FA()}
                   />
-                  <Button size="sm" onClick={handleVerifyCode} disabled={loading || !password.trim()}>
+                  <Button size="sm" onClick={handle2FA} disabled={loading || !password.trim()}>
                     {loading ? "Verifying..." : "Submit"}
                   </Button>
                 </div>
@@ -433,9 +401,13 @@ export default function LoginPage() {
           </div>
         )}
 
-        {/* ── QR Code Login ── */}
-        {showTelegramMethods && method === "qr" && (
+        {/* ── QR Login Flow ── */}
+        {method === "qr" && (
           <div className="space-y-4">
+            <button onClick={goBack} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
+              <ArrowLeft className="h-3 w-3" /> Back
+            </button>
+
             {!qrUrl ? (
               <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5 space-y-4">
                 <div className="text-left">
@@ -465,11 +437,7 @@ export default function LoginPage() {
                 </div>
                 <p className="text-xs text-muted-foreground animate-pulse">Waiting for scan...</p>
                 <button
-                  onClick={() => {
-                    if (qrPollRef.current) clearInterval(qrPollRef.current);
-                    setQrUrl("");
-                    setLoginToken("");
-                  }}
+                  onClick={goBack}
                   className="text-xs text-muted-foreground hover:text-foreground transition-colors"
                 >
                   Cancel
@@ -479,59 +447,15 @@ export default function LoginPage() {
           </div>
         )}
 
-        {/* ── Widget Login ── */}
-        {showTelegramMethods && method === "widget" && (
-          <div className="space-y-4">
-            {loading ? (
-              <div className="py-4">
-                <p className="text-sm text-muted-foreground">Signing in...</p>
-              </div>
-            ) : (
-              <div ref={widgetRef} className="flex justify-center py-3 px-4 rounded-xl bg-white/90 mx-auto w-fit min-h-[48px] items-center" />
-            )}
-            <p className="text-[11px] text-muted-foreground/60">
-              Requires bot domain configured in BotFather.
-            </p>
-          </div>
-        )}
-
-        {/* ── Dev Access ── */}
-        {showTelegramMethods && method === "dev" && (
-          <div className="space-y-4 text-left">
-            <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5 space-y-4">
-              <div>
-                <h2 className="text-sm font-medium text-foreground">Dev Access</h2>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Enter the dev password to bypass Telegram auth.
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <Input
-                  type="password"
-                  value={devPassword}
-                  onChange={(e) => setDevPassword(e.target.value)}
-                  placeholder="Dev password"
-                  className="flex-1"
-                  autoFocus
-                  onKeyDown={(e) => e.key === "Enter" && handleDevLogin()}
-                />
-                <Button size="sm" onClick={handleDevLogin} disabled={loading || !devPassword.trim()}>
-                  {loading ? "..." : "Enter"}
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Footer */}
         <div className="space-y-2">
           <p className="text-xs text-muted-foreground">
             Sign in with your Telegram account to access the CRM.
           </p>
-          {method === "phone" && (
+          {(method === "phone" || method === "choose") && (
             <p className="text-[11px] text-muted-foreground/60">
-              Your phone number is hashed and never stored in plaintext.
-              Session encrypted with AES-256-GCM.
+              Zero-knowledge auth — Telegram connects directly from your browser.
+              Your credentials never touch our server.
             </p>
           )}
         </div>
