@@ -87,6 +87,12 @@ export default function TelegramConnectPage() {
       const msg = err instanceof Error ? err.message : "2FA verification failed";
       if (msg.includes("PASSWORD_HASH_INVALID")) {
         setError("Incorrect cloud password. Please try again.");
+      } else if (msg.includes("AUTH_USER_CANCEL")) {
+        setError("Login was cancelled by Telegram. Check your Telegram app for a login confirmation, then try again from the start.");
+        setStep("idle");
+        setCode("");
+        setPassword("");
+        setPhoneCodeHash("");
       } else {
         setError(msg);
       }
@@ -427,6 +433,9 @@ export default function TelegramConnectPage() {
               {loading ? "Verifying..." : "Submit"}
             </Button>
           </div>
+          <Button size="sm" variant="ghost" onClick={() => { setStep("idle"); setPassword(""); setCode(""); setPhoneCodeHash(""); }}>
+            Back
+          </Button>
         </div>
       )}
 
