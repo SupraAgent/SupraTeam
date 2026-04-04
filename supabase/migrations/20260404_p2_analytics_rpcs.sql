@@ -118,6 +118,13 @@ AS $$
   ORDER BY date DESC;
 $$;
 
+-- ── Composite indexes for RPC performance at 100K+ rows ──────
+CREATE INDEX IF NOT EXISTS idx_crm_message_index_user_sent
+  ON crm_message_index(user_id, sent_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_crm_message_index_user_chat_sender
+  ON crm_message_index(user_id, chat_id, sender_id, sent_at);
+
 COMMENT ON FUNCTION crm_analytics_top_senders IS 'Returns top message senders by count. Replaces JS-side aggregation.';
 COMMENT ON FUNCTION crm_analytics_response_time IS 'Computes avg response time between different senders per chat. Replaces JS-side aggregation.';
 COMMENT ON FUNCTION crm_analytics_heatmap IS 'Activity heatmap by day of week and hour. Replaces JS-side aggregation.';

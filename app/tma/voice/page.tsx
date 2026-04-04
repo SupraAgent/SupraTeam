@@ -88,6 +88,42 @@ export default function TMAVoicePage() {
   };
 
   const [creatingTask, setCreatingTask] = React.useState<string | null>(null);
+  const [creatingAll, setCreatingAll] = React.useState<string | null>(null);
+
+  const handleCreateAllTasks = async (transcription: VoiceTranscription) => {
+    if (creatingAll) return;
+    setCreatingAll(transcription.id);
+    hapticImpact("medium");
+    const pending = transcription.action_items.filter((i) => !i.done);
+    for (const item of pending) {
+      try {
+        await fetch("/api/reminders", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: item.text,
+            deal_id: transcription.deal?.id ?? undefined,
+            due_at: item.deadline_hint ? new Date(item.deadline_hint).toISOString() : undefined,
+            priority: item.priority,
+            source: "voice_note",
+            source_id: transcription.id,
+          }),
+        });
+      } catch {
+        // Continue with remaining items
+      }
+    }
+    // Mark all as done locally
+    setTranscriptions((prev) =>
+      prev.map((t) =>
+        t.id === transcription.id
+          ? { ...t, action_items: t.action_items.map((ai) => ({ ...ai, done: true })) }
+          : t
+      )
+    );
+    hapticImpact("light");
+    setCreatingAll(null);
+  };
 
   const handleCreateTask = async (
     transcriptionId: string,
@@ -291,6 +327,16 @@ export default function TMAVoicePage() {
                             </div>
                           );
                         })}
+                        {t.action_items.filter((i) => !i.done).length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => handleCreateAllTasks(t)}
+                            disabled={creatingAll === t.id}
+                            className="mt-2 w-full rounded-lg bg-violet-500/10 px-3 py-1.5 text-center text-xs font-medium text-violet-400 disabled:opacity-50"
+                          >
+                            {creatingAll === t.id ? "Creating..." : `Create All ${t.action_items.filter((i) => !i.done).length} Tasks`}
+                          </button>
+                        )}
                       </div>
                     )}
 
