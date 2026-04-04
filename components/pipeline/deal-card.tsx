@@ -92,6 +92,7 @@ export function DealCard({
             snapshot.isDragging && "shadow-lg border-primary/30 bg-white/[0.08]",
             highlight && "ring-2 ring-primary border-primary/40 bg-primary/10 animate-pulse",
             tgHighlight && !highlight && "border-amber-400/40 bg-amber-500/5 ring-1 ring-amber-400/30",
+            !highlight && !tgHighlight && unreadCount && unreadCount > 0 && deal.awaiting_response_since && "border-blue-400/30 bg-blue-500/5 ring-1 ring-blue-400/20",
             selected && "ring-2 ring-primary/60 border-primary/40 bg-primary/5",
             !highlight && !tgHighlight && !selected && !iceClass && "border-white/10",
             !highlight && !tgHighlight && !selected && iceClass,
@@ -121,7 +122,20 @@ export function DealCard({
           </div>
 
           {/* Quick actions menu — visible on hover */}
-          <div className="absolute right-1.5 top-1.5 z-10 opacity-0 group-hover:opacity-100 transition-opacity" ref={menuRef}>
+          <div className="absolute right-1.5 top-1.5 z-10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5" ref={menuRef}>
+            {(() => {
+              const currentStageIdx = stages.findIndex(s => s.id === deal.stage_id);
+              const nextStage = stages[currentStageIdx + 1];
+              return nextStage ? (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onQuickMove(nextStage.id); }}
+                  className="h-5 w-5 rounded bg-white/10 hover:bg-primary/20 hover:text-primary flex items-center justify-center transition-colors"
+                  title={`Move to ${nextStage.name}`}
+                >
+                  <ArrowRight className="h-3 w-3" />
+                </button>
+              ) : null;
+            })()}
             <button
               onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
               className="h-5 w-5 rounded bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
@@ -340,7 +354,7 @@ export function DealCard({
                 isOverdue ? "bg-red-500/10 text-red-400" : "bg-amber-500/10 text-amber-400"
               )}>
                 <Clock className="h-2.5 w-2.5" />
-                Awaiting reply: {label}
+                {unreadCount && unreadCount > 0 ? `${unreadCount} new · ` : ""}Awaiting reply: {label}
               </div>
             );
           })()}

@@ -24,6 +24,7 @@ type KanbanColumnProps = {
   unreadCounts?: Record<string, number>;
   slamDealId?: string | null;
   ripple?: boolean;
+  conversionRate?: number | null;
   onHoverPreview?: (deal: Deal, rect: DOMRect) => void;
   onHoverEnd?: () => void;
 };
@@ -48,7 +49,7 @@ export function KanbanColumn({
   highlightDealId, highlightedDealIds, highlightDetails,
   collapsed, onToggleCollapse,
   unreadCounts,
-  slamDealId, ripple,
+  slamDealId, ripple, conversionRate,
   onHoverPreview, onHoverEnd,
 }: KanbanColumnProps) {
   const totalValue = deals.reduce((sum, d) => sum + Number(d.value ?? 0), 0);
@@ -103,6 +104,11 @@ export function KanbanColumn({
               />
             )}
             <span className="text-xs font-medium text-foreground">{stage.name}</span>
+            {conversionRate != null && conversionRate > 0 && (
+              <span className="text-[9px] text-muted-foreground/30 ml-1" title={`${conversionRate}% from previous stage`}>
+                &larr;{conversionRate}%
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-1.5">
             {overWip && (

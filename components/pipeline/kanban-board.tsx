@@ -99,6 +99,11 @@ export function KanbanBoard({
   });
   const totalWeightedValue = stageStats.reduce((s, st) => s + st.weighted, 0);
 
+  const conversionRates = stageStats.map((st, i) => {
+    if (i === 0 || stageStats[i - 1].count === 0) return null;
+    return Math.round((st.count / stageStats[i - 1].count) * 100);
+  });
+
   return (
     <div className="space-y-3">
       {/* Weighted pipeline bar */}
@@ -140,7 +145,7 @@ export function KanbanBoard({
       <DealHoverPreview deal={hoverDeal} anchorRect={hoverRect} />
       <DragDropContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         <div className="flex gap-3 overflow-x-auto pb-4 thin-scroll">
-          {stages.map((stage) => {
+          {stages.map((stage, stageIndex) => {
             const stageDeals = filteredDeals.filter((d) => d.stage_id === stage.id);
             const allStageDeals = allFilteredDeals.filter((d) => d.stage_id === stage.id);
             const isCollapsed = collapsedColumns.has(stage.id);
@@ -165,6 +170,7 @@ export function KanbanBoard({
                 unreadCounts={unreadCounts}
                 slamDealId={slamDealId}
                 ripple={rippleStageId === stage.id}
+                conversionRate={conversionRates[stageIndex]}
                 onHoverPreview={(deal, rect) => { setHoverDeal(deal); setHoverRect(rect); }}
                 onHoverEnd={() => { setHoverDeal(null); setHoverRect(null); }}
               />

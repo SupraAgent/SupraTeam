@@ -36,6 +36,8 @@ type DealDetailPanelProps = {
   onClose: () => void;
   onDeleted: () => void;
   onUpdated?: () => void;
+  cachedStages?: PipelineStage[];
+  cachedTeamMembers?: { id: string; display_name: string }[];
 };
 
 type LinkedDoc = {
@@ -46,7 +48,7 @@ type LinkedDoc = {
 
 type Tab = "details" | "conversation" | "activity" | "docs";
 
-export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: DealDetailPanelProps) {
+export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cachedStages, cachedTeamMembers }: DealDetailPanelProps) {
   const [tab, setTab] = React.useState<Tab>("details");
   const [deleting, setDeleting] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
@@ -98,6 +100,28 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
   const [aiSummary, setAiSummary] = React.useState<string | null>(null);
   const [summaryLoading, setSummaryLoading] = React.useState(false);
 
+  // Lazy AI loading
+  const [aiLoaded, setAiLoaded] = React.useState(false);
+  const loadAI = React.useCallback(async () => {
+    if (aiLoaded || !deal) return;
+    setAiLoaded(true);
+    setSentimentLoading(true);
+    setSummaryLoading(true);
+    try {
+      const [sentRes, sumRes] = await Promise.all([
+        fetch(`/api/deals/${deal.id}/sentiment`),
+        fetch(`/api/deals/${deal.id}/summary`),
+      ]);
+      if (sentRes.ok) { const d = await sentRes.json(); setSentiment(d.sentiment ?? null); }
+      if (sumRes.ok) { const d = await sumRes.json(); setAiSummary(d.summary ?? null); }
+    } catch {
+      // ignore
+    } finally {
+      setSentimentLoading(false);
+      setSummaryLoading(false);
+    }
+  }, [aiLoaded, deal]);
+
   // Custom fields
   type CustomField = { id: string; field_name: string; label: string; field_type: string; options: string[] | null; required: boolean; board_type: string | null };
   const [customFields, setCustomFields] = React.useState<CustomField[]>([]);
@@ -121,6 +145,13 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
       setTgLink(deal.telegram_chat_link ?? "");
       setTab(deal.telegram_chat_id ? "conversation" : "details");
       setLoadingContent(true);
+      setAiLoaded(false);
+      setSentiment(null);
+      setAiSummary(null);
+
+      // Use cached stages/team if provided by parent
+      if (cachedStages) setStages(cachedStages);
+      if (cachedTeamMembers) setTeamMembers(cachedTeamMembers);
 
       // Fetch unread count for chat tab badge
       if (deal.telegram_chat_id) {
@@ -131,18 +162,23 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated }: D
       }
 
       Promise.all([
-        fetch(`/api/pipeline?board_type=${deal.board_type}`).then((r) => r.json()).then((d) => setStages(d.stages ?? [])).catch(() => {}),
-        fetch("/api/team").then((r) => r.json()).then((d) => setTeamMembers(d.members ?? [])).catch(() => {}),
+        cachedStages ? Promise.resolve() : fetch(`/api/pipeline?board_type=${deal.board_type}`).then((r) => r.json()).then((d) => setStages(d.stages ?? [])).catch(() => {}),
+        cachedTeamMembers ? Promise.resolve() : fetch("/api/team").then((r) => r.json()).then((d) => setTeamMembers(d.members ?? [])).catch(() => {}),
         fetch(`/api/deals/${deal.id}/notes`).then((r) => r.json()).then((d) => setNotes(d.notes ?? [])).catch(() => setNotes([])),
         fetch(`/api/deals/${deal.id}/activity`).then((r) => r.json()).then((d) => setActivities(d.activities ?? [])).catch(() => setActivities([])),
         fetch(`/api/docs?entity_type=deal&entity_id=${deal.id}`).then((r) => r.json()).then((d) => setLinkedDocs(d.docs ?? [])).catch(() => setLinkedDocs([])),
         fetch("/api/pipeline/fields").then((r) => r.json()).then((d) => setCustomFields(d.fields ?? [])).catch(() => {}),
         fetch(`/api/deals/${deal.id}`).then((r) => r.json()).then((d) => setCustomValues(d.custom_fields ?? {})).catch(() => {}),
-        fetch(`/api/deals/${deal.id}/sentiment`).then((r) => r.json()).then((d) => setSentiment(d.sentiment ?? null)).catch(() => setSentiment(null)),
-        fetch(`/api/deals/${deal.id}/summary`).then((r) => r.json()).then((d) => setAiSummary(d.summary ?? null)).catch(() => setAiSummary(null)),
       ]).finally(() => setLoadingContent(false));
     }
-  }, [deal, open]);
+  }, [deal, open, cachedStages, cachedTeamMembers]);
+
+  // Lazy-load AI data when details tab is viewed
+  React.useEffect(() => {
+    if (tab === "details" && open && !loadingContent) {
+      loadAI();
+    }
+  }, [tab, open, loadingContent, loadAI]);
 
   if (!deal) return null;
 
