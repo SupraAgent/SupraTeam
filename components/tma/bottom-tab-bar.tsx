@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { Zap, CheckSquare, Inbox, MoreHorizontal } from "lucide-react";
+import { Zap, Inbox, Users, MoreHorizontal } from "lucide-react";
 
-type Tab = "home" | "pipeline" | "inbox" | "tasks" | "more";
+type Tab = "home" | "pipeline" | "groups" | "inbox" | "tasks" | "more";
 
 const TABS: { key: Tab; label: string; href: string; icon: React.ReactNode }[] = [
   {
@@ -26,16 +26,16 @@ const TABS: { key: Tab; label: string; href: string; icon: React.ReactNode }[] =
     ),
   },
   {
+    key: "groups",
+    label: "Groups",
+    href: "/tma/groups",
+    icon: <Users className="h-5 w-5" />,
+  },
+  {
     key: "inbox",
     label: "Inbox",
     href: "/tma/inbox",
     icon: <Inbox className="h-5 w-5" />,
-  },
-  {
-    key: "tasks",
-    label: "Tasks",
-    href: "/tma/tasks",
-    icon: <CheckSquare className="h-5 w-5" />,
   },
   {
     key: "more",
