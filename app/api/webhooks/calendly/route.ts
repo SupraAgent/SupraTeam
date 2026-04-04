@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
 import { createSupabaseAdmin } from "@/lib/supabase";
 import { matchOrCreateContact } from "@/lib/contacts/match-or-create";
+import { hashPII } from "@/lib/crypto";
 
 /**
  * POST: Calendly webhook handler.
@@ -165,7 +166,7 @@ async function handleInviteeCreated(
   if (!userId) {
     console.error("[calendly/webhook] Could not determine user for booking", {
       event_uri: eventUri,
-      invitee_email: inviteeEmail,
+      invitee_email_hash: hashPII(inviteeEmail),
       host_uri: eventHostUri?.[0]?.user ?? "none",
       utm_source: utmSource ?? "none",
     });
