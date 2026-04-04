@@ -45,6 +45,17 @@ interface ActionAssignDealConfig {
   assign_to: string;
 }
 
+interface ActionAdvanceDealStageConfig {
+  target_stage?: string;
+  only_from_stage?: string;
+}
+
+interface ActionGenerateBookingLinkConfig {
+  event_type_uri?: string;
+  send_to_chat?: string;
+  message_template?: string;
+}
+
 interface ActionCreateTaskConfig {
   title: string;
   description?: string;
@@ -379,4 +390,186 @@ export async function executeAssignDeal(
   return error
     ? { success: false, error: error.message }
     : { success: true, output: { assigned_to: assignTo } };
+}
+
+/**
+ * Execute an "advance_deal_stage" action.
+ * Moves deal to target stage or next stage in pipeline.
+ */
+export async function executeAdvanceDealStage(
+  config: ActionAdvanceDealStageConfig,
+  ctx: ActionContext
+): Promise<ActionResult> {
+  if (!ctx.dealId) {
+    return { success: false, error: "No deal context" };
+  }
+
+  const supabase = createSupabaseAdmin();
+  if (!supabase) return { success: false, error: "Supabase not configured" };
+
+  const { data: deal } = await supabase
+    .from("crm_deals")
+    .select("id, stage_id, stage:pipeline_stages!inner(name, position, board_type)")
+    .eq("id", ctx.dealId)
+    .single();
+
+  if (!deal) return { success: false, error: "Deal not found" };
+
+  const currentStage = deal.stage as unknown as { name: string; position: number; board_type: string };
+
+  // Guard: only advance from a specific stage
+  if (config.only_from_stage && currentStage.name !== config.only_from_stage) {
+    return { success: true, output: { skipped: true, reason: `Deal is in "${currentStage.name}", not "${config.only_from_stage}"` } };
+  }
+
+  let targetStageId: string | null = null;
+  let targetStageName: string | null = null;
+
+  if (config.target_stage) {
+    // Explicit target stage
+    const { data: stage } = await supabase
+      .from("pipeline_stages")
+      .select("id, name")
+      .eq("name", config.target_stage)
+      .eq("board_type", currentStage.board_type)
+      .single();
+
+    if (!stage) return { success: false, error: `Stage "${config.target_stage}" not found` };
+    targetStageId = stage.id;
+    targetStageName = stage.name;
+  } else {
+    // Next stage in pipeline
+    const { data: nextStage } = await supabase
+      .from("pipeline_stages")
+      .select("id, name")
+      .eq("board_type", currentStage.board_type)
+      .gt("position", currentStage.position)
+      .order("position")
+      .limit(1)
+      .single();
+
+    if (!nextStage) return { success: true, output: { skipped: true, reason: "Already at final stage" } };
+    targetStageId = nextStage.id;
+    targetStageName = nextStage.name;
+  }
+
+  const { error } = await supabase
+    .from("crm_deals")
+    .update({
+      stage_id: targetStageId,
+      stage_changed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", ctx.dealId);
+
+  if (error) return { success: false, error: error.message };
+
+  // Log stage change history
+  await supabase.from("crm_deal_stage_history").insert({
+    deal_id: ctx.dealId,
+    from_stage_id: deal.stage_id,
+    to_stage_id: targetStageId,
+    changed_by: ctx.userId ?? null,
+  });
+
+  // Log activity
+  await supabase.from("crm_deal_activities").insert({
+    deal_id: ctx.dealId,
+    user_id: ctx.userId ?? null,
+    activity_type: "stage_change",
+    title: `Auto-advanced to ${targetStageName} (workflow)`,
+    metadata: { from_stage: currentStage.name, to_stage: targetStageName, trigger: "workflow" },
+  });
+
+  return { success: true, output: { from_stage: currentStage.name, to_stage: targetStageName } };
+}
+
+/**
+ * Execute a "generate_booking_link" action.
+ * Creates a Calendly scheduling link and optionally sends it to the deal's TG chat.
+ */
+export async function executeGenerateBookingLink(
+  config: ActionGenerateBookingLinkConfig,
+  ctx: ActionContext
+): Promise<ActionResult> {
+  if (!ctx.dealId) return { success: false, error: "No deal context" };
+  if (!ctx.userId) return { success: false, error: "No user context for Calendly" };
+
+  const supabase = createSupabaseAdmin();
+  if (!supabase) return { success: false, error: "Supabase not configured" };
+
+  try {
+    const { getCalendlyEventTypes, createSchedulingLink } = await import("@/lib/calendly/client");
+
+    // Resolve event type
+    let eventTypeUri = config.event_type_uri;
+    let eventTypeName = "Meeting";
+    let eventTypeDuration: number | null = null;
+
+    if (!eventTypeUri) {
+      const eventTypes = await getCalendlyEventTypes(ctx.userId);
+      if (eventTypes.length === 0) return { success: false, error: "No Calendly event types configured" };
+      if (eventTypes.length === 1) {
+        eventTypeUri = eventTypes[0].uri;
+        eventTypeName = eventTypes[0].name;
+        eventTypeDuration = eventTypes[0].duration;
+      } else {
+        return { success: false, error: "Multiple event types — specify event_type_uri in config" };
+      }
+    }
+
+    const { booking_url } = await createSchedulingLink(ctx.userId, eventTypeUri);
+
+    // Add UTM tracking
+    const url = new URL(booking_url);
+    url.searchParams.set("utm_source", "supracrm");
+    url.searchParams.set("utm_campaign", ctx.dealId);
+    if (ctx.contactId) url.searchParams.set("utm_content", ctx.contactId);
+    const trackedUrl = url.toString();
+
+    // Store booking link
+    const { data: deal } = await supabase
+      .from("crm_deals")
+      .select("contact_id, telegram_chat_id")
+      .eq("id", ctx.dealId)
+      .single();
+
+    await supabase.from("crm_booking_links").insert({
+      user_id: ctx.userId,
+      deal_id: ctx.dealId,
+      contact_id: deal?.contact_id || ctx.contactId || null,
+      calendly_event_type_uri: eventTypeUri,
+      calendly_event_type_name: eventTypeName,
+      calendly_event_type_duration: eventTypeDuration,
+      calendly_scheduling_link: trackedUrl,
+      utm_params: { utm_source: "supracrm", utm_campaign: ctx.dealId },
+      status: "pending",
+    });
+
+    // Optionally send to TG chat
+    if (config.send_to_chat === "true" && deal?.telegram_chat_id) {
+      const messageTemplate = config.message_template || "📅 Book a call: {{booking_url}}";
+      const message = renderTemplate(messageTemplate, { ...ctx.vars, booking_url: trackedUrl, event_type: eventTypeName });
+
+      await sendTelegramWithTracking({
+        chatId: deal.telegram_chat_id,
+        text: message,
+        notificationType: "workflow",
+        dealId: ctx.dealId,
+      });
+    }
+
+    // Log activity
+    await supabase.from("crm_deal_activities").insert({
+      deal_id: ctx.dealId,
+      user_id: ctx.userId,
+      activity_type: "booking_link_sent",
+      title: `Booking link generated: ${eventTypeName} (workflow)`,
+      metadata: { event_type: eventTypeName, source: "workflow" },
+    });
+
+    return { success: true, output: { booking_url: trackedUrl, event_type: eventTypeName } };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Failed to generate booking link" };
+  }
 }

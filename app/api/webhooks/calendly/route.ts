@@ -3,6 +3,7 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { createSupabaseAdmin } from "@/lib/supabase";
 import { matchOrCreateContact } from "@/lib/contacts/match-or-create";
 import { hashPII } from "@/lib/crypto";
+import { evaluateAutomationRules } from "@/lib/automation-engine";
 
 /**
  * POST: Calendly webhook handler.
@@ -310,6 +311,18 @@ async function handleInviteeCreated(
         reference_id: bookingLink?.id as string,
         reference_type: "booking_link",
       });
+
+      // Fire workflow trigger (non-blocking)
+      evaluateAutomationRules({
+        type: "booking_scheduled",
+        dealId,
+        payload: {
+          invitee_name: inviteeName,
+          invitee_email: inviteeEmail,
+          scheduled_at: scheduledAt,
+          booking_link_id: bookingLink?.id,
+        },
+      }).catch((err) => console.error("[calendly/webhook] workflow trigger error:", err));
     }
   }
 }
@@ -360,4 +373,17 @@ async function handleInviteeCanceled(
   }
 
   // NOTE: Do NOT regress deal stage on cancellation — rep should decide next action
+
+  // Fire workflow trigger (non-blocking)
+  if (bookingLink.deal_id) {
+    evaluateAutomationRules({
+      type: "booking_canceled",
+      dealId: bookingLink.deal_id,
+      payload: {
+        canceler_email: cancelerEmail,
+        rescheduled,
+        booking_link_id: bookingLink.id,
+      },
+    }).catch((err) => console.error("[calendly/webhook] workflow trigger error:", err));
+  }
 }

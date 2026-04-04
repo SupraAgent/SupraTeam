@@ -5,6 +5,7 @@ import { fetchTranscript } from "@/lib/fireflies/client";
 import { matchBookingLink } from "@/lib/meetings/match-booking";
 import { matchOrCreateContact } from "@/lib/contacts/match-or-create";
 import { hashPII } from "@/lib/crypto";
+import { evaluateAutomationRules } from "@/lib/automation-engine";
 
 /**
  * POST: Fireflies webhook handler.
@@ -215,6 +216,19 @@ async function handleTranscriptionComplete(
       reference_id: transcriptRecord.id,
       reference_type: "transcript",
     });
+
+    // Fire workflow trigger (non-blocking)
+    evaluateAutomationRules({
+      type: "meeting_transcribed",
+      dealId,
+      payload: {
+        transcript_title: transcript.title,
+        summary: transcript.summary?.short_summary ?? transcript.summary?.overview ?? null,
+        action_items_count: actionItems.length,
+        duration_minutes: transcript.duration ? Math.round(transcript.duration / 60) : null,
+        transcript_id: transcriptRecord.id,
+      },
+    }).catch((err) => console.error("[fireflies/webhook] workflow trigger error:", err));
   }
 
   // If no deal match, try to find a deal via contact

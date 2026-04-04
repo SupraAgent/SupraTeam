@@ -23,6 +23,8 @@ import {
   executeUpdateContact,
   executeAssignDeal,
   executeCreateTask,
+  executeAdvanceDealStage,
+  executeGenerateBookingLink,
 } from "@/lib/workflow-actions";
 import type { Workflow } from "@/lib/workflow-db-types";
 
@@ -69,6 +71,10 @@ async function crmActionExecutor(
       return executeAssignDeal(config as unknown as Parameters<typeof executeAssignDeal>[0], crmCtx);
     case "create_task":
       return executeCreateTask(config as unknown as Parameters<typeof executeCreateTask>[0], crmCtx);
+    case "advance_deal_stage":
+      return executeAdvanceDealStage(config as unknown as Parameters<typeof executeAdvanceDealStage>[0], crmCtx);
+    case "generate_booking_link":
+      return executeGenerateBookingLink(config as unknown as Parameters<typeof executeGenerateBookingLink>[0], crmCtx);
     default:
       return { success: false, error: `Unknown action type: ${actionType}` };
   }
