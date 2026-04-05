@@ -1080,6 +1080,14 @@ export default function InboxPage() {
             <RefreshCw className={cn("mr-1 h-3.5 w-3.5", refreshing && "animate-spin")} />
             Refresh
           </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setShowShortcutHelp(true)}
+            title="Keyboard shortcuts (?)"
+          >
+            <Keyboard className="h-3.5 w-3.5" />
+          </Button>
         </div>
       </div>
 
@@ -1087,6 +1095,7 @@ export default function InboxPage() {
       <div className="flex items-center gap-3">
         <div className="flex gap-1">
           {([
+            { key: "awaiting_reply" as InboxTab, label: "Awaiting", count: awaitingReplyCount, icon: "hourglass" as const },
             { key: "mine" as InboxTab, label: "Mine", count: mineCount },
             { key: "unassigned" as InboxTab, label: "Unassigned", count: unassignedCount },
             { key: "open" as InboxTab, label: "Open" },
@@ -1100,17 +1109,21 @@ export default function InboxPage() {
               className={cn(
                 "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap",
                 activeTab === tab.key
-                  ? tab.key === "vip" ? "bg-amber-500/20 text-amber-400" : "bg-white/10 text-foreground"
+                  ? tab.key === "vip" ? "bg-amber-500/20 text-amber-400"
+                  : tab.key === "awaiting_reply" ? "bg-orange-500/20 text-orange-400"
+                  : "bg-white/10 text-foreground"
                   : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
               )}
             >
               {tab.key === "vip" && <Star className="inline h-3 w-3 mr-0.5" />}
+              {tab.key === "awaiting_reply" && <Hourglass className="inline h-3 w-3 mr-0.5" />}
               {tab.label}
               {tab.count !== undefined && tab.count > 0 && (
                 <span className={cn(
                   "ml-1 rounded-full px-1.5 py-0.5 text-[10px]",
                   tab.key === "unassigned" ? "bg-amber-500/20 text-amber-400" :
-                  tab.key === "vip" ? "bg-amber-500/20 text-amber-400" : "bg-white/10"
+                  tab.key === "vip" ? "bg-amber-500/20 text-amber-400" :
+                  tab.key === "awaiting_reply" ? "bg-orange-500/20 text-orange-400" : "bg-white/10"
                 )}>
                   {tab.count}
                 </span>
@@ -1121,9 +1134,10 @@ export default function InboxPage() {
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
           <Input
+            ref={searchInputRef}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search..."
+            placeholder="Search... (from: has: is:)"
             className="pl-8 h-8 text-xs"
           />
         </div>
@@ -1151,6 +1165,7 @@ export default function InboxPage() {
           <InboxIcon className="mx-auto h-8 w-8 text-muted-foreground/30" />
           <p className="mt-2 text-sm text-muted-foreground">
             {search ? "No conversations match your search." :
+             activeTab === "awaiting_reply" ? "No conversations awaiting your reply." :
              activeTab === "mine" ? "No conversations assigned to you." :
              activeTab === "unassigned" ? "All conversations are assigned." :
              activeTab === "vip" ? "No VIP conversations. Right-click a conversation to mark as VIP." :
@@ -1164,7 +1179,7 @@ export default function InboxPage() {
           {/* Conversation list */}
           <div className="rounded-xl border border-white/10 bg-white/[0.02] overflow-hidden">
             <div className="divide-y divide-white/5 max-h-[70vh] overflow-y-auto thin-scroll">
-              {filtered.map((conv) => {
+              {filtered.map((conv, convIndex) => {
                 const chatDeals = deals[conv.chat_id] ?? [];
                 const lastMsg = conv.messages[0];
                 const isSelected = selectedChat === conv.chat_id;
@@ -1200,6 +1215,7 @@ export default function InboxPage() {
                     className={cn(
                       "w-full text-left px-3 py-2.5 transition-colors",
                       isSelected ? "bg-primary/10" :
+                      convIndex === highlightedIndex ? "bg-white/[0.06] ring-1 ring-primary/30" :
                       label?.is_vip ? "bg-amber-500/[0.04] hover:bg-amber-500/[0.08]" :
                       "hover:bg-white/[0.04]",
                       label?.is_muted && "opacity-50"
@@ -1264,6 +1280,12 @@ export default function InboxPage() {
                       {slaLabel && status?.status !== "closed" && (
                         <span className={cn("text-[10px] font-medium", slaColor)} title="Time since last customer message">
                           {slaLabel}
+                        </span>
+                      )}
+                      {activeTab === "awaiting_reply" && lastCustomerMsg && (
+                        <span className="text-[10px] text-orange-400/70 flex items-center gap-0.5" title="Awaiting reply since">
+                          <Hourglass className="h-2.5 w-2.5" />
+                          {timeAgo(lastCustomerMsg.sent_at)}
                         </span>
                       )}
                       {assignee && (
@@ -1560,6 +1582,43 @@ export default function InboxPage() {
                     </div>
                   )}
 
+                  {/* AI summary display */}
+                  {aiSummary && (
+                    <div className="mb-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-foreground/80">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[10px] font-medium text-primary flex items-center gap-1">
+                          <Sparkles className="h-3 w-3" /> AI Summary
+                        </span>
+                        <button onClick={() => setAiSummary(null)} className="text-muted-foreground hover:text-foreground">
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                      <p className="whitespace-pre-wrap">{aiSummary}</p>
+                    </div>
+                  )}
+
+                  {/* AI action buttons */}
+                  <div className="flex items-center gap-1 mb-2">
+                    <button
+                      onClick={handleAiSummarize}
+                      disabled={aiSummarizing}
+                      className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors disabled:opacity-50"
+                      title="AI summarize conversation"
+                    >
+                      <Sparkles className={cn("h-3 w-3", aiSummarizing && "animate-pulse text-primary")} />
+                      {aiSummarizing ? "Summarizing..." : "Summarize"}
+                    </button>
+                    <button
+                      onClick={handleAiSuggestReply}
+                      disabled={aiSuggesting}
+                      className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors disabled:opacity-50"
+                      title="AI suggest reply"
+                    >
+                      <MessageSquare className={cn("h-3 w-3", aiSuggesting && "animate-pulse text-primary")} />
+                      {aiSuggesting ? "Thinking..." : "Suggest Reply"}
+                    </button>
+                  </div>
+
                   {/* Input row */}
                   <div className="flex items-end gap-2">
                     <div className="flex-1 relative">
@@ -1636,6 +1695,39 @@ export default function InboxPage() {
                     >
                       <Send className="h-3.5 w-3.5" />
                     </Button>
+
+                    {/* Schedule send */}
+                    <div className="relative" ref={scheduleRef}>
+                      <button
+                        onClick={() => setShowScheduleMenu((p) => !p)}
+                        disabled={!replyText.trim()}
+                        className={cn(
+                          "h-[38px] w-[38px] flex items-center justify-center rounded-lg border border-white/10 transition-colors",
+                          "text-muted-foreground hover:text-foreground hover:bg-white/5 disabled:opacity-30"
+                        )}
+                        title="Schedule send"
+                      >
+                        <CalendarClock className="h-3.5 w-3.5" />
+                      </button>
+                      {showScheduleMenu && (
+                        <div className="absolute right-0 bottom-10 z-10 rounded-lg border border-white/10 bg-[hsl(var(--background))] p-2 shadow-xl min-w-[160px]">
+                          <p className="text-[10px] text-muted-foreground/60 px-2 pb-1 font-medium">Schedule send</p>
+                          {[
+                            { label: "In 1 hour", getDate: () => new Date(Date.now() + 3600000) },
+                            { label: "Tomorrow 9 AM", getDate: () => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); return d; } },
+                            { label: "Tomorrow 1 PM", getDate: () => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(13, 0, 0, 0); return d; } },
+                          ].map((opt) => (
+                            <button
+                              key={opt.label}
+                              onClick={() => handleScheduleSend(opt.getDate())}
+                              className="block w-full text-left text-xs text-muted-foreground hover:text-foreground px-2 py-1.5 rounded hover:bg-white/5"
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </>
@@ -1841,6 +1933,50 @@ export default function InboxPage() {
               <Button size="sm" onClick={() => { saveNote(noteModal.chatId, noteModal.groupName, noteText); setNoteModal(null); }}>
                 Save
               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Keyboard Shortcut Help Modal */}
+      {showShortcutHelp && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          onClick={() => setShowShortcutHelp(false)}
+          onKeyDown={(e) => { if (e.key === "Escape") setShowShortcutHelp(false); }}
+        >
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-card p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                <Keyboard className="h-4 w-4 text-primary" />
+                Keyboard Shortcuts
+              </h3>
+              <button onClick={() => setShowShortcutHelp(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs">
+              {([
+                ["j / k", "Next / previous conversation"],
+                ["Enter", "Open selected conversation"],
+                ["Escape", "Close / deselect"],
+                ["r", "Focus reply"],
+                ["e", "Archive conversation"],
+                ["s", "Toggle VIP / star"],
+                ["p", "Toggle pin"],
+                ["m", "Toggle mute"],
+                ["n", "Snooze (1 hour)"],
+                ["/", "Focus search"],
+                ["Shift+A", "Assign to me"],
+                ["?", "Toggle this help"],
+              ] as const).map(([key, desc]) => (
+                <div key={key} className="flex items-center gap-2 py-1">
+                  <kbd className="inline-flex items-center justify-center rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground min-w-[28px]">
+                    {key}
+                  </kbd>
+                  <span className="text-muted-foreground">{desc}</span>
+                </div>
+              ))}
             </div>
           </div>
         </div>
