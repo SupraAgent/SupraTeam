@@ -101,6 +101,52 @@ export async function GET(request: Request) {
       return aTime < bTime ? -1 : aTime > bTime ? 1 : 0;
     });
 
+    // Optionally enrich with deal links
+    const includeDealLinks = searchParams.get("include_deal_links") === "1";
+    if (includeDealLinks && merged.length > 0) {
+      const eventIds = merged.map((e: { id: string }) => e.id);
+
+      // Query both junction tables for deal links
+      const [dealCalLinks, eventLinks] = await Promise.all([
+        auth.admin
+          .from("crm_deal_calendar_links")
+          .select("calendar_event_id, deal:crm_deals(id, deal_name)")
+          .in("calendar_event_id", eventIds),
+        auth.admin
+          .from("crm_calendar_event_links")
+          .select("event_id, deal_id, deal:crm_deals(id, deal_name)")
+          .in("event_id", eventIds)
+          .not("deal_id", "is", null),
+      ]);
+
+      // Build a map of event_id -> deal info
+      interface DealRef { id: string; deal_name: string }
+      const dealMap = new Map<string, DealRef>();
+
+      for (const link of dealCalLinks.data ?? []) {
+        const deal = link.deal as unknown as DealRef | null;
+        if (deal) {
+          dealMap.set(link.calendar_event_id, deal);
+        }
+      }
+      for (const link of eventLinks.data ?? []) {
+        const deal = link.deal as unknown as DealRef | null;
+        if (deal && !dealMap.has(link.event_id)) {
+          dealMap.set(link.event_id, deal);
+        }
+      }
+
+      // Enrich merged events
+      const enriched = merged.map((e: { id: string }) => {
+        const deal = dealMap.get(e.id);
+        return deal
+          ? { ...e, deal_id: deal.id, deal_name: deal.deal_name }
+          : e;
+      });
+
+      return NextResponse.json({ data: enriched, source: "cache" });
+    }
+
     return NextResponse.json({ data: merged, source: "cache" });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Failed to fetch events";

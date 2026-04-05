@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
   Clock, Plus, CheckCircle2, AlertTriangle, ArrowRight, X,
-  ChevronDown, Snowflake, Zap, StickyNote, User, Flag, Video, ExternalLink,
+  ChevronDown, Snowflake, Zap, StickyNote, User, Flag, Video, ExternalLink, Globe,
 } from "lucide-react";
 
 // ── Types ──
@@ -21,6 +21,8 @@ interface CalendarEvent {
   subtitle?: string;
   color: string;
   meta?: Record<string, unknown>;
+  linked_deal_id?: string;
+  linked_deal_name?: string;
 }
 
 interface GoogleCalEvent {
@@ -35,6 +37,8 @@ interface GoogleCalEvent {
   hangout_link: string | null;
   location: string | null;
   attendees: { email: string; displayName?: string }[] | null;
+  deal_id?: string | null;
+  deal_name?: string | null;
 }
 
 interface Task {
@@ -123,6 +127,65 @@ function toLocalDatetimeValue(dateStr: string) {
   return local.toISOString().slice(0, 16);
 }
 
+// ── Timezone helpers ──
+
+const TZ_STORAGE_KEY = "crm-calendar-tz";
+
+function getStoredTimezone(): string {
+  if (typeof window === "undefined") return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return localStorage.getItem(TZ_STORAGE_KEY) || Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
+function formatTimeInTz(dateStr: string, tz: string): string {
+  try {
+    return new Date(dateStr).toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone: tz,
+    });
+  } catch {
+    return new Date(dateStr).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  }
+}
+
+function getTzAbbreviation(tz: string): string {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "short" }).formatToParts(new Date());
+    return parts.find((p) => p.type === "timeZoneName")?.value ?? tz;
+  } catch {
+    return tz;
+  }
+}
+
+// Build a curated list of common timezones for the selector
+const COMMON_TIMEZONES = [
+  "UTC",
+  "America/New_York",
+  "America/Chicago",
+  "America/Denver",
+  "America/Los_Angeles",
+  "America/Sao_Paulo",
+  "Europe/London",
+  "Europe/Paris",
+  "Europe/Berlin",
+  "Europe/Moscow",
+  "Asia/Dubai",
+  "Asia/Kolkata",
+  "Asia/Singapore",
+  "Asia/Shanghai",
+  "Asia/Tokyo",
+  "Australia/Sydney",
+  "Pacific/Auckland",
+];
+
+function getAllTimezones(): string[] {
+  try {
+    return Intl.supportedValuesOf("timeZone");
+  } catch {
+    return COMMON_TIMEZONES;
+  }
+}
+
 // ── Component ──
 
 export default function CalendarPage() {
@@ -143,6 +206,12 @@ export default function CalendarPage() {
   const [currentUserId, setCurrentUserId] = React.useState<string | null>(null);
   const [snoozeMenuId, setSnoozeMenuId] = React.useState<string | null>(null);
   const snoozeRef = React.useRef<HTMLDivElement>(null);
+
+  // Timezone state
+  const [timezone, setTimezone] = React.useState(getStoredTimezone);
+  const [showTzPicker, setShowTzPicker] = React.useState(false);
+  const [tzSearch, setTzSearch] = React.useState("");
+  const tzRef = React.useRef<HTMLDivElement>(null);
 
   // Create-task state
   const [createDate, setCreateDate] = React.useState<string | null>(null); // ISO date string when clicking calendar
@@ -181,7 +250,7 @@ export default function CalendarPage() {
       .then((d) => (d.events ?? []) as CalendarEvent[])
       .catch(() => [] as CalendarEvent[]);
 
-    const googleFetch = fetch(`/api/calendar/google/events?${params}`)
+    const googleFetch = fetch(`/api/calendar/google/events?${params}&include_deal_links=1`)
       .then((r) => (r.ok ? r.json() : { data: [] }))
       .then((d) => {
         const gEvents = (d.data ?? []) as GoogleCalEvent[];
@@ -193,7 +262,7 @@ export default function CalendarPage() {
           subtitle: g.is_all_day
             ? "All day"
             : g.start_at
-              ? new Date(g.start_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+              ? `${formatTimeInTz(g.start_at, timezone)} ${getTzAbbreviation(timezone)}`
               : undefined,
           color: "#4285f4",
           meta: {
@@ -202,6 +271,8 @@ export default function CalendarPage() {
             location: g.location,
             attendees: g.attendees,
           },
+          linked_deal_id: g.deal_id ?? undefined,
+          linked_deal_name: g.deal_name ?? undefined,
         }));
       })
       .catch(() => [] as CalendarEvent[]);
@@ -211,7 +282,7 @@ export default function CalendarPage() {
         setEvents([...crm, ...google]);
         setCalLoading(false);
       });
-  }, [dateRange]);
+  }, [dateRange, timezone]);
 
   const fetchTasks = React.useCallback(async () => {
     try {
@@ -239,6 +310,24 @@ export default function CalendarPage() {
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, [snoozeMenuId]);
+
+  // Persist timezone preference
+  React.useEffect(() => {
+    localStorage.setItem(TZ_STORAGE_KEY, timezone);
+  }, [timezone]);
+
+  // Close timezone picker on outside click
+  React.useEffect(() => {
+    if (!showTzPicker) return;
+    function handleClick(e: MouseEvent) {
+      if (tzRef.current && !tzRef.current.contains(e.target as Node)) {
+        setShowTzPicker(false);
+        setTzSearch("");
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [showTzPicker]);
 
   // ── Calendar helpers ──
 
@@ -406,15 +495,26 @@ export default function CalendarPage() {
               </div>
               <div className="space-y-0.5">
                 {dayEvents.slice(0, 2).map((ev) => (
-                  <button
-                    key={ev.id}
-                    onClick={(e) => { e.stopPropagation(); setSelectedEvent(ev); }}
-                    className="w-full text-left rounded px-1 py-0.5 text-[10px] truncate transition-colors hover:brightness-125"
-                    style={{ backgroundColor: ev.color + "20", color: ev.color }}
-                  >
-                    <span className="mr-0.5">{TYPE_ICONS[ev.type]}</span>
-                    {ev.title}
-                  </button>
+                  <div key={ev.id} className="w-full">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setSelectedEvent(ev); }}
+                      className="w-full text-left rounded px-1 py-0.5 text-[10px] truncate transition-colors hover:brightness-125"
+                      style={{ backgroundColor: ev.color + "20", color: ev.color }}
+                    >
+                      <span className="mr-0.5">{TYPE_ICONS[ev.type]}</span>
+                      {ev.title}
+                    </button>
+                    {ev.linked_deal_name && (
+                      <a
+                        href={`/pipeline?highlight=${ev.linked_deal_id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="block px-1 text-[8px] text-primary hover:text-primary/80 truncate"
+                        title={ev.linked_deal_name}
+                      >
+                        {ev.linked_deal_name}
+                      </a>
+                    )}
+                  </div>
                 ))}
                 {dayEvents.length > 2 && (
                   <span className="text-[10px] text-muted-foreground px-1">+{dayEvents.length - 2} more</span>
@@ -463,15 +563,25 @@ export default function CalendarPage() {
               </div>
               <div className="space-y-1">
                 {dayEvents.map((ev) => (
-                  <button
-                    key={ev.id}
-                    onClick={(e) => { e.stopPropagation(); setSelectedEvent(ev); }}
-                    className="w-full text-left rounded-lg p-1.5 text-[11px] transition-colors hover:brightness-125"
-                    style={{ backgroundColor: ev.color + "15", borderLeft: `2px solid ${ev.color}` }}
-                  >
-                    <div className="font-medium truncate" style={{ color: ev.color }}>{ev.title}</div>
-                    {ev.subtitle && <div className="text-muted-foreground truncate">{ev.subtitle}</div>}
-                  </button>
+                  <div key={ev.id} className="w-full">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setSelectedEvent(ev); }}
+                      className="w-full text-left rounded-lg p-1.5 text-[11px] transition-colors hover:brightness-125"
+                      style={{ backgroundColor: ev.color + "15", borderLeft: `2px solid ${ev.color}` }}
+                    >
+                      <div className="font-medium truncate" style={{ color: ev.color }}>{ev.title}</div>
+                      {ev.subtitle && <div className="text-muted-foreground truncate">{ev.subtitle}</div>}
+                      {ev.linked_deal_name && (
+                        <a
+                          href={`/pipeline?highlight=${ev.linked_deal_id}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="mt-0.5 inline-flex items-center gap-0.5 rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] text-primary hover:bg-primary/20 transition-colors"
+                        >
+                          {ev.linked_deal_name}
+                        </a>
+                      )}
+                    </button>
+                  </div>
                 ))}
               </div>
             </div>
@@ -499,6 +609,59 @@ export default function CalendarPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {/* Timezone selector */}
+            <div ref={tzRef} className="relative">
+              <button
+                onClick={() => setShowTzPicker(!showTzPicker)}
+                className="flex items-center gap-1.5 rounded-lg border border-white/10 px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"
+                title="Change timezone"
+              >
+                <Globe className="h-3 w-3" />
+                {getTzAbbreviation(timezone)}
+              </button>
+              {showTzPicker && (
+                <div className="absolute right-0 top-8 z-50 w-64 rounded-xl border border-white/10 bg-[hsl(225,35%,8%)] shadow-xl">
+                  <div className="p-2 border-b border-white/5">
+                    <input
+                      type="text"
+                      value={tzSearch}
+                      onChange={(e) => setTzSearch(e.target.value)}
+                      placeholder="Search timezone..."
+                      className="w-full h-7 rounded-md bg-white/5 border border-white/10 px-2 text-xs text-foreground placeholder:text-muted-foreground/50 outline-none focus:border-primary/40"
+                      autoFocus
+                    />
+                  </div>
+                  <div className="max-h-60 overflow-y-auto py-1">
+                    {(tzSearch
+                      ? getAllTimezones().filter((tz) =>
+                          tz.toLowerCase().includes(tzSearch.toLowerCase()) ||
+                          getTzAbbreviation(tz).toLowerCase().includes(tzSearch.toLowerCase())
+                        )
+                      : COMMON_TIMEZONES
+                    ).slice(0, 50).map((tz) => (
+                      <button
+                        key={tz}
+                        onClick={() => {
+                          setTimezone(tz);
+                          setShowTzPicker(false);
+                          setTzSearch("");
+                        }}
+                        className={cn(
+                          "w-full text-left px-3 py-1.5 text-xs hover:bg-white/5 transition-colors flex items-center justify-between",
+                          timezone === tz ? "text-primary" : "text-foreground"
+                        )}
+                      >
+                        <span className="truncate">{tz.replace(/_/g, " ")}</span>
+                        <span className="text-[10px] text-muted-foreground ml-2 shrink-0">
+                          {getTzAbbreviation(tz)}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="flex gap-0.5 rounded-lg border border-white/10 p-0.5">
               <button
                 onClick={() => setViewMode("month")}
@@ -852,16 +1015,32 @@ export default function CalendarPage() {
             <p className="text-xs text-muted-foreground mt-2">
               {new Date(selectedEvent.date).toLocaleDateString("en-US", {
                 weekday: "long", year: "numeric", month: "long", day: "numeric",
+                timeZone: timezone,
               })}
+              {selectedEvent.date.includes("T") && (
+                <span className="ml-1">
+                  at {formatTimeInTz(selectedEvent.date, timezone)} {getTzAbbreviation(timezone)}
+                </span>
+              )}
             </p>
+            {/* Deal link from CRM events */}
             {selectedEvent.meta?.deal_id ? (
               <a
                 href={`/pipeline?highlight=${String(selectedEvent.meta.deal_id)}`}
-                className="mt-3 inline-block text-xs text-primary hover:text-primary/80"
+                className="mt-3 inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary hover:bg-primary/20 transition-colors"
               >
-                View deal in pipeline →
+                View deal in pipeline &rarr;
               </a>
             ) : null}
+            {/* Deal link from Google Calendar event links */}
+            {!selectedEvent.meta?.deal_id && selectedEvent.linked_deal_name && (
+              <a
+                href={`/pipeline?highlight=${selectedEvent.linked_deal_id}`}
+                className="mt-3 inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary hover:bg-primary/20 transition-colors"
+              >
+                Deal: {selectedEvent.linked_deal_name} &rarr;
+              </a>
+            )}
             {selectedEvent.type === "google" && typeof selectedEvent.meta?.hangout_link === "string" ? (
               <a
                 href={selectedEvent.meta.hangout_link}
