@@ -406,15 +406,26 @@ export default function CalendarPage() {
               </div>
               <div className="space-y-0.5">
                 {dayEvents.slice(0, 2).map((ev) => (
-                  <button
-                    key={ev.id}
-                    onClick={(e) => { e.stopPropagation(); setSelectedEvent(ev); }}
-                    className="w-full text-left rounded px-1 py-0.5 text-[10px] truncate transition-colors hover:brightness-125"
-                    style={{ backgroundColor: ev.color + "20", color: ev.color }}
-                  >
-                    <span className="mr-0.5">{TYPE_ICONS[ev.type]}</span>
-                    {ev.title}
-                  </button>
+                  <div key={ev.id} className="flex items-center gap-0.5">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setSelectedEvent(ev); }}
+                      className="flex-1 min-w-0 text-left rounded px-1 py-0.5 text-[10px] truncate transition-colors hover:brightness-125"
+                      style={{ backgroundColor: ev.color + "20", color: ev.color }}
+                    >
+                      <span className="mr-0.5">{TYPE_ICONS[ev.type]}</span>
+                      {ev.title}
+                    </button>
+                    {ev.meta?.deal_id ? (
+                      <Link
+                        href={`/pipeline?deal=${String(ev.meta.deal_id)}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="shrink-0 rounded px-1 py-0.5 text-[9px] font-medium bg-primary/10 text-primary truncate max-w-[60px] hover:bg-primary/20 hover:underline cursor-pointer transition-colors"
+                        title={typeof ev.meta.deal_name === "string" ? ev.meta.deal_name : "View deal"}
+                      >
+                        {typeof ev.meta.deal_name === "string" ? String(ev.meta.deal_name) : "Deal"}
+                      </Link>
+                    ) : null}
+                  </div>
                 ))}
                 {dayEvents.length > 2 && (
                   <span className="text-[10px] text-muted-foreground px-1">+{dayEvents.length - 2} more</span>
@@ -463,15 +474,26 @@ export default function CalendarPage() {
               </div>
               <div className="space-y-1">
                 {dayEvents.map((ev) => (
-                  <button
-                    key={ev.id}
-                    onClick={(e) => { e.stopPropagation(); setSelectedEvent(ev); }}
-                    className="w-full text-left rounded-lg p-1.5 text-[11px] transition-colors hover:brightness-125"
-                    style={{ backgroundColor: ev.color + "15", borderLeft: `2px solid ${ev.color}` }}
-                  >
-                    <div className="font-medium truncate" style={{ color: ev.color }}>{ev.title}</div>
-                    {ev.subtitle && <div className="text-muted-foreground truncate">{ev.subtitle}</div>}
-                  </button>
+                  <div key={ev.id} className="space-y-0.5">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setSelectedEvent(ev); }}
+                      className="w-full text-left rounded-lg p-1.5 text-[11px] transition-colors hover:brightness-125"
+                      style={{ backgroundColor: ev.color + "15", borderLeft: `2px solid ${ev.color}` }}
+                    >
+                      <div className="font-medium truncate" style={{ color: ev.color }}>{ev.title}</div>
+                      {ev.subtitle && <div className="text-muted-foreground truncate">{ev.subtitle}</div>}
+                    </button>
+                    {ev.meta?.deal_id ? (
+                      <Link
+                        href={`/pipeline?deal=${String(ev.meta.deal_id)}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-block rounded px-1.5 py-0.5 text-[10px] font-medium bg-primary/10 text-primary truncate max-w-full hover:bg-primary/20 hover:underline cursor-pointer transition-colors"
+                        title={typeof ev.meta.deal_name === "string" ? ev.meta.deal_name : "View deal"}
+                      >
+                        {typeof ev.meta.deal_name === "string" ? String(ev.meta.deal_name) : "Deal"}
+                      </Link>
+                    ) : null}
+                  </div>
                 ))}
               </div>
             </div>
@@ -855,12 +877,12 @@ export default function CalendarPage() {
               })}
             </p>
             {selectedEvent.meta?.deal_id ? (
-              <a
-                href={`/pipeline?highlight=${String(selectedEvent.meta.deal_id)}`}
-                className="mt-3 inline-block text-xs text-primary hover:text-primary/80"
+              <Link
+                href={`/pipeline?deal=${String(selectedEvent.meta.deal_id)}`}
+                className="mt-3 inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 hover:underline cursor-pointer transition-colors"
               >
-                View deal in pipeline →
-              </a>
+                {typeof selectedEvent.meta.deal_name === "string" ? selectedEvent.meta.deal_name : "View deal"} →
+              </Link>
             ) : null}
             {selectedEvent.type === "google" && typeof selectedEvent.meta?.hangout_link === "string" ? (
               <a
