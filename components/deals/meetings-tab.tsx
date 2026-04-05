@@ -27,6 +27,13 @@ interface Transcript {
   sentiment: Record<string, unknown>;
   transcript_url: string | null;
   speakers: Array<{ name: string; email?: string; talk_time_pct?: number }>;
+  ai_extraction: {
+    deal_summary?: string;
+    suggested_followup?: { message: string; urgency: string };
+    stage_recommendation?: { suggested_stage?: string; confidence: string; reason: string };
+    sentiment_summary?: string;
+    action_items?: Array<{ text: string; owner?: string; due?: string }>;
+  } | null;
 }
 
 interface MeetingsTabProps {
@@ -198,9 +205,9 @@ function TranscriptCard({ transcript: t }: { transcript: Transcript }) {
         </button>
       </div>
 
-      {t.summary && (
+      {(t.ai_extraction?.deal_summary ?? t.summary) && (
         <p className={cn("text-xs text-muted-foreground", !expanded && "line-clamp-2")}>
-          {t.summary}
+          {t.ai_extraction?.deal_summary ?? t.summary}
         </p>
       )}
 
@@ -241,6 +248,29 @@ function TranscriptCard({ transcript: t }: { transcript: Transcript }) {
                 {sentimentOverall}% positive
               </span>
             </div>
+          )}
+
+          {/* AI Stage Recommendation */}
+          {t.ai_extraction?.stage_recommendation?.suggested_stage && (
+            <div className="rounded-lg bg-purple-500/10 border border-purple-500/20 px-2.5 py-1.5">
+              <p className="text-xs text-purple-400">
+                Stage suggestion: <span className="font-medium">{t.ai_extraction.stage_recommendation.suggested_stage}</span>
+                <span className="ml-1 opacity-60">— {t.ai_extraction.stage_recommendation.reason}</span>
+              </p>
+            </div>
+          )}
+
+          {/* AI Suggested Follow-up */}
+          {t.ai_extraction?.suggested_followup?.message && (
+            <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 px-2.5 py-1.5">
+              <p className="text-[10px] font-medium text-blue-400 mb-0.5">Suggested TG follow-up</p>
+              <p className="text-xs text-foreground">{t.ai_extraction.suggested_followup.message}</p>
+            </div>
+          )}
+
+          {/* AI Sentiment */}
+          {t.ai_extraction?.sentiment_summary && (
+            <p className="text-xs text-muted-foreground/70">{t.ai_extraction.sentiment_summary}</p>
           )}
 
           {/* Link to full transcript */}

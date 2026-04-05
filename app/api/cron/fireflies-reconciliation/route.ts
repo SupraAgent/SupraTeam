@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdmin } from "@/lib/supabase";
-import { fetchRecentTranscripts, fetchTranscript } from "@/lib/fireflies/client";
+import { fetchRecentTranscripts, fetchTranscript, extractSpeakers } from "@/lib/fireflies/client";
 import { matchBookingLink } from "@/lib/meetings/match-booking";
 import { matchOrCreateContact } from "@/lib/contacts/match-or-create";
+import { evaluateAutomationRules } from "@/lib/automation-engine";
 
 /**
  * GET: Reconciliation poll for missed Fireflies webhooks.
@@ -92,9 +93,12 @@ export async function GET(request: Request) {
                 summary: full.summary?.short_summary ?? full.summary?.overview ?? null,
                 action_items: actionItems,
                 key_topics: full.summary?.keywords ?? [],
-                sentiment: {},
+                sentiment: full.sentiment ?? {},
                 transcript_url: full.transcript_url ?? null,
                 speakers: extractSpeakers(full),
+                match_confidence: match?.matchTier
+                  ? match.matchTier === 1 ? "high" : match.matchTier === 2 ? "high" : "medium"
+                  : "unmatched",
               })
               .select("id")
               .single();
@@ -123,6 +127,20 @@ export async function GET(request: Request) {
                 reference_id: record.id,
                 reference_type: "transcript",
               });
+
+              // Fire workflow trigger (same as webhook handler)
+              evaluateAutomationRules({
+                type: "meeting_transcribed",
+                dealId: match.dealId,
+                payload: {
+                  transcript_title: full.title,
+                  summary: full.summary?.short_summary ?? full.summary?.overview ?? null,
+                  action_items_count: actionItems.length,
+                  duration_minutes: full.duration ? Math.round(full.duration / 60) : null,
+                  transcript_id: record.id,
+                  source: "reconciliation",
+                },
+              }).catch((err) => console.error("[fireflies/reconciliation] workflow trigger error:", err));
             }
 
             // Contact creation for unmatched transcripts
@@ -176,24 +194,3 @@ export async function GET(request: Request) {
   }
 }
 
-function extractSpeakers(transcript: {
-  sentences?: Array<{ speaker_name: string; start_time: number; end_time: number }>;
-}): Array<{ name: string; talk_time_pct: number }> {
-  if (!transcript.sentences?.length) return [];
-
-  const speakerTime = new Map<string, number>();
-  let totalTime = 0;
-
-  for (const s of transcript.sentences) {
-    const duration = Math.max(0, s.end_time - s.start_time);
-    speakerTime.set(s.speaker_name, (speakerTime.get(s.speaker_name) ?? 0) + duration);
-    totalTime += duration;
-  }
-
-  if (totalTime === 0) return [];
-
-  return Array.from(speakerTime.entries()).map(([name, time]) => ({
-    name,
-    talk_time_pct: Math.round((time / totalTime) * 100),
-  }));
-}

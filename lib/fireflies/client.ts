@@ -9,7 +9,7 @@ interface FirefliesConnection {
   user_id: string;
   api_key_encrypted: string;
   fireflies_email: string;
-  webhook_secret: string | null;
+  webhook_secret_encrypted: string | null;
   last_sync_cursor: string | null;
   is_active: boolean;
 }
@@ -21,6 +21,12 @@ export interface FirefliesTranscriptSummary {
   duration: number;
   organizer_email: string;
   meeting_attendees: Array<{ displayName: string; email: string }>;
+}
+
+export interface FirefliesSentiment {
+  positive: number;
+  neutral: number;
+  negative: number;
 }
 
 export interface FirefliesTranscript extends FirefliesTranscriptSummary {
@@ -40,6 +46,7 @@ export interface FirefliesTranscript extends FirefliesTranscriptSummary {
     bullet_gist: string[];
     short_summary: string;
   } | null;
+  sentiment: FirefliesSentiment | null;
   transcript_url: string;
   cal_id: string | null;
 }
@@ -150,6 +157,7 @@ export async function fetchTranscript(
         meeting_attendees { displayName email }
         sentences { index speaker_id speaker_name text start_time end_time }
         summary { action_items keywords outline overview bullet_gist short_summary }
+        sentiment { positive neutral negative }
         transcript_url
         cal_id
       }
@@ -183,6 +191,44 @@ export async function fetchRecentTranscripts(
 }
 
 /**
+ * Decrypt the webhook secret for signature verification.
+ * Returns null if no secret is stored.
+ */
+export function decryptWebhookSecret(encryptedSecret: string | null): string | null {
+  if (!encryptedSecret) return null;
+  try {
+    return decryptToken(encryptedSecret);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Extract speaker talk-time percentages from transcript sentences.
+ */
+export function extractSpeakers(transcript: {
+  sentences?: Array<{ speaker_name: string; start_time: number; end_time: number }>;
+}): Array<{ name: string; talk_time_pct: number }> {
+  if (!transcript.sentences?.length) return [];
+
+  const speakerTime = new Map<string, number>();
+  let totalTime = 0;
+
+  for (const s of transcript.sentences) {
+    const duration = Math.max(0, s.end_time - s.start_time);
+    speakerTime.set(s.speaker_name, (speakerTime.get(s.speaker_name) ?? 0) + duration);
+    totalTime += duration;
+  }
+
+  if (totalTime === 0) return [];
+
+  return Array.from(speakerTime.entries()).map(([name, time]) => ({
+    name,
+    talk_time_pct: Math.round((time / totalTime) * 100),
+  }));
+}
+
+/**
  * Encrypt and store a Fireflies API key for a user.
  */
 export async function storeFirefliesConnection(
@@ -201,7 +247,7 @@ export async function storeFirefliesConnection(
         user_id: userId,
         api_key_encrypted: encryptToken(apiKey),
         fireflies_email: user.email,
-        webhook_secret: webhookSecret,
+        webhook_secret_encrypted: encryptToken(webhookSecret),
         is_active: true,
         updated_at: new Date().toISOString(),
       },

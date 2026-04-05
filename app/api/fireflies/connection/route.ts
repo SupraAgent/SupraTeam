@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { rateLimit } from "@/lib/rate-limit";
 import { createSupabaseAdmin } from "@/lib/supabase";
+import { decryptWebhookSecret } from "@/lib/fireflies/client";
 
 export async function GET() {
   const auth = await requireAuth();
@@ -15,7 +16,7 @@ export async function GET() {
 
   const { data: conn } = await admin
     .from("crm_fireflies_connections")
-    .select("id, fireflies_email, webhook_secret, is_active, connected_at, updated_at")
+    .select("id, fireflies_email, webhook_secret_encrypted, is_active, connected_at, updated_at")
     .eq("user_id", user.id)
     .eq("is_active", true)
     .single();
@@ -33,7 +34,7 @@ export async function GET() {
       is_active: conn.is_active,
       connected_at: conn.connected_at,
       webhook_url: `${appUrl}/api/webhooks/fireflies?uid=${user.id}`,
-      webhook_secret: conn.webhook_secret,
+      webhook_secret: decryptWebhookSecret(conn.webhook_secret_encrypted) ?? "",
     },
     source: "fireflies",
   });

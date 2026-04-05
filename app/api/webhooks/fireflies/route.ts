@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
 import { createSupabaseAdmin } from "@/lib/supabase";
-import { fetchTranscript } from "@/lib/fireflies/client";
+import { fetchTranscript, extractSpeakers, decryptWebhookSecret } from "@/lib/fireflies/client";
 import { matchBookingLink } from "@/lib/meetings/match-booking";
 import { matchOrCreateContact } from "@/lib/contacts/match-or-create";
 import { hashPII } from "@/lib/crypto";
 import { evaluateAutomationRules } from "@/lib/automation-engine";
+import { processTranscriptAI } from "@/lib/fireflies/ai-extract";
+import { generateAndNotifyFollowUp } from "@/lib/fireflies/tg-followup";
 
 /**
  * POST: Fireflies webhook handler.
@@ -36,7 +38,7 @@ export async function POST(request: Request) {
 
     const { data: conn } = await admin
       .from("crm_fireflies_connections")
-      .select("user_id, webhook_secret, is_active")
+      .select("user_id, webhook_secret_encrypted, is_active")
       .eq("user_id", uid)
       .eq("is_active", true)
       .single();
@@ -46,8 +48,9 @@ export async function POST(request: Request) {
       return new NextResponse(null, { status: 200 });
     }
 
-    if (conn.webhook_secret && signature) {
-      const expected = createHmac("sha256", conn.webhook_secret)
+    const webhookSecret = decryptWebhookSecret(conn.webhook_secret_encrypted);
+    if (webhookSecret && signature) {
+      const expected = createHmac("sha256", webhookSecret)
         .update(body)
         .digest("hex");
       const a = Buffer.from(signature);
@@ -154,9 +157,12 @@ async function handleTranscriptionComplete(
       summary: transcript.summary?.short_summary ?? transcript.summary?.overview ?? null,
       action_items: actionItems,
       key_topics: keyTopics,
-      sentiment: {},
+      sentiment: transcript.sentiment ?? {},
       transcript_url: transcript.transcript_url ?? null,
       speakers: extractSpeakers(transcript),
+      match_confidence: match?.matchTier
+        ? match.matchTier === 1 ? "high" : match.matchTier === 2 ? "high" : "medium"
+        : "unmatched",
     })
     .select("id")
     .single();
@@ -227,6 +233,9 @@ async function handleTranscriptionComplete(
         action_items_count: actionItems.length,
         duration_minutes: transcript.duration ? Math.round(transcript.duration / 60) : null,
         transcript_id: transcriptRecord.id,
+        sentiment_positive: transcript.sentiment?.positive ?? null,
+        sentiment_negative: transcript.sentiment?.negative ?? null,
+        match_tier: match?.matchTier,
       },
     }).catch((err) => console.error("[fireflies/webhook] workflow trigger error:", err));
   }
@@ -269,26 +278,34 @@ async function handleTranscriptionComplete(
       attendee_emails_hash: attendeeEmails.map(hashPII),
     });
   }
-}
 
-function extractSpeakers(transcript: {
-  sentences?: Array<{ speaker_id: number; speaker_name: string; start_time: number; end_time: number }>;
-}): Array<{ name: string; talk_time_pct: number }> {
-  if (!transcript.sentences?.length) return [];
-
-  const speakerTime = new Map<string, number>();
-  let totalTime = 0;
-
-  for (const s of transcript.sentences) {
-    const duration = Math.max(0, s.end_time - s.start_time);
-    speakerTime.set(s.speaker_name, (speakerTime.get(s.speaker_name) ?? 0) + duration);
-    totalTime += duration;
+  // AI extraction pipeline (non-blocking)
+  const finalDealId = dealId ?? (match?.dealId || null);
+  if (transcriptRecord) {
+    processTranscriptAI(transcriptRecord.id, finalDealId, {
+      title: transcript.title,
+      summary: transcript.summary?.short_summary ?? transcript.summary?.overview ?? undefined,
+      action_items: actionItems,
+      sentences: transcript.sentences,
+      meeting_attendees: transcript.meeting_attendees,
+    })
+      .then((extraction) => {
+        if (extraction && finalDealId) {
+          // Generate TG follow-up draft + notify (non-blocking)
+          generateAndNotifyFollowUp(
+            transcriptRecord.id,
+            finalDealId,
+            userId,
+            extraction,
+            transcript.title ?? "Untitled"
+          ).catch((err) =>
+            console.error("[fireflies/webhook] TG follow-up error:", err)
+          );
+        }
+      })
+      .catch((err) =>
+        console.error("[fireflies/webhook] AI extraction error:", err)
+      );
   }
-
-  if (totalTime === 0) return [];
-
-  return Array.from(speakerTime.entries()).map(([name, time]) => ({
-    name,
-    talk_time_pct: Math.round((time / totalTime) * 100),
-  }));
 }
+

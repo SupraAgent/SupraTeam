@@ -16,7 +16,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
         .order("scheduled_at", { ascending: false }),
       auth.admin
         .from("crm_meeting_transcripts")
-        .select("id, title, duration_minutes, scheduled_at, summary, action_items, sentiment, transcript_url, speakers, attendees, created_at")
+        .select("id, title, duration_minutes, scheduled_at, summary, action_items, sentiment, transcript_url, speakers, attendees, ai_extraction, match_confidence, created_at")
         .eq("deal_id", id)
         .order("scheduled_at", { ascending: false }),
     ]);
