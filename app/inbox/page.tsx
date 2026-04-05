@@ -42,6 +42,12 @@ import { useTelegramAdminGroups } from "@/lib/client/use-telegram-admin-groups";
 import { useTelegram } from "@/lib/client/telegram-context";
 import { EmojiPicker } from "@/components/ui/emoji-picker";
 import { DealContextSidebar } from "@/components/inbox/deal-context-sidebar";
+import {
+  TgChatGroupPanel,
+  useTgChatGroups,
+  TG_CHAT_DRAG_TYPE,
+  type DragChatData,
+} from "@/components/inbox/tg-chat-group-panel";
 
 // ── Chat Label Types & Constants ────────────────────────────────
 
@@ -160,6 +166,9 @@ export default function InboxPage() {
   } | null>(null);
   const [noteModal, setNoteModal] = React.useState<{ chatId: number; groupName: string } | null>(null);
   const [noteText, setNoteText] = React.useState("");
+
+  // Chat groups (drag-to-group)
+  const chatGroups = useTgChatGroups();
 
   // Nuke state
   const [nukeTarget, setNukeTarget] = React.useState<{ chatId: number; name: string; type: "messages" | "groups" } | null>(null);
@@ -817,9 +826,10 @@ export default function InboxPage() {
         </div>
       ) : (
         <div className={cn("grid grid-cols-1 gap-4 min-h-[60vh]", showDealSidebar && selectedChat && (deals[selectedChat] ?? []).length > 0 ? "lg:grid-cols-[320px_1fr_260px]" : "lg:grid-cols-[320px_1fr]")}>
-          {/* Conversation list */}
+          {/* Left column: Conversation list + Chat groups */}
+          <div className="flex flex-col gap-3 min-h-0">
           <div className="rounded-xl border border-white/10 bg-white/[0.02] overflow-hidden">
-            <div className="divide-y divide-white/5 max-h-[70vh] overflow-y-auto thin-scroll">
+            <div className="divide-y divide-white/5 max-h-[50vh] overflow-y-auto thin-scroll">
               {filtered.map((conv) => {
                 const chatDeals = deals[conv.chat_id] ?? [];
                 const lastMsg = conv.messages[0];
@@ -851,10 +861,19 @@ export default function InboxPage() {
                 return (
                   <button
                     key={conv.chat_id}
+                    draggable
+                    onDragStart={(e) => {
+                      const dragData: DragChatData = {
+                        chatId: conv.chat_id,
+                        chatTitle: conv.group_name,
+                      };
+                      e.dataTransfer.setData(TG_CHAT_DRAG_TYPE, JSON.stringify(dragData));
+                      e.dataTransfer.effectAllowed = "move";
+                    }}
                     onClick={() => handleSelectChat(conv.chat_id)}
                     onContextMenu={(e) => handleContextMenu(e, conv.chat_id, conv.group_name)}
                     className={cn(
-                      "w-full text-left px-3 py-2.5 transition-colors",
+                      "w-full text-left px-3 py-2.5 transition-colors cursor-grab active:cursor-grabbing",
                       isSelected ? "bg-primary/10" :
                       label?.is_vip ? "bg-amber-500/[0.04] hover:bg-amber-500/[0.08]" :
                       "hover:bg-white/[0.04]",
@@ -935,6 +954,22 @@ export default function InboxPage() {
                 );
               })}
             </div>
+          </div>
+
+          {/* Chat Groups panel */}
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-2 max-h-[30vh] overflow-y-auto thin-scroll">
+            <TgChatGroupPanel
+              groups={chatGroups.groups}
+              loading={chatGroups.loading}
+              onCreateGroup={chatGroups.createGroup}
+              onDeleteGroup={chatGroups.deleteGroup}
+              onRenameGroup={chatGroups.renameGroup}
+              onToggleCollapse={chatGroups.toggleCollapse}
+              onDropChat={(groupId, data) => chatGroups.addChatToGroup(groupId, data.chatId, data.chatTitle)}
+              onRemoveChat={chatGroups.removeChatFromGroup}
+              onSelectChat={(chatId) => setSelectedChat(chatId)}
+            />
+          </div>
           </div>
 
           {/* Message detail + reply */}
