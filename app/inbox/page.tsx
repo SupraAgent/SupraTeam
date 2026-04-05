@@ -1667,25 +1667,32 @@ export default function InboxPage() {
                     ))}
                     {(deals[selChatId] ?? []).length === 0 && (
                       <button
-                        onClick={async () => {
-                          const name = window.prompt("Deal name:", selGroupName);
-                          if (!name) return;
-                          const res = await fetch("/api/deals", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                              deal_name: name,
-                              board_type: "BD",
-                              telegram_chat_id: selChatId,
-                              telegram_chat_name: selGroupName,
-                              telegram_chat_link: `https://t.me/c/${String(selChatId).replace("-100", "")}`,
-                            }),
-                          });
-                          if (res.ok) {
-                            toast.success("Deal created and linked");
-                            fetchInbox();
-                          } else {
-                            toast.error("Failed to create deal");
+                        onClick={async (e) => {
+                          const btn = e.currentTarget;
+                          if (btn.dataset.creating === "true") return;
+                          btn.dataset.creating = "true";
+                          try {
+                            const name = window.prompt("Deal name:", selGroupName);
+                            if (!name) return;
+                            const res = await fetch("/api/deals", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                deal_name: name,
+                                board_type: "BD",
+                                telegram_chat_id: selChatId,
+                                telegram_chat_name: selGroupName,
+                                telegram_chat_link: `https://t.me/c/${String(selChatId).replace(/^-100/, "")}`,
+                              }),
+                            });
+                            if (res.ok) {
+                              toast.success("Deal created and linked");
+                              fetchInbox();
+                            } else {
+                              toast.error("Failed to create deal");
+                            }
+                          } finally {
+                            btn.dataset.creating = "false";
                           }
                         }}
                         className="text-[10px] text-primary hover:text-primary/80 flex items-center gap-1 transition-colors"

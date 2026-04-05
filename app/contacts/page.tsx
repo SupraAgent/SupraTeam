@@ -9,7 +9,7 @@ import { BulkXImportModal } from "@/components/contacts/bulk-x-import-modal";
 import { SavedViewsBar } from "@/components/saved-views-bar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Download, Upload, Users, MessageCircle, Building2, ArrowUpDown, Trash2, Filter, GitMerge, Sparkles, AlertTriangle, Twitter, Wallet, Crown, Handshake } from "lucide-react";
+import { Download, Upload, Users, MessageCircle, Building2, ArrowUpDown, Trash2, Filter, GitMerge, Sparkles, AlertTriangle, Twitter, Wallet } from "lucide-react";
 import { MergePreviewModal } from "@/components/contacts/merge-preview-modal";
 import type { Contact, PipelineStage, Deal, LifecycleStage, DecisionMakerLevel, PartnershipType } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -499,7 +499,7 @@ export default function ContactsPage() {
       {/* Saved views */}
       <SavedViewsBar
         page="contacts"
-        currentFilters={{ stageFilter, lifecycleFilter, filterHasEmail, filterHasTg, filterHasDeals }}
+        currentFilters={{ stageFilter, lifecycleFilter, filterHasEmail, filterHasTg, filterHasDeals, filterHasWallet, decisionMakerFilter, partnershipFilter }}
         onApplyView={(f) => {
           const v = f as Record<string, unknown>;
           setStageFilter((v.stageFilter as string) ?? "all");
@@ -507,6 +507,9 @@ export default function ContactsPage() {
           setFilterHasEmail(!!v.filterHasEmail);
           setFilterHasTg(!!v.filterHasTg);
           setFilterHasDeals(!!v.filterHasDeals);
+          setFilterHasWallet(!!v.filterHasWallet);
+          setDecisionMakerFilter((v.decisionMakerFilter as DecisionMakerLevel | "all") ?? "all");
+          setPartnershipFilter((v.partnershipFilter as PartnershipType | "all") ?? "all");
         }}
       />
 

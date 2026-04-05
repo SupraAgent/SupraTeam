@@ -686,12 +686,31 @@ export async function executeHttpRequest(
   const url = renderTemplate(config.url || "", ctx.vars);
   if (!url) return { success: false, error: "No URL specified" };
 
-  // SSRF protection: block private IPs
+  // SSRF protection: strict URL allowlist — only HTTPS to public hosts
   try {
     const parsed = new URL(url);
-    const hostname = parsed.hostname;
-    if (hostname === "localhost" || hostname === "127.0.0.1" || hostname.startsWith("10.") || hostname.startsWith("192.168.") || hostname.startsWith("172.")) {
-      return { success: false, error: "Private network URLs are not allowed" };
+    if (parsed.protocol !== "https:") {
+      return { success: false, error: "Only HTTPS URLs are allowed" };
+    }
+    const hostname = parsed.hostname.toLowerCase();
+    // Block localhost, loopback, private ranges, link-local, metadata endpoints
+    if (
+      hostname === "localhost" ||
+      hostname.endsWith(".local") ||
+      hostname.endsWith(".internal") ||
+      /^127\./.test(hostname) ||
+      /^10\./.test(hostname) ||
+      /^192\.168\./.test(hostname) ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(hostname) ||
+      /^169\.254\./.test(hostname) ||
+      hostname === "metadata.google.internal" ||
+      hostname === "[::1]" ||
+      /^\[fe80:/i.test(hostname) ||
+      /^\[fd/i.test(hostname) ||
+      /^\[fc/i.test(hostname) ||
+      /^0\./.test(hostname)
+    ) {
+      return { success: false, error: "Private/internal network URLs are not allowed" };
     }
   } catch {
     return { success: false, error: "Invalid URL" };
@@ -700,12 +719,22 @@ export async function executeHttpRequest(
   try {
     const method = config.method?.toUpperCase() || "GET";
     const body = config.body ? renderTemplate(config.body, ctx.vars) : undefined;
+    // Header allowlist — only safe headers can be set by workflow config
+    const ALLOWED_HEADERS = new Set([
+      "accept", "content-type", "authorization", "x-api-key",
+      "x-request-id", "user-agent", "x-correlation-id",
+    ]);
+    const safeHeaders: Record<string, string> = { "Content-Type": "application/json" };
+    if (config.headers) {
+      for (const [k, v] of Object.entries(config.headers)) {
+        if (ALLOWED_HEADERS.has(k.toLowerCase())) {
+          safeHeaders[k] = v;
+        }
+      }
+    }
     const res = await fetch(url, {
       method,
-      headers: {
-        "Content-Type": "application/json",
-        ...config.headers,
-      },
+      headers: safeHeaders,
       body: method !== "GET" ? body : undefined,
       signal: AbortSignal.timeout(10000),
     });
@@ -761,10 +790,13 @@ export async function executeAiSummarize(
       ? renderTemplate(config.prompt, { ...ctx.vars, conversation: context })
       : `Summarize this conversation concisely (3-5 bullet points):\n\n${context}`;
 
-    // Use internal AI endpoint
+    // Use internal AI endpoint with service auth
     const res = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3002"}/api/ai-chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(process.env.SUPABASE_SERVICE_ROLE_KEY ? { "x-service-key": process.env.SUPABASE_SERVICE_ROLE_KEY } : {}),
+      },
       body: JSON.stringify({ message: prompt, context: `Deal: ${deal.deal_name}` }),
     });
 
@@ -801,7 +833,10 @@ export async function executeAiClassify(
   try {
     const res = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3002"}/api/ai-chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(process.env.SUPABASE_SERVICE_ROLE_KEY ? { "x-service-key": process.env.SUPABASE_SERVICE_ROLE_KEY } : {}),
+      },
       body: JSON.stringify({ message: prompt, context: "classification" }),
     });
     if (!res.ok) return { success: false, error: "AI classify failed" };

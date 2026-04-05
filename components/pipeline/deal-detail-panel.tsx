@@ -494,7 +494,7 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
                   >
                     <option value="">Select a group...</option>
                     {tgGroups.map((g) => (
-                      <option key={g.id} value={`https://t.me/c/${g.telegram_group_id.replace("-100", "")}`}>
+                      <option key={g.id} value={`https://t.me/c/${String(g.telegram_group_id).replace(/^-100/, "")}`}>
                         {g.group_name}
                       </option>
                     ))}
