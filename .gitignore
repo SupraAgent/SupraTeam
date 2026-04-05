@@ -44,3 +44,4 @@ packages/automation-builder/node_modules/
 # claude code (personal overrides)
 CLAUDE.local.md
 .claude/settings.local.json
+.claude/worktrees/
