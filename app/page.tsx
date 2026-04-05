@@ -287,8 +287,9 @@ export default function HomePage() {
           });
         }
 
-        // 4. Due reminders
-        const dueReminders = reminders.filter((r) => new Date(r.due_at) <= new Date());
+        // 4. Due reminders — compute once against a stable timestamp to avoid re-render flicker
+        const now = Date.now();
+        const dueReminders = reminders.filter((r) => new Date(r.due_at).getTime() <= now);
         if (dueReminders.length > 0 && actions.length < 3) {
           actions.push({
             key: "reminders",

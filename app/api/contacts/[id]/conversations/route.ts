@@ -33,33 +33,47 @@ export async function GET(
     return NextResponse.json({ conversations: [] });
   }
 
-  // Fetch last 3 messages per deal's TG chat
   interface DealRow { id: string; deal_name: string; telegram_chat_id: number | null }
-  interface MessageRow { sender_name: string | null; message_text: string | null; sent_at: string }
 
-  const conversations = await Promise.all(
-    (deals as DealRow[]).map(async (deal: DealRow) => {
-      const { data: messages } = await auth.supabase
-        .from("tg_group_messages")
-        .select("sender_name, message_text, sent_at")
-        .eq("telegram_chat_id", deal.telegram_chat_id!)
-        .order("sent_at", { ascending: false })
-        .limit(3);
-
-      return {
-        deal_id: deal.id,
-        deal_name: deal.deal_name,
-        telegram_chat_id: deal.telegram_chat_id as number,
-        messages: ((messages ?? []) as MessageRow[])
-          .reverse()
-          .map((m: MessageRow) => ({
-            sender: m.sender_name ?? "Unknown",
-            text: m.message_text ?? "",
-            sent_at: m.sent_at,
-          })),
-      };
-    })
+  // Filter out any deals where telegram_chat_id is null (defensive — .not() should handle it)
+  const validDeals = (deals as DealRow[]).filter(
+    (d): d is DealRow & { telegram_chat_id: number } => d.telegram_chat_id != null
   );
+
+  if (validDeals.length === 0) {
+    return NextResponse.json({ conversations: [] });
+  }
+
+  // Single query for all chats — avoids N+1 by using .in() with partition logic
+  const chatIds = validDeals.map((d) => d.telegram_chat_id);
+  const { data: allMessages } = await auth.supabase
+    .from("tg_group_messages")
+    .select("telegram_chat_id, sender_name, message_text, sent_at")
+    .in("telegram_chat_id", chatIds)
+    .order("sent_at", { ascending: false })
+    .limit(chatIds.length * 5); // fetch slightly more than 3 per chat to account for uneven distribution
+
+  // Group messages by chat_id, keep only last 3 per chat
+  const messagesByChatId = new Map<number, { sender: string; text: string; sent_at: string }[]>();
+  for (const msg of allMessages ?? []) {
+    const chatId = msg.telegram_chat_id as number;
+    if (!messagesByChatId.has(chatId)) messagesByChatId.set(chatId, []);
+    const bucket = messagesByChatId.get(chatId)!;
+    if (bucket.length < 3) {
+      bucket.push({
+        sender: (msg.sender_name as string | null) ?? "Unknown",
+        text: (msg.message_text as string | null) ?? "",
+        sent_at: msg.sent_at as string,
+      });
+    }
+  }
+
+  const conversations = validDeals.map((deal) => ({
+    deal_id: deal.id,
+    deal_name: deal.deal_name,
+    telegram_chat_id: deal.telegram_chat_id,
+    messages: (messagesByChatId.get(deal.telegram_chat_id) ?? []).reverse(),
+  }));
 
   return NextResponse.json({ conversations });
 }

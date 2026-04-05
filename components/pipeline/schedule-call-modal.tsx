@@ -70,42 +70,20 @@ export function ScheduleCallModal({
   } | null>(null);
   const [gcalSendingTg, setGcalSendingTg] = React.useState(false);
 
-  React.useEffect(() => {
-    if (open) {
-      setGeneratedUrl(null);
-      setError(null);
-      setCopied(false);
-      setGcalCreatedEvent(null);
-
-      // Pre-fill GCal form
-      setGcalSummary(`Call: ${dealName}`);
-      setGcalDescription(contactName ? `Meeting with ${contactName} re: ${dealName}` : `Meeting re: ${dealName}`);
-      setGcalAttendeeEmail(contactEmail ?? "");
-
-      // Default to tomorrow
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      setGcalDate(tomorrow.toISOString().split("T")[0]);
-
-      // Check connections
-      fetchEventTypes();
-      checkGcalConnection();
-    }
-  }, [open, dealName, contactEmail, contactName]);
-
-  async function checkGcalConnection() {
+  const checkGcalConnection = React.useCallback(async () => {
     setGcalLoading(true);
     try {
-      const res = await fetch("/api/calendar/google/events?from=" + new Date().toISOString().split("T")[0] + "&to=" + new Date().toISOString().split("T")[0]);
+      const today = new Date().toISOString().split("T")[0];
+      const res = await fetch(`/api/calendar/google/events?from=${today}&to=${today}`);
       setGcalConnected(res.ok);
     } catch {
       setGcalConnected(false);
     } finally {
       setGcalLoading(false);
     }
-  }
+  }, []);
 
-  async function fetchEventTypes() {
+  const fetchEventTypes = React.useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch("/api/calendly/event-types");
@@ -124,7 +102,33 @@ export function ScheduleCallModal({
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
+
+  React.useEffect(() => {
+    if (open) {
+      setGeneratedUrl(null);
+      setError(null);
+      setCopied(false);
+      setGcalCreatedEvent(null);
+
+      // Pre-fill GCal form
+      setGcalSummary(`Call: ${dealName}`);
+      setGcalDescription(contactName ? `Meeting with ${contactName} re: ${dealName}` : `Meeting re: ${dealName}`);
+      setGcalAttendeeEmail(contactEmail ?? "");
+
+      // Default to tomorrow in local date format (YYYY-MM-DD)
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const y = tomorrow.getFullYear();
+      const m = String(tomorrow.getMonth() + 1).padStart(2, "0");
+      const d = String(tomorrow.getDate()).padStart(2, "0");
+      setGcalDate(`${y}-${m}-${d}`);
+
+      // Check connections
+      fetchEventTypes();
+      checkGcalConnection();
+    }
+  }, [open, dealName, contactEmail, contactName, fetchEventTypes, checkGcalConnection]);
 
   async function handleGenerate() {
     if (!selectedType) return;
@@ -137,9 +141,9 @@ export function ScheduleCallModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           deal_id: dealId,
-          contact_id: contactId || undefined,
+          contact_id: contactId ?? undefined,
           event_type_uri: selectedType,
-          tg_chat_id: telegramChatId || undefined,
+          tg_chat_id: telegramChatId ?? undefined,
         }),
       });
 
@@ -180,9 +184,27 @@ export function ScheduleCallModal({
     setError(null);
 
     try {
-      // Build ISO timestamps
+      // Build ISO timestamps preserving user's local timezone offset
       const startDate = new Date(`${gcalDate}T${gcalStartTime}:00`);
       const endDate = new Date(startDate.getTime() + gcalDuration * 60_000);
+
+      // Format with timezone offset (e.g., 2026-04-05T10:00:00+05:00) instead of UTC
+      const tzOffset = -startDate.getTimezoneOffset();
+      const sign = tzOffset >= 0 ? "+" : "-";
+      const absOffset = Math.abs(tzOffset);
+      const tzHours = String(Math.floor(absOffset / 60)).padStart(2, "0");
+      const tzMins = String(absOffset % 60).padStart(2, "0");
+      const tzSuffix = `${sign}${tzHours}:${tzMins}`;
+
+      const formatLocalISO = (d: Date) => {
+        const yr = d.getFullYear();
+        const mo = String(d.getMonth() + 1).padStart(2, "0");
+        const dy = String(d.getDate()).padStart(2, "0");
+        const hr = String(d.getHours()).padStart(2, "0");
+        const mi = String(d.getMinutes()).padStart(2, "0");
+        const sc = String(d.getSeconds()).padStart(2, "0");
+        return `${yr}-${mo}-${dy}T${hr}:${mi}:${sc}${tzSuffix}`;
+      };
 
       const attendees: { email: string }[] = [];
       if (gcalAttendeeEmail.trim()) {
@@ -196,8 +218,8 @@ export function ScheduleCallModal({
         body: JSON.stringify({
           summary: gcalSummary,
           description: gcalDescription,
-          startAt: startDate.toISOString(),
-          endAt: endDate.toISOString(),
+          startAt: formatLocalISO(startDate),
+          endAt: formatLocalISO(endDate),
           attendees: attendees.length > 0 ? attendees : undefined,
         }),
       });
@@ -212,30 +234,36 @@ export function ScheduleCallModal({
       const event = data.data;
       setGcalCreatedEvent(event);
 
-      // Auto-link event to deal
+      // Auto-link event to deal — retry to handle DB upsert latency
       if (event.id) {
-        // Find the cached event ID from DB (the upsert in the POST returns the Google event ID,
-        // but we need the DB row ID for linking)
-        const eventsRes = await fetch(`/api/calendar/google/events?from=${gcalDate}&to=${gcalDate}`);
-        if (eventsRes.ok) {
-          const eventsData = await eventsRes.json();
-          const dbEvent = (eventsData.data ?? []).find(
-            (e: { google_event_id: string }) => e.google_event_id === event.id
-          );
-          if (dbEvent) {
-            await fetch("/api/calendar/link-deal", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                deal_id: dealId,
-                calendar_event_id: dbEvent.id,
-              }),
-            });
+        let linked = false;
+        for (let attempt = 0; attempt < 3 && !linked; attempt++) {
+          if (attempt > 0) await new Promise((r) => setTimeout(r, 500));
+          const eventsRes = await fetch(`/api/calendar/google/events?from=${gcalDate}&to=${gcalDate}`);
+          if (eventsRes.ok) {
+            const eventsData = await eventsRes.json();
+            const dbEvent = (eventsData.data ?? []).find(
+              (e: { google_event_id: string }) => e.google_event_id === event.id
+            );
+            if (dbEvent) {
+              await fetch("/api/calendar/link-deal", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  deal_id: dealId,
+                  calendar_event_id: dbEvent.id,
+                }),
+              });
+              linked = true;
+            }
           }
         }
+
+        toast.success(linked ? "Event created and linked to deal" : "Event created (deal link pending)");
+      } else {
+        toast.success("Event created");
       }
 
-      toast.success("Event created and linked to deal");
       onEventCreated?.();
     } catch {
       setError("Failed to create calendar event");

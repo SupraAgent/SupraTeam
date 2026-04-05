@@ -33,7 +33,7 @@ type Step = {
   sequence_id: string;
   step_number: number;
   step_type: string; // 'message' | 'wait' | 'condition'
-  channel: StepChannel;
+  channel: StepChannel | null;
   delay_hours: number;
   message_template: string;
   variant_b_template: string | null;
@@ -160,6 +160,23 @@ async function processEnrollment(bot: Bot, enrollment: Enrollment, prefetchedSte
               error: "No email address found for contact",
               ab_variant: abVariant,
             });
+            // No email = unrecoverable, don't retry — but also don't advance
+            // so condition steps don't evaluate against a message that was never sent
+            return;
+          }
+
+          // Deduplication: check if we already queued an email for this enrollment+step
+          const { data: existingLog } = await supabase
+            .from("crm_outreach_step_log")
+            .select("id")
+            .eq("enrollment_id", enrollment.id)
+            .eq("step_id", currentStep.id)
+            .eq("status", "sent")
+            .limit(1)
+            .maybeSingle();
+
+          if (existingLog) {
+            // Already sent — advance without re-sending (idempotent retry)
             await advanceToNextStep(enrollment, steps, currentStep.step_number);
             return;
           }
