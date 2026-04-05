@@ -26,11 +26,14 @@ type Enrollment = {
   enrolled_at: string;
 };
 
+type StepChannel = "telegram" | "email";
+
 type Step = {
   id: string;
   sequence_id: string;
   step_number: number;
   step_type: string; // 'message' | 'wait' | 'condition'
+  channel: StepChannel;
   delay_hours: number;
   message_template: string;
   variant_b_template: string | null;
@@ -142,23 +145,63 @@ async function processEnrollment(bot: Bot, enrollment: Enrollment, prefetchedSte
       }
 
       const text = renderTemplate(template, vars);
-      const chatId = Number(enrollment.tg_chat_id);
+      const channel = currentStep.channel ?? "telegram";
 
-      try {
-        // Respect Telegram rate limits: 1 msg/sec for DMs
-        await new Promise((r) => setTimeout(r, 1000));
-        await bot.api.sendMessage(chatId, text);
-        logDelivery(chatId, text, "outreach_sequence", true).catch(() => {});
-      } catch (sendErr) {
-        console.error(`[outreach-worker] send failed for enrollment ${enrollment.id}:`, sendErr);
-        await supabase.from("crm_outreach_step_log").insert({
-          enrollment_id: enrollment.id,
-          step_id: currentStep.id,
-          status: "failed",
-          error: sendErr instanceof Error ? sendErr.message : "Send failed",
-          ab_variant: abVariant,
-        });
-        return; // Don't advance, retry next poll
+      if (channel === "email") {
+        // Route to email sending
+        try {
+          const contactEmail = await getContactEmail(enrollment.contact_id);
+          if (!contactEmail) {
+            console.error(`[outreach-worker] no email for enrollment ${enrollment.id}, skipping email step`);
+            await supabase.from("crm_outreach_step_log").insert({
+              enrollment_id: enrollment.id,
+              step_id: currentStep.id,
+              status: "failed",
+              error: "No email address found for contact",
+              ab_variant: abVariant,
+            });
+            await advanceToNextStep(enrollment, steps, currentStep.step_number);
+            return;
+          }
+
+          const { sendOutreachEmail } = await import("./lib/send-email.js");
+          await sendOutreachEmail({
+            to: contactEmail,
+            subject: vars.deal_name ? `Re: ${vars.deal_name}` : "Following up",
+            body: text,
+            enrollmentId: enrollment.id,
+          });
+        } catch (sendErr) {
+          console.error(`[outreach-worker] email send failed for enrollment ${enrollment.id}:`, sendErr);
+          await supabase.from("crm_outreach_step_log").insert({
+            enrollment_id: enrollment.id,
+            step_id: currentStep.id,
+            status: "failed",
+            error: sendErr instanceof Error ? sendErr.message : "Email send failed",
+            ab_variant: abVariant,
+          });
+          return;
+        }
+      } else {
+        // Default: send via Telegram
+        const chatId = Number(enrollment.tg_chat_id);
+
+        try {
+          // Respect Telegram rate limits: 1 msg/sec for DMs
+          await new Promise((r) => setTimeout(r, 1000));
+          await bot.api.sendMessage(chatId, text);
+          logDelivery(chatId, text, "outreach_sequence", true).catch(() => {});
+        } catch (sendErr) {
+          console.error(`[outreach-worker] send failed for enrollment ${enrollment.id}:`, sendErr);
+          await supabase.from("crm_outreach_step_log").insert({
+            enrollment_id: enrollment.id,
+            step_id: currentStep.id,
+            status: "failed",
+            error: sendErr instanceof Error ? sendErr.message : "Send failed",
+            ab_variant: abVariant,
+          });
+          return; // Don't advance, retry next poll
+        }
       }
 
       // Log success with variant info
@@ -167,6 +210,7 @@ async function processEnrollment(bot: Bot, enrollment: Enrollment, prefetchedSte
         step_id: currentStep.id,
         status: "sent",
         ab_variant: abVariant,
+        metadata: { channel },
       });
 
       // Auto-winner check: if both variants have 20+ sends and reply rate diff > 10pp
@@ -473,6 +517,16 @@ async function checkAutoWinner(step: Step) {
   } catch (err) {
     console.error("[outreach-worker] auto-winner check error:", err);
   }
+}
+
+async function getContactEmail(contactId: string | null): Promise<string | null> {
+  if (!contactId) return null;
+  const { data } = await supabase
+    .from("crm_contacts")
+    .select("email")
+    .eq("id", contactId)
+    .single();
+  return data?.email ?? null;
 }
 
 export function startOutreachWorker(bot: Bot) {

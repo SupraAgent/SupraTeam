@@ -1,8 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { Calendar, Copy, Send, Loader2, X, ExternalLink, Settings } from "lucide-react";
+import { Calendar, Copy, Send, Loader2, X, ExternalLink, Settings, Video, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import Link from "next/link";
@@ -14,13 +16,18 @@ interface CalendlyEventType {
   slug: string;
 }
 
+type ModalMode = "calendly" | "gcal";
+
 interface ScheduleCallModalProps {
   open: boolean;
   onClose: () => void;
   dealId: string;
   dealName: string;
   contactId?: string | null;
+  contactEmail?: string | null;
+  contactName?: string | null;
   telegramChatId?: number | null;
+  onEventCreated?: () => void;
 }
 
 export function ScheduleCallModal({
@@ -29,8 +36,14 @@ export function ScheduleCallModal({
   dealId,
   dealName,
   contactId,
+  contactEmail,
+  contactName,
   telegramChatId,
+  onEventCreated,
 }: ScheduleCallModalProps) {
+  const [mode, setMode] = React.useState<ModalMode>("gcal");
+
+  // Calendly state
   const [eventTypes, setEventTypes] = React.useState<CalendlyEventType[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [generating, setGenerating] = React.useState(false);
@@ -40,14 +53,57 @@ export function ScheduleCallModal({
   const [connected, setConnected] = React.useState<boolean | null>(null);
   const [copied, setCopied] = React.useState(false);
 
+  // Google Calendar state
+  const [gcalConnected, setGcalConnected] = React.useState<boolean | null>(null);
+  const [gcalLoading, setGcalLoading] = React.useState(true);
+  const [gcalCreating, setGcalCreating] = React.useState(false);
+  const [gcalSummary, setGcalSummary] = React.useState("");
+  const [gcalDate, setGcalDate] = React.useState("");
+  const [gcalStartTime, setGcalStartTime] = React.useState("10:00");
+  const [gcalDuration, setGcalDuration] = React.useState(30);
+  const [gcalDescription, setGcalDescription] = React.useState("");
+  const [gcalAttendeeEmail, setGcalAttendeeEmail] = React.useState("");
+  const [gcalCreatedEvent, setGcalCreatedEvent] = React.useState<{
+    htmlLink?: string;
+    hangoutLink?: string;
+    id?: string;
+  } | null>(null);
+  const [gcalSendingTg, setGcalSendingTg] = React.useState(false);
+
   React.useEffect(() => {
     if (open) {
       setGeneratedUrl(null);
       setError(null);
       setCopied(false);
+      setGcalCreatedEvent(null);
+
+      // Pre-fill GCal form
+      setGcalSummary(`Call: ${dealName}`);
+      setGcalDescription(contactName ? `Meeting with ${contactName} re: ${dealName}` : `Meeting re: ${dealName}`);
+      setGcalAttendeeEmail(contactEmail ?? "");
+
+      // Default to tomorrow
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      setGcalDate(tomorrow.toISOString().split("T")[0]);
+
+      // Check connections
       fetchEventTypes();
+      checkGcalConnection();
     }
-  }, [open]);
+  }, [open, dealName, contactEmail, contactName]);
+
+  async function checkGcalConnection() {
+    setGcalLoading(true);
+    try {
+      const res = await fetch("/api/calendar/google/events?from=" + new Date().toISOString().split("T")[0] + "&to=" + new Date().toISOString().split("T")[0]);
+      setGcalConnected(res.ok);
+    } catch {
+      setGcalConnected(false);
+    } finally {
+      setGcalLoading(false);
+    }
+  }
 
   async function fetchEventTypes() {
     setLoading(true);
@@ -114,12 +170,106 @@ export function ScheduleCallModal({
 
   async function handleSendViaTg() {
     if (!generatedUrl || !telegramChatId) return;
-    // Copy to clipboard first, then open TG chat link
     await navigator.clipboard.writeText(generatedUrl);
     toast.success("Link copied! Paste it in the Telegram chat.");
   }
 
+  async function handleGcalCreate() {
+    if (!gcalSummary || !gcalDate || !gcalStartTime) return;
+    setGcalCreating(true);
+    setError(null);
+
+    try {
+      // Build ISO timestamps
+      const startDate = new Date(`${gcalDate}T${gcalStartTime}:00`);
+      const endDate = new Date(startDate.getTime() + gcalDuration * 60_000);
+
+      const attendees: { email: string }[] = [];
+      if (gcalAttendeeEmail.trim()) {
+        attendees.push({ email: gcalAttendeeEmail.trim() });
+      }
+
+      // Create event via existing API
+      const res = await fetch("/api/calendar/google/events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          summary: gcalSummary,
+          description: gcalDescription,
+          startAt: startDate.toISOString(),
+          endAt: endDate.toISOString(),
+          attendees: attendees.length > 0 ? attendees : undefined,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error || "Failed to create event");
+        return;
+      }
+
+      const event = data.data;
+      setGcalCreatedEvent(event);
+
+      // Auto-link event to deal
+      if (event.id) {
+        // Find the cached event ID from DB (the upsert in the POST returns the Google event ID,
+        // but we need the DB row ID for linking)
+        const eventsRes = await fetch(`/api/calendar/google/events?from=${gcalDate}&to=${gcalDate}`);
+        if (eventsRes.ok) {
+          const eventsData = await eventsRes.json();
+          const dbEvent = (eventsData.data ?? []).find(
+            (e: { google_event_id: string }) => e.google_event_id === event.id
+          );
+          if (dbEvent) {
+            await fetch("/api/calendar/link-deal", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                deal_id: dealId,
+                calendar_event_id: dbEvent.id,
+              }),
+            });
+          }
+        }
+      }
+
+      toast.success("Event created and linked to deal");
+      onEventCreated?.();
+    } catch {
+      setError("Failed to create calendar event");
+    } finally {
+      setGcalCreating(false);
+    }
+  }
+
+  async function handleGcalSendTg() {
+    if (!telegramChatId || !gcalCreatedEvent) return;
+    setGcalSendingTg(true);
+    try {
+      const meetLink = gcalCreatedEvent.hangoutLink || gcalCreatedEvent.htmlLink;
+      const startDate = new Date(`${gcalDate}T${gcalStartTime}:00`);
+      const formattedDate = startDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+      const formattedTime = startDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+
+      const message = [
+        `📅 Meeting scheduled: ${gcalSummary}`,
+        `🕐 ${formattedDate} at ${formattedTime} (${gcalDuration}min)`,
+        meetLink ? `\n🔗 ${meetLink}` : "",
+      ].filter(Boolean).join("\n");
+
+      await navigator.clipboard.writeText(message);
+      toast.success("Meeting details copied! Paste in the Telegram chat.");
+    } finally {
+      setGcalSendingTg(false);
+    }
+  }
+
   if (!open) return null;
+
+  const isGcalReady = !gcalLoading && gcalConnected;
+  const isCalendlyReady = !loading && connected;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
@@ -140,130 +290,338 @@ export function ScheduleCallModal({
           </button>
         </div>
 
-        {/* Loading */}
-        {loading && (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          </div>
-        )}
+        {/* Mode Tabs */}
+        <div className="flex gap-1 rounded-lg bg-white/5 p-1 mb-4">
+          <button
+            onClick={() => setMode("gcal")}
+            className={cn(
+              "flex-1 flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+              mode === "gcal"
+                ? "bg-[#006BFF]/15 text-[#006BFF] border border-[#006BFF]/20"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Video className="h-3.5 w-3.5" />
+            Google Calendar
+          </button>
+          <button
+            onClick={() => setMode("calendly")}
+            className={cn(
+              "flex-1 flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+              mode === "calendly"
+                ? "bg-[#006BFF]/15 text-[#006BFF] border border-[#006BFF]/20"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+            Calendly
+          </button>
+        </div>
 
-        {/* Not connected */}
-        {!loading && connected === false && (
-          <div className="text-center py-6 space-y-3">
-            <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-white/5">
-              <Calendar className="h-6 w-6 text-muted-foreground" />
-            </div>
-            <div>
-              <p className="text-sm text-foreground">Calendly not connected</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Connect your Calendly account to generate booking links for deals.
-              </p>
-            </div>
-            <Link
-              href="/settings/integrations"
-              className="inline-flex items-center gap-1.5 rounded-lg bg-white/5 border border-white/10 px-4 py-2 text-xs font-medium text-foreground hover:bg-white/10 transition-colors"
-            >
-              <Settings className="h-3.5 w-3.5" />
-              Go to Settings
-            </Link>
-          </div>
-        )}
-
-        {/* Connected - event type picker */}
-        {!loading && connected && !generatedUrl && (
-          <div className="space-y-3">
-            {error && (
-              <p className="text-xs text-red-400 rounded-lg bg-red-500/5 border border-red-500/10 p-2">{error}</p>
+        {/* === Google Calendar Mode === */}
+        {mode === "gcal" && (
+          <>
+            {gcalLoading && (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
             )}
 
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-medium text-muted-foreground">Select event type</label>
-              {eventTypes.map((et) => (
-                <button
-                  key={et.uri}
-                  onClick={() => setSelectedType(et.uri)}
-                  className={cn(
-                    "w-full rounded-lg border p-3 text-left transition-colors",
-                    selectedType === et.uri
-                      ? "border-[#006BFF]/50 bg-[#006BFF]/10"
-                      : "border-white/10 bg-white/[0.02] hover:bg-white/[0.05]"
-                  )}
+            {!gcalLoading && !gcalConnected && (
+              <div className="text-center py-6 space-y-3">
+                <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-white/5">
+                  <Calendar className="h-6 w-6 text-muted-foreground" />
+                </div>
+                <div>
+                  <p className="text-sm text-foreground">Google Calendar not connected</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Connect your Google account to create calendar events directly from deals.
+                  </p>
+                </div>
+                <Link
+                  href="/settings/integrations"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-white/5 border border-white/10 px-4 py-2 text-xs font-medium text-foreground hover:bg-white/10 transition-colors"
                 >
-                  <span className={cn(
-                    "text-sm font-medium",
-                    selectedType === et.uri ? "text-foreground" : "text-muted-foreground"
-                  )}>
-                    {et.name}
-                  </span>
-                  <span className="ml-2 text-xs text-muted-foreground/60">{et.duration} min</span>
-                </button>
-              ))}
-            </div>
+                  <Settings className="h-3.5 w-3.5" />
+                  Go to Settings
+                </Link>
+              </div>
+            )}
 
-            <Button
-              onClick={handleGenerate}
-              disabled={!selectedType || generating}
-              className="w-full"
-            >
-              {generating ? (
-                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Calendar className="mr-2 h-3.5 w-3.5" />
-              )}
-              {generating ? "Generating..." : "Generate Booking Link"}
-            </Button>
-          </div>
+            {isGcalReady && !gcalCreatedEvent && (
+              <div className="space-y-3">
+                {error && (
+                  <p className="text-xs text-red-400 rounded-lg bg-red-500/5 border border-red-500/10 p-2">{error}</p>
+                )}
+
+                <div>
+                  <label className="text-[11px] font-medium text-muted-foreground">Event Title</label>
+                  <Input
+                    value={gcalSummary}
+                    onChange={(e) => setGcalSummary(e.target.value)}
+                    className="mt-1"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] font-medium text-muted-foreground">Date</label>
+                    <Input
+                      type="date"
+                      value={gcalDate}
+                      onChange={(e) => setGcalDate(e.target.value)}
+                      className="mt-1"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-medium text-muted-foreground">Time</label>
+                    <Input
+                      type="time"
+                      value={gcalStartTime}
+                      onChange={(e) => setGcalStartTime(e.target.value)}
+                      className="mt-1"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-medium text-muted-foreground">Duration</label>
+                  <div className="flex gap-2 mt-1">
+                    {[15, 30, 45, 60].map((d) => (
+                      <button
+                        key={d}
+                        onClick={() => setGcalDuration(d)}
+                        className={cn(
+                          "flex-1 rounded-lg border py-1.5 text-xs font-medium transition-colors",
+                          gcalDuration === d
+                            ? "border-[#006BFF]/50 bg-[#006BFF]/10 text-foreground"
+                            : "border-white/10 bg-white/[0.02] text-muted-foreground hover:bg-white/[0.05]"
+                        )}
+                      >
+                        {d}m
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-medium text-muted-foreground">Attendee Email</label>
+                  <Input
+                    type="email"
+                    value={gcalAttendeeEmail}
+                    onChange={(e) => setGcalAttendeeEmail(e.target.value)}
+                    placeholder="partner@protocol.xyz"
+                    className="mt-1"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-medium text-muted-foreground">Description</label>
+                  <Textarea
+                    value={gcalDescription}
+                    onChange={(e) => setGcalDescription(e.target.value)}
+                    rows={2}
+                    className="mt-1"
+                  />
+                </div>
+
+                <Button
+                  onClick={handleGcalCreate}
+                  disabled={!gcalSummary || !gcalDate || !gcalStartTime || gcalCreating}
+                  className="w-full"
+                >
+                  {gcalCreating ? (
+                    <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Calendar className="mr-2 h-3.5 w-3.5" />
+                  )}
+                  {gcalCreating ? "Creating..." : "Create Event & Link to Deal"}
+                </Button>
+              </div>
+            )}
+
+            {gcalCreatedEvent && (
+              <div className="space-y-3">
+                <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
+                  <p className="text-xs text-emerald-400 font-medium mb-1.5">Event created & linked to deal</p>
+                  <div className="space-y-1 text-[11px] text-muted-foreground">
+                    <p>{gcalSummary}</p>
+                    <p className="flex items-center gap-1">
+                      <Clock className="h-3 w-3" />
+                      {new Date(`${gcalDate}T${gcalStartTime}:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                      {" at "}
+                      {new Date(`${gcalDate}T${gcalStartTime}:00`).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                      {" · "}{gcalDuration}min
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  {gcalCreatedEvent.htmlLink && (
+                    <a
+                      href={gcalCreatedEvent.htmlLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-1"
+                    >
+                      <Button variant="outline" className="w-full">
+                        <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                        Open in Calendar
+                      </Button>
+                    </a>
+                  )}
+
+                  {telegramChatId && (
+                    <Button
+                      className="flex-1 bg-[#2AABEE] hover:bg-[#2AABEE]/90 text-white"
+                      onClick={handleGcalSendTg}
+                      disabled={gcalSendingTg}
+                    >
+                      <Send className="mr-1.5 h-3.5 w-3.5" />
+                      Send via TG
+                    </Button>
+                  )}
+                </div>
+
+                <button
+                  onClick={() => {
+                    setGcalCreatedEvent(null);
+                    setError(null);
+                  }}
+                  className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Schedule another call
+                </button>
+              </div>
+            )}
+          </>
         )}
 
-        {/* Generated URL */}
-        {generatedUrl && (
-          <div className="space-y-3">
-            <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
-              <p className="text-xs text-emerald-400 font-medium mb-1.5">Booking link ready</p>
-              <p className="text-[11px] text-muted-foreground break-all font-mono">{generatedUrl}</p>
-            </div>
+        {/* === Calendly Mode === */}
+        {mode === "calendly" && (
+          <>
+            {loading && (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            )}
 
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                className="flex-1"
-                onClick={handleCopy}
-              >
-                <Copy className="mr-1.5 h-3.5 w-3.5" />
-                {copied ? "Copied!" : "Copy Link"}
-              </Button>
-
-              {telegramChatId && (
-                <Button
-                  className="flex-1 bg-[#2AABEE] hover:bg-[#2AABEE]/90 text-white"
-                  onClick={handleSendViaTg}
+            {!loading && connected === false && (
+              <div className="text-center py-6 space-y-3">
+                <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-white/5">
+                  <Calendar className="h-6 w-6 text-muted-foreground" />
+                </div>
+                <div>
+                  <p className="text-sm text-foreground">Calendly not connected</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Connect your Calendly account to generate booking links for deals.
+                  </p>
+                </div>
+                <Link
+                  href="/settings/integrations"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-white/5 border border-white/10 px-4 py-2 text-xs font-medium text-foreground hover:bg-white/10 transition-colors"
                 >
-                  <Send className="mr-1.5 h-3.5 w-3.5" />
-                  Send via TG
-                </Button>
-              )}
-            </div>
+                  <Settings className="h-3.5 w-3.5" />
+                  Go to Settings
+                </Link>
+              </div>
+            )}
 
-            <div className="flex items-center justify-between pt-1">
-              <button
-                onClick={() => {
-                  setGeneratedUrl(null);
-                  setError(null);
-                }}
-                className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
-              >
-                Generate another link
-              </button>
-              <a
-                href={generatedUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-[10px] text-primary hover:text-primary/80 flex items-center gap-0.5 transition-colors"
-              >
-                Open link <ExternalLink className="h-2.5 w-2.5" />
-              </a>
-            </div>
-          </div>
+            {isCalendlyReady && !generatedUrl && (
+              <div className="space-y-3">
+                {error && (
+                  <p className="text-xs text-red-400 rounded-lg bg-red-500/5 border border-red-500/10 p-2">{error}</p>
+                )}
+
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-medium text-muted-foreground">Select event type</label>
+                  {eventTypes.map((et) => (
+                    <button
+                      key={et.uri}
+                      onClick={() => setSelectedType(et.uri)}
+                      className={cn(
+                        "w-full rounded-lg border p-3 text-left transition-colors",
+                        selectedType === et.uri
+                          ? "border-[#006BFF]/50 bg-[#006BFF]/10"
+                          : "border-white/10 bg-white/[0.02] hover:bg-white/[0.05]"
+                      )}
+                    >
+                      <span className={cn(
+                        "text-sm font-medium",
+                        selectedType === et.uri ? "text-foreground" : "text-muted-foreground"
+                      )}>
+                        {et.name}
+                      </span>
+                      <span className="ml-2 text-xs text-muted-foreground/60">{et.duration} min</span>
+                    </button>
+                  ))}
+                </div>
+
+                <Button
+                  onClick={handleGenerate}
+                  disabled={!selectedType || generating}
+                  className="w-full"
+                >
+                  {generating ? (
+                    <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Calendar className="mr-2 h-3.5 w-3.5" />
+                  )}
+                  {generating ? "Generating..." : "Generate Booking Link"}
+                </Button>
+              </div>
+            )}
+
+            {generatedUrl && (
+              <div className="space-y-3">
+                <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
+                  <p className="text-xs text-emerald-400 font-medium mb-1.5">Booking link ready</p>
+                  <p className="text-[11px] text-muted-foreground break-all font-mono">{generatedUrl}</p>
+                </div>
+
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    onClick={handleCopy}
+                  >
+                    <Copy className="mr-1.5 h-3.5 w-3.5" />
+                    {copied ? "Copied!" : "Copy Link"}
+                  </Button>
+
+                  {telegramChatId && (
+                    <Button
+                      className="flex-1 bg-[#2AABEE] hover:bg-[#2AABEE]/90 text-white"
+                      onClick={handleSendViaTg}
+                    >
+                      <Send className="mr-1.5 h-3.5 w-3.5" />
+                      Send via TG
+                    </Button>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between pt-1">
+                  <button
+                    onClick={() => {
+                      setGeneratedUrl(null);
+                      setError(null);
+                    }}
+                    className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    Generate another link
+                  </button>
+                  <a
+                    href={generatedUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[10px] text-primary hover:text-primary/80 flex items-center gap-0.5 transition-colors"
+                  >
+                    Open link <ExternalLink className="h-2.5 w-2.5" />
+                  </a>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

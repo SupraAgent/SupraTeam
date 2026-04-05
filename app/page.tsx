@@ -244,6 +244,92 @@ export default function HomePage() {
         />
       )}
 
+      {/* ========== DO THESE NOW — Top 3 Urgency Actions ========== */}
+      {(() => {
+        const actions: { key: string; icon: React.ElementType; color: string; label: string; detail: string; href: string }[] = [];
+
+        // 1. Overdue follow-ups
+        if (s.followUps.length > 0) {
+          const worst = s.followUps[0];
+          actions.push({
+            key: "followup",
+            icon: Clock,
+            color: "text-yellow-400",
+            label: `${s.followUps.length} follow-up${s.followUps.length !== 1 ? "s" : ""} overdue`,
+            detail: worst.deal_name + (worst.hours_since > 24 ? ` (${Math.floor(worst.hours_since / 24)}d ago)` : ` (${Math.round(worst.hours_since)}h ago)`),
+            href: "/pipeline",
+          });
+        }
+
+        // 2. Critical/high TG messages needing reply
+        const criticalHighlights = highlights.filter((h) => h.triage_urgency === "critical" || h.triage_urgency === "high");
+        if (criticalHighlights.length > 0) {
+          actions.push({
+            key: "tg_urgent",
+            icon: MessageCircle,
+            color: "text-red-400",
+            label: `${criticalHighlights.length} urgent message${criticalHighlights.length !== 1 ? "s" : ""} awaiting reply`,
+            detail: criticalHighlights[0].sender_name ? `From ${criticalHighlights[0].sender_name}` : "In Telegram",
+            href: "/inbox",
+          });
+        }
+
+        // 3. Stale deals (no activity for days)
+        if (s.staleDeals.length > 0) {
+          const worst = s.staleDeals[0];
+          actions.push({
+            key: "stale",
+            icon: AlertTriangle,
+            color: "text-red-400",
+            label: `${s.staleDeals.length} deal${s.staleDeals.length !== 1 ? "s" : ""} going cold`,
+            detail: `${worst.deal_name} — ${worst.days_stale}d stale`,
+            href: "/pipeline",
+          });
+        }
+
+        // 4. Due reminders
+        const dueReminders = reminders.filter((r) => new Date(r.due_at) <= new Date());
+        if (dueReminders.length > 0 && actions.length < 3) {
+          actions.push({
+            key: "reminders",
+            icon: Bell,
+            color: "text-amber-400",
+            label: `${dueReminders.length} reminder${dueReminders.length !== 1 ? "s" : ""} due now`,
+            detail: dueReminders[0].message,
+            href: "/calendar",
+          });
+        }
+
+        if (actions.length === 0) return null;
+
+        return (
+          <div className="rounded-xl border border-white/10 bg-gradient-to-r from-red-500/[0.04] to-amber-500/[0.04] p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Zap className="h-4 w-4 text-amber-400" />
+              <h2 className="text-sm font-semibold text-foreground">Do These Now</h2>
+            </div>
+            <div className="space-y-2">
+              {actions.slice(0, 3).map((action) => (
+                <Link
+                  key={action.key}
+                  href={action.href}
+                  className="flex items-center gap-3 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] px-3 py-2.5 transition group"
+                >
+                  <div className={cn("h-8 w-8 rounded-full flex items-center justify-center shrink-0", action.color.replace("text-", "bg-").replace("-400", "-500/15"))}>
+                    <action.icon className={cn("h-4 w-4", action.color)} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-foreground">{action.label}</p>
+                    <p className="text-xs text-muted-foreground truncate">{action.detail}</p>
+                  </div>
+                  <ArrowRight className="h-4 w-4 text-muted-foreground/30 group-hover:text-foreground/50 transition shrink-0" />
+                </Link>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* ========== TELEGRAM PULSE STATUS BAR ========== */}
       <div className="rounded-xl border border-white/10 bg-white/[0.035] px-4 py-3 flex items-center gap-4 flex-wrap">
         <div className="flex items-center gap-1.5">

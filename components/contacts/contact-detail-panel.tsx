@@ -9,7 +9,7 @@ import { Select } from "@/components/ui/select";
 import type { Contact, Company, PipelineStage, LifecycleStage, ContactSource, DecisionMakerLevel, PartnershipType } from "@/lib/types";
 import { timeAgo, cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { Save, Trash2, MessageCircle, FileText, GitMerge, AlertTriangle, Twitter, Loader2, ChevronDown, ChevronRight, RefreshCw, Wallet, Zap } from "lucide-react";
+import { Save, Trash2, MessageCircle, FileText, GitMerge, AlertTriangle, Twitter, Loader2, ChevronDown, ChevronRight, RefreshCw, Wallet, Zap, ArrowRight } from "lucide-react";
 import Link from "next/link";
 import { runEnrichmentPipeline } from "@/lib/enrichment/pipeline";
 
@@ -111,6 +111,17 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
   const [enrichHistoryLoaded, setEnrichHistoryLoaded] = React.useState(false);
   const [showAllHistory, setShowAllHistory] = React.useState(false);
 
+  // Conversation previews
+  type ConversationPreview = {
+    deal_id: string;
+    deal_name: string;
+    telegram_chat_id: number;
+    messages: { sender: string; text: string; sent_at: string }[];
+  };
+  const [conversations, setConversations] = React.useState<ConversationPreview[]>([]);
+  const [conversationsOpen, setConversationsOpen] = React.useState(false);
+  const [conversationsLoaded, setConversationsLoaded] = React.useState(false);
+
   React.useEffect(() => {
     if (contact && open) {
       setName(contact.name);
@@ -141,6 +152,9 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
       setEnrichHistoryOpen(false);
       setEnrichHistoryLoaded(false);
       setShowAllHistory(false);
+      setConversationsOpen(false);
+      setConversationsLoaded(false);
+      setConversations([]);
 
       fetch("/api/pipeline").then((r) => r.json()).then((d) => setStages(d.stages ?? [])).catch(() => {});
       fetch(`/api/docs?entity_type=contact&entity_id=${contact.id}`).then((r) => r.json()).then((d) => setLinkedDocs(d.docs ?? [])).catch(() => setLinkedDocs([]));
@@ -341,6 +355,19 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
     }
   }
 
+  async function loadConversations() {
+    if (!contact || conversationsLoaded) return;
+    try {
+      const res = await fetch(`/api/contacts/${contact.id}/conversations`);
+      if (res.ok) {
+        const data = await res.json();
+        setConversations(data.conversations ?? []);
+      }
+    } finally {
+      setConversationsLoaded(true);
+    }
+  }
+
   return (
     <SlideOver open={open} onClose={onClose} title={name || contact.name}>
       <div className="space-y-4">
@@ -371,6 +398,64 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
             )}
           </div>
         )}
+
+        {/* Conversations Preview */}
+        <div>
+          <button
+            onClick={() => {
+              const next = !conversationsOpen;
+              setConversationsOpen(next);
+              if (next) loadConversations();
+            }}
+            className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground transition"
+          >
+            {conversationsOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            <MessageCircle className="h-3 w-3" />
+            Conversations
+            {conversations.length > 0 && (
+              <span className="rounded-full bg-[#006BFF]/15 px-1.5 py-0.5 text-[9px] text-[#006BFF] font-medium">
+                {conversations.length}
+              </span>
+            )}
+          </button>
+          {conversationsOpen && (
+            <div className="mt-2 space-y-2">
+              {!conversationsLoaded && (
+                <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" /> Loading...
+                </div>
+              )}
+              {conversationsLoaded && conversations.length === 0 && (
+                <p className="text-[10px] text-muted-foreground/50">No linked conversations yet.</p>
+              )}
+              {conversations.map((conv) => (
+                <div key={conv.deal_id} className="rounded-lg border border-white/10 bg-white/[0.02] p-2.5 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Link
+                      href={`/pipeline?deal=${conv.deal_id}`}
+                      className="text-[11px] font-medium text-primary hover:underline flex items-center gap-1"
+                    >
+                      {conv.deal_name}
+                      <ArrowRight className="h-2.5 w-2.5" />
+                    </Link>
+                  </div>
+                  {conv.messages.length > 0 ? (
+                    <div className="space-y-1">
+                      {conv.messages.map((msg, i) => (
+                        <div key={i} className="text-[10px]">
+                          <span className="text-foreground/70 font-medium">{msg.sender}: </span>
+                          <span className="text-muted-foreground line-clamp-1">{msg.text}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-muted-foreground/40 italic">No messages yet</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* X Enrichment */}
         {xHandle && (
