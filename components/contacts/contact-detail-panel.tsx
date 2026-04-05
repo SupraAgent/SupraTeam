@@ -9,8 +9,9 @@ import { Select } from "@/components/ui/select";
 import type { Contact, Company, PipelineStage, LifecycleStage, ContactSource } from "@/lib/types";
 import { timeAgo, cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { Save, Trash2, MessageCircle, FileText, GitMerge, AlertTriangle, Twitter, Loader2, ChevronDown, ChevronRight, RefreshCw, Wallet } from "lucide-react";
+import { Save, Trash2, MessageCircle, FileText, GitMerge, AlertTriangle, Twitter, Loader2, ChevronDown, ChevronRight, RefreshCw, Wallet, Zap } from "lucide-react";
 import Link from "next/link";
+import { runEnrichmentPipeline } from "@/lib/enrichment/pipeline";
 
 const LIFECYCLE_OPTIONS: { value: LifecycleStage; label: string }[] = [
   { value: "prospect", label: "Prospect" },
@@ -81,6 +82,7 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
   const [xEnrichData, setXEnrichData] = React.useState<{ x_bio: string | null; x_followers: number | null; enriched_at: string | null } | null>(null);
   const [calculatingScore, setCalculatingScore] = React.useState(false);
   const [displayScore, setDisplayScore] = React.useState<number>(0);
+  const [runningFullEnrich, setRunningFullEnrich] = React.useState(false);
 
   // Enrichment history
   type EnrichmentLogEntry = { id: string; field_name: string; old_value: string | null; new_value: string | null; source: string; created_at: string };
@@ -245,23 +247,34 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
     if (!contact) return;
     setEnrichingX(true);
     try {
-      const res = await fetch("/api/contacts/enrich-x", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contact_id: contact.id }),
+      const result = await runEnrichmentPipeline({
+        contactId: contact.id,
+        includeAI: true,
       });
-      if (res.ok) {
-        const data = await res.json();
+
+      if (result.x.ok && result.x.data) {
         setXEnrichData({
-          x_bio: data.enrichment.x_bio,
-          x_followers: data.enrichment.x_followers,
-          enriched_at: data.enrichment.enriched_at,
+          x_bio: result.x.data.x_bio,
+          x_followers: result.x.data.x_followers,
+          enriched_at: result.x.data.enriched_at,
         });
-        toast.success("X profile enriched");
+      }
+
+      if (result.onChain.ok && result.onChain.data) {
+        setDisplayScore(result.onChain.data.score);
+      }
+
+      // Build a user-friendly toast
+      const successes: string[] = [];
+      if (result.x.ok) successes.push("X");
+      if (result.onChain.ok) successes.push("on-chain");
+      if (result.ai?.ok) successes.push("AI");
+
+      if (successes.length > 0) {
+        toast.success(`Enriched: ${successes.join(", ")}`);
         onUpdated?.();
       } else {
-        const data = await res.json();
-        toast.error(data.error || "Enrichment failed");
+        toast.error(result.x.error || "Enrichment failed");
       }
     } finally {
       setEnrichingX(false);
