@@ -5,16 +5,16 @@ import { SlideOver } from "@/components/ui/slide-over";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import type { Deal, PipelineStage, Contact } from "@/lib/types";
+import type { Deal, PipelineStage, Contact, DealLinkedChat } from "@/lib/types";
 import { timeAgo, cn } from "@/lib/utils";
 import { toast } from "sonner";
 import {
   MessageCircle, Save, Trash2, Send, GitBranch, StickyNote, ExternalLink, FileText, Plus, Clock,
-  ChevronRight, UserPlus, Trophy, XCircle,
+  ChevronRight, UserPlus, Trophy, XCircle, Link2,
 } from "lucide-react";
 import Link from "next/link";
 import { ConversationTimeline } from "./conversation-timeline";
-
+import { LinkConversationModal } from "./link-conversation-modal";
 
 type Note = {
   id: string;
@@ -123,6 +123,10 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
     }
   }, [aiLoaded, deal]);
 
+  // Linked TG conversations
+  const [linkedChats, setLinkedChats] = React.useState<DealLinkedChat[]>([]);
+  const [showLinkModal, setShowLinkModal] = React.useState(false);
+
   // TG groups for auto-link dropdown
   type TgGroup = { id: string; group_name: string; telegram_group_id: string };
   const [tgGroups, setTgGroups] = React.useState<TgGroup[]>([]);
@@ -175,6 +179,7 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
         fetch("/api/pipeline/fields").then((r) => r.json()).then((d) => setCustomFields(d.fields ?? [])).catch(() => {}),
         fetch(`/api/deals/${deal.id}`).then((r) => r.json()).then((d) => setCustomValues(d.custom_fields ?? {})).catch(() => {}),
         fetch("/api/groups").then((r) => r.json()).then((d) => setTgGroups(d.groups ?? [])).catch(() => {}),
+        fetch(`/api/deals/${deal.id}/linked-chats`).then((r) => r.json()).then((d) => setLinkedChats(d.data ?? [])).catch(() => setLinkedChats([])),
       ]).finally(() => setLoadingContent(false));
     }
   }, [deal, open, cachedStages, cachedTeamMembers]);
@@ -185,6 +190,19 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
       loadAI();
     }
   }, [tab, open, loadingContent, loadAI]);
+
+  const refreshLinkedChats = React.useCallback(async () => {
+    if (!deal) return;
+    try {
+      const res = await fetch(`/api/deals/${deal.id}/linked-chats`);
+      if (res.ok) {
+        const json = await res.json();
+        setLinkedChats(json.data ?? []);
+      }
+    } catch {
+      // silent
+    }
+  }, [deal]);
 
   if (!deal) return null;
 
@@ -792,11 +810,44 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
         {/* Chat tab */}
         {!loadingContent && tab === "conversation" && (
           <div className="space-y-4">
+            {/* Linked conversations header */}
+            <div className="flex items-center gap-2 flex-wrap">
+              {linkedChats.length > 0 && (
+                <div className="flex items-center gap-1 flex-wrap">
+                  {linkedChats.map((lc) => (
+                    <span
+                      key={lc.id}
+                      className={cn(
+                        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] border",
+                        lc.is_primary
+                          ? "bg-primary/10 text-primary border-primary/20"
+                          : "bg-white/5 text-muted-foreground border-white/10"
+                      )}
+                    >
+                      {lc.chat_type === "dm" ? <MessageCircle className="h-2.5 w-2.5" /> :
+                       lc.chat_type === "channel" ? <MessageCircle className="h-2.5 w-2.5" /> :
+                       <MessageCircle className="h-2.5 w-2.5" />}
+                      {lc.chat_title || `Chat ${lc.telegram_chat_id}`}
+                      {lc.is_primary && <span className="text-[8px] opacity-60">primary</span>}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <button
+                onClick={() => setShowLinkModal(true)}
+                className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] text-muted-foreground border border-dashed border-white/10 hover:border-primary/30 hover:text-primary transition-colors"
+              >
+                <Link2 className="h-2.5 w-2.5" />
+                {linkedChats.length === 0 ? "Link conversation" : "Manage"}
+              </button>
+            </div>
+
             {/* Conversation timeline */}
             <ConversationTimeline
               dealId={deal.id}
               telegramChatId={deal.telegram_chat_id ? Number(deal.telegram_chat_id) : null}
               telegramChatLink={deal.telegram_chat_link || tgLink || null}
+              linkedChats={linkedChats}
               onUnreadChange={setChatUnread}
               activities={activities
                 .filter((a): a is Activity & { type: "stage_change" | "note" | "created" } =>
@@ -804,6 +855,14 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
                 )
                 .map((a) => ({ id: a.id, type: a.type, title: a.title, body: a.body, created_at: a.created_at }))
               }
+            />
+
+            {/* Link conversation modal */}
+            <LinkConversationModal
+              dealId={deal.id}
+              open={showLinkModal}
+              onClose={() => setShowLinkModal(false)}
+              onLinksChanged={refreshLinkedChats}
             />
 
             {/* Quick action bar */}
