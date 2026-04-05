@@ -65,6 +65,9 @@ export default function TMADealsPage() {
   const [creating, setCreating] = React.useState(false);
   const contactSearchTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const stagesRef = React.useRef(stages);
+  stagesRef.current = stages;
+
   useTelegramWebApp();
 
   // Open create modal if navigated with ?create=1
@@ -134,11 +137,11 @@ export default function TMADealsPage() {
 
   // Swipe to change stage
   const handleStageChange = React.useCallback(async (dealId: string, newStageId: string) => {
-    // Optimistic update
+    // Optimistic update — read stages from ref to avoid stale closure
     setDeals((prev) =>
       prev.map((d) => {
         if (d.id !== dealId) return d;
-        const newStage = stages.find((s) => s.id === newStageId);
+        const newStage = stagesRef.current.find((s) => s.id === newStageId);
         return {
           ...d,
           stage_id: newStageId,
@@ -160,7 +163,7 @@ export default function TMADealsPage() {
     } catch {
       await fetchData();
     }
-  }, [stages, fetchData]);
+  }, [fetchData]);
 
   // Long press quick actions
   function handleLongPress(deal: Deal, rect: DOMRect) {

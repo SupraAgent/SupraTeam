@@ -140,7 +140,7 @@ export default function ConversationIntelligencePage() {
     return highlights.filter((h) => h.sentiment === "negative").slice(0, 5);
   }, [highlights]);
 
-  async function fetchData() {
+  const fetchData = React.useCallback(async () => {
     try {
       const [inboxRes, highlightsRes] = await Promise.all([
         fetch("/api/inbox?limit=30"),
@@ -161,7 +161,7 @@ export default function ConversationIntelligencePage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }
+  }, []);
 
   async function generateBriefing() {
     if (conversations.length === 0) {
@@ -271,7 +271,7 @@ ${JSON.stringify(highlightSummary, null, 2)}`,
 
   React.useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
   function handleRefresh() {
     setRefreshing(true);

@@ -111,7 +111,7 @@ export default function DripDashboardPage() {
     );
   }, [analytics]);
 
-  async function fetchAll() {
+  const fetchAll = React.useCallback(async () => {
     try {
       const [seqRes, analyticsRes, alertsRes] = await Promise.all([
         fetch("/api/outreach/sequences"),
@@ -137,7 +137,7 @@ export default function DripDashboardPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }
+  }, []);
 
   async function dismissAlert(id: string) {
     try {
@@ -158,7 +158,7 @@ export default function DripDashboardPage() {
 
   React.useEffect(() => {
     fetchAll();
-  }, []);
+  }, [fetchAll]);
 
   function handleRefresh() {
     setRefreshing(true);

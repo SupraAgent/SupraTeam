@@ -40,6 +40,7 @@ export function ApplicationReviewCard({
   stages,
   customValues,
   onStageChange,
+  onUpdated,
 }: ApplicationReviewCardProps) {
   const [copied, setCopied] = React.useState(false);
   const [movingTo, setMovingTo] = React.useState<string | null>(null);
@@ -57,7 +58,10 @@ export function ApplicationReviewCard({
     }
     setMovingTo(stageName);
     try {
-      onStageChange(stage.id);
+      await Promise.resolve(onStageChange(stage.id));
+      onUpdated?.();
+    } catch {
+      toast.error(`Failed to move to "${stageName}"`);
     } finally {
       // Reset after a brief delay to show the loading state
       setTimeout(() => setMovingTo(null), 500);

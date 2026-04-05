@@ -224,6 +224,15 @@ export default function InboxPage() {
   const replyTextareaRef = React.useRef<HTMLTextAreaElement>(null);
   const statusesRef = React.useRef(statuses);
   statusesRef.current = statuses;
+  const conversationsRef = React.useRef(conversations);
+  conversationsRef.current = conversations;
+  const labelsRef = React.useRef(labels);
+  labelsRef.current = labels;
+  const selectedChatRef = React.useRef(selectedChat);
+  selectedChatRef.current = selectedChat;
+  const currentUserIdRef = React.useRef(currentUserId);
+  currentUserIdRef.current = currentUserId;
+  const filteredRef = React.useRef<Conversation[]>([]);
 
   // Snooze picker
   const [showSnooze, setShowSnooze] = React.useState<number | null>(null);
@@ -478,7 +487,7 @@ export default function InboxPage() {
         );
         // Track last user message time for response-time analytics
         if (selectedChat) {
-          const conv = conversations.find((c) => c.chat_id === selectedChat);
+          const conv = conversationsRef.current.find((c) => c.chat_id === selectedChat);
           if (conv) updateLabel(selectedChat, conv.group_name, { last_user_message_at: new Date().toISOString() });
         }
         // Still refresh after delay to get the real message with proper IDs
@@ -720,6 +729,7 @@ export default function InboxPage() {
 
     return result;
   }, [conversations, search, activeTab, statuses, currentUserId, lastSeen, labels]);
+  filteredRef.current = filtered;
 
   const unassignedCount = conversations.filter((c) => {
     const s = statuses[c.chat_id];
@@ -894,6 +904,26 @@ export default function InboxPage() {
 
   // ── Keyboard Shortcuts ─────────────────────────────────────
 
+  // Refs for keyboard handler to avoid stale closures
+  const handleAssignRef = React.useRef(handleAssign);
+  handleAssignRef.current = handleAssign;
+  const handleStatusChangeRef = React.useRef(handleStatusChange);
+  handleStatusChangeRef.current = handleStatusChange;
+  const toggleLabelRef = React.useRef(toggleLabel);
+  toggleLabelRef.current = toggleLabel;
+  const handleSelectChatRef = React.useRef(handleSelectChat);
+  handleSelectChatRef.current = handleSelectChat;
+  const highlightedIndexRef = React.useRef(highlightedIndex);
+  highlightedIndexRef.current = highlightedIndex;
+  const showShortcutHelpRef = React.useRef(showShortcutHelp);
+  showShortcutHelpRef.current = showShortcutHelp;
+  const showScheduleMenuRef = React.useRef(showScheduleMenu);
+  showScheduleMenuRef.current = showScheduleMenu;
+  const showCannedRef = React.useRef(showCanned);
+  showCannedRef.current = showCanned;
+  const aiSummaryRef = React.useRef(aiSummary);
+  aiSummaryRef.current = aiSummary;
+
   React.useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       const target = e.target as HTMLElement;
@@ -911,22 +941,29 @@ export default function InboxPage() {
 
       // Escape works everywhere
       if (e.key === "Escape") {
-        if (showShortcutHelp) { setShowShortcutHelp(false); return; }
-        if (showScheduleMenu) { setShowScheduleMenu(false); return; }
-        if (showCanned) { setShowCanned(false); return; }
-        if (aiSummary) { setAiSummary(null); return; }
-        if (selectedChat) { setSelectedChat(null); return; }
+        if (showShortcutHelpRef.current) { setShowShortcutHelp(false); return; }
+        if (showScheduleMenuRef.current) { setShowScheduleMenu(false); return; }
+        if (showCannedRef.current) { setShowCanned(false); return; }
+        if (aiSummaryRef.current) { setAiSummary(null); return; }
+        if (selectedChatRef.current) { setSelectedChat(null); return; }
         return;
       }
 
       // Skip shortcuts when typing in input/textarea
       if (isInput) return;
 
+      const chat = selectedChatRef.current;
+      const userId = currentUserIdRef.current;
+      const currentFiltered = filteredRef.current;
+      const selectedConv = chat
+        ? conversationsRef.current.find((c) => c.chat_id === chat)
+        : null;
+
       // Shift+A — assign to me
       if (e.key === "A" && e.shiftKey && !e.ctrlKey && !e.metaKey) {
-        if (selectedChat && currentUserId) {
+        if (chat && userId) {
           e.preventDefault();
-          handleAssign(selectedChat, currentUserId);
+          handleAssignRef.current(chat, userId);
         }
         return;
       }
@@ -935,32 +972,27 @@ export default function InboxPage() {
         case "j": {
           // Next conversation
           e.preventDefault();
-          setHighlightedIndex((prev) => {
-            const next = Math.min(prev + 1, filtered.length - 1);
-            return next;
-          });
+          setHighlightedIndex((prev) => Math.min(prev + 1, currentFiltered.length - 1));
           break;
         }
         case "k": {
           // Previous conversation
           e.preventDefault();
-          setHighlightedIndex((prev) => {
-            const next = Math.max(prev - 1, 0);
-            return next;
-          });
+          setHighlightedIndex((prev) => Math.max(prev - 1, 0));
           break;
         }
         case "Enter": {
           // Open highlighted conversation
-          if (highlightedIndex >= 0 && highlightedIndex < filtered.length) {
+          const idx = highlightedIndexRef.current;
+          if (idx >= 0 && idx < currentFiltered.length) {
             e.preventDefault();
-            handleSelectChat(filtered[highlightedIndex].chat_id);
+            handleSelectChatRef.current(currentFiltered[idx].chat_id);
           }
           break;
         }
         case "r": {
           // Focus reply textarea
-          if (selectedChat && replyTextareaRef.current) {
+          if (chat && replyTextareaRef.current) {
             e.preventDefault();
             replyTextareaRef.current.focus();
           }
@@ -968,39 +1000,39 @@ export default function InboxPage() {
         }
         case "e": {
           // Archive
-          if (selectedConversation) {
+          if (selectedConv) {
             e.preventDefault();
-            toggleLabel(selectedConversation.chat_id, selectedConversation.group_name, "is_archived");
+            toggleLabelRef.current(selectedConv.chat_id, selectedConv.group_name, "is_archived");
           }
           break;
         }
         case "s": {
           // Toggle VIP/star
-          if (selectedConversation) {
+          if (selectedConv) {
             e.preventDefault();
-            toggleLabel(selectedConversation.chat_id, selectedConversation.group_name, "is_vip");
+            toggleLabelRef.current(selectedConv.chat_id, selectedConv.group_name, "is_vip");
           }
           break;
         }
         case "p": {
           // Toggle pin
-          if (selectedConversation) {
+          if (selectedConv) {
             e.preventDefault();
-            toggleLabel(selectedConversation.chat_id, selectedConversation.group_name, "is_pinned");
+            toggleLabelRef.current(selectedConv.chat_id, selectedConv.group_name, "is_pinned");
           }
           break;
         }
         case "m": {
           // Toggle mute
-          if (selectedConversation) {
+          if (selectedConv) {
             e.preventDefault();
-            toggleLabel(selectedConversation.chat_id, selectedConversation.group_name, "is_muted");
+            toggleLabelRef.current(selectedConv.chat_id, selectedConv.group_name, "is_muted");
           }
           break;
         }
         case "/": {
           // Focus search when no conversation open
-          if (!selectedChat && searchInputRef.current) {
+          if (!chat && searchInputRef.current) {
             e.preventDefault();
             searchInputRef.current.focus();
           }
@@ -1008,10 +1040,10 @@ export default function InboxPage() {
         }
         case "n": {
           // Snooze / mark unread
-          if (selectedChat) {
+          if (chat) {
             e.preventDefault();
             const oneHour = new Date(Date.now() + 3600000).toISOString();
-            handleStatusChange(selectedChat, "snoozed", oneHour);
+            handleStatusChangeRef.current(chat, "snoozed", oneHour);
           }
           break;
         }
@@ -1020,8 +1052,7 @@ export default function InboxPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtered, highlightedIndex, selectedChat, selectedConversation, currentUserId, showShortcutHelp, showScheduleMenu, showCanned, aiSummary]);
+  }, []);
 
   // Sync highlighted index with selected chat
   React.useEffect(() => {
@@ -1061,14 +1092,23 @@ export default function InboxPage() {
               const updates: Record<number, string> = {};
               for (const c of filtered) {
                 updates[c.chat_id] = now;
-                // Fire-and-forget per conversation
-                fetch("/api/inbox/seen", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ chat_id: c.chat_id }),
-                });
               }
               setLastSeen((prev) => ({ ...prev, ...updates }));
+              // Batch requests in chunks of 10 to avoid unbounded parallel fetches
+              const chatIds = filtered.map((c) => c.chat_id);
+              const CHUNK_SIZE = 10;
+              for (let i = 0; i < chatIds.length; i += CHUNK_SIZE) {
+                const chunk = chatIds.slice(i, i + CHUNK_SIZE);
+                await Promise.all(
+                  chunk.map((chatId) =>
+                    fetch("/api/inbox/seen", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ chat_id: chatId }),
+                    }).catch(() => {})
+                  )
+                );
+              }
               toast.success("All marked as read");
             }}
             title="Mark all as read"

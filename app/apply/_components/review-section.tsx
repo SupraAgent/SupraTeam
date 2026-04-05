@@ -39,21 +39,22 @@ type TrackedApplication = {
 };
 
 function StatusTracker() {
-  const [query, setQuery] = React.useState("");
+  const [refCode, setRefCode] = React.useState("");
+  const [email, setEmail] = React.useState("");
   const [loading, setLoading] = React.useState(false);
   const [results, setResults] = React.useState<TrackedApplication[] | null>(null);
   const [trackError, setTrackError] = React.useState<string | null>(null);
 
   const handleTrack = async () => {
-    const trimmed = query.trim();
-    if (!trimmed) return;
+    const trimmedRef = refCode.trim();
+    const trimmedEmail = email.trim();
+    if (!trimmedRef || !trimmedEmail) return;
     setLoading(true);
     setTrackError(null);
     setResults(null);
     try {
-      const isRef = trimmed.toUpperCase().startsWith("APP-");
-      const param = isRef ? `reference=${encodeURIComponent(trimmed)}` : `email=${encodeURIComponent(trimmed)}`;
-      const res = await fetch(`/api/applications/status?${param}`);
+      const params = `reference=${encodeURIComponent(trimmedRef)}&email=${encodeURIComponent(trimmedEmail)}`;
+      const res = await fetch(`/api/applications/status?${params}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Lookup failed");
       setResults(data.applications ?? []);
@@ -67,14 +68,22 @@ function StatusTracker() {
   return (
     <div className="rounded-xl border border-white/8 bg-white/[0.02] p-4 space-y-4">
       <h3 className="text-sm font-medium text-white/70">Track Your Application</h3>
-      <div className="flex gap-2">
+      <div className="space-y-2">
         <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Enter reference code (APP-XXXX) or email"
+          value={refCode}
+          onChange={(e) => setRefCode(e.target.value)}
+          placeholder="Reference code (APP-XXXX)"
           onKeyDown={(e) => e.key === "Enter" && handleTrack()}
         />
-        <Button onClick={handleTrack} disabled={loading || !query.trim()} size="sm" className="shrink-0 gap-1.5">
+        <Input
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="Email used when applying"
+          onKeyDown={(e) => e.key === "Enter" && handleTrack()}
+        />
+      </div>
+      <div className="flex justify-end">
+        <Button onClick={handleTrack} disabled={loading || !refCode.trim() || !email.trim()} size="sm" className="shrink-0 gap-1.5">
           {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
           Track
         </Button>
@@ -227,7 +236,7 @@ export function ReviewSection({ formData, phase, error, onEditSection, onSubmit,
           <div className="flex items-center justify-between">
             {APPLICATION_STAGES.map((stage, idx) => (
               <React.Fragment key={stage}>
-                {idx > 0 && <div className={cn("h-0.5 flex-1 mx-1", idx === 0 ? "bg-primary" : "bg-white/10")} />}
+                {idx > 0 && <div className={cn("h-0.5 flex-1 mx-1", idx <= 1 ? "bg-primary" : "bg-white/10")} />}
                 <div className="flex flex-col items-center gap-1">
                   <div className={cn(
                     "w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold border-2",
