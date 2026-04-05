@@ -45,7 +45,7 @@ export interface DragChatData {
   chatTitle: string;
 }
 
-function parseDragChatData(raw: string): DragChatData | null {
+export function parseDragChatData(raw: string): DragChatData | null {
   try {
     const data = JSON.parse(raw) as unknown;
     if (

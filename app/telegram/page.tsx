@@ -62,6 +62,8 @@ import {
 import { EmojiPicker } from "@/components/ui/emoji-picker";
 import { VirtualMessageList } from "@/components/telegram/virtual-message-list";
 import { toast } from "sonner";
+import { TG_CHAT_DRAG_TYPE, parseDragChatData } from "@/components/inbox/tg-chat-group-panel";
+import type { DragChatData } from "@/components/inbox/tg-chat-group-panel";
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -660,6 +662,54 @@ export default function TelegramPage() {
     }
   }
 
+  async function addDialogToFolder(folderId: string, chatId: number, chatTitle: string) {
+    const folder = folders.find((f) => f.id === folderId);
+    if (!folder) return;
+    // Skip if already in folder
+    if (folder.members.some((m) => m.telegram_chat_id === chatId)) {
+      toast("Chat is already in this folder");
+      return;
+    }
+    // Optimistic update
+    setFolders((prev) =>
+      prev.map((f) =>
+        f.id === folderId
+          ? { ...f, members: [...f.members, { telegram_chat_id: chatId, chat_title: chatTitle }] }
+          : f
+      )
+    );
+    try {
+      const res = await fetch("/api/telegram/groups/members", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ group_id: folderId, chat_ids: [chatId], chat_titles: { [chatId]: chatTitle } }),
+      });
+      if (!res.ok) {
+        const json = await res.json();
+        toast.error(json.error || "Failed to add to folder");
+        // Rollback
+        setFolders((prev) =>
+          prev.map((f) =>
+            f.id === folderId
+              ? { ...f, members: f.members.filter((m) => m.telegram_chat_id !== chatId) }
+              : f
+          )
+        );
+      } else {
+        toast.success(`Added to "${folder.name}"`);
+      }
+    } catch {
+      toast.error("Failed to add to folder");
+      setFolders((prev) =>
+        prev.map((f) =>
+          f.id === folderId
+            ? { ...f, members: f.members.filter((m) => m.telegram_chat_id !== chatId) }
+            : f
+        )
+      );
+    }
+  }
+
   // @mention detection
   function handleReplyTextChange(value: string) {
     setReplyText(value);
@@ -1185,31 +1235,19 @@ export default function TelegramPage() {
               );
             })}
 
-            {/* Folders */}
+            {/* Folders — also serve as drop targets */}
             {folders.length > 0 && (
               <div className="pt-2 mt-2 border-t border-white/[0.06]">
                 <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wider font-medium px-2.5 mb-1">Folders</p>
                 {folders.map((folder) => (
-                  <button
+                  <FolderDropTarget
                     key={folder.id}
+                    folder={folder}
+                    isActive={activeFolder === folder.id}
+                    unreadCount={folderUnreadCounts[folder.id] ?? 0}
                     onClick={() => { setActiveFolder(activeFolder === folder.id ? null : folder.id); setFilter("all"); }}
-                    className={cn(
-                      "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors",
-                      activeFolder === folder.id
-                        ? "bg-white/[0.08] text-foreground"
-                        : "text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
-                    )}
-                  >
-                    <Folder className="h-4 w-4 shrink-0" style={folder.color ? { color: folder.color } : undefined} />
-                    <span className="flex-1 text-left truncate">
-                      {folder.icon ? `${folder.icon} ` : ""}{folder.name}
-                    </span>
-                    {(folderUnreadCounts[folder.id] ?? 0) > 0 && (
-                      <span className="text-[10px] text-primary font-medium shrink-0">
-                        {folderUnreadCounts[folder.id]}
-                      </span>
-                    )}
-                  </button>
+                    onDropChat={(data) => addDialogToFolder(folder.id, data.chatId, data.chatTitle)}
+                  />
                 ))}
               </div>
             )}
@@ -1301,10 +1339,16 @@ export default function TelegramPage() {
               filtered.map((dialog) => (
                 <button
                   key={dialog.id}
+                  draggable
+                  onDragStart={(e) => {
+                    const dragData: DragChatData = { chatId: dialog.telegramId, chatTitle: dialog.title };
+                    e.dataTransfer.setData(TG_CHAT_DRAG_TYPE, JSON.stringify(dragData));
+                    e.dataTransfer.effectAllowed = "move";
+                  }}
                   onClick={() => selectDialog(dialog)}
                   onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, dialog }); }}
                   className={cn(
-                    "w-full flex items-start gap-3 px-3 py-3 text-left border-b border-white/[0.03] transition-colors",
+                    "w-full flex items-start gap-3 px-3 py-3 text-left border-b border-white/[0.03] transition-colors cursor-grab active:cursor-grabbing",
                     activeDialog?.id === dialog.id ? "bg-white/[0.06]" : "hover:bg-white/[0.03]"
                   )}
                 >
@@ -2146,5 +2190,65 @@ export default function TelegramPage() {
         />
       )}
     </div>
+  );
+}
+
+// ── FolderDropTarget ─────────────────────────────────────────
+
+function FolderDropTarget({
+  folder,
+  isActive,
+  unreadCount,
+  onClick,
+  onDropChat,
+}: {
+  folder: ChatFolder;
+  isActive: boolean;
+  unreadCount: number;
+  onClick: () => void;
+  onDropChat: (data: DragChatData) => void;
+}) {
+  const [isOver, setIsOver] = React.useState(false);
+
+  return (
+    <button
+      onClick={onClick}
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes(TG_CHAT_DRAG_TYPE)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        setIsOver(true);
+      }}
+      onDragLeave={() => setIsOver(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setIsOver(false);
+        const raw = e.dataTransfer.getData(TG_CHAT_DRAG_TYPE);
+        if (!raw) return;
+        const data = parseDragChatData(raw);
+        if (data) onDropChat(data);
+      }}
+      className={cn(
+        "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors",
+        isOver
+          ? "bg-primary/10 text-primary ring-1 ring-primary/30"
+          : isActive
+            ? "bg-white/[0.08] text-foreground"
+            : "text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
+      )}
+    >
+      <Folder className="h-4 w-4 shrink-0" style={folder.color ? { color: isOver ? undefined : folder.color } : undefined} />
+      <span className="flex-1 text-left truncate">
+        {folder.icon ? `${folder.icon} ` : ""}{folder.name}
+      </span>
+      {isOver && (
+        <span className="text-[10px] text-primary font-medium shrink-0">Drop</span>
+      )}
+      {!isOver && unreadCount > 0 && (
+        <span className="text-[10px] text-primary font-medium shrink-0">
+          {unreadCount}
+        </span>
+      )}
+    </button>
   );
 }
