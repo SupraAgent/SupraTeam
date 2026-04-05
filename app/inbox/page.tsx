@@ -48,6 +48,7 @@ import { useTelegramAdminGroups } from "@/lib/client/use-telegram-admin-groups";
 import { useTelegram } from "@/lib/client/telegram-context";
 import { EmojiPicker } from "@/components/ui/emoji-picker";
 import { DealContextSidebar } from "@/components/inbox/deal-context-sidebar";
+import { LinkDealModal } from "@/components/inbox/link-deal-modal";
 import {
   TgChatGroupPanel,
   useTgChatGroups,
@@ -246,6 +247,7 @@ export default function InboxPage() {
   } | null>(null);
   const [noteModal, setNoteModal] = React.useState<{ chatId: number; groupName: string } | null>(null);
   const [noteText, setNoteText] = React.useState("");
+  const [linkDealModal, setLinkDealModal] = React.useState(false);
 
   // Chat groups (drag-to-group + filtering)
   const chatGroups = useTgChatGroups();
@@ -1665,42 +1667,13 @@ export default function InboxPage() {
                         )}
                       </a>
                     ))}
-                    {(deals[selChatId] ?? []).length === 0 && (
-                      <button
-                        onClick={async (e) => {
-                          const btn = e.currentTarget;
-                          if (btn.dataset.creating === "true") return;
-                          btn.dataset.creating = "true";
-                          try {
-                            const name = window.prompt("Deal name:", selGroupName);
-                            if (!name) return;
-                            const res = await fetch("/api/deals", {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({
-                                deal_name: name,
-                                board_type: "BD",
-                                telegram_chat_id: selChatId,
-                                telegram_chat_name: selGroupName,
-                                telegram_chat_link: `https://t.me/c/${String(selChatId).replace(/^-100/, "")}`,
-                              }),
-                            });
-                            if (res.ok) {
-                              toast.success("Deal created and linked");
-                              fetchInbox();
-                            } else {
-                              toast.error("Failed to create deal");
-                            }
-                          } finally {
-                            btn.dataset.creating = "false";
-                          }
-                        }}
-                        className="text-[10px] text-primary hover:text-primary/80 flex items-center gap-1 transition-colors"
-                      >
-                        <Plus className="h-2.5 w-2.5" />
-                        Create Deal
-                      </button>
-                    )}
+                    <button
+                      onClick={() => setLinkDealModal(true)}
+                      className="text-[10px] text-primary hover:text-primary/80 flex items-center gap-1 transition-colors"
+                    >
+                      <Plus className="h-2.5 w-2.5" />
+                      {(deals[selChatId] ?? []).length === 0 ? "Link Deal" : "Link Another"}
+                    </button>
                   </div>
                 </div>
 
@@ -1979,6 +1952,7 @@ export default function InboxPage() {
               chatId={selectedChat}
               onClose={() => setShowDealSidebar(false)}
               onDealUpdated={fetchInbox}
+              onLinkDeal={() => setLinkDealModal(true)}
             />
           )}
         </div>
@@ -2133,6 +2107,22 @@ export default function InboxPage() {
       )}
 
       {/* ── Note Modal ─────────────────────────────────────── */}
+      {/* ── Link Deal Modal ───────────────────────────────── */}
+      {selectedConversation && (
+        <LinkDealModal
+          chatId={selectedConversation.chat_id}
+          chatType={(selectedConversation.group_type === "supergroup" || selectedConversation.group_type === "group" || selectedConversation.group_type === "channel" || selectedConversation.group_type === "dm") ? selectedConversation.group_type as "dm" | "group" | "channel" | "supergroup" : "group"}
+          chatTitle={selectedConversation.group_name}
+          chatLink={`https://t.me/c/${String(selectedConversation.chat_id).replace(/^-100/, "")}`}
+          open={linkDealModal}
+          onClose={() => setLinkDealModal(false)}
+          onDealLinked={() => {
+            fetchInbox();
+            setShowDealSidebar(true);
+          }}
+        />
+      )}
+
       {noteModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
