@@ -48,6 +48,7 @@ import { useTelegramAdminGroups } from "@/lib/client/use-telegram-admin-groups";
 import { useTelegram } from "@/lib/client/telegram-context";
 import { EmojiPicker } from "@/components/ui/emoji-picker";
 import { DealContextSidebar } from "@/components/inbox/deal-context-sidebar";
+import { GlobalMessageSearch } from "@/components/inbox/global-message-search";
 import {
   TgChatGroupPanel,
   useTgChatGroups,
@@ -230,6 +231,7 @@ export default function InboxPage() {
   const [lastSeen, setLastSeen] = React.useState<Record<number, string>>({});
   const [loading, setLoading] = React.useState(true);
   const [search, setSearch] = React.useState("");
+  const [searchMode, setSearchMode] = React.useState<"filter" | "messages">("filter");
   const [selectedChat, setSelectedChat] = React.useState<number | null>(null);
   const [showDealSidebar, setShowDealSidebar] = React.useState(true);
   const [expandedThreads, setExpandedThreads] = React.useState<Set<number>>(new Set());
@@ -1294,10 +1296,26 @@ export default function InboxPage() {
             ref={searchInputRef}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search... (from: has: is:)"
+            placeholder={searchMode === "messages" ? "Search messages..." : "Search... (from: has: is:)"}
             className="pl-8 h-8 text-xs"
           />
         </div>
+        <button
+          onClick={() => {
+            setSearchMode((m) => (m === "filter" ? "messages" : "filter"));
+            setSearch("");
+          }}
+          className={cn(
+            "flex items-center gap-1 h-8 px-2.5 rounded-lg border text-[11px] font-medium transition-colors shrink-0",
+            searchMode === "messages"
+              ? "border-primary/40 bg-primary/10 text-primary"
+              : "border-white/10 bg-transparent text-muted-foreground hover:text-foreground hover:border-white/20"
+          )}
+          title={searchMode === "messages" ? "Switch to filter chats" : "Switch to search messages"}
+        >
+          <MessageSquare className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">{searchMode === "messages" ? "Messages" : "Chats"}</span>
+        </button>
         {bots.length > 1 && (
           <select
             value={selectedBotId}
@@ -1317,7 +1335,7 @@ export default function InboxPage() {
       </div>
 
       {/* Main layout */}
-      {filtered.length === 0 ? (
+      {filtered.length === 0 && searchMode !== "messages" ? (
         <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-8 text-center">
           <InboxIcon className="mx-auto h-8 w-8 text-muted-foreground/30" />
           <p className="mt-2 text-sm text-muted-foreground">
@@ -1333,9 +1351,19 @@ export default function InboxPage() {
         </div>
       ) : (
         <div className={cn("grid grid-cols-1 gap-4 min-h-[60vh]", showDealSidebar && selectedChat && (deals[selectedChat] ?? []).length > 0 ? "lg:grid-cols-[320px_1fr_260px]" : "lg:grid-cols-[320px_1fr]")}>
-          {/* Left column: Conversation list + Chat groups */}
+          {/* Left column: Conversation list / Message search + Chat groups */}
           <div className="flex flex-col gap-2 min-h-0">
           <div className="rounded-xl border border-white/10 bg-white/[0.02] overflow-hidden flex-1">
+            {searchMode === "messages" ? (
+              <div className="max-h-[70vh]">
+                <GlobalMessageSearch
+                  onSelectChat={(chatId) => {
+                    setSelectedChat(chatId);
+                    setSearchMode("filter");
+                  }}
+                />
+              </div>
+            ) : (
             <div className="divide-y divide-white/5 max-h-[70vh] overflow-y-auto thin-scroll">
               {filtered.map((conv, convIndex) => {
                 const chatDeals = deals[conv.chat_id] ?? [];
@@ -1479,6 +1507,7 @@ export default function InboxPage() {
                 <InboxLoadMore loading={loadingMore} onVisible={loadMore} />
               )}
             </div>
+            )}
           </div>
 
           {/* Chat Groups — compact drop targets + filter */}
