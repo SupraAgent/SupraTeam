@@ -1,12 +1,57 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 
+const MESSAGE_SELECT =
+  "id, telegram_chat_id, sender_name, sender_username, sender_telegram_id, message_text, message_type, media_type, media_file_id, media_thumb_id, media_mime, reply_to_message_id, sent_at, is_from_bot";
+
+/**
+ * Resolve which Telegram chat IDs to query for a given deal.
+ * Prefers the junction table `crm_deal_linked_chats`; falls back to
+ * `crm_deals.telegram_chat_id` for backward compatibility.
+ *
+ * If `filterChatId` is provided, only that chat is returned (provided it
+ * is actually linked to the deal).
+ */
+async function resolveChatIds(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: ReturnType<any>,
+  dealId: string,
+  legacyChatId: string | number | null,
+  filterChatId: string | null
+): Promise<number[]> {
+  const { data: linkedChats } = await supabase
+    .from("crm_deal_linked_chats")
+    .select("telegram_chat_id")
+    .eq("deal_id", dealId);
+
+  if (linkedChats && linkedChats.length > 0) {
+    const chatIds = (linkedChats as Array<{ telegram_chat_id: number }>).map(
+      (lc) => lc.telegram_chat_id
+    );
+    if (filterChatId) {
+      const filtered = Number(filterChatId);
+      return chatIds.includes(filtered) ? [filtered] : [];
+    }
+    return chatIds;
+  }
+
+  // Backward compat: fall back to legacy single chat field
+  if (legacyChatId) {
+    const legacy = Number(legacyChatId);
+    if (filterChatId && Number(filterChatId) !== legacy) return [];
+    return [legacy];
+  }
+
+  return [];
+}
+
 /**
  * GET /api/deals/[id]/timeline
- * Fetch conversation timeline messages for a deal's linked Telegram group.
+ * Fetch conversation timeline messages for a deal's linked Telegram conversations.
  * Paginated with limit/offset, ordered by sent_at desc (newest first).
  *
  * Query params:
+ *   - chat_id: filter to a single linked chat
  *   - limit (default 50, max 100)
  *   - offset (default 0)
  *   - after (ISO timestamp) — for polling new messages since a point in time
@@ -20,7 +65,7 @@ export async function GET(
   if ("error" in auth) return auth.error;
   const { supabase } = auth;
 
-  // Get deal's telegram_chat_id
+  // Get deal (need legacy telegram_chat_id for backward compat)
   const { data: deal } = await supabase
     .from("crm_deals")
     .select("telegram_chat_id")
@@ -31,7 +76,15 @@ export async function GET(
     return NextResponse.json({ error: "Deal not found" }, { status: 404 });
   }
 
-  if (!deal.telegram_chat_id) {
+  const url = new URL(request.url);
+  const chatIdFilter = url.searchParams.get("chat_id");
+  const after = url.searchParams.get("after");
+  const limit = Math.min(Number(url.searchParams.get("limit") || "50"), 100);
+  const offset = Math.max(Number(url.searchParams.get("offset") || "0"), 0);
+
+  const chatIds = await resolveChatIds(supabase, id, deal.telegram_chat_id, chatIdFilter);
+
+  if (chatIds.length === 0) {
     return NextResponse.json({
       messages: [],
       total: 0,
@@ -39,19 +92,12 @@ export async function GET(
     });
   }
 
-  const url = new URL(request.url);
-  const after = url.searchParams.get("after");
-  const limit = Math.min(Number(url.searchParams.get("limit") || "50"), 100);
-  const offset = Math.max(Number(url.searchParams.get("offset") || "0"), 0);
-
   // Polling mode: fetch messages after a timestamp
   if (after) {
     const { data: newMessages, error } = await supabase
       .from("tg_group_messages")
-      .select(
-        "id, sender_name, sender_username, sender_telegram_id, message_text, message_type, media_type, media_file_id, media_thumb_id, media_mime, reply_to_message_id, sent_at, is_from_bot"
-      )
-      .eq("telegram_chat_id", deal.telegram_chat_id)
+      .select(MESSAGE_SELECT)
+      .in("telegram_chat_id", chatIds)
       .gt("sent_at", after)
       .order("sent_at", { ascending: true })
       .limit(50);
@@ -73,10 +119,8 @@ export async function GET(
   // Paginated mode: fetch limit+1 to detect hasMore, newest first
   const { data: messages, error } = await supabase
     .from("tg_group_messages")
-    .select(
-      "id, sender_name, sender_username, sender_telegram_id, message_text, message_type, media_type, media_file_id, media_thumb_id, media_mime, reply_to_message_id, sent_at, is_from_bot"
-    )
-    .eq("telegram_chat_id", deal.telegram_chat_id)
+    .select(MESSAGE_SELECT)
+    .in("telegram_chat_id", chatIds)
     .order("sent_at", { ascending: false })
     .range(offset, offset + limit); // Supabase .range() is inclusive, so this fetches limit+1 rows
 
@@ -143,6 +187,7 @@ function formatMessage(
 
   return {
     id: m.id,
+    telegram_chat_id: m.telegram_chat_id,
     sender_name: m.sender_name,
     sender_username: m.sender_username,
     sender_telegram_id: senderTgId,
