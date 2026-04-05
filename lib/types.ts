@@ -117,18 +117,6 @@ export type Deal = {
   assigned_profile?: { display_name: string; avatar_url: string } | null;
 };
 
-export interface DealLinkedChat {
-  id: string;
-  deal_id: string;
-  telegram_chat_id: number;
-  chat_type: "dm" | "group" | "channel" | "supergroup";
-  chat_title: string | null;
-  chat_link: string | null;
-  is_primary: boolean;
-  linked_by: string | null;
-  linked_at: string;
-}
-
 export type BoardType = "All" | "BD" | "Marketing" | "Admin";
 
 export type Doc = {
@@ -227,6 +215,6 @@ export interface DealLinkedChat {
   chat_title: string | null;
   chat_link: string | null;
   is_primary: boolean;
-  linked_by: string;
+  linked_by: string | null;
   linked_at: string;
 }
