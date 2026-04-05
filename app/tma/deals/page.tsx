@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { ChevronDown, Plus, X, ChevronLeft, ChevronRight as ChevronRightIcon, Search, Loader2 } from "lucide-react";
+import { ChevronDown, Plus, X, Search, Loader2 } from "lucide-react";
 import { BottomTabBar } from "@/components/tma/bottom-tab-bar";
 import { PullToRefresh } from "@/components/tma/pull-to-refresh";
 import { SwipeableDealCard } from "@/components/tma/swipeable-deal-card";
