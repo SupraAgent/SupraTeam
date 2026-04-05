@@ -100,7 +100,9 @@ export function createSupabasePersistence(): PersistenceAdapter {
             nodeOutputs,
             errorClass: failureType,
             errorMessage: error,
-          }).catch(() => {}); // best effort
+          }).catch((dlqErr) => {
+            console.error("[workflow-persistence] Failed to queue DLQ item:", dlqErr);
+          });
         }
       }
 

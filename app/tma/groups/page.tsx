@@ -108,7 +108,8 @@ export default function TMAGroupsPage() {
         );
       }
     }
-  }, [groupsCache.data]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- groupsCache.data intentionally excluded to prevent infinite re-render loop
+  }, []);
 
   React.useEffect(() => {
     fetchData().finally(() => setLoading(false));

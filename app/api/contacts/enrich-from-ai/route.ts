@@ -35,13 +35,16 @@ function parseTvl(raw: string): number | null {
     const match = raw.match(pattern);
     if (match) return parseFloat(match[1]) * multiplier;
   }
-  // Try range like "$1M-$10M" — take midpoint
-  const rangeMatch = raw.match(/\$?(\d+(?:\.\d+)?)\s*[mMbBkK]?\s*[-–]\s*\$?(\d+(?:\.\d+)?)\s*([mMbBkK])?/i);
+  // Try range like "$500K-$2M" — parse each number's suffix independently
+  const rangeMatch = raw.match(/\$?(\d+(?:\.\d+)?)\s*([mMbBkK])?\s*[-–]\s*\$?(\d+(?:\.\d+)?)\s*([mMbBkK])?/i);
   if (rangeMatch) {
-    const suffix = (rangeMatch[3] || "m").toLowerCase();
-    const mult = suffix === "b" ? 1e9 : suffix === "k" ? 1e3 : 1e6;
-    const lo = parseFloat(rangeMatch[1]) * mult;
-    const hi = parseFloat(rangeMatch[2]) * mult;
+    const suffixToMult = (s: string | undefined) => {
+      if (!s) return 1e6; // default to millions
+      const lower = s.toLowerCase();
+      return lower === "b" ? 1e9 : lower === "k" ? 1e3 : 1e6;
+    };
+    const lo = parseFloat(rangeMatch[1]) * suffixToMult(rangeMatch[2]);
+    const hi = parseFloat(rangeMatch[3]) * suffixToMult(rangeMatch[4]);
     return (lo + hi) / 2;
   }
   return null;
@@ -110,8 +113,8 @@ export async function POST(request: Request) {
   }
 
   // Build company update (if contact has a linked company)
+  const companyUpdate: Record<string, unknown> = {};
   if (contact.company_id) {
-    const companyUpdate: Record<string, unknown> = {};
 
     if (qualification.tvl_range && typeof qualification.tvl_range === "string") {
       const tvl = parseTvl(qualification.tvl_range);
@@ -152,7 +155,7 @@ export async function POST(request: Request) {
     ok: true,
     enriched: {
       contact_fields: Object.keys(contactUpdate),
-      company_fields: contact.company_id ? Object.keys({}) : [],
+      company_fields: contact.company_id ? Object.keys(companyUpdate) : [],
     },
   });
 }

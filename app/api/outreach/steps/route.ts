@@ -47,7 +47,14 @@ export async function PUT(request: Request) {
   if ("error" in auth) return auth.error;
   const { user, supabase } = auth;
 
-  const { sequence_id, steps } = await request.json();
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const { sequence_id, steps } = body as { sequence_id?: string; steps?: unknown[] };
 
   if (!sequence_id || !Array.isArray(steps)) {
     return NextResponse.json({ error: "sequence_id and steps array required" }, { status: 400 });
@@ -88,27 +95,25 @@ export async function PUT(request: Request) {
     email_template: s.email_template || null,
   });
 
-  // Update existing steps, insert new ones
-  for (let i = 0; i < steps.length; i++) {
+  // Batch upsert: build all rows, then upsert in one call
+  const upsertRows = steps.map((step, i) => {
     const stepNumber = i + 1;
-    const s = steps[i] as StepInput;
+    const s = step as StepInput;
     const existingId = existingByStepNumber.get(stepNumber);
+    return {
+      ...(existingId ? { id: existingId } : {}),
+      sequence_id,
+      step_number: stepNumber,
+      ...buildStepFields(s),
+    };
+  });
 
-    if (existingId) {
-      const { error } = await supabase
-        .from("crm_outreach_steps")
-        .update(buildStepFields(s))
-        .eq("id", existingId);
-      if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
-      }
-    } else {
-      const { error } = await supabase
-        .from("crm_outreach_steps")
-        .insert({ sequence_id, step_number: stepNumber, ...buildStepFields(s) });
-      if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
-      }
+  if (upsertRows.length > 0) {
+    const { error } = await supabase
+      .from("crm_outreach_steps")
+      .upsert(upsertRows, { onConflict: "id" });
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
   }
 

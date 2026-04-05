@@ -7,8 +7,9 @@ import { Inbox, MessageCircle, ChevronRight, Send, User, Bot, ArrowRight } from 
 import { BottomTabBar } from "@/components/tma/bottom-tab-bar";
 import { PullToRefresh } from "@/components/tma/pull-to-refresh";
 import { useTelegramWebApp } from "@/components/tma/use-telegram";
-import { hapticImpact } from "@/components/tma/haptic";
+import { hapticImpact, hapticNotification } from "@/components/tma/haptic";
 import { useOfflineCache } from "@/lib/client/tma-offline";
+import { toast } from "sonner";
 
 type Conversation = {
   chat_id: number;
@@ -106,7 +107,8 @@ export default function TMAInboxPage() {
         setDeals(inboxCache.data.deals ?? {});
       }
     }
-  }, [inboxCache.data]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- inboxCache.data intentionally excluded to prevent infinite re-render loop
+  }, []);
 
   React.useEffect(() => {
     fetchData().finally(() => setLoading(false));
@@ -154,6 +156,10 @@ export default function TMAInboxPage() {
         hapticImpact("light");
         setReplyText("");
         setReplyOpen(null);
+      } else {
+        const err = await res.json().catch(() => ({ error: "Failed to send reply" }));
+        hapticNotification("error");
+        toast.error(err.error ?? "Failed to send reply");
       }
     } finally {
       setReplySending(false);
@@ -166,8 +172,13 @@ export default function TMAInboxPage() {
     try {
       const res = await fetch(`/api/deals/${dealId}/advance`, { method: "POST" });
       if (res.ok) {
-        hapticImpact("light");
+        hapticNotification("success");
+        toast.success("Deal advanced");
         await fetchData();
+      } else {
+        const err = await res.json().catch(() => ({ error: "Failed to advance deal" }));
+        hapticNotification("error");
+        toast.error(err.error ?? "Failed to advance deal");
       }
     } finally {
       setAdvancingDeal(null);

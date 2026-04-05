@@ -14,7 +14,12 @@ export async function POST(request: Request) {
   if ("error" in auth) return auth.error;
   const { supabase } = auth;
 
-  const body = await request.json();
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
   const { deal_id, calendar_event_id, auto_match } = body;
 
   // Auto-match mode: scan recent events and suggest deal links
@@ -42,6 +47,10 @@ export async function POST(request: Request) {
     }
 
     // Match emails to contacts
+    if (allEmails.size === 0) {
+      return NextResponse.json({ suggestions: [] });
+    }
+
     const { data: contacts } = await supabase
       .from("crm_contacts")
       .select("id, email, name")

@@ -40,8 +40,13 @@ export async function POST(request: Request) {
   if ("error" in auth) return auth.error;
   const { supabase } = auth;
 
-  const body = await request.json();
-  const { dlq_id } = body;
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+  const { dlq_id } = body as { dlq_id?: string };
 
   if (!dlq_id) {
     return NextResponse.json({ error: "dlq_id required" }, { status: 400 });

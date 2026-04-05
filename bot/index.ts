@@ -90,11 +90,16 @@ bot.catch(async (err) => {
           // Check if this is a user's TG ID
           const { data: contact } = await admin
             .from("crm_contacts")
-            .select("id")
+            .select("id, notes")
             .eq("telegram_user_id", chatId)
             .maybeSingle();
           if (contact) {
-            await admin.from("crm_contacts").update({ notes: "[BOT BLOCKED]" }).eq("id", contact.id);
+            const existingNotes = (contact.notes as string) ?? "";
+            const blockedTag = "[BOT BLOCKED]";
+            const updatedNotes = existingNotes.includes(blockedTag)
+              ? existingNotes
+              : (existingNotes ? existingNotes + "\n" + blockedTag : blockedTag);
+            await admin.from("crm_contacts").update({ notes: updatedNotes }).eq("id", contact.id);
             console.warn(`[bot] Marked contact ${contact.id} as bot-blocked`);
           }
           // Mark group as removed if it's a group

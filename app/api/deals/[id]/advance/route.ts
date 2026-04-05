@@ -30,11 +30,20 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "Deal has no stage" }, { status: 400 });
   }
 
-  // Get all stages ordered by position
-  const { data: stages } = await supabase
+  // Get stages for this deal's board type, ordered by position
+  let stagesQuery = supabase
     .from("pipeline_stages")
-    .select("id, name, position, color")
+    .select("id, name, position, color, board_type")
     .order("position");
+
+  // Filter by board_type: custom board stages match exactly, standard boards use null board_type
+  if (deal.board_type === "Applications") {
+    stagesQuery = stagesQuery.eq("board_type", "Applications");
+  } else {
+    stagesQuery = stagesQuery.is("board_type", null);
+  }
+
+  const { data: stages } = await stagesQuery;
 
   if (!stages || stages.length === 0) {
     return NextResponse.json({ error: "No pipeline stages configured" }, { status: 500 });
