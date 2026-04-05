@@ -1,4 +1,4 @@
-import { Bot } from "grammy";
+import { Bot, GrammyError, HttpError } from "grammy";
 import { registerCommands } from "./handlers/commands.js";
 import { registerGroupHandlers } from "./handlers/groups.js";
 import { registerMessageHandlers } from "./handlers/messages.js";
@@ -21,6 +21,30 @@ if (!token) {
 }
 
 const bot = new Bot(token);
+
+// Auto-retry transformer: retries on 429 (flood wait) with exponential backoff
+bot.api.config.use(async (prev, method, payload, signal) => {
+  const MAX_RETRIES = 3;
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      return await prev(method, payload, signal);
+    } catch (err) {
+      lastError = err;
+      if (err instanceof GrammyError && err.error_code === 429) {
+        const retryAfter = (err.parameters as { retry_after?: number })?.retry_after ?? (2 ** attempt);
+        const waitMs = Math.min(retryAfter * 1000, 60_000);
+        console.warn(`[bot] 429 flood wait on ${method}, retry ${attempt + 1}/${MAX_RETRIES} after ${waitMs}ms`);
+        if (attempt < MAX_RETRIES) {
+          await new Promise((r) => setTimeout(r, waitMs));
+          continue;
+        }
+      }
+      throw err;
+    }
+  }
+  throw lastError;
+});
 
 // Register handlers
 registerQrStartHandler(bot); // Must be before registerCommands to intercept /start qr_*
@@ -46,9 +70,62 @@ startDripWorker(bot);
 // Start SLA response time poller (warns/escalates on overdue responses)
 startSlaPoller(bot);
 
-// Error handler
-bot.catch((err) => {
-  console.error("[bot] Error:", err.message);
+// Error handler with Telegram error discrimination
+bot.catch(async (err) => {
+  const e = err.error;
+  if (e instanceof GrammyError) {
+    const chatId = err.ctx?.chat?.id;
+
+    // 403: Bot was blocked by the user or kicked from group
+    if (e.error_code === 403) {
+      console.warn(`[bot] 403 blocked/kicked — chat ${chatId}: ${e.description}`);
+      if (chatId) {
+        try {
+          // Mark contact as blocked if it's a private chat
+          const { createClient } = await import("@supabase/supabase-js");
+          const admin = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+          );
+          // Check if this is a user's TG ID
+          const { data: contact } = await admin
+            .from("crm_contacts")
+            .select("id")
+            .eq("telegram_user_id", chatId)
+            .maybeSingle();
+          if (contact) {
+            await admin.from("crm_contacts").update({ notes: "[BOT BLOCKED]" }).eq("id", contact.id);
+            console.warn(`[bot] Marked contact ${contact.id} as bot-blocked`);
+          }
+          // Mark group as removed if it's a group
+          await admin.from("tg_groups")
+            .update({ bot_is_admin: false })
+            .eq("telegram_group_id", String(chatId));
+        } catch (dbErr) {
+          console.error("[bot] Failed to update blocked status:", dbErr);
+        }
+      }
+      return;
+    }
+
+    // 400: Chat not found or bad request
+    if (e.error_code === 400 && e.description.includes("chat not found")) {
+      console.warn(`[bot] Chat not found: ${chatId}`);
+      return;
+    }
+
+    // 429: Should be handled by auto-retry transformer, but log if it gets here
+    if (e.error_code === 429) {
+      console.error(`[bot] 429 flood wait exhausted retries: ${e.description}`);
+      return;
+    }
+
+    console.error(`[bot] GrammyError ${e.error_code}: ${e.description}`);
+  } else if (e instanceof HttpError) {
+    console.error(`[bot] HttpError: ${e.message}`);
+  } else {
+    console.error("[bot] Unknown error:", e);
+  }
 });
 
 // Set bot command menus — scoped by chat type

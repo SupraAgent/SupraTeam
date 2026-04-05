@@ -297,6 +297,14 @@ export default function TMAHomePage() {
       </div>
       </PullToRefresh>
 
+      {/* Floating Action Button — create deal */}
+      <Link
+        href="/tma/deals?create=1"
+        className="fixed bottom-20 right-4 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-primary shadow-lg shadow-primary/30 text-primary-foreground transition active:scale-95"
+      >
+        <Plus className="h-5 w-5" />
+      </Link>
+
       <BottomTabBar active="home" />
     </div>
   );

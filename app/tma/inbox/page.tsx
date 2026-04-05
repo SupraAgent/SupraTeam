@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { cn, timeAgo } from "@/lib/utils";
-import { Inbox, MessageCircle, ChevronRight, Send } from "lucide-react";
+import { Inbox, MessageCircle, ChevronRight, Send, User, Bot, ArrowRight } from "lucide-react";
 import { BottomTabBar } from "@/components/tma/bottom-tab-bar";
 import { PullToRefresh } from "@/components/tma/pull-to-refresh";
 import { useTelegramWebApp } from "@/components/tma/use-telegram";
@@ -51,8 +51,26 @@ export default function TMAInboxPage() {
   const [replyOpen, setReplyOpen] = React.useState<number | null>(null);
   const [replyText, setReplyText] = React.useState("");
   const [replySending, setReplySending] = React.useState(false);
+  const [sendAs, setSendAs] = React.useState<"user" | "bot">("user");
+  const [hasClientSession, setHasClientSession] = React.useState(false);
+  const [advancingDeal, setAdvancingDeal] = React.useState<string | null>(null);
 
   useTelegramWebApp();
+
+  // Check if user has an active TG client session for reply-as-user
+  React.useEffect(() => {
+    fetch("/api/telegram/session/status")
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data?.has_session) {
+          setHasClientSession(true);
+          setSendAs("user");
+        } else {
+          setSendAs("bot");
+        }
+      })
+      .catch(() => setSendAs("bot"));
+  }, []);
 
   // Offline cache for inbox conversations
   const inboxCache = useOfflineCache<{ conversations: Conversation[]; deals: Record<number, Deal[]> }>(
@@ -130,7 +148,7 @@ export default function TMAInboxPage() {
       const res = await fetch("/api/inbox/reply", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: chatId, message: replyText, send_as: "bot" }),
+        body: JSON.stringify({ chat_id: chatId, message: replyText, send_as: sendAs }),
       });
       if (res.ok) {
         hapticImpact("light");
@@ -139,6 +157,20 @@ export default function TMAInboxPage() {
       }
     } finally {
       setReplySending(false);
+    }
+  }
+
+  async function handleAdvanceDeal(dealId: string) {
+    setAdvancingDeal(dealId);
+    hapticImpact("medium");
+    try {
+      const res = await fetch(`/api/deals/${dealId}/advance`, { method: "POST" });
+      if (res.ok) {
+        hapticImpact("light");
+        await fetchData();
+      }
+    } finally {
+      setAdvancingDeal(null);
     }
   }
 
@@ -312,24 +344,66 @@ export default function TMAInboxPage() {
                       </button>
                     </div>
                   )}
-                  {/* Inline reply input */}
+                  {/* Inline reply + deal context */}
                   {replyOpen === conv.chat_id && (
-                    <div className="flex items-center gap-2 px-3 py-2 border-t border-white/5 bg-white/[0.02]">
-                      <input
-                        value={replyText}
-                        onChange={(e) => setReplyText(e.target.value)}
-                        placeholder="Reply via bot..."
-                        className="flex-1 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs text-foreground outline-none"
-                        onKeyDown={(e) => e.key === "Enter" && handleInlineReply(conv.chat_id)}
-                        autoFocus
-                      />
-                      <button
-                        onClick={() => handleInlineReply(conv.chat_id)}
-                        disabled={replySending || !replyText.trim()}
-                        className="rounded-lg bg-primary p-1.5 text-primary-foreground disabled:opacity-50"
-                      >
-                        <Send className="h-3.5 w-3.5" />
-                      </button>
+                    <div className="border-t border-white/5 bg-white/[0.02]">
+                      {/* Deal context card */}
+                      {linkedDeal && (
+                        <div className="flex items-center justify-between px-3 py-2 border-b border-white/5">
+                          <div className="flex items-center gap-2 min-w-0">
+                            {linkedDeal.stage && (
+                              <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: linkedDeal.stage.color }} />
+                            )}
+                            <span className="text-[11px] text-foreground truncate">{linkedDeal.deal_name}</span>
+                            {linkedDeal.stage && (
+                              <span className="text-[10px] text-muted-foreground shrink-0">{linkedDeal.stage.name}</span>
+                            )}
+                          </div>
+                          <button
+                            onClick={() => handleAdvanceDeal(linkedDeal.id)}
+                            disabled={advancingDeal === linkedDeal.id}
+                            className="shrink-0 flex items-center gap-1 rounded-md bg-primary/20 px-2 py-1 text-[10px] font-medium text-primary transition active:bg-primary/30 disabled:opacity-50"
+                          >
+                            {advancingDeal === linkedDeal.id ? "..." : (<><ArrowRight className="h-3 w-3" /> Advance</>)}
+                          </button>
+                        </div>
+                      )}
+                      {/* Send-as toggle + reply input */}
+                      <div className="flex items-center gap-2 px-3 py-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (hasClientSession) {
+                              setSendAs(sendAs === "user" ? "bot" : "user");
+                              hapticImpact("light");
+                            }
+                          }}
+                          className={cn(
+                            "shrink-0 rounded-md px-1.5 py-1 text-[9px] font-medium transition",
+                            sendAs === "user"
+                              ? "bg-blue-500/20 text-blue-400"
+                              : "bg-white/10 text-muted-foreground"
+                          )}
+                          title={hasClientSession ? "Toggle: send as you or as bot" : "No client session ��� bot only"}
+                        >
+                          {sendAs === "user" ? <User className="h-3 w-3" /> : <Bot className="h-3 w-3" />}
+                        </button>
+                        <input
+                          value={replyText}
+                          onChange={(e) => setReplyText(e.target.value)}
+                          placeholder={sendAs === "user" ? "Reply as you..." : "Reply via bot..."}
+                          className="flex-1 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs text-foreground outline-none"
+                          onKeyDown={(e) => e.key === "Enter" && handleInlineReply(conv.chat_id)}
+                          autoFocus
+                        />
+                        <button
+                          onClick={() => handleInlineReply(conv.chat_id)}
+                          disabled={replySending || !replyText.trim()}
+                          className="rounded-lg bg-primary p-1.5 text-primary-foreground disabled:opacity-50"
+                        >
+                          <Send className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </div>
                   )}
                   {status === "snoozed" && (
