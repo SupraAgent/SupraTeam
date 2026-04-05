@@ -1,5 +1,5 @@
 import * as React from "react";
-import type { Conversation, ThreadMessage } from "./inbox-types";
+import type { Conversation } from "./inbox-types";
 
 interface KeyboardRefs {
   conversations: React.RefObject<Conversation[]>;

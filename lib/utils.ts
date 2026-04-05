@@ -31,7 +31,8 @@ export function escapeCSV(val: string): string {
 }
 
 /** Relative time string from an ISO timestamp. */
-export function timeAgo(timestamp: string): string {
+export function timeAgo(timestamp: string | null | undefined): string {
+  if (!timestamp) return "";
   const seconds = Math.floor((Date.now() - new Date(timestamp).getTime()) / 1000);
   if (isNaN(seconds)) return "";
   if (seconds < 60) return "just now";

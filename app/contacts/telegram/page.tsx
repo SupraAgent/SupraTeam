@@ -20,6 +20,8 @@ export default function TelegramContactsPage() {
   const [connected, setConnected] = React.useState<boolean | null>(null);
   const [contacts, setContacts] = React.useState<TgContact[]>([]);
   const [search, setSearch] = React.useState("");
+  const searchRef = React.useRef(search);
+  searchRef.current = search;
   const [loading, setLoading] = React.useState(false);
   const [importing, setImporting] = React.useState(false);
   const [sharing, setSharing] = React.useState<string | null>(null);
@@ -41,7 +43,8 @@ export default function TelegramContactsPage() {
     setLoading(true);
     try {
       const params = new URLSearchParams({ limit: "500" });
-      if (search) params.set("search", search);
+      const currentSearch = searchRef.current;
+      if (currentSearch) params.set("search", currentSearch);
       const res = await fetch(`/api/telegram-client/contacts?${params}`);
       const data = await res.json();
       setContacts(data.data || []);

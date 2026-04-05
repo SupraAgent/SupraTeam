@@ -350,7 +350,9 @@ export default function InboxPage() {
 
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
-      supabase.removeChannel(channel);
+      channel.unsubscribe().then(() => {
+        supabase.removeChannel(channel);
+      });
     };
   }, []);
 
@@ -760,13 +762,15 @@ export default function InboxPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: `Summarize this Telegram conversation concisely (3-5 bullet points). Focus on key topics, decisions, and action items:\n\n${messageContext}`,
-          context: `Conversation: ${selectedConversation.group_name}`,
+          messages: [
+            { role: "user", content: `Summarize this Telegram conversation concisely (3-5 bullet points). Focus on key topics, decisions, and action items:\n\n${messageContext}` },
+          ],
+          context: { page: "/inbox", pageData: { conversationName: selectedConversation.group_name } },
         }),
       });
       if (res.ok) {
         const data = await res.json();
-        setAiSummary(data.reply ?? data.message ?? "No summary generated.");
+        setAiSummary(data.data?.reply ?? "No summary generated.");
       } else {
         toast.error("Failed to generate summary");
       }
@@ -793,13 +797,15 @@ export default function InboxPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: `Based on this conversation, suggest a professional reply message. Just provide the reply text, no explanation.\n\nConversation in "${selectedConversation.group_name}":\n${messageContext}${dealContext ? `\n\nDeal context: ${dealContext}` : ""}`,
-          context: `Telegram CRM reply suggestion`,
+          messages: [
+            { role: "user", content: `Based on this conversation, suggest a professional reply message. Just provide the reply text, no explanation.\n\nConversation in "${selectedConversation.group_name}":\n${messageContext}${dealContext ? `\n\nDeal context: ${dealContext}` : ""}` },
+          ],
+          context: { page: "/inbox", pageData: { conversationName: selectedConversation.group_name } },
         }),
       });
       if (res.ok) {
         const data = await res.json();
-        const suggestion = data.reply ?? data.message ?? "";
+        const suggestion = data.data?.reply ?? "";
         if (suggestion) {
           setReplyText(suggestion);
           replyTextareaRef.current?.focus();

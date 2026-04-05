@@ -9,7 +9,7 @@ import { BulkXImportModal } from "@/components/contacts/bulk-x-import-modal";
 import { SavedViewsBar } from "@/components/saved-views-bar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Download, Upload, Users, MessageCircle, Building2, ArrowUpDown, Trash2, Filter, GitMerge, Sparkles, AlertTriangle, Twitter } from "lucide-react";
+import { Download, Upload, Users, MessageCircle, Building2, ArrowUpDown, Trash2, Filter, GitMerge, AlertTriangle, Twitter } from "lucide-react";
 import { MergePreviewModal } from "@/components/contacts/merge-preview-modal";
 import type { Contact, PipelineStage, Deal, LifecycleStage } from "@/lib/types";
 import { cn } from "@/lib/utils";
