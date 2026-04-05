@@ -573,3 +573,278 @@ export async function executeGenerateBookingLink(
     return { success: false, error: err instanceof Error ? err.message : "Failed to generate booking link" };
   }
 }
+
+// ── New action executors (wiring palette nodes to engine) ───────
+
+interface ActionCreateDealConfig {
+  deal_name: string;
+  board_type?: string;
+  stage_name?: string;
+}
+
+export async function executeCreateDeal(
+  config: ActionCreateDealConfig,
+  ctx: ActionContext
+): Promise<ActionResult> {
+  const supabase = createSupabaseAdmin();
+  if (!supabase) return { success: false, error: "Supabase not configured" };
+
+  const dealName = renderTemplate(config.deal_name || "New Deal", ctx.vars);
+  const boardType = config.board_type || "BD";
+
+  let stageId: string | null = null;
+  if (config.stage_name) {
+    const { data: stage } = await supabase
+      .from("pipeline_stages")
+      .select("id")
+      .eq("name", config.stage_name)
+      .limit(1)
+      .single();
+    stageId = stage?.id ?? null;
+  }
+  if (!stageId) {
+    const { data: firstStage } = await supabase
+      .from("pipeline_stages")
+      .select("id")
+      .order("position")
+      .limit(1)
+      .single();
+    stageId = firstStage?.id ?? null;
+  }
+
+  const { data, error } = await supabase
+    .from("crm_deals")
+    .insert({
+      deal_name: dealName,
+      board_type: boardType,
+      stage_id: stageId,
+      contact_id: ctx.contactId || null,
+      created_by: ctx.userId || null,
+    })
+    .select("id")
+    .single();
+
+  return error
+    ? { success: false, error: error.message }
+    : { success: true, output: { dealId: data?.id, deal_name: dealName } };
+}
+
+interface ActionSendBroadcastConfig {
+  message: string;
+  slug?: string;
+}
+
+export async function executeSendBroadcast(
+  config: ActionSendBroadcastConfig,
+  ctx: ActionContext
+): Promise<ActionResult> {
+  const supabase = createSupabaseAdmin();
+  if (!supabase) return { success: false, error: "Supabase not configured" };
+
+  const message = renderTemplate(config.message || "", ctx.vars);
+  if (!message) return { success: false, error: "No broadcast message" };
+
+  // Get target groups by slug or all groups
+  let query = supabase.from("tg_groups").select("telegram_group_id, group_name").eq("is_archived", false);
+  if (config.slug) {
+    const { data: slugGroups } = await supabase
+      .from("tg_group_slugs")
+      .select("group_id")
+      .eq("slug", config.slug);
+    const groupIds = (slugGroups ?? []).map((s) => s.group_id);
+    if (groupIds.length === 0) return { success: false, error: `No groups with slug "${config.slug}"` };
+    query = query.in("id", groupIds);
+  }
+
+  const { data: groups } = await query;
+  if (!groups || groups.length === 0) return { success: false, error: "No target groups found" };
+
+  let sent = 0;
+  for (const group of groups) {
+    const result = await sendTelegramWithTracking({
+      chatId: Number(group.telegram_group_id),
+      text: message,
+      notificationType: "broadcast",
+    });
+    if (result.success) sent++;
+  }
+
+  return { success: true, output: { sent, total: groups.length } };
+}
+
+interface ActionHttpRequestConfig {
+  url: string;
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+}
+
+export async function executeHttpRequest(
+  config: ActionHttpRequestConfig,
+  ctx: ActionContext
+): Promise<ActionResult> {
+  const url = renderTemplate(config.url || "", ctx.vars);
+  if (!url) return { success: false, error: "No URL specified" };
+
+  // SSRF protection: strict URL allowlist — only HTTPS to public hosts
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:") {
+      return { success: false, error: "Only HTTPS URLs are allowed" };
+    }
+    const hostname = parsed.hostname.toLowerCase();
+    // Block localhost, loopback, private ranges, link-local, metadata endpoints
+    if (
+      hostname === "localhost" ||
+      hostname.endsWith(".local") ||
+      hostname.endsWith(".internal") ||
+      /^127\./.test(hostname) ||
+      /^10\./.test(hostname) ||
+      /^192\.168\./.test(hostname) ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(hostname) ||
+      /^169\.254\./.test(hostname) ||
+      hostname === "metadata.google.internal" ||
+      hostname === "[::1]" ||
+      /^\[fe80:/i.test(hostname) ||
+      /^\[fd/i.test(hostname) ||
+      /^\[fc/i.test(hostname) ||
+      /^0\./.test(hostname)
+    ) {
+      return { success: false, error: "Private/internal network URLs are not allowed" };
+    }
+  } catch {
+    return { success: false, error: "Invalid URL" };
+  }
+
+  try {
+    const method = config.method?.toUpperCase() || "GET";
+    const body = config.body ? renderTemplate(config.body, ctx.vars) : undefined;
+    // Header allowlist — only safe headers can be set by workflow config
+    const ALLOWED_HEADERS = new Set([
+      "accept", "content-type", "authorization", "x-api-key",
+      "x-request-id", "user-agent", "x-correlation-id",
+    ]);
+    const safeHeaders: Record<string, string> = { "Content-Type": "application/json" };
+    if (config.headers) {
+      for (const [k, v] of Object.entries(config.headers)) {
+        if (ALLOWED_HEADERS.has(k.toLowerCase())) {
+          safeHeaders[k] = v;
+        }
+      }
+    }
+    const res = await fetch(url, {
+      method,
+      headers: safeHeaders,
+      body: method !== "GET" ? body : undefined,
+      signal: AbortSignal.timeout(10000),
+    });
+
+    const responseText = await res.text().catch(() => "");
+    let responseJson: unknown = null;
+    try { responseJson = JSON.parse(responseText); } catch { /* not JSON */ }
+
+    return {
+      success: res.ok,
+      output: { status: res.status, body: responseJson ?? responseText },
+      error: res.ok ? undefined : `HTTP ${res.status}`,
+    };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "HTTP request failed" };
+  }
+}
+
+interface ActionAiSummarizeConfig {
+  prompt?: string;
+}
+
+export async function executeAiSummarize(
+  config: ActionAiSummarizeConfig,
+  ctx: ActionContext
+): Promise<ActionResult> {
+  const supabase = createSupabaseAdmin();
+  if (!supabase) return { success: false, error: "Supabase not configured" };
+
+  if (!ctx.dealId) return { success: false, error: "No deal context for AI summarize" };
+
+  try {
+    const { data: deal } = await supabase
+      .from("crm_deals")
+      .select("deal_name, telegram_chat_id")
+      .eq("id", ctx.dealId)
+      .single();
+
+    if (!deal?.telegram_chat_id) return { success: false, error: "No TG chat linked to deal" };
+
+    const { data: messages } = await supabase
+      .from("tg_messages")
+      .select("sender_name, message_text, sent_at")
+      .eq("telegram_chat_id", deal.telegram_chat_id)
+      .order("sent_at", { ascending: false })
+      .limit(30);
+
+    const context = (messages ?? []).reverse()
+      .map((m) => `${m.sender_name}: ${m.message_text ?? "(media)"}`)
+      .join("\n");
+
+    const prompt = config.prompt
+      ? renderTemplate(config.prompt, { ...ctx.vars, conversation: context })
+      : `Summarize this conversation concisely (3-5 bullet points):\n\n${context}`;
+
+    // Use internal AI endpoint with service auth
+    const res = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3002"}/api/ai-chat`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(process.env.SUPABASE_SERVICE_ROLE_KEY ? { "x-service-key": process.env.SUPABASE_SERVICE_ROLE_KEY } : {}),
+      },
+      body: JSON.stringify({ message: prompt, context: `Deal: ${deal.deal_name}` }),
+    });
+
+    if (!res.ok) return { success: false, error: "AI summarize request failed" };
+    const data = await res.json();
+    const summary = data.reply ?? data.message ?? "";
+
+    // Store summary on deal
+    await supabase.from("crm_deals").update({
+      ai_summary: summary,
+      ai_summary_at: new Date().toISOString(),
+    }).eq("id", ctx.dealId);
+
+    return { success: true, output: { summary } };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "AI summarize failed" };
+  }
+}
+
+interface ActionAiClassifyConfig {
+  categories: string[];
+  field?: string;
+}
+
+export async function executeAiClassify(
+  config: ActionAiClassifyConfig,
+  ctx: ActionContext
+): Promise<ActionResult> {
+  if (!ctx.dealId && !ctx.contactId) return { success: false, error: "No deal or contact context" };
+
+  const categories = config.categories ?? ["hot_lead", "warm_lead", "cold_lead", "not_qualified"];
+  const prompt = `Classify this into exactly one category: ${categories.join(", ")}. Reply with ONLY the category name.\n\nContext: Deal "${ctx.vars.deal_name ?? "unknown"}" at stage "${ctx.vars.stage ?? "unknown"}" with contact "${ctx.vars.contact_name ?? "unknown"}"`;
+
+  try {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3002"}/api/ai-chat`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(process.env.SUPABASE_SERVICE_ROLE_KEY ? { "x-service-key": process.env.SUPABASE_SERVICE_ROLE_KEY } : {}),
+      },
+      body: JSON.stringify({ message: prompt, context: "classification" }),
+    });
+    if (!res.ok) return { success: false, error: "AI classify failed" };
+    const data = await res.json();
+    const classification = (data.reply ?? data.message ?? "").trim().toLowerCase();
+
+    return { success: true, output: { classification, matched: categories.includes(classification) } };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "AI classify failed" };
+  }
+}

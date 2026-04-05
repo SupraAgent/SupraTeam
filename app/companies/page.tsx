@@ -33,6 +33,11 @@ export default function CompaniesPage() {
   const [newProtocolType, setNewProtocolType] = React.useState<ProtocolType | "">("");
   const [creating, setCreating] = React.useState(false);
 
+  // Filters
+  const [protocolFilter, setProtocolFilter] = React.useState<ProtocolType | "all">("all");
+  const [tokenFilter, setTokenFilter] = React.useState<TokenStatus | "all">("all");
+  const [fundingFilter, setFundingFilter] = React.useState<FundingStage | "all">("all");
+
   // Detail view
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [detail, setDetail] = React.useState<{
@@ -122,8 +127,13 @@ export default function CompaniesPage() {
     }
   }
 
-  // Filtering is now server-side via API search param
-  const filtered = companies;
+  // Client-side crypto-native filtering on top of server-side search
+  const filtered = companies.filter((c) => {
+    if (protocolFilter !== "all" && c.protocol_type !== protocolFilter) return false;
+    if (tokenFilter !== "all" && c.token_status !== tokenFilter) return false;
+    if (fundingFilter !== "all" && c.funding_stage !== fundingFilter) return false;
+    return true;
+  });
 
   if (loading) {
     return (
@@ -146,15 +156,66 @@ export default function CompaniesPage() {
         </Button>
       </div>
 
-      {/* Search */}
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search companies..."
-          className="pl-9"
-        />
+      {/* Search + Filters */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="relative max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search companies..."
+            className="pl-9"
+          />
+        </div>
+        <select
+          value={protocolFilter}
+          onChange={(e) => setProtocolFilter(e.target.value as ProtocolType | "all")}
+          className="h-8 rounded border border-white/10 bg-white/5 px-2 text-xs text-foreground outline-none"
+        >
+          <option value="all">All types</option>
+          <option value="defi">DeFi</option>
+          <option value="infrastructure">Infrastructure</option>
+          <option value="gaming">Gaming</option>
+          <option value="nft">NFT</option>
+          <option value="dao">DAO</option>
+          <option value="social">Social</option>
+          <option value="bridge">Bridge</option>
+          <option value="oracle">Oracle</option>
+          <option value="wallet">Wallet</option>
+          <option value="other">Other</option>
+        </select>
+        <select
+          value={tokenFilter}
+          onChange={(e) => setTokenFilter(e.target.value as TokenStatus | "all")}
+          className="h-8 rounded border border-white/10 bg-white/5 px-2 text-xs text-foreground outline-none"
+        >
+          <option value="all">All tokens</option>
+          <option value="pre_tge">Pre-TGE</option>
+          <option value="post_tge">Post-TGE</option>
+          <option value="no_token">No Token</option>
+        </select>
+        <select
+          value={fundingFilter}
+          onChange={(e) => setFundingFilter(e.target.value as FundingStage | "all")}
+          className="h-8 rounded border border-white/10 bg-white/5 px-2 text-xs text-foreground outline-none"
+        >
+          <option value="all">All funding</option>
+          <option value="pre_seed">Pre-Seed</option>
+          <option value="seed">Seed</option>
+          <option value="series_a">Series A</option>
+          <option value="series_b">Series B</option>
+          <option value="series_c">Series C</option>
+          <option value="public">Public</option>
+          <option value="bootstrapped">Bootstrapped</option>
+        </select>
+        {(protocolFilter !== "all" || tokenFilter !== "all" || fundingFilter !== "all") && (
+          <button
+            onClick={() => { setProtocolFilter("all"); setTokenFilter("all"); setFundingFilter("all"); }}
+            className="text-xs text-primary hover:text-primary/80"
+          >
+            Clear filters
+          </button>
+        )}
       </div>
 
       {/* Table */}
@@ -163,17 +224,18 @@ export default function CompaniesPage() {
           <thead>
             <tr className="border-b border-white/10 bg-white/[0.02]">
               <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">Company</th>
-              <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground hidden sm:table-cell">Industry</th>
-              <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground hidden md:table-cell">Domain</th>
-              <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground hidden md:table-cell">Location</th>
+              <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground hidden sm:table-cell">Type</th>
+              <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground hidden md:table-cell">TVL</th>
+              <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground hidden md:table-cell">Token</th>
+              <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground hidden lg:table-cell">Chains</th>
               <th className="text-center px-4 py-2.5 text-xs font-medium text-muted-foreground">Contacts</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">
-                  {search ? "No companies match your search." : "No companies yet. Add one to get started."}
+                <td colSpan={6} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  {search || protocolFilter !== "all" || tokenFilter !== "all" || fundingFilter !== "all" ? "No companies match your filters." : "No companies yet. Add one to get started."}
                 </td>
               </tr>
             ) : filtered.map((c) => (
@@ -191,9 +253,35 @@ export default function CompaniesPage() {
                     <span className="font-medium text-foreground">{c.name}</span>
                   </div>
                 </td>
-                <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">{c.industry ?? "-"}</td>
-                <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">{c.domain ?? "-"}</td>
-                <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">{c.location ?? "-"}</td>
+                <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">
+                  {c.protocol_type ? <span className="capitalize">{c.protocol_type}</span> : <span className="text-muted-foreground/40">{c.industry ?? "-"}</span>}
+                </td>
+                <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">
+                  {c.tvl != null ? `$${Number(c.tvl).toLocaleString()}` : "-"}
+                </td>
+                <td className="px-4 py-3 hidden md:table-cell">
+                  {c.token_status ? (
+                    <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-medium", {
+                      "bg-amber-500/20 text-amber-400": c.token_status === "pre_tge",
+                      "bg-green-500/20 text-green-400": c.token_status === "post_tge",
+                      "bg-gray-500/20 text-gray-400": c.token_status === "no_token",
+                    })}>
+                      {c.token_status === "pre_tge" ? "Pre-TGE" : c.token_status === "post_tge" ? "Post-TGE" : "No Token"}
+                    </span>
+                  ) : "-"}
+                </td>
+                <td className="px-4 py-3 hidden lg:table-cell">
+                  {(c.chain_deployments?.length ?? 0) > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {c.chain_deployments.slice(0, 3).map((chain) => (
+                        <span key={chain} className="rounded-full bg-blue-500/10 px-1.5 py-0.5 text-[9px] font-medium text-blue-400">{chain}</span>
+                      ))}
+                      {c.chain_deployments.length > 3 && (
+                        <span className="text-[9px] text-muted-foreground">+{c.chain_deployments.length - 3}</span>
+                      )}
+                    </div>
+                  ) : "-"}
+                </td>
                 <td className="px-4 py-3 text-center">
                   <span className="rounded-full bg-blue-500/20 px-2 py-0.5 text-[11px] font-medium text-blue-400">
                     {c.contact_count}

@@ -123,6 +123,10 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
     }
   }, [aiLoaded, deal]);
 
+  // TG groups for auto-link dropdown
+  type TgGroup = { id: string; group_name: string; telegram_group_id: string };
+  const [tgGroups, setTgGroups] = React.useState<TgGroup[]>([]);
+
   // Custom fields
   type CustomField = { id: string; field_name: string; label: string; field_type: string; options: string[] | null; required: boolean; board_type: string | null };
   const [customFields, setCustomFields] = React.useState<CustomField[]>([]);
@@ -170,6 +174,7 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
         fetch(`/api/docs?entity_type=deal&entity_id=${deal.id}`).then((r) => r.json()).then((d) => setLinkedDocs(d.docs ?? [])).catch(() => setLinkedDocs([])),
         fetch("/api/pipeline/fields").then((r) => r.json()).then((d) => setCustomFields(d.fields ?? [])).catch(() => {}),
         fetch(`/api/deals/${deal.id}`).then((r) => r.json()).then((d) => setCustomValues(d.custom_fields ?? {})).catch(() => {}),
+        fetch("/api/groups").then((r) => r.json()).then((d) => setTgGroups(d.groups ?? [])).catch(() => {}),
       ]).finally(() => setLoadingContent(false));
     }
   }, [deal, open, cachedStages, cachedTeamMembers]);
@@ -479,8 +484,31 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
             </div>
 
             <div>
-              <label className="text-[11px] font-medium text-muted-foreground">Telegram Chat Link</label>
-              <Input value={tgLink} onChange={(e) => setTgLink(e.target.value)} placeholder="https://t.me/..." className="mt-1" />
+              <label className="text-[11px] font-medium text-muted-foreground">Telegram Group</label>
+              {tgGroups.length > 0 ? (
+                <div className="flex gap-2 mt-1">
+                  <select
+                    value={tgLink}
+                    onChange={(e) => setTgLink(e.target.value)}
+                    className="flex-1 h-9 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-sm text-foreground outline-none focus:border-primary/40"
+                  >
+                    <option value="">Select a group...</option>
+                    {tgGroups.map((g) => (
+                      <option key={g.id} value={`https://t.me/c/${String(g.telegram_group_id).replace(/^-100/, "")}`}>
+                        {g.group_name}
+                      </option>
+                    ))}
+                  </select>
+                  <Input
+                    value={tgLink}
+                    onChange={(e) => setTgLink(e.target.value)}
+                    placeholder="or paste link..."
+                    className="flex-1"
+                  />
+                </div>
+              ) : (
+                <Input value={tgLink} onChange={(e) => setTgLink(e.target.value)} placeholder="https://t.me/..." className="mt-1" />
+              )}
             </div>
 
             {/* Custom fields */}
