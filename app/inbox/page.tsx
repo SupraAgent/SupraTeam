@@ -31,6 +31,11 @@ import {
   ChevronLeft,
   Flame,
   UserX,
+  Sparkles,
+  MessageSquare,
+  Keyboard,
+  CalendarClock,
+  Hourglass,
 } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
@@ -144,7 +149,44 @@ interface CannedResponse {
   usage_count: number;
 }
 
-type InboxTab = "mine" | "unassigned" | "awaiting" | "open" | "vip" | "archived" | "closed";
+type InboxTab = "awaiting_reply" | "mine" | "unassigned" | "open" | "vip" | "archived" | "closed";
+
+// ── Advanced Search Parser ─────────────────────────────────────
+interface SearchFilters {
+  text: string;
+  fromUsername: string | null;
+  hasAttachment: boolean;
+  isUnread: boolean;
+  isVip: boolean;
+}
+
+function parseSearchFilters(raw: string): SearchFilters {
+  let text = raw;
+  let fromUsername: string | null = null;
+  let hasAttachment = false;
+  let isUnread = false;
+  let isVip = false;
+
+  const fromMatch = text.match(/from:(\S+)/i);
+  if (fromMatch) {
+    fromUsername = fromMatch[1].toLowerCase();
+    text = text.replace(fromMatch[0], "");
+  }
+  if (/has:attachment/i.test(text)) {
+    hasAttachment = true;
+    text = text.replace(/has:attachment/gi, "");
+  }
+  if (/is:unread/i.test(text)) {
+    isUnread = true;
+    text = text.replace(/is:unread/gi, "");
+  }
+  if (/is:vip/i.test(text)) {
+    isVip = true;
+    text = text.replace(/is:vip/gi, "");
+  }
+
+  return { text: text.trim(), fromUsername, hasAttachment, isUnread, isVip };
+}
 
 // ── Infinite Scroll Sentinel ──────────────────────────────────
 
@@ -191,7 +233,7 @@ export default function InboxPage() {
   const [showDealSidebar, setShowDealSidebar] = React.useState(true);
   const [expandedThreads, setExpandedThreads] = React.useState<Set<number>>(new Set());
   const [refreshing, setRefreshing] = React.useState(false);
-  const [activeTab, setActiveTab] = React.useState<InboxTab>("mine");
+  const [activeTab, setActiveTab] = React.useState<InboxTab>("awaiting_reply");
   const [hasMore, setHasMore] = React.useState(false);
   const [loadingMore, setLoadingMore] = React.useState(false);
   const [nextCursor, setNextCursor] = React.useState<string | null>(null);
@@ -229,6 +271,15 @@ export default function InboxPage() {
   const replyTextareaRef = React.useRef<HTMLTextAreaElement>(null);
   const statusesRef = React.useRef(statuses);
   statusesRef.current = statuses;
+  const conversationsRef = React.useRef(conversations);
+  conversationsRef.current = conversations;
+  const labelsRef = React.useRef(labels);
+  labelsRef.current = labels;
+  const selectedChatRef = React.useRef(selectedChat);
+  selectedChatRef.current = selectedChat;
+  const currentUserIdRef = React.useRef(currentUserId);
+  currentUserIdRef.current = currentUserId;
+  const filteredRef = React.useRef<Conversation[]>([]);
 
   // Snooze picker
   const [showSnooze, setShowSnooze] = React.useState<number | null>(null);
@@ -240,6 +291,20 @@ export default function InboxPage() {
     if (typeof window === "undefined") return "";
     return localStorage.getItem("inbox_bot_filter") ?? "";
   });
+
+  // Keyboard shortcut help modal
+  const [showShortcutHelp, setShowShortcutHelp] = React.useState(false);
+  // Highlighted index for keyboard nav in conversation list
+  const [highlightedIndex, setHighlightedIndex] = React.useState<number>(-1);
+  // AI state
+  const [aiSummary, setAiSummary] = React.useState<string | null>(null);
+  const [aiSummarizing, setAiSummarizing] = React.useState(false);
+  const [aiSuggesting, setAiSuggesting] = React.useState(false);
+  // Schedule send
+  const [showScheduleMenu, setShowScheduleMenu] = React.useState(false);
+  const scheduleRef = React.useRef<HTMLDivElement>(null);
+  // Search input ref for keyboard shortcut focus
+  const searchInputRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
     fetch("/api/bots").then((r) => r.ok ? r.json() : null).then((d) => {
@@ -495,7 +560,7 @@ export default function InboxPage() {
         );
         // Track last user message time for response-time analytics
         if (selectedChat) {
-          const conv = conversations.find((c) => c.chat_id === selectedChat);
+          const conv = conversationsRef.current.find((c) => c.chat_id === selectedChat);
           if (conv) updateLabel(selectedChat, conv.group_name, { last_user_message_at: new Date().toISOString() });
         }
         // Still refresh after delay to get the real message with proper IDs
@@ -645,9 +710,10 @@ export default function InboxPage() {
   const filtered = React.useMemo(() => {
     let result = conversations;
 
-    // Text search — also search notes and tags
-    if (search.trim()) {
-      const q = search.toLowerCase();
+    // Advanced search — parse filter tokens then apply text search
+    const filters = parseSearchFilters(search);
+    if (filters.text) {
+      const q = filters.text.toLowerCase();
       result = result.filter((c) => {
         const l = getLabel(c.chat_id);
         return (
@@ -661,9 +727,36 @@ export default function InboxPage() {
         );
       });
     }
+    if (filters.fromUsername) {
+      const uname = filters.fromUsername;
+      result = result.filter((c) =>
+        c.messages.some((m) => m.sender_username?.toLowerCase() === uname || m.sender_name.toLowerCase().includes(uname))
+      );
+    }
+    if (filters.hasAttachment) {
+      result = result.filter((c) =>
+        c.messages.some((m) => m.message_type !== "text")
+      );
+    }
+    if (filters.isUnread) {
+      result = result.filter((c) => {
+        const seenAt = lastSeen[c.chat_id];
+        return !seenAt || c.messages.some((m) => m.sent_at > seenAt);
+      });
+    }
+    if (filters.isVip) {
+      result = result.filter((c) => getLabel(c.chat_id)?.is_vip);
+    }
 
     // Tab filtering
-    if (activeTab === "mine") {
+    if (activeTab === "awaiting_reply") {
+      result = result.filter((c) => {
+        const s = statuses[c.chat_id];
+        if (s?.status === "closed" || getLabel(c.chat_id)?.is_archived) return false;
+        const lastMsg = c.messages[0];
+        return lastMsg && !lastMsg.is_from_bot;
+      });
+    } else if (activeTab === "mine") {
       result = result.filter((c) => {
         const s = statuses[c.chat_id];
         return s?.assigned_to === currentUserId && s?.status !== "closed" && !getLabel(c.chat_id)?.is_archived;
@@ -672,13 +765,6 @@ export default function InboxPage() {
       result = result.filter((c) => {
         const s = statuses[c.chat_id];
         return (!s || !s.assigned_to) && (!s || s.status !== "closed") && !getLabel(c.chat_id)?.is_archived;
-      });
-    } else if (activeTab === "awaiting") {
-      result = result.filter((c) => {
-        const s = statuses[c.chat_id];
-        if (s?.status === "closed" || getLabel(c.chat_id)?.is_archived) return false;
-        const lastMsg = c.messages[0];
-        return lastMsg && !lastMsg.is_from_bot;
       });
     } else if (activeTab === "vip") {
       result = result.filter((c) => getLabel(c.chat_id)?.is_vip && !getLabel(c.chat_id)?.is_archived);
@@ -725,6 +811,7 @@ export default function InboxPage() {
 
     return result;
   }, [conversations, search, activeTab, statuses, currentUserId, lastSeen, labels, activeGroupId, chatGroups.groups]);
+  filteredRef.current = filtered;
 
   const unassignedCount = conversations.filter((c) => {
     const s = statuses[c.chat_id];
@@ -736,12 +823,14 @@ export default function InboxPage() {
     return s?.assigned_to === currentUserId && s?.status !== "closed";
   }).length;
 
-  const awaitingCount = conversations.filter((c) => {
+  const awaitingReplyCount = conversations.filter((c) => {
     const s = statuses[c.chat_id];
     if (s?.status === "closed" || getLabel(c.chat_id)?.is_archived) return false;
     const lastMsg = c.messages[0];
     return lastMsg && !lastMsg.is_from_bot;
   }).length;
+
+
   const vipCount = conversations.filter((c) => getLabel(c.chat_id)?.is_vip && !getLabel(c.chat_id)?.is_archived).length;
   const archivedCount = conversations.filter((c) => getLabel(c.chat_id)?.is_archived).length;
 
@@ -782,6 +871,280 @@ export default function InboxPage() {
     }
   }, [replyText, showCanned]);
 
+  // ── AI Actions ──────────────────────────────────────────────
+
+  async function handleAiSummarize() {
+    if (!selectedConversation || aiSummarizing) return;
+    setAiSummarizing(true);
+    setAiSummary(null);
+    try {
+      const messageContext = selectedConversation.messages
+        .slice(0, 30)
+        .reverse()
+        .map((m) => `${m.sender_name}${m.is_from_bot ? " (bot)" : ""}: ${m.message_text ?? `(${m.message_type})`}`)
+        .join("\n");
+      const res = await fetch("/api/ai-chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: `Summarize this Telegram conversation concisely (3-5 bullet points). Focus on key topics, decisions, and action items:\n\n${messageContext}`,
+          context: `Conversation: ${selectedConversation.group_name}`,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAiSummary(data.reply ?? data.message ?? "No summary generated.");
+      } else {
+        toast.error("Failed to generate summary");
+      }
+    } catch {
+      toast.error("Network error generating summary");
+    } finally {
+      setAiSummarizing(false);
+    }
+  }
+
+  async function handleAiSuggestReply() {
+    if (!selectedConversation || aiSuggesting) return;
+    setAiSuggesting(true);
+    try {
+      const messageContext = selectedConversation.messages
+        .slice(0, 15)
+        .reverse()
+        .map((m) => `${m.sender_name}${m.is_from_bot ? " (bot)" : ""}: ${m.message_text ?? `(${m.message_type})`}`)
+        .join("\n");
+      const dealContext = (deals[selectedConversation.chat_id] ?? [])
+        .map((d) => `Deal: ${d.deal_name} (${d.stage?.name ?? "no stage"})`)
+        .join(", ");
+      const res = await fetch("/api/ai-chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: `Based on this conversation, suggest a professional reply message. Just provide the reply text, no explanation.\n\nConversation in "${selectedConversation.group_name}":\n${messageContext}${dealContext ? `\n\nDeal context: ${dealContext}` : ""}`,
+          context: `Telegram CRM reply suggestion`,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const suggestion = data.reply ?? data.message ?? "";
+        if (suggestion) {
+          setReplyText(suggestion);
+          replyTextareaRef.current?.focus();
+          toast.success("Reply suggestion inserted");
+        }
+      } else {
+        toast.error("Failed to generate suggestion");
+      }
+    } catch {
+      toast.error("Network error generating suggestion");
+    } finally {
+      setAiSuggesting(false);
+    }
+  }
+
+  // ── Schedule Send ──────────────────────────────────────────
+
+  async function handleScheduleSend(sendAt: Date) {
+    if (!replyText.trim() || !selectedChat) return;
+    setShowScheduleMenu(false);
+    try {
+      const res = await fetch("/api/scheduled-messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: selectedChat,
+          text: replyText.trim(),
+          send_at: sendAt.toISOString(),
+          reply_to_message_id: replyTo?.telegram_message_id ?? undefined,
+          send_as: sendAs,
+        }),
+      });
+      if (res.ok) {
+        toast.success(`Scheduled for ${sendAt.toLocaleString()}`);
+        setReplyText("");
+        setReplyTo(null);
+        if (replyTextareaRef.current) replyTextareaRef.current.style.height = "auto";
+      } else {
+        const err = await res.json().catch(() => ({ error: "Request failed" }));
+        toast.error(err.error || "Failed to schedule message");
+      }
+    } catch {
+      toast.error("Network error scheduling message");
+    }
+  }
+
+  // Close schedule menu on outside click
+  React.useEffect(() => {
+    if (!showScheduleMenu) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (scheduleRef.current && !scheduleRef.current.contains(e.target as Node)) {
+        setShowScheduleMenu(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showScheduleMenu]);
+
+  // ── Keyboard Shortcuts ─────────────────────────────────────
+
+  // Refs for keyboard handler to avoid stale closures
+  const handleAssignRef = React.useRef(handleAssign);
+  handleAssignRef.current = handleAssign;
+  const handleStatusChangeRef = React.useRef(handleStatusChange);
+  handleStatusChangeRef.current = handleStatusChange;
+  const toggleLabelRef = React.useRef(toggleLabel);
+  toggleLabelRef.current = toggleLabel;
+  const handleSelectChatRef = React.useRef(handleSelectChat);
+  handleSelectChatRef.current = handleSelectChat;
+  const highlightedIndexRef = React.useRef(highlightedIndex);
+  highlightedIndexRef.current = highlightedIndex;
+  const showShortcutHelpRef = React.useRef(showShortcutHelp);
+  showShortcutHelpRef.current = showShortcutHelp;
+  const showScheduleMenuRef = React.useRef(showScheduleMenu);
+  showScheduleMenuRef.current = showScheduleMenu;
+  const showCannedRef = React.useRef(showCanned);
+  showCannedRef.current = showCanned;
+  const aiSummaryRef = React.useRef(aiSummary);
+  aiSummaryRef.current = aiSummary;
+
+  React.useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      const target = e.target as HTMLElement;
+      const isInput = target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable;
+
+      // ? always toggles help
+      if (e.key === "?" && !e.ctrlKey && !e.metaKey) {
+        if (isInput && target.tagName !== "INPUT") return;
+        // Allow ? in textareas but not plain typing
+        if (target.tagName === "INPUT") return;
+        e.preventDefault();
+        setShowShortcutHelp((p) => !p);
+        return;
+      }
+
+      // Escape works everywhere
+      if (e.key === "Escape") {
+        if (showShortcutHelpRef.current) { setShowShortcutHelp(false); return; }
+        if (showScheduleMenuRef.current) { setShowScheduleMenu(false); return; }
+        if (showCannedRef.current) { setShowCanned(false); return; }
+        if (aiSummaryRef.current) { setAiSummary(null); return; }
+        if (selectedChatRef.current) { setSelectedChat(null); return; }
+        return;
+      }
+
+      // Skip shortcuts when typing in input/textarea
+      if (isInput) return;
+
+      const chat = selectedChatRef.current;
+      const userId = currentUserIdRef.current;
+      const currentFiltered = filteredRef.current;
+      const selectedConv = chat
+        ? conversationsRef.current.find((c) => c.chat_id === chat)
+        : null;
+
+      // Shift+A — assign to me
+      if (e.key === "A" && e.shiftKey && !e.ctrlKey && !e.metaKey) {
+        if (chat && userId) {
+          e.preventDefault();
+          handleAssignRef.current(chat, userId);
+        }
+        return;
+      }
+
+      switch (e.key) {
+        case "j": {
+          // Next conversation
+          e.preventDefault();
+          setHighlightedIndex((prev) => Math.min(prev + 1, currentFiltered.length - 1));
+          break;
+        }
+        case "k": {
+          // Previous conversation
+          e.preventDefault();
+          setHighlightedIndex((prev) => Math.max(prev - 1, 0));
+          break;
+        }
+        case "Enter": {
+          // Open highlighted conversation
+          const idx = highlightedIndexRef.current;
+          if (idx >= 0 && idx < currentFiltered.length) {
+            e.preventDefault();
+            handleSelectChatRef.current(currentFiltered[idx].chat_id);
+          }
+          break;
+        }
+        case "r": {
+          // Focus reply textarea
+          if (chat && replyTextareaRef.current) {
+            e.preventDefault();
+            replyTextareaRef.current.focus();
+          }
+          break;
+        }
+        case "e": {
+          // Archive
+          if (selectedConv) {
+            e.preventDefault();
+            toggleLabelRef.current(selectedConv.chat_id, selectedConv.group_name, "is_archived");
+          }
+          break;
+        }
+        case "s": {
+          // Toggle VIP/star
+          if (selectedConv) {
+            e.preventDefault();
+            toggleLabelRef.current(selectedConv.chat_id, selectedConv.group_name, "is_vip");
+          }
+          break;
+        }
+        case "p": {
+          // Toggle pin
+          if (selectedConv) {
+            e.preventDefault();
+            toggleLabelRef.current(selectedConv.chat_id, selectedConv.group_name, "is_pinned");
+          }
+          break;
+        }
+        case "m": {
+          // Toggle mute
+          if (selectedConv) {
+            e.preventDefault();
+            toggleLabelRef.current(selectedConv.chat_id, selectedConv.group_name, "is_muted");
+          }
+          break;
+        }
+        case "/": {
+          // Focus search when no conversation open
+          if (!chat && searchInputRef.current) {
+            e.preventDefault();
+            searchInputRef.current.focus();
+          }
+          break;
+        }
+        case "n": {
+          // Snooze / mark unread
+          if (chat) {
+            e.preventDefault();
+            const oneHour = new Date(Date.now() + 3600000).toISOString();
+            handleStatusChangeRef.current(chat, "snoozed", oneHour);
+          }
+          break;
+        }
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  // Sync highlighted index with selected chat
+  React.useEffect(() => {
+    if (selectedChat) {
+      const idx = filtered.findIndex((c) => c.chat_id === selectedChat);
+      if (idx >= 0) setHighlightedIndex(idx);
+    }
+  }, [selectedChat, filtered]);
+
   // ── Render ─────────────────────────────────────────────────
 
   if (loading) {
@@ -812,14 +1175,23 @@ export default function InboxPage() {
               const updates: Record<number, string> = {};
               for (const c of filtered) {
                 updates[c.chat_id] = now;
-                // Fire-and-forget per conversation
-                fetch("/api/inbox/seen", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ chat_id: c.chat_id }),
-                });
               }
               setLastSeen((prev) => ({ ...prev, ...updates }));
+              // Batch requests in chunks of 10 to avoid unbounded parallel fetches
+              const chatIds = filtered.map((c) => c.chat_id);
+              const CHUNK_SIZE = 10;
+              for (let i = 0; i < chatIds.length; i += CHUNK_SIZE) {
+                const chunk = chatIds.slice(i, i + CHUNK_SIZE);
+                await Promise.all(
+                  chunk.map((chatId) =>
+                    fetch("/api/inbox/seen", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ chat_id: chatId }),
+                    }).catch(() => {})
+                  )
+                );
+              }
               toast.success("All marked as read");
             }}
             title="Mark all as read"
@@ -831,6 +1203,14 @@ export default function InboxPage() {
             <RefreshCw className={cn("mr-1 h-3.5 w-3.5", refreshing && "animate-spin")} />
             Refresh
           </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setShowShortcutHelp(true)}
+            title="Keyboard shortcuts (?)"
+          >
+            <Keyboard className="h-3.5 w-3.5" />
+          </Button>
         </div>
       </div>
 
@@ -838,9 +1218,9 @@ export default function InboxPage() {
       <div className="flex items-center gap-3">
         <div className="flex gap-1">
           {([
+            { key: "awaiting_reply" as InboxTab, label: "Awaiting", count: awaitingReplyCount, icon: "hourglass" as const },
             { key: "mine" as InboxTab, label: "Mine", count: mineCount },
             { key: "unassigned" as InboxTab, label: "Unassigned", count: unassignedCount },
-            { key: "awaiting" as InboxTab, label: "Awaiting", count: awaitingCount },
             { key: "open" as InboxTab, label: "Open" },
             { key: "vip" as InboxTab, label: "VIP", count: vipCount },
             { key: "archived" as InboxTab, label: "Archived", count: archivedCount },
@@ -852,18 +1232,21 @@ export default function InboxPage() {
               className={cn(
                 "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap",
                 activeTab === tab.key
-                  ? tab.key === "vip" ? "bg-amber-500/20 text-amber-400" : "bg-white/10 text-foreground"
+                  ? tab.key === "vip" ? "bg-amber-500/20 text-amber-400"
+                  : tab.key === "awaiting_reply" ? "bg-orange-500/20 text-orange-400"
+                  : "bg-white/10 text-foreground"
                   : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
               )}
             >
               {tab.key === "vip" && <Star className="inline h-3 w-3 mr-0.5" />}
+              {tab.key === "awaiting_reply" && <Hourglass className="inline h-3 w-3 mr-0.5" />}
               {tab.label}
               {tab.count !== undefined && tab.count > 0 && (
                 <span className={cn(
                   "ml-1 rounded-full px-1.5 py-0.5 text-[10px]",
                   tab.key === "unassigned" ? "bg-amber-500/20 text-amber-400" :
-                  tab.key === "awaiting" ? "bg-red-500/20 text-red-400" :
-                  tab.key === "vip" ? "bg-amber-500/20 text-amber-400" : "bg-white/10"
+                  tab.key === "vip" ? "bg-amber-500/20 text-amber-400" :
+                  tab.key === "awaiting_reply" ? "bg-orange-500/20 text-orange-400" : "bg-white/10"
                 )}>
                   {tab.count}
                 </span>
@@ -874,9 +1257,10 @@ export default function InboxPage() {
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
           <Input
+            ref={searchInputRef}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search..."
+            placeholder="Search... (from: has: is:)"
             className="pl-8 h-8 text-xs"
           />
         </div>
@@ -904,9 +1288,9 @@ export default function InboxPage() {
           <InboxIcon className="mx-auto h-8 w-8 text-muted-foreground/30" />
           <p className="mt-2 text-sm text-muted-foreground">
             {search ? "No conversations match your search." :
+             activeTab === "awaiting_reply" ? "No conversations awaiting your reply." :
              activeTab === "mine" ? "No conversations assigned to you." :
              activeTab === "unassigned" ? "All conversations are assigned." :
-             activeTab === "awaiting" ? "No conversations awaiting your response." :
              activeTab === "vip" ? "No VIP conversations. Right-click a conversation to mark as VIP." :
              activeTab === "archived" ? "No archived conversations." :
              activeTab === "closed" ? "No closed conversations." :
@@ -919,7 +1303,7 @@ export default function InboxPage() {
           <div className="flex flex-col gap-2 min-h-0">
           <div className="rounded-xl border border-white/10 bg-white/[0.02] overflow-hidden flex-1">
             <div className="divide-y divide-white/5 max-h-[70vh] overflow-y-auto thin-scroll">
-              {filtered.map((conv) => {
+              {filtered.map((conv, convIndex) => {
                 const chatDeals = deals[conv.chat_id] ?? [];
                 const lastMsg = conv.messages[0];
                 const isSelected = selectedChat === conv.chat_id;
@@ -964,6 +1348,7 @@ export default function InboxPage() {
                     className={cn(
                       "w-full text-left px-3 py-2.5 transition-colors cursor-grab active:cursor-grabbing",
                       isSelected ? "bg-primary/10" :
+                      convIndex === highlightedIndex ? "bg-white/[0.06] ring-1 ring-primary/30" :
                       label?.is_vip ? "bg-amber-500/[0.04] hover:bg-amber-500/[0.08]" :
                       "hover:bg-white/[0.04]",
                       label?.is_muted && "opacity-50"
@@ -1036,6 +1421,12 @@ export default function InboxPage() {
                           title="Time since last customer message"
                         >
                           {slaHours && slaHours >= 4 ? `⏱ ${slaLabel}` : slaLabel}
+                        </span>
+                      )}
+                      {activeTab === "awaiting_reply" && lastCustomerMsg && (
+                        <span className="text-[10px] text-orange-400/70 flex items-center gap-0.5" title="Awaiting reply since">
+                          <Hourglass className="h-2.5 w-2.5" />
+                          {timeAgo(lastCustomerMsg.sent_at)}
                         </span>
                       )}
                       {assignee && (
@@ -1353,6 +1744,43 @@ export default function InboxPage() {
                     </div>
                   )}
 
+                  {/* AI summary display */}
+                  {aiSummary && (
+                    <div className="mb-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-foreground/80">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[10px] font-medium text-primary flex items-center gap-1">
+                          <Sparkles className="h-3 w-3" /> AI Summary
+                        </span>
+                        <button onClick={() => setAiSummary(null)} className="text-muted-foreground hover:text-foreground">
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                      <p className="whitespace-pre-wrap">{aiSummary}</p>
+                    </div>
+                  )}
+
+                  {/* AI action buttons */}
+                  <div className="flex items-center gap-1 mb-2">
+                    <button
+                      onClick={handleAiSummarize}
+                      disabled={aiSummarizing}
+                      className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors disabled:opacity-50"
+                      title="AI summarize conversation"
+                    >
+                      <Sparkles className={cn("h-3 w-3", aiSummarizing && "animate-pulse text-primary")} />
+                      {aiSummarizing ? "Summarizing..." : "Summarize"}
+                    </button>
+                    <button
+                      onClick={handleAiSuggestReply}
+                      disabled={aiSuggesting}
+                      className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors disabled:opacity-50"
+                      title="AI suggest reply"
+                    >
+                      <MessageSquare className={cn("h-3 w-3", aiSuggesting && "animate-pulse text-primary")} />
+                      {aiSuggesting ? "Thinking..." : "Suggest Reply"}
+                    </button>
+                  </div>
+
                   {/* Input row */}
                   <div className="flex items-end gap-2">
                     <div className="flex-1 relative">
@@ -1429,6 +1857,39 @@ export default function InboxPage() {
                     >
                       <Send className="h-3.5 w-3.5" />
                     </Button>
+
+                    {/* Schedule send */}
+                    <div className="relative" ref={scheduleRef}>
+                      <button
+                        onClick={() => setShowScheduleMenu((p) => !p)}
+                        disabled={!replyText.trim()}
+                        className={cn(
+                          "h-[38px] w-[38px] flex items-center justify-center rounded-lg border border-white/10 transition-colors",
+                          "text-muted-foreground hover:text-foreground hover:bg-white/5 disabled:opacity-30"
+                        )}
+                        title="Schedule send"
+                      >
+                        <CalendarClock className="h-3.5 w-3.5" />
+                      </button>
+                      {showScheduleMenu && (
+                        <div className="absolute right-0 bottom-10 z-10 rounded-lg border border-white/10 bg-[hsl(var(--background))] p-2 shadow-xl min-w-[160px]">
+                          <p className="text-[10px] text-muted-foreground/60 px-2 pb-1 font-medium">Schedule send</p>
+                          {[
+                            { label: "In 1 hour", getDate: () => new Date(Date.now() + 3600000) },
+                            { label: "Tomorrow 9 AM", getDate: () => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); return d; } },
+                            { label: "Tomorrow 1 PM", getDate: () => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(13, 0, 0, 0); return d; } },
+                          ].map((opt) => (
+                            <button
+                              key={opt.label}
+                              onClick={() => handleScheduleSend(opt.getDate())}
+                              className="block w-full text-left text-xs text-muted-foreground hover:text-foreground px-2 py-1.5 rounded hover:bg-white/5"
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </>
@@ -1635,6 +2096,50 @@ export default function InboxPage() {
               <Button size="sm" onClick={() => { saveNote(noteModal.chatId, noteModal.groupName, noteText); setNoteModal(null); }}>
                 Save
               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Keyboard Shortcut Help Modal */}
+      {showShortcutHelp && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          onClick={() => setShowShortcutHelp(false)}
+          onKeyDown={(e) => { if (e.key === "Escape") setShowShortcutHelp(false); }}
+        >
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-card p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                <Keyboard className="h-4 w-4 text-primary" />
+                Keyboard Shortcuts
+              </h3>
+              <button onClick={() => setShowShortcutHelp(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs">
+              {([
+                ["j / k", "Next / previous conversation"],
+                ["Enter", "Open selected conversation"],
+                ["Escape", "Close / deselect"],
+                ["r", "Focus reply"],
+                ["e", "Archive conversation"],
+                ["s", "Toggle VIP / star"],
+                ["p", "Toggle pin"],
+                ["m", "Toggle mute"],
+                ["n", "Snooze (1 hour)"],
+                ["/", "Focus search"],
+                ["Shift+A", "Assign to me"],
+                ["?", "Toggle this help"],
+              ] as const).map(([key, desc]) => (
+                <div key={key} className="flex items-center gap-2 py-1">
+                  <kbd className="inline-flex items-center justify-center rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground min-w-[28px]">
+                    {key}
+                  </kbd>
+                  <span className="text-muted-foreground">{desc}</span>
+                </div>
+              ))}
             </div>
           </div>
         </div>

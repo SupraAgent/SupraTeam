@@ -30,6 +30,8 @@ export type FormState = {
   phase: FormPhase;
   direction: "forward" | "back";
   dealId: string | null;
+  referenceCode: string | null;
+  score: number | null;
   submitError: string | null;
 };
 
@@ -42,7 +44,7 @@ export type FormAction =
   | { type: "CLEAR_ERROR"; key: string }
   | { type: "START_REVIEW" }
   | { type: "CONFIRM_SUBMIT" }
-  | { type: "SUBMIT_SUCCESS"; dealId: string }
+  | { type: "SUBMIT_SUCCESS"; dealId: string; referenceCode: string; score: number }
   | { type: "SUBMIT_ERROR"; error: string };
 
 export const SECTIONS: FormSection[] = [

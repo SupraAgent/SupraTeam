@@ -4,12 +4,83 @@ import { createClient as createSupabaseServer } from "@/lib/supabase/server";
 import { validateTelegramInitData } from "@/lib/telegram-auth";
 import { getBotById } from "@/lib/bot-registry";
 import { rateLimit } from "@/lib/rate-limit";
+import { randomBytes } from "crypto";
 import { dispatchWebhook } from "@/lib/webhooks";
 
 export const runtime = "nodejs";
 
 // Read SuperDapp bot ID from environment (bracket notation to avoid hook false positive)
 const SUPERDAPP_BOT_ID = process["env"]["SUPERDAPP_BOT_ID"];
+
+/** Generate a unique reference code like APP-X7K2 */
+function generateReferenceCode(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no ambiguous chars (0/O, 1/I)
+  const bytes = randomBytes(4);
+  let code = "";
+  for (let i = 0; i < 4; i++) {
+    code += chars[bytes[i] % chars.length];
+  }
+  return `APP-${code}`;
+}
+
+/** Calculate auto-qualification score (0-100) based on application data */
+function calculateApplicationScore(data: {
+  github_url?: string;
+  demo_url?: string;
+  project_website?: string;
+  project_stage?: string;
+  team_size?: number;
+  supra_tech_used?: string[];
+}): { score: number; breakdown: Record<string, number> } {
+  const breakdown: Record<string, number> = {};
+
+  // Has GitHub repo (+15)
+  if (data.github_url?.trim()) {
+    breakdown.github_repo = 15;
+  }
+
+  // Has demo URL (+15)
+  if (data.demo_url?.trim()) {
+    breakdown.demo_url = 15;
+  }
+
+  // Has website (+10)
+  if (data.project_website?.trim()) {
+    breakdown.website = 10;
+  }
+
+  // Project stage scoring
+  const stageScores: Record<string, number> = {
+    "Idea": 5,
+    "MVP/Prototype": 15,
+    "Beta": 25,
+    "Live/Production": 30,
+  };
+  if (data.project_stage && stageScores[data.project_stage] !== undefined) {
+    breakdown.project_stage = stageScores[data.project_stage];
+  }
+
+  // Team size scoring
+  const teamSize = data.team_size ?? 0;
+  if (teamSize >= 11) {
+    breakdown.team_size = 25;
+  } else if (teamSize >= 6) {
+    breakdown.team_size = 20;
+  } else if (teamSize >= 2) {
+    breakdown.team_size = 15;
+  } else if (teamSize === 1) {
+    breakdown.team_size = 5;
+  }
+
+  // Supra technologies used: +5 per tech, max 25
+  const techCount = data.supra_tech_used?.length ?? 0;
+  if (techCount > 0) {
+    breakdown.supra_tech = Math.min(techCount * 5, 25);
+  }
+
+  const score = Object.values(breakdown).reduce((sum, v) => sum + v, 0);
+  return { score: Math.min(score, 100), breakdown };
+}
 
 export async function POST(request: Request) {
   // Rate limit by IP — 5 submissions per 10 minutes
@@ -200,6 +271,36 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Pipeline not configured" }, { status: 503 });
   }
 
+  // Calculate auto-score
+  const { score, breakdown } = calculateApplicationScore({
+    github_url: github_url as string | undefined,
+    demo_url: demo_url as string | undefined,
+    project_website: project_website as string | undefined,
+    project_stage: project_stage as string | undefined,
+    team_size: team_size as number | undefined,
+    supra_tech_used: supra_tech_used as string[] | undefined,
+  });
+
+  // Generate unique reference code (retry on collision)
+  let referenceCode = generateReferenceCode();
+  let codeIsUnique = false;
+  for (let retries = 0; retries < 5; retries++) {
+    const { data: existing } = await admin
+      .from("crm_deals")
+      .select("id")
+      .eq("reference_code", referenceCode)
+      .single();
+    if (!existing) {
+      codeIsUnique = true;
+      break;
+    }
+    referenceCode = generateReferenceCode();
+  }
+  if (!codeIsUnique) {
+    console.error("[applications] reference code collision after 5 retries");
+    return NextResponse.json({ error: "Failed to generate unique reference code. Please try again." }, { status: 500 });
+  }
+
   // If QR code specified, use its pipeline stage and assigned_to as defaults
   let dealStageId = submittedStage.id;
   let dealAssignedTo: string | null = null;
@@ -229,9 +330,11 @@ export async function POST(request: Request) {
       contact_id: contactId,
       assigned_to: dealAssignedTo,
       source: dealSource,
-      value: funding_requested || null,
+      value: funding_requested ?? null,
+      health_score: score,
+      reference_code: referenceCode,
     })
-    .select("id")
+    .select("id, reference_code")
     .single();
 
   if (dealErr || !deal) {
@@ -285,6 +388,16 @@ export async function POST(request: Request) {
     }
   }
 
+  // Store scoring breakdown as a deal note
+  const scoreNote = [
+    `Auto-Score: ${score}/100`,
+    ...Object.entries(breakdown).map(([key, val]) => `  ${key}: +${val}`),
+  ].join("\n");
+  await admin.from("crm_deal_notes").insert({
+    deal_id: deal.id,
+    text: scoreNote,
+  }).then(() => {}, (err) => console.error("[applications] score note error:", err));
+
   // Dispatch webhooks (non-blocking)
   dispatchWebhook("deal.created", {
     deal_id: deal.id,
@@ -313,11 +426,13 @@ export async function POST(request: Request) {
       const confirmText = [
         "Application Received!",
         "",
+        `Reference: ${referenceCode}`,
         `Project: ${project_name.trim()}`,
         `Category: ${project_category}`,
+        `Score: ${score}/100`,
         `Status: Submitted`,
         "",
-        "We'll review your application and get back to you. Good luck!",
+        `Track your application anytime with reference code: ${referenceCode}`,
       ].join("\n");
 
       fetch(`https://api.telegram.org/bot${bot.token}/sendMessage`, {
@@ -328,5 +443,10 @@ export async function POST(request: Request) {
     }
   }
 
-  return NextResponse.json({ ok: true, deal_id: deal.id });
+  return NextResponse.json({
+    ok: true,
+    deal_id: deal.id,
+    reference_code: deal.reference_code,
+    score,
+  });
 }

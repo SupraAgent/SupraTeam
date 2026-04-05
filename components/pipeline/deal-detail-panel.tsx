@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { ConversationTimeline } from "./conversation-timeline";
+import { ApplicationReviewCard } from "./application-review-card";
 
 type Note = {
   id: string;
@@ -423,6 +424,18 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
         {/* Details tab */}
         {!loadingContent && tab === "details" && (
           <div className="space-y-3">
+            {/* Application review card for Applications board */}
+            {deal.board_type === "Applications" && (
+              <ApplicationReviewCard
+                deal={deal}
+                stages={stages}
+                customValues={customValues}
+                fieldLabels={Object.fromEntries(customFields.map((f) => [f.id, f.label]))}
+                onStageChange={(newStageId) => handleQuickStageMove(newStageId)}
+                onUpdated={onUpdated}
+              />
+            )}
+
             <div>
               <label className="text-[11px] font-medium text-muted-foreground">Deal Name</label>
               <Input value={dealName} onChange={(e) => setDealName(e.target.value)} className="mt-1" />

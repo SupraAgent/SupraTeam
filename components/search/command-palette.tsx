@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Search, X, ArrowRight, Mail, Users, MessageCircle, Kanban, Settings, Zap, FileText, Shield, Radio, Network, Home, PenSquare } from "lucide-react";
+import { Search, X, ArrowRight, Mail, Users, MessageCircle, Kanban, Settings, Zap, FileText, Shield, Radio, Home, PenSquare } from "lucide-react";
 
 type SearchResult = {
   deals: { id: string; deal_name: string; board_type: string; stage: { name: string; color: string } | null }[];
@@ -81,7 +81,6 @@ export function CommandPalette() {
     { id: "nav-groups", type: "navigate", label: "TG Groups", icon: <MessageCircle className="h-4 w-4" />, shortcut: "g g", action: () => router.push("/groups") },
     { id: "nav-broadcasts", type: "navigate", label: "Broadcasts", icon: <Radio className="h-4 w-4" />, action: () => router.push("/broadcasts") },
     { id: "nav-access", type: "navigate", label: "Access Control", icon: <Shield className="h-4 w-4" />, action: () => router.push("/access") },
-    { id: "nav-graph", type: "navigate", label: "Graph", icon: <Network className="h-4 w-4" />, action: () => router.push("/graph") },
     { id: "nav-docs", type: "navigate", label: "Docs", icon: <FileText className="h-4 w-4" />, action: () => router.push("/docs") },
     { id: "nav-settings", type: "navigate", label: "Settings", icon: <Settings className="h-4 w-4" />, shortcut: "g s", action: () => router.push("/settings") },
     { id: "nav-settings-email", type: "navigate", label: "Email Settings", icon: <Settings className="h-4 w-4" />, action: () => router.push("/settings/integrations/email") },

@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, Flame, ChevronRight, Zap, WifiOff } from "lucide-react";
+import { AlertTriangle, Flame, ChevronRight, Zap, WifiOff, Plus, Users, MessageSquare } from "lucide-react";
 import { BottomTabBar } from "@/components/tma/bottom-tab-bar";
 import { PullToRefresh } from "@/components/tma/pull-to-refresh";
 import { useTelegramWebApp } from "@/components/tma/use-telegram";
@@ -111,7 +111,7 @@ export default function TMAHomePage() {
   }, []);
 
   React.useEffect(() => {
-    fetchData().finally(() => setLoading(false));
+    fetchData();
   }, [fetchData]);
 
   if (loading) {
@@ -139,6 +139,44 @@ export default function TMAHomePage() {
             </span>
           )}
         </p>
+      </div>
+
+      {/* Quick Actions */}
+      <div className="px-4 mb-4">
+        <div className="grid grid-cols-3 gap-2">
+          <Link
+            href="/tma/deals?create=1"
+            className="flex flex-col items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.035] py-3 transition active:bg-white/[0.06]"
+          >
+            <div className="h-9 w-9 rounded-full bg-primary/15 flex items-center justify-center">
+              <Plus className="h-4 w-4 text-primary" />
+            </div>
+            <span className="text-[10px] font-medium text-muted-foreground">New Deal</span>
+          </Link>
+          <Link
+            href="/tma/contacts?create=1"
+            className="flex flex-col items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.035] py-3 transition active:bg-white/[0.06]"
+          >
+            <div className="h-9 w-9 rounded-full bg-blue-500/15 flex items-center justify-center">
+              <Users className="h-4 w-4 text-blue-400" />
+            </div>
+            <span className="text-[10px] font-medium text-muted-foreground">New Contact</span>
+          </Link>
+          <Link
+            href="/tma/inbox"
+            className="relative flex flex-col items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.035] py-3 transition active:bg-white/[0.06]"
+          >
+            <div className="h-9 w-9 rounded-full bg-amber-500/15 flex items-center justify-center">
+              <MessageSquare className="h-4 w-4 text-amber-400" />
+            </div>
+            <span className="text-[10px] font-medium text-muted-foreground">Inbox</span>
+            {stats && stats.hotConversations.length > 0 && (
+              <span className="absolute top-1.5 right-3 h-4 min-w-4 rounded-full bg-red-500 text-[9px] font-bold text-white flex items-center justify-center px-1">
+                {stats.hotConversations.length}
+              </span>
+            )}
+          </Link>
+        </div>
       </div>
 
       {/* Urgent section */}

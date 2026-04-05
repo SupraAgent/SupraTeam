@@ -56,7 +56,7 @@ function reducer(state: FormState, action: FormAction): FormState {
     case "CONFIRM_SUBMIT":
       return { ...state, phase: "submitting", submitError: null };
     case "SUBMIT_SUCCESS":
-      return { ...state, phase: "done", dealId: action.dealId };
+      return { ...state, phase: "done", dealId: action.dealId, referenceCode: action.referenceCode, score: action.score };
     case "SUBMIT_ERROR":
       return { ...state, phase: "error", submitError: action.error };
     default:
@@ -71,6 +71,8 @@ const INITIAL_STATE: FormState = {
   phase: "filling",
   direction: "forward",
   dealId: null,
+  referenceCode: null,
+  score: null,
   submitError: null,
 };
 
@@ -172,7 +174,12 @@ export function ApplicationForm({ mode, telegramInitData, telegramUser, qrCodeId
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Submission failed");
-      dispatch({ type: "SUBMIT_SUCCESS", dealId: data.deal_id });
+      dispatch({
+        type: "SUBMIT_SUCCESS",
+        dealId: data.deal_id,
+        referenceCode: data.reference_code ?? "",
+        score: data.score ?? 0,
+      });
     } catch (err) {
       dispatch({
         type: "SUBMIT_ERROR",
@@ -224,6 +231,8 @@ export function ApplicationForm({ mode, telegramInitData, telegramUser, qrCodeId
                 error={state.submitError}
                 onEditSection={handleEditSection}
                 onSubmit={handleSubmit}
+                referenceCode={state.referenceCode}
+                score={state.score}
               />
             ) : (
               <div>
