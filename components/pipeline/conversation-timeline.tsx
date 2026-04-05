@@ -3,7 +3,7 @@
 import * as React from "react";
 import { cn, timeAgo } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
-import { Send, Loader2, ExternalLink, Search, ChevronUp, ChevronDown, MessageCircle, Bot, User, Image, FileText, Sparkles, GitBranch, StickyNote, Brain } from "lucide-react";
+import { Send, Loader2, ExternalLink, Search, ChevronUp, ChevronDown, MessageCircle, Bot, User, Image, FileText, Sparkles, GitBranch, StickyNote, Brain, Users, Megaphone, ChevronUpIcon } from "lucide-react";
 
 type Message = {
   id: string;
@@ -37,17 +37,26 @@ type TimelineItem =
   | { kind: "message"; data: Message }
   | { kind: "activity"; data: ActivityCard };
 
+export interface DealLinkedChat {
+  chat_id: number;
+  chat_name: string;
+  chat_type: "dm" | "group" | "channel";
+  is_primary: boolean;
+  chat_link?: string | null;
+}
+
 type ConversationTimelineProps = {
   dealId: string;
   telegramChatId: number | null;
   telegramChatLink?: string | null;
   onUnreadChange?: (count: number) => void;
   activities?: ActivityCard[];
+  linkedChats?: DealLinkedChat[];
 };
 
 const POLL_INTERVAL = 15_000; // 15 seconds
 
-export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink, onUnreadChange, activities = [] }: ConversationTimelineProps) {
+export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink, onUnreadChange, activities = [], linkedChats = [] }: ConversationTimelineProps) {
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [hasMore, setHasMore] = React.useState(false);
@@ -59,8 +68,25 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
   const [newMessageCount, setNewMessageCount] = React.useState(0);
   const [suggestions, setSuggestions] = React.useState<Array<{ label: string; text: string }>>([]);
   const [loadingSuggestions, setLoadingSuggestions] = React.useState(false);
+  const [selectedChatId, setSelectedChatId] = React.useState<number | null>(null);
+  const [showChatSelector, setShowChatSelector] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const isAtBottomRef = React.useRef(true);
+
+  // Determine effective chats list and selected chat
+  const hasMultipleChats = linkedChats.length > 1;
+  const effectiveSelectedChatId = React.useMemo(() => {
+    if (selectedChatId && linkedChats.some((c) => c.chat_id === selectedChatId)) {
+      return selectedChatId;
+    }
+    const primary = linkedChats.find((c) => c.is_primary);
+    return primary?.chat_id ?? linkedChats[0]?.chat_id ?? telegramChatId;
+  }, [selectedChatId, linkedChats, telegramChatId]);
+
+  const selectedChat = React.useMemo(
+    () => linkedChats.find((c) => c.chat_id === effectiveSelectedChatId) ?? null,
+    [linkedChats, effectiveSelectedChatId]
+  );
 
   const fetchMessages = React.useCallback(async (cursor?: string) => {
     try {
@@ -211,7 +237,8 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
     if (!reply.trim() || sending) return;
     setSending(true);
     try {
-      const res = await fetch(`/api/deals/${dealId}/conversation`, {
+      const chatIdParam = effectiveSelectedChatId ? `?chat_id=${effectiveSelectedChatId}` : "";
+      const res = await fetch(`/api/deals/${dealId}/conversation${chatIdParam}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: reply.trim() }),
@@ -518,32 +545,88 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
         </div>
       )}
 
-      {/* Reply input */}
-      <div className="flex gap-2 pt-2 border-t border-white/5 shrink-0 mt-2">
-        <input
-          value={reply}
-          onChange={(e) => setReply(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              handleSend();
-            }
-          }}
-          placeholder="Type a reply..."
-          className="flex-1 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-xs outline-none focus:border-primary/30"
-        />
-        <button
-          onClick={handleSend}
-          disabled={sending || !reply.trim()}
-          className={cn(
-            "shrink-0 rounded-lg px-3 py-2 transition-colors",
-            reply.trim()
-              ? "bg-primary text-primary-foreground hover:bg-primary/90"
-              : "bg-white/5 text-muted-foreground/30"
-          )}
-        >
-          {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-        </button>
+      {/* Chat selector + Reply input */}
+      <div className="shrink-0 mt-2 border-t border-white/5 pt-2 space-y-1.5">
+        {/* Multi-chat selector */}
+        {hasMultipleChats && (
+          <div className="relative">
+            <button
+              onClick={() => setShowChatSelector(!showChatSelector)}
+              className="flex items-center gap-1.5 w-full rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1.5 text-[10px] hover:bg-white/[0.06] transition-colors"
+            >
+              <ChatTypeIcon type={selectedChat?.chat_type ?? "group"} className="h-3 w-3 shrink-0" />
+              <span className="truncate text-foreground/80">
+                {selectedChat?.chat_name ?? "Select chat"}
+              </span>
+              <ChevronUpIcon className={cn("h-3 w-3 ml-auto shrink-0 text-muted-foreground/50 transition-transform", showChatSelector && "rotate-180")} />
+            </button>
+            {showChatSelector && (
+              <div className="absolute bottom-full left-0 right-0 mb-1 rounded-lg border border-white/10 bg-zinc-900 shadow-xl z-10 py-1 max-h-[160px] overflow-y-auto">
+                {linkedChats.map((chat) => (
+                  <button
+                    key={chat.chat_id}
+                    onClick={() => {
+                      setSelectedChatId(chat.chat_id);
+                      setShowChatSelector(false);
+                    }}
+                    className={cn(
+                      "flex items-center gap-2 w-full px-2.5 py-1.5 text-[10px] hover:bg-white/[0.06] transition-colors",
+                      chat.chat_id === effectiveSelectedChatId && "bg-white/[0.04]"
+                    )}
+                  >
+                    <ChatTypeIcon type={chat.chat_type} className="h-3 w-3 shrink-0" />
+                    <span className="truncate text-foreground/80">{chat.chat_name}</span>
+                    {chat.is_primary && (
+                      <span className="text-[8px] text-primary/60 bg-primary/5 px-1 py-0.5 rounded ml-auto shrink-0">primary</span>
+                    )}
+                    {chat.chat_id === effectiveSelectedChatId && (
+                      <span className="text-primary ml-auto shrink-0">&#10003;</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Replying-to indicator (shown when multiple chats exist) */}
+        {hasMultipleChats && selectedChat && (
+          <div className="flex items-center gap-1.5 px-1">
+            <span className="text-[9px] text-muted-foreground/50">Replying to:</span>
+            <ChatTypeIcon type={selectedChat.chat_type} className={cn("h-2.5 w-2.5", chatTypeColor(selectedChat.chat_type))} />
+            <span className={cn("text-[9px] font-medium truncate", chatTypeColor(selectedChat.chat_type))}>
+              {selectedChat.chat_name}
+            </span>
+          </div>
+        )}
+
+        {/* Input row */}
+        <div className="flex gap-2">
+          <input
+            value={reply}
+            onChange={(e) => setReply(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+              }
+            }}
+            placeholder={hasMultipleChats && selectedChat ? `Reply in ${selectedChat.chat_name}...` : "Type a reply..."}
+            className="flex-1 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-xs outline-none focus:border-primary/30"
+          />
+          <button
+            onClick={handleSend}
+            disabled={sending || !reply.trim()}
+            className={cn(
+              "shrink-0 rounded-lg px-3 py-2 transition-colors",
+              reply.trim()
+                ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                : "bg-white/5 text-muted-foreground/30"
+            )}
+          >
+            {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -579,6 +662,34 @@ function ActivityCardItem({ act, icon, color }: { act: ActivityCard; icon: React
       <span className="text-[9px] opacity-50 shrink-0 mt-0.5">{timeAgo(act.created_at)}</span>
     </div>
   );
+}
+
+/** Icon for chat type (DM, group, channel) */
+function ChatTypeIcon({ type, className }: { type: DealLinkedChat["chat_type"]; className?: string }) {
+  switch (type) {
+    case "dm":
+      return <MessageCircle className={className} />;
+    case "group":
+      return <Users className={className} />;
+    case "channel":
+      return <Megaphone className={className} />;
+    default:
+      return <MessageCircle className={className} />;
+  }
+}
+
+/** Color class for chat type labels */
+function chatTypeColor(type: DealLinkedChat["chat_type"]): string {
+  switch (type) {
+    case "dm":
+      return "text-blue-400";
+    case "group":
+      return "text-emerald-400";
+    case "channel":
+      return "text-purple-400";
+    default:
+      return "text-muted-foreground";
+  }
 }
 
 /** Inline media preview for photos and documents */
