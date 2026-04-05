@@ -11,7 +11,7 @@ import { triggerLoopWorkflowsByEvent, isLoopBuilderWorkflow } from "@/lib/loop-w
 import type { Workflow } from "@/lib/workflow-db-types";
 
 export interface AutomationEvent {
-  type: "stage_change" | "deal_created" | "deal_value_change" | "tag_added";
+  type: "stage_change" | "deal_created" | "deal_value_change" | "tag_added" | "booking_scheduled" | "booking_canceled" | "meeting_transcribed";
   dealId: string;
   payload: Record<string, unknown>;
 }

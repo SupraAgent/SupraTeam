@@ -170,9 +170,21 @@ export function ActivityTimeline({ dealId }: ActivityTimelineProps) {
                     {new Date(activity.metadata.scheduled_at).toLocaleString()}
                   </p>
                 )}
-                <p className="mt-0.5 text-[10px] text-muted-foreground/60">
-                  {timeAgo(activity.created_at)}
-                </p>
+                <div className="mt-0.5 flex items-center gap-2">
+                  <p className="text-[10px] text-muted-foreground/60">
+                    {timeAgo(activity.created_at)}
+                  </p>
+                  {activity.type === "tg_message" && typeof activity.metadata?.tg_deep_link === "string" && (
+                    <a
+                      href={activity.metadata.tg_deep_link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[10px] text-[#2AABEE]/70 hover:text-[#2AABEE] transition-colors"
+                    >
+                      View in Telegram
+                    </a>
+                  )}
+                </div>
               </div>
             </div>
           ))}

@@ -1649,7 +1649,7 @@ export class TelegramBrowserService {
     accessHash: string | undefined,
     limit = 50,
     offsetId = 0
-  ): Promise<{ messages: TgMessage[]; hasMore: boolean }> {
+  ): Promise<{ messages: TgMessage[]; hasMore: boolean; totalCount: number }> {
     this.requireClient();
     const peer = this.buildPeer(peerType, id, accessHash);
 
@@ -1666,7 +1666,7 @@ export class TelegramBrowserService {
       })
     );
 
-    if (result instanceof Api.messages.MessagesNotModified) return { messages: [], hasMore: false };
+    if (result instanceof Api.messages.MessagesNotModified) return { messages: [], hasMore: false, totalCount: 0 };
 
     const msgs = result as Api.messages.Messages | Api.messages.MessagesSlice | Api.messages.ChannelMessages;
     const parsed = this.parseMessagesFromResult(msgs);
@@ -1684,7 +1684,50 @@ export class TelegramBrowserService {
     const totalCount = "count" in msgs ? (msgs as Api.messages.MessagesSlice).count : parsed.length;
     const hasMore = parsed.length === limit;
 
-    return { messages: parsed, hasMore };
+    return { messages: parsed, hasMore, totalCount };
+  }
+
+  /** Get messages centered around a specific message ID (for jump-to). */
+  async getMessagesAround(
+    peerType: "user" | "chat" | "channel",
+    id: number,
+    accessHash: string | undefined,
+    aroundId: number,
+    limit = 50
+  ): Promise<{ messages: TgMessage[]; hasMore: boolean; totalCount: number }> {
+    this.requireClient();
+    const peer = this.buildPeer(peerType, id, accessHash);
+    const halfLimit = Math.floor(limit / 2);
+
+    const result = await this.client!.invoke(
+      new Api.messages.GetHistory({
+        peer,
+        offsetId: aroundId,
+        offsetDate: 0,
+        addOffset: -halfLimit,
+        limit,
+        maxId: 0,
+        minId: 0,
+        hash: bigInt(0),
+      })
+    );
+
+    if (result instanceof Api.messages.MessagesNotModified) return { messages: [], hasMore: false, totalCount: 0 };
+
+    const msgs = result as Api.messages.Messages | Api.messages.MessagesSlice | Api.messages.ChannelMessages;
+    const parsed = this.parseMessagesFromResult(msgs);
+
+    for (const u of msgs.users) {
+      if (u instanceof Api.User && !u.deleted) {
+        this.userCache.set(u.id.toString(), {
+          firstName: u.firstName ?? "",
+          lastName: u.lastName ?? undefined,
+        });
+      }
+    }
+
+    const totalCount = "count" in msgs ? (msgs as Api.messages.MessagesSlice).count : parsed.length;
+    return { messages: parsed, hasMore: parsed.length === limit, totalCount };
   }
 
   // ── Folders (Dialog Filters) ───────────────────────────────

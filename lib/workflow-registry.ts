@@ -37,6 +37,9 @@ import {
   Brain,
   Shield,
   FilePlus,
+  CalendarCheck,
+  CalendarX,
+  FileText,
 } from "lucide-react";
 
 // ConfigFieldDef now natively supports optionsUrl + mapOption — no cast needed
@@ -75,6 +78,10 @@ export const CRM_TRIGGERS: NodePaletteItem[] = [
   { type: "trigger", subType: "scheduled", label: "Scheduled", description: "Runs on a cron schedule", icon: "Clock", defaultConfig: { cron_expression: "0 9 * * 1-5" } },
   { type: "trigger", subType: "lead_qualified", label: "Lead Qualified", description: "AI agent qualifies a lead from TG conversation", icon: "Sparkles", defaultConfig: {} },
   { type: "trigger", subType: "bot_dm_received", label: "Bot DM Received", description: "When someone DMs the bot", icon: "MessageCircle", defaultConfig: {} },
+  // Meeting/booking triggers
+  { type: "trigger", subType: "booking_scheduled", label: "Booking Scheduled", description: "When a Calendly meeting is booked", icon: "CalendarCheck", defaultConfig: {} },
+  { type: "trigger", subType: "booking_canceled", label: "Booking Canceled", description: "When a meeting is canceled or rescheduled", icon: "CalendarX", defaultConfig: {} },
+  { type: "trigger", subType: "meeting_transcribed", label: "Meeting Transcribed", description: "When a Fireflies transcript is received", icon: "FileText", defaultConfig: {} },
 ];
 
 export const CRM_ACTIONS: NodePaletteItem[] = [
@@ -99,6 +106,9 @@ export const CRM_ACTIONS: NodePaletteItem[] = [
   { type: "action", subType: "ai_classify", label: "AI Classify", description: "AI scores or classifies", icon: "Brain", defaultConfig: { classification_type: "lead_quality" } },
   { type: "action", subType: "tg_manage_access", label: "TG Manage Access", description: "Add/remove user from TG groups", icon: "Shield", defaultConfig: { action: "add", slug: "" } },
   { type: "action", subType: "create_deal", label: "Create Deal", description: "Create a new deal", icon: "FilePlus", defaultConfig: { name: "", board_type: "BD" } },
+  // Meeting/booking actions
+  { type: "action", subType: "advance_deal_stage", label: "Advance Deal Stage", description: "Move deal to the next pipeline stage", icon: "ArrowRightLeft", defaultConfig: { target_stage: "" } },
+  { type: "action", subType: "generate_booking_link", label: "Generate Booking Link", description: "Create a Calendly link and send via TG", icon: "CalendarCheck", defaultConfig: { event_type_uri: "", send_to_chat: "true" } },
 ];
 
 // ── Full registry ───────────────────────────────────────────────
@@ -220,6 +230,27 @@ export const CRM_REGISTRY: NodeRegistry = {
         { key: "keyword", label: "Keyword match (optional)", type: "text", placeholder: "e.g. pricing, support, help" },
       ],
       infoText: "Fires when a user sends a direct message to the bot. Available vars: {{sender_name}}, {{sender_username}}, {{sender_id}}, {{message_text}}.",
+    },
+    booking_scheduled: {
+      subType: "booking_scheduled",
+      configFields: [
+        { key: "board_type", label: "Board type (optional)", type: "select", options: BOARD_OPTIONS },
+      ],
+      infoText: "Fires when a Calendly booking is confirmed. Vars: {{invitee_name}}, {{invitee_email}}, {{event_type}}, {{scheduled_at}}, {{deal_name}}, {{contact_name}}.",
+    },
+    booking_canceled: {
+      subType: "booking_canceled",
+      configFields: [
+        { key: "include_rescheduled", label: "Include rescheduled?", type: "select", options: [{ value: "false", label: "No — cancellations only" }, { value: "true", label: "Yes — both" }] },
+      ],
+      infoText: "Fires when a Calendly booking is canceled (optionally also rescheduled). Vars: {{invitee_email}}, {{canceler_email}}, {{rescheduled}}, {{deal_name}}.",
+    },
+    meeting_transcribed: {
+      subType: "meeting_transcribed",
+      configFields: [
+        { key: "min_sentiment", label: "Min sentiment % (optional)", type: "number", placeholder: "0-100" },
+      ],
+      infoText: "Fires when a Fireflies transcript is received for a matched deal. Vars: {{transcript_title}}, {{summary}}, {{sentiment}}, {{action_items}}, {{duration_minutes}}, {{deal_name}}.",
     },
   },
 
@@ -382,6 +413,23 @@ export const CRM_REGISTRY: NodeRegistry = {
       ],
       infoText: "Creates a new deal. Use merge variables in the name: {{contact_name}}, {{company}}, {{sender_name}}.",
     },
+    advance_deal_stage: {
+      subType: "advance_deal_stage",
+      configFields: [
+        { key: "target_stage", label: "Target stage (optional)", type: "async_select", placeholder: "Next stage (default)", optionsUrl: "/api/pipeline", mapOption: stageMapOption },
+        { key: "only_from_stage", label: "Only if currently in stage (optional)", type: "async_select", placeholder: "Any stage", optionsUrl: "/api/pipeline", mapOption: stageMapOption },
+      ],
+      infoText: "Moves the deal to the target stage, or to the next stage if no target is specified. Optionally guard with 'only from' to prevent regression.",
+    },
+    generate_booking_link: {
+      subType: "generate_booking_link",
+      configFields: [
+        { key: "event_type_uri", label: "Event type (optional)", type: "text", placeholder: "Auto-selects if only one" },
+        { key: "send_to_chat", label: "Send to deal's TG chat", type: "select", options: [{ value: "true", label: "Yes" }, { value: "false", label: "No — just generate" }] },
+        { key: "message_template", label: "Message template", type: "textarea", placeholder: "📅 Book a call: {{booking_url}}" },
+      ],
+      infoText: "Generates a tracked Calendly booking link. If send_to_chat is enabled, sends it to the deal's linked Telegram group.",
+    },
   },
 
   conditionFields: [
@@ -394,6 +442,9 @@ export const CRM_REGISTRY: NodeRegistry = {
     { value: "contact_source", label: "Contact Source" },
     { value: "deal_age_days", label: "Deal Age (days)" },
     { value: "outcome", label: "Outcome" },
+    { value: "sentiment_score", label: "Sentiment Score (%)" },
+    { value: "has_upcoming_meeting", label: "Has Upcoming Meeting" },
+    { value: "last_meeting_sentiment", label: "Last Meeting Sentiment (%)" },
   ],
 };
 
@@ -418,6 +469,9 @@ export const CRM_ICON_MAP: Record<string, React.ElementType> = {
   deal_lost: XCircle,
   scheduled: Clock,
   bot_dm_received: MessageCircle,
+  booking_scheduled: CalendarCheck,
+  booking_canceled: CalendarX,
+  meeting_transcribed: FileText,
   // Action icons
   send_telegram: Send,
   send_email: Mail,
@@ -438,9 +492,12 @@ export const CRM_ICON_MAP: Record<string, React.ElementType> = {
   ai_classify: Brain,
   tg_manage_access: Shield,
   create_deal: FilePlus,
+  advance_deal_stage: ArrowRightLeft,
+  generate_booking_link: CalendarCheck,
   // Sidebar palette icons (by icon name)
   ArrowRightLeft, PlusCircle, DollarSign, Mail, MessageCircle, Calendar, Webhook, Play,
   Send, Pencil, UserCog, UserPlus, CheckSquare, GitBranch, Clock, Hash,
   AlertTriangle, UserCheck, Timer, UserMinus, Trophy, XCircle, Radio,
   Tag, Minus, Globe, ListPlus, ListMinus, Sparkles, Brain, Shield, FilePlus,
+  CalendarCheck, CalendarX, FileText,
 };

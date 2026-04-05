@@ -1,73 +1,103 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
-import { generateQrSvg } from "@/lib/qr-svg";
 
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id } = await params;
+interface RouteParams {
+  params: Promise<{ id: string }>;
+}
+
+export async function GET(_request: Request, { params }: RouteParams) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
-  const { supabase, admin } = auth;
+  const { supabase } = auth;
+  const { id } = await params;
 
-  // Fetch QR code with stage info (RLS scoped to user)
-  const { data: qrCode, error } = await supabase
+  const { data, error } = await supabase
     .from("crm_qr_codes")
-    .select("*, stage:pipeline_stages(id, name)")
+    .select("*, bot:crm_bots(id, label, bot_username)")
     .eq("id", id)
     .single();
 
-  if (error || !qrCode) {
+  if (error || !data) {
     return NextResponse.json({ error: "QR code not found" }, { status: 404 });
   }
 
-  // Fetch scan history
+  // Also fetch scan history
   const { data: scans } = await supabase
     .from("crm_qr_scans")
-    .select("id, telegram_user_id, scanned_at, ip_hint, converted_to_deal_id")
+    .select("*")
     .eq("qr_code_id", id)
     .order("scanned_at", { ascending: false })
-    .limit(100);
+    .limit(50);
 
-  // Compute stats
-  const totalScans = scans?.length ?? 0;
-  const conversions = (scans ?? []).filter((s: { converted_to_deal_id: string | null }) => s.converted_to_deal_id).length;
-  const uniqueUsers = new Set((scans ?? []).map((s: { telegram_user_id: number | null }) => s.telegram_user_id).filter(Boolean)).size;
+  return NextResponse.json({ data, scans: scans ?? [], source: "supabase" });
+}
 
-  // Fetch assigned profile name via admin
-  let assignedProfile: { display_name: string; avatar_url: string } | null = null;
-  if (qrCode.assigned_to) {
-    const { data: profile } = await admin
-      .from("profiles")
-      .select("display_name, avatar_url")
-      .eq("id", qrCode.assigned_to)
-      .single();
-    assignedProfile = profile ?? null;
+export async function PATCH(request: Request, { params }: RouteParams) {
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+  const { supabase } = auth;
+  const { id } = await params;
+
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  // Generate deep link and SVG
-  const botUsername = process.env.TELEGRAM_BOT_USERNAME;
-  const deepLink = botUsername
-    ? `https://t.me/${botUsername}?start=qr_${qrCode.id}`
-    : `qr_${qrCode.id}`;
+  // Only allow updating specific fields
+  const allowed = ["name", "type", "bot_id", "auto_create_group", "group_name_template", "welcome_message", "auto_add_members", "auto_create_deal", "deal_stage_id", "deal_board_type", "campaign_source", "slug_tags", "max_scans", "expires_at", "is_active"];
+  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
 
-  const svgQr = generateQrSvg(deepLink, 300);
+  for (const key of allowed) {
+    if (key in body) {
+      updates[key] = body[key];
+    }
+  }
 
-  return NextResponse.json({
-    data: {
-      ...qrCode,
-      assigned_profile: assignedProfile,
-      deep_link: deepLink,
-      svg: svgQr,
-      stats: {
-        total_scans: totalScans,
-        conversions,
-        unique_users: uniqueUsers,
-        conversion_rate: totalScans > 0 ? Math.round((conversions / totalScans) * 100) : 0,
-      },
-      scans: scans ?? [],
-    },
-    source: "supabase",
-  });
+  // Validate auto_add_members if provided
+  if ("auto_add_members" in updates) {
+    const members = updates.auto_add_members;
+    if (!Array.isArray(members)) {
+      return NextResponse.json({ error: "auto_add_members must be an array" }, { status: 400 });
+    }
+    for (const m of members) {
+      if (!m || typeof m !== "object" || !("type" in m) || !("id" in m)) {
+        return NextResponse.json({ error: "Invalid auto_add_members format" }, { status: 400 });
+      }
+    }
+  }
+
+  const { data, error } = await supabase
+    .from("crm_qr_codes")
+    .update(updates)
+    .eq("id", id)
+    .select("*, bot:crm_bots(id, label, bot_username)")
+    .single();
+
+  if (error) {
+    console.error("[api/qr-codes] update error:", error);
+    return NextResponse.json({ error: "Failed to update QR code" }, { status: 500 });
+  }
+
+  return NextResponse.json({ data, ok: true });
+}
+
+export async function DELETE(_request: Request, { params }: RouteParams) {
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+  const { supabase } = auth;
+  const { id } = await params;
+
+  const { error } = await supabase
+    .from("crm_qr_codes")
+    .delete()
+    .eq("id", id);
+
+  if (error) {
+    console.error("[api/qr-codes] delete error:", error);
+    return NextResponse.json({ error: "Failed to delete QR code" }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true });
 }

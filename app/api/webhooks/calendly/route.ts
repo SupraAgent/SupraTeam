@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
 import { createSupabaseAdmin } from "@/lib/supabase";
 import { matchOrCreateContact } from "@/lib/contacts/match-or-create";
+import { hashPII } from "@/lib/crypto";
+import { evaluateAutomationRules } from "@/lib/automation-engine";
 
 /**
  * POST: Calendly webhook handler.
@@ -83,6 +85,7 @@ async function handleInviteeCreated(
   const scheduledEvent = data.scheduled_event as Record<string, unknown> | undefined;
   const scheduledAt = (scheduledEvent?.start_time as string | undefined) ??
     (data as Record<string, unknown>).scheduled_event_start_time as string | undefined;
+  const googleCalEventId = scheduledEvent?.google_calendar_event_id as string | undefined;
   const utmSource = (data.tracking as Record<string, string>)?.utm_source;
   const utmCampaign = (data.tracking as Record<string, string>)?.utm_campaign; // deal_id
   const utmContent = (data.tracking as Record<string, string>)?.utm_content; // contact_id
@@ -162,7 +165,12 @@ async function handleInviteeCreated(
   }
 
   if (!userId) {
-    console.error("[calendly/webhook] Could not determine user for booking");
+    console.error("[calendly/webhook] Could not determine user for booking", {
+      event_uri: eventUri,
+      invitee_email_hash: hashPII(inviteeEmail),
+      host_uri: eventHostUri?.[0]?.user ?? "none",
+      utm_source: utmSource ?? "none",
+    });
     return;
   }
 
@@ -176,6 +184,7 @@ async function handleInviteeCreated(
         invitee_name: inviteeName,
         scheduled_at: scheduledAt || null,
         calendly_event_uri: eventUri || null,
+        google_calendar_event_id: googleCalEventId || null,
         booked_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
@@ -194,6 +203,7 @@ async function handleInviteeCreated(
         invitee_name: inviteeName,
         scheduled_at: scheduledAt || null,
         calendly_event_uri: eventUri || null,
+        google_calendar_event_id: googleCalEventId || null,
         booked_at: new Date().toISOString(),
       })
       .select("id")
@@ -301,6 +311,18 @@ async function handleInviteeCreated(
         reference_id: bookingLink?.id as string,
         reference_type: "booking_link",
       });
+
+      // Fire workflow trigger (non-blocking)
+      evaluateAutomationRules({
+        type: "booking_scheduled",
+        dealId,
+        payload: {
+          invitee_name: inviteeName,
+          invitee_email: inviteeEmail,
+          scheduled_at: scheduledAt,
+          booking_link_id: bookingLink?.id,
+        },
+      }).catch((err) => console.error("[calendly/webhook] workflow trigger error:", err));
     }
   }
 }
@@ -351,4 +373,17 @@ async function handleInviteeCanceled(
   }
 
   // NOTE: Do NOT regress deal stage on cancellation — rep should decide next action
+
+  // Fire workflow trigger (non-blocking)
+  if (bookingLink.deal_id) {
+    evaluateAutomationRules({
+      type: "booking_canceled",
+      dealId: bookingLink.deal_id,
+      payload: {
+        canceler_email: cancelerEmail,
+        rescheduled,
+        booking_link_id: bookingLink.id,
+      },
+    }).catch((err) => console.error("[calendly/webhook] workflow trigger error:", err));
+  }
 }

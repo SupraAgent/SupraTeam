@@ -4,13 +4,27 @@ import * as React from "react";
 import Link from "next/link";
 import { timeAgo, cn } from "@/lib/utils";
 import {
-  MessageCircle, GitBranch, ExternalLink, UserPlus, AtSign, Bell,
-  AlertTriangle, Clock, TrendingUp, Zap, DollarSign, BarChart3, Pin, Plus, Users,
-  ChevronDown, ChevronRight, Radio, Send, Settings,
+  MessageCircle, GitBranch, ExternalLink, UserPlus, Bell,
+  AlertTriangle, Clock, TrendingUp, Zap, DollarSign, BarChart3, Pin,
+  ChevronDown, ChevronRight, Radio, Send, Activity, Shield, Workflow,
+  Globe, ArrowRight,
 } from "lucide-react";
 import { SetupChecklist } from "@/components/onboarding/setup-checklist";
 import { ActionableNotificationWidget } from "@/components/notifications/actionable-notification-widget";
-import { QuestProgressWidget } from "@/components/dashboard/quest-progress-widget";
+
+const ACTIVITY_ICON_MAP: Record<string, { icon: React.ElementType; color: string }> = {
+  stage_change: { icon: GitBranch, color: "text-purple-400" },
+  deal_created: { icon: ExternalLink, color: "text-green-400" },
+  broadcast: { icon: Send, color: "text-blue-400" },
+  tg_message: { icon: MessageCircle, color: "text-blue-400" },
+  member_event: { icon: UserPlus, color: "text-yellow-400" },
+  workflow_run: { icon: Radio, color: "text-cyan-400" },
+};
+const ACTIVITY_ICON_FALLBACK = { icon: Zap, color: "text-muted-foreground" };
+
+const HEALTH_COLORS: Record<string, string> = {
+  critical: "bg-red-400", warning: "bg-yellow-400", healthy: "bg-green-400", excellent: "bg-emerald-400",
+};
 
 type Stats = {
   totalDeals: number;
@@ -46,12 +60,6 @@ type Analytics = {
   totalOpen: number;
 };
 
-type Notification = {
-  id: string; type: string; title: string; body: string | null;
-  tg_deep_link: string | null; pipeline_link: string | null; is_read: boolean; created_at: string;
-  deal: { id: string; deal_name: string; board_type: string; stage: { name: string; color: string } | null } | null;
-};
-
 interface DashboardExtras {
   responseTime: { avg_ms: number | null; median_ms: number | null; sample_count: number; daily_trend: { date: string; avg_ms: number }[] };
   groups: { id: string; name: string; member_count: number; messages_7d: number; health: string; bot_admin: boolean; last_active: string | null }[];
@@ -70,34 +78,30 @@ interface ActivityEvent {
   meta?: Record<string, unknown>;
 }
 
-const NOTIF_ICONS: Record<string, React.ElementType> = {
-  tg_message: MessageCircle, stage_change: GitBranch, deal_created: ExternalLink, deal_assigned: UserPlus, mention: AtSign,
-};
-const NOTIF_COLORS: Record<string, string> = {
-  tg_message: "text-blue-400", stage_change: "text-purple-400", deal_created: "text-green-400", deal_assigned: "text-yellow-400", mention: "text-pink-400",
+type Highlight = {
+  id: string; deal_id: string | null; sender_name: string | null; message_preview: string | null;
+  tg_deep_link: string | null; highlight_type: string; created_at: string;
+  triage_category?: string | null; triage_urgency?: string | null; triage_summary?: string | null; triaged_at?: string | null;
 };
 
 export default function HomePage() {
   const [stats, setStats] = React.useState<Stats | null>(null);
   const [analytics, setAnalytics] = React.useState<Analytics | null>(null);
-  const [notifications, setNotifications] = React.useState<Notification[]>([]);
   const [reminders, setReminders] = React.useState<{ id: string; deal_id: string; reminder_type: string; message: string; due_at: string; deal?: { deal_name: string; board_type: string } }[]>([]);
-  const [highlights, setHighlights] = React.useState<{ id: string; deal_id: string | null; sender_name: string | null; message_preview: string | null; tg_deep_link: string | null; highlight_type: string; created_at: string; triage_category?: string | null; triage_urgency?: string | null; triage_summary?: string | null; triaged_at?: string | null }[]>([]);
+  const [highlights, setHighlights] = React.useState<Highlight[]>([]);
   const [extras, setExtras] = React.useState<DashboardExtras | null>(null);
   const [activityFeed, setActivityFeed] = React.useState<ActivityEvent[]>([]);
   const [timeRange, setTimeRange] = React.useState<"7d" | "30d" | "90d" | "all">("30d");
   const [lastUpdated, setLastUpdated] = React.useState<Date | null>(null);
   const [loading, setLoading] = React.useState(true);
 
-  // Collapsible widget state (persisted in localStorage)
-  const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>(() => {
-    if (typeof window === "undefined") return {};
+  const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>({});
+  React.useEffect(() => {
     try {
-      return JSON.parse(localStorage.getItem("dashboard_collapsed") ?? "{}");
-    } catch {
-      return {};
-    }
-  });
+      const stored = localStorage.getItem("dashboard_collapsed");
+      if (stored) setCollapsed(JSON.parse(stored));
+    } catch { /* noop */ }
+  }, []);
 
   const toggleCollapse = React.useCallback((key: string) => {
     setCollapsed((prev: Record<string, boolean>) => {
@@ -110,18 +114,19 @@ export default function HomePage() {
   React.useEffect(() => {
     setLoading(true);
     const rangeParam = timeRange !== "all" ? `?range=${timeRange}` : "";
+    const controller = new AbortController();
+    const { signal } = controller;
     Promise.all([
-      fetch(`/api/stats${rangeParam}`).then((r) => (r.ok ? r.json() : null)),
-      fetch("/api/notifications?limit=10").then((r) => (r.ok ? r.json() : null)),
-      fetch("/api/reminders").then((r) => (r.ok ? r.json() : null)).catch(() => null),
-      fetch(`/api/analytics${rangeParam}`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
-      fetch("/api/highlights").then((r) => (r.ok ? r.json() : null)).catch(() => null),
-      fetch(`/api/dashboard/extras${rangeParam}`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
-      fetch("/api/dashboard/activity?limit=30").then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      fetch(`/api/stats${rangeParam}`, { signal }).then((r) => (r.ok ? r.json() : null)),
+      fetch("/api/reminders", { signal }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      fetch(`/api/analytics${rangeParam}`, { signal }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      fetch("/api/highlights", { signal }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      fetch(`/api/dashboard/extras`, { signal }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      fetch("/api/dashboard/activity?limit=30", { signal }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
     ])
-      .then(([statsData, notifData, reminderData, analyticsData, highlightsData, extrasData, activityData]) => {
+      .then(([statsData, reminderData, analyticsData, highlightsData, extrasData, activityData]) => {
+        if (signal.aborted) return;
         if (statsData) setStats(statsData);
-        if (notifData) setNotifications(notifData.notifications ?? []);
         if (reminderData) setReminders(reminderData.reminders ?? []);
         if (analyticsData) setAnalytics(analyticsData);
         if (highlightsData) setHighlights(highlightsData.highlights ?? []);
@@ -129,10 +134,11 @@ export default function HomePage() {
         if (activityData) setActivityFeed(activityData.events ?? []);
         setLastUpdated(new Date());
       })
-      .finally(() => setLoading(false));
+      .catch(() => { /* aborted or network error */ })
+      .finally(() => { if (!signal.aborted) setLoading(false); });
+    return () => controller.abort();
   }, [timeRange]);
 
-  // Auto-refresh activity feed every 60s
   React.useEffect(() => {
     const interval = setInterval(() => {
       fetch("/api/dashboard/activity?limit=30")
@@ -152,8 +158,9 @@ export default function HomePage() {
     return (
       <div className="space-y-6">
         <div className="h-8 w-48 rounded-lg bg-white/5 animate-pulse" />
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map((i) => <div key={i} className="h-24 rounded-2xl bg-white/[0.02] animate-pulse" />)}
+        <div className="h-10 rounded-xl bg-white/[0.02] animate-pulse" />
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          {[1, 2, 3, 4, 5].map((i) => <div key={i} className="h-24 rounded-2xl bg-white/[0.02] animate-pulse" />)}
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {[1, 2].map((i) => <div key={i} className="h-48 rounded-2xl bg-white/[0.02] animate-pulse" />)}
@@ -175,8 +182,55 @@ export default function HomePage() {
     ? Math.round(((s.velocity.movesThisWeek - s.velocity.movesLastWeek) / s.velocity.movesLastWeek) * 100)
     : 0;
 
+  const ghs = extras?.groupHealthSummary;
+  const wfs = extras?.workflowStats;
+
+  // Cross-signal alerts: deals with linked TG groups that went quiet
+  // Uses heuristic name matching (min 3 chars to avoid false positives on short/common words)
+  const crossSignals: { deal_name: string; deal_id: string; group_name: string; health: string; days_stale: number; stage_name: string }[] = [];
+  const CROSS_SIGNAL_HEALTH = new Set(["stale", "dead", "quiet"]);
+  const MIN_MATCH_LEN = 3;
+  const STOP_WORDS = new Set(["the", "new", "our", "a", "an", "for", "and", "with"]);
+  if (extras?.groups && s.staleDeals.length > 0) {
+    const unhealthyGroups = extras.groups.filter((g) => CROSS_SIGNAL_HEALTH.has(g.health));
+    const activeDeals = new Set(s.hotConversations.map((h) => h.deal_id));
+    for (const deal of s.staleDeals) {
+      if (activeDeals.has(deal.id)) continue; // has active conversation — skip
+      const dealWords = deal.deal_name.toLowerCase().split(/\s+/).filter((w) => w.length >= MIN_MATCH_LEN && !STOP_WORDS.has(w));
+      if (dealWords.length === 0) continue;
+      const matchingGroup = unhealthyGroups.find((g) => {
+        const groupLower = g.name.toLowerCase();
+        return dealWords.some((w) => groupLower.includes(w));
+      });
+      if (matchingGroup) {
+        crossSignals.push({
+          deal_name: deal.deal_name,
+          deal_id: deal.id,
+          group_name: matchingGroup.name,
+          health: matchingGroup.health,
+          days_stale: deal.days_stale,
+          stage_name: deal.stage_name,
+        });
+      }
+    }
+  }
+
+  // Count total closed deals for analytics gating
+  const totalClosed = analytics ? analytics.totalWon + analytics.totalLost : 0;
+
+  // Determine onboarding completion
+  const onboardingSteps = [s.onboarding.hasBotToken, s.onboarding.hasGroups, s.onboarding.hasDeals, s.onboarding.hasContacts, s.onboarding.hasEmail];
+  const onboardingDone = onboardingSteps.filter(Boolean).length;
+  const allOnboardingDone = onboardingDone === 5;
+
+  // Groups needing attention (stale, dead, or quiet with low activity)
+  const groupsNeedingAttention = (extras?.groups ?? [])
+    .filter((g) => g.health === "stale" || g.health === "dead" || (g.health === "quiet" && g.messages_7d === 0))
+    .slice(0, 5);
+
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-foreground">My Dashboard</h1>
@@ -205,58 +259,220 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* Onboarding checklist (hidden when all complete) */}
-      <SetupChecklist
-        hasBotToken={s.onboarding.hasBotToken}
-        hasGroups={s.onboarding.hasGroups}
-        hasDeals={s.onboarding.hasDeals}
-        hasContacts={s.onboarding.hasContacts}
-        hasEmail={s.onboarding.hasEmail}
-      />
+      {/* Onboarding — auto-collapses at 4/5, hidden at 5/5 */}
+      {!allOnboardingDone && (
+        <SetupChecklist
+          hasBotToken={s.onboarding.hasBotToken}
+          hasGroups={s.onboarding.hasGroups}
+          hasDeals={s.onboarding.hasDeals}
+          hasContacts={s.onboarding.hasContacts}
+          hasEmail={s.onboarding.hasEmail}
+        />
+      )}
 
-      {/* Quick actions */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <Link href="/pipeline" className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2 text-xs font-medium text-foreground transition hover:bg-white/[0.06]">
-          <Plus className="h-3.5 w-3.5 text-primary" /> New Deal
-        </Link>
-        <Link href="/contacts" className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2 text-xs font-medium text-foreground transition hover:bg-white/[0.06]">
-          <Users className="h-3.5 w-3.5 text-blue-400" /> New Contact
-        </Link>
-        <Link href="/broadcasts" className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2 text-xs font-medium text-foreground transition hover:bg-white/[0.06]">
-          <Send className="h-3.5 w-3.5 text-green-400" /> Broadcast
-        </Link>
-        <Link href="/settings" className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2 text-xs font-medium text-foreground transition hover:bg-white/[0.06]">
-          <Settings className="h-3.5 w-3.5 text-muted-foreground" /> Settings
-        </Link>
+      {/* ========== TELEGRAM PULSE STATUS BAR ========== */}
+      <div className="rounded-xl border border-white/10 bg-white/[0.035] px-4 py-3 flex items-center gap-4 flex-wrap">
+        <div className="flex items-center gap-1.5">
+          <Activity className="h-3.5 w-3.5 text-primary" />
+          <span className="text-xs font-medium text-foreground">Telegram Pulse</span>
+        </div>
+        <div className="flex items-center gap-4 flex-wrap text-xs text-muted-foreground">
+          {highlights.length > 0 ? (
+            <Link href="/inbox" className="flex items-center gap-1.5 hover:text-foreground transition">
+              <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
+              <span className="font-medium text-amber-400">{highlights.length} unread</span>
+              <span>need{highlights.length === 1 ? "s" : ""} reply</span>
+            </Link>
+          ) : (
+            <span className="flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full bg-green-400" />
+              All caught up
+            </span>
+          )}
+          <span className="text-white/10">|</span>
+          {s.staleDeals.length > 0 ? (
+            <Link href="/pipeline" className="flex items-center gap-1.5 hover:text-foreground transition">
+              <AlertTriangle className="h-3 w-3 text-red-400" />
+              <span className="font-medium text-red-400">{s.staleDeals.length} stale deal{s.staleDeals.length !== 1 ? "s" : ""}</span>
+            </Link>
+          ) : (
+            <span>No stale deals</span>
+          )}
+          <span className="text-white/10">|</span>
+          {s.followUps.length > 0 ? (
+            <Link href="/pipeline" className="flex items-center gap-1.5 hover:text-foreground transition">
+              <Clock className="h-3 w-3 text-yellow-400" />
+              <span className="font-medium text-yellow-400">{s.followUps.length} follow-up{s.followUps.length !== 1 ? "s" : ""} due</span>
+            </Link>
+          ) : (
+            <span>No follow-ups due</span>
+          )}
+          {ghs && ghs.total > 0 && (
+            <>
+              <span className="text-white/10">|</span>
+              <Link href="/groups" className="flex items-center gap-1.5 hover:text-foreground transition">
+                <Globe className="h-3 w-3 text-blue-400" />
+                <span>{ghs.active} active</span>
+                {(ghs.stale + ghs.dead) > 0 && (
+                  <span className="font-medium text-red-400">{ghs.stale + ghs.dead} need attention</span>
+                )}
+                <span>of {ghs.total} groups</span>
+              </Link>
+            </>
+          )}
+        </div>
       </div>
 
-      {/* Top stat cards */}
+      {/* ========== TELEGRAM INBOX PREVIEW ========== */}
+      {highlights.length > 0 && (
+        <Widget
+          title="Needs Response"
+          icon={MessageCircle}
+          iconColor="text-amber-400"
+          subtitle={`${highlights.length} conversation${highlights.length !== 1 ? "s" : ""} waiting`}
+          collapsible
+          isCollapsed={collapsed["inbox_preview"]}
+          onToggle={() => toggleCollapse("inbox_preview")}
+        >
+          {highlights.slice(0, 5).map((h) => (
+            <Link
+              key={h.id}
+              href={h.tg_deep_link ?? (h.deal_id ? `/pipeline?highlight=${h.deal_id}` : "/inbox")}
+              className="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-white/[0.03] transition group"
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="h-8 w-8 rounded-full bg-amber-500/20 flex items-center justify-center shrink-0">
+                  <MessageCircle className="h-3.5 w-3.5 text-amber-400" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm text-foreground truncate">{h.sender_name ?? "Unknown"}</p>
+                  <p className="text-xs text-muted-foreground truncate">{h.message_preview ?? "New message"}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0 ml-2">
+                {h.triage_urgency && (
+                  <span className={cn(
+                    "rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+                    h.triage_urgency === "high" && "bg-red-500/20 text-red-400",
+                    h.triage_urgency === "medium" && "bg-yellow-500/20 text-yellow-400",
+                    h.triage_urgency === "low" && "bg-white/10 text-muted-foreground",
+                  )}>
+                    {h.triage_urgency}
+                  </span>
+                )}
+                <span className="text-[11px] text-muted-foreground">{timeAgo(h.created_at)}</span>
+                <ArrowRight className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition" />
+              </div>
+            </Link>
+          ))}
+          {highlights.length > 5 && (
+            <Link href="/inbox" className="block text-center text-xs text-primary hover:underline py-2">
+              View all {highlights.length} conversations
+            </Link>
+          )}
+        </Widget>
+      )}
+
+      {/* ========== HOT CONVERSATIONS (from stats) ========== */}
+      {s.hotConversations.length > 0 && (
+        <Widget
+          title="Hot Conversations"
+          icon={Zap}
+          iconColor="text-orange-400"
+          subtitle={`${s.hotConversations.length} active thread${s.hotConversations.length !== 1 ? "s" : ""}`}
+          collapsible
+          isCollapsed={collapsed["hot_convos"]}
+          onToggle={() => toggleCollapse("hot_convos")}
+        >
+          {s.hotConversations.slice(0, 5).map((c) => (
+            <Link
+              key={c.deal_id}
+              href={`/pipeline?highlight=${c.deal_id}`}
+              className="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-white/[0.03] transition"
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="h-8 w-8 rounded-full bg-orange-500/20 flex items-center justify-center shrink-0">
+                  <Zap className="h-3.5 w-3.5 text-orange-400" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm text-foreground truncate">{c.name}</p>
+                  <p className="text-xs text-muted-foreground truncate">{c.deal_name}</p>
+                </div>
+              </div>
+              <span className="text-xs font-medium text-orange-400 shrink-0 ml-2">{c.count} msgs</span>
+            </Link>
+          ))}
+        </Widget>
+      )}
+
+      {/* ========== TOP STAT CARDS — blended TG + Pipeline ========== */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <StatCard icon={Zap} iconColor="text-primary" label="Open Deals" value={s.totalDeals} sub={`BD: ${s.byBoard.BD} | Mktg: ${s.byBoard.Marketing} | Admin: ${s.byBoard.Admin}`} />
-        <StatCard icon={Users} iconColor="text-blue-400" label="Contacts" value={s.totalContacts} sub="Total in database" />
-        <StatCard icon={DollarSign} iconColor="text-green-400" label="Pipeline Value" value={`$${Math.round(s.totalPipelineValue).toLocaleString()}`} sub={`Weighted: $${Math.round(s.weightedPipelineValue).toLocaleString()}`} />
-        <StatCard icon={TrendingUp} iconColor="text-purple-400" label="Moves This Week" value={s.velocity.movesThisWeek} sub={velocityDelta > 0 ? `+${velocityDelta}% vs last week` : velocityDelta < 0 ? `${velocityDelta}% vs last week` : "Same as last week"} />
         <StatCard
           icon={MessageCircle}
+          iconColor={highlights.length > 0 ? "text-amber-400" : "text-green-400"}
+          label="Unread Conversations"
+          value={highlights.length}
+          sub={highlights.length > 0 ? "Need your reply" : "All caught up"}
+        />
+        <StatCard
+          icon={Globe}
+          iconColor="text-blue-400"
+          label="Group Health"
+          value={ghs ? `${ghs.active}/${ghs.total}` : "--"}
+          sub={ghs && ghs.total > 0
+            ? `${ghs.active} active · ${ghs.quiet} quiet · ${ghs.stale + ghs.dead} at risk`
+            : s.onboarding.hasGroups ? "No group data yet" : "Add groups to track health"
+          }
+        />
+        <StatCard icon={Zap} iconColor="text-primary" label="Open Deals" value={s.totalDeals} sub={`BD: ${s.byBoard.BD} | Mktg: ${s.byBoard.Marketing} | Admin: ${s.byBoard.Admin}`} />
+        <StatCard icon={TrendingUp} iconColor="text-purple-400" label="Moves This Week" value={s.velocity.movesThisWeek} sub={velocityDelta > 0 ? `+${velocityDelta}% vs last week` : velocityDelta < 0 ? `${velocityDelta}% vs last week` : "Same as last week"} />
+        <StatCard
+          icon={Clock}
           iconColor={extras?.responseTime.avg_ms != null ? (extras.responseTime.avg_ms < 1800000 ? "text-green-400" : extras.responseTime.avg_ms < 7200000 ? "text-yellow-400" : "text-red-400") : "text-muted-foreground"}
           label="Avg Response"
           value={extras?.responseTime.avg_ms != null ? formatDuration(extras.responseTime.avg_ms) : "--"}
-          sub={extras?.responseTime.sample_count ? `${extras.responseTime.sample_count} responses (30d)` : "No data yet"}
+          sub={extras?.responseTime.sample_count ? `${extras.responseTime.sample_count} responses (30d)` : s.onboarding.hasBotToken ? "Reply to messages to track" : "Connect Telegram to track"}
           sparkline={extras?.responseTime.daily_trend.map((d) => d.avg_ms)}
         />
       </div>
 
-      {/* Weekly quests */}
-      <QuestProgressWidget />
+      {/* ========== CROSS-SIGNAL ALERTS ========== */}
+      {crossSignals.length > 0 && (
+        <Widget
+          title="Deal + Group Alerts"
+          icon={AlertTriangle}
+          iconColor="text-red-400"
+          subtitle={`${crossSignals.length} deal${crossSignals.length !== 1 ? "s" : ""} with quiet groups`}
+          collapsible
+          isCollapsed={collapsed["cross_signals"]}
+          onToggle={() => toggleCollapse("cross_signals")}
+        >
+          {crossSignals.map((cs) => (
+            <Link
+              key={cs.deal_id}
+              href={`/pipeline?highlight=${cs.deal_id}`}
+              className="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-white/[0.03] transition"
+            >
+              <div className="min-w-0">
+                <p className="text-sm text-foreground truncate">{cs.deal_name}</p>
+                <p className="text-xs text-muted-foreground truncate">
+                  {cs.stage_name} · {cs.days_stale}d stale — group <span className="text-red-400">&quot;{cs.group_name}&quot;</span> is {cs.health}
+                </p>
+              </div>
+              <HealthBadge health={cs.health} />
+            </Link>
+          ))}
+        </Widget>
+      )}
 
-      {/* === ACTION REQUIRED === */}
-      {(s.staleDeals.length > 0 || s.followUps.length > 0 || reminders.length > 0 || highlights.length > 0) && (
+      {/* ========== ACTION REQUIRED ========== */}
+      {(s.staleDeals.length > 0 || s.followUps.length > 0 || reminders.length > 0 || groupsNeedingAttention.length > 0) && (
         <div className="space-y-4">
           <div className="flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 text-amber-400" />
             <h2 className="text-sm font-semibold text-amber-400">Action Required</h2>
             <span className="text-xs text-muted-foreground">
-              {s.staleDeals.length + s.followUps.length + reminders.length + highlights.length} items
+              {s.staleDeals.length + s.followUps.length + reminders.length + groupsNeedingAttention.length} items
             </span>
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -289,21 +505,34 @@ export default function HomePage() {
               ))}
             </Widget>
 
-            {/* TG Highlights */}
-            {highlights.length > 0 && (
-              <Widget title="Needs Response" icon={MessageCircle} iconColor="text-amber-400" subtitle={`${highlights.length} message${highlights.length !== 1 ? "s" : ""}`} collapsible isCollapsed={collapsed["highlights"]} onToggle={() => toggleCollapse("highlights")}>
-                {highlights.slice(0, 5).map((h) => (
-                  <Link key={h.id} href={h.deal_id ? `/pipeline?highlight=${h.deal_id}` : "#"} className="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-white/[0.03] transition">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <MessageCircle className="h-3.5 w-3.5 text-amber-400 shrink-0" aria-hidden="true" />
-                      <div className="min-w-0">
-                        <p className="text-sm text-foreground truncate">{h.sender_name ?? "Unknown"}</p>
-                        <p className="text-xs text-muted-foreground truncate">{h.message_preview ?? "New message"}</p>
-                      </div>
+            {/* Groups Needing Attention */}
+            {groupsNeedingAttention.length > 0 && (
+              <Widget
+                title="Groups Needing Attention"
+                icon={Globe}
+                iconColor="text-red-400"
+                subtitle={`${groupsNeedingAttention.length} group${groupsNeedingAttention.length !== 1 ? "s" : ""}`}
+                collapsible
+                isCollapsed={collapsed["groups_attention"]}
+                onToggle={() => toggleCollapse("groups_attention")}
+              >
+                {groupsNeedingAttention.map((g) => (
+                  <Link key={g.id} href="/groups" className="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-white/[0.03] transition">
+                    <div className="min-w-0">
+                      <p className="text-sm text-foreground truncate">{g.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {g.member_count} members · {g.messages_7d} msgs/7d
+                        {g.last_active && ` · last active ${timeAgo(g.last_active)}`}
+                      </p>
                     </div>
-                    <span className="text-xs text-muted-foreground shrink-0 ml-2">{timeAgo(h.created_at)}</span>
+                    <HealthBadge health={g.health} />
                   </Link>
                 ))}
+                {(extras?.groups ?? []).filter((g) => g.health === "stale" || g.health === "dead").length > 5 && (
+                  <Link href="/groups" className="block text-center text-xs text-primary hover:underline py-2">
+                    View all groups
+                  </Link>
+                )}
               </Widget>
             )}
 
@@ -322,12 +551,18 @@ export default function HomePage() {
                       </span>
                       <button
                         onClick={async () => {
-                          await fetch("/api/reminders", {
-                            method: "PATCH",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ id: r.id }),
-                          });
-                          setReminders((prev) => prev.filter((rem) => rem.id !== r.id));
+                          const prev = reminders;
+                          setReminders((cur) => cur.filter((rem) => rem.id !== r.id));
+                          try {
+                            const res = await fetch("/api/reminders", {
+                              method: "PATCH",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ id: r.id }),
+                            });
+                            if (!res.ok) setReminders(prev);
+                          } catch {
+                            setReminders(prev);
+                          }
                         }}
                         className="text-muted-foreground hover:text-foreground text-xs px-2 py-1 rounded-lg hover:bg-white/[0.05] transition"
                       >
@@ -342,8 +577,92 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* === ANALYTICS === */}
-      {analytics && (
+      {/* ========== GROUP HEALTH + AUTOMATION STATUS ========== */}
+      {((ghs && ghs.total > 0) || (wfs && wfs.active_count > 0)) && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Group Health Distribution */}
+          {ghs && ghs.total > 0 && (
+            <Widget
+              title="Group Health"
+              icon={Globe}
+              iconColor="text-blue-400"
+              subtitle={`${ghs.total} groups · ${ghs.total_members.toLocaleString()} members · ${ghs.total_messages_7d.toLocaleString()} msgs/7d`}
+              collapsible
+              isCollapsed={collapsed["group_health"]}
+              onToggle={() => toggleCollapse("group_health")}
+            >
+              <div className="space-y-3">
+                {/* Health bar */}
+                <div className="flex h-3 rounded-full overflow-hidden bg-white/5">
+                  {ghs.active > 0 && <div className="bg-green-500" style={{ width: `${(ghs.active / ghs.total) * 100}%` }} title={`Active: ${ghs.active}`} />}
+                  {ghs.quiet > 0 && <div className="bg-yellow-500" style={{ width: `${(ghs.quiet / ghs.total) * 100}%` }} title={`Quiet: ${ghs.quiet}`} />}
+                  {ghs.stale > 0 && <div className="bg-orange-500" style={{ width: `${(ghs.stale / ghs.total) * 100}%` }} title={`Stale: ${ghs.stale}`} />}
+                  {ghs.dead > 0 && <div className="bg-red-500" style={{ width: `${(ghs.dead / ghs.total) * 100}%` }} title={`Dead: ${ghs.dead}`} />}
+                </div>
+                {/* Legend */}
+                <div className="flex items-center gap-4 flex-wrap">
+                  <HealthLegendItem color="bg-green-500" label="Active" count={ghs.active} />
+                  <HealthLegendItem color="bg-yellow-500" label="Quiet" count={ghs.quiet} />
+                  <HealthLegendItem color="bg-orange-500" label="Stale" count={ghs.stale} />
+                  <HealthLegendItem color="bg-red-500" label="Dead" count={ghs.dead} />
+                </div>
+                {/* Bot admin coverage */}
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Shield className="h-3 w-3" />
+                  <span>Bot admin in {ghs.bot_admin_count}/{ghs.total} groups</span>
+                </div>
+              </div>
+            </Widget>
+          )}
+
+          {/* Workflow / Automation Status */}
+          {wfs && wfs.active_count > 0 && (
+            <Widget
+              title="Automations"
+              icon={Workflow}
+              iconColor="text-cyan-400"
+              subtitle={`${wfs.active_count} active workflow${wfs.active_count !== 1 ? "s" : ""}`}
+              collapsible
+              isCollapsed={collapsed["automations"]}
+              onToggle={() => toggleCollapse("automations")}
+            >
+              <div className="space-y-3">
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3 text-center">
+                    <p className="text-lg font-semibold text-foreground">{wfs.runs_7d}</p>
+                    <p className="text-[11px] text-muted-foreground">Runs (7d)</p>
+                  </div>
+                  <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3 text-center">
+                    <p className="text-lg font-semibold text-green-400">{wfs.completed}</p>
+                    <p className="text-[11px] text-muted-foreground">Completed</p>
+                  </div>
+                  <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3 text-center">
+                    <p className={cn("text-lg font-semibold", wfs.failed > 0 ? "text-red-400" : "text-foreground")}>{wfs.failed}</p>
+                    <p className="text-[11px] text-muted-foreground">Failed</p>
+                  </div>
+                </div>
+                {wfs.running > 0 && (
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="h-2 w-2 rounded-full bg-cyan-400 animate-pulse" />
+                    <span className="text-cyan-400 font-medium">{wfs.running} running now</span>
+                  </div>
+                )}
+                {wfs.failed > 0 && wfs.runs_7d > 0 && (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>Success rate: {Math.round(((wfs.completed) / wfs.runs_7d) * 100)}%</span>
+                  </div>
+                )}
+                <Link href="/automations" className="block text-center text-xs text-primary hover:underline py-1">
+                  Manage automations
+                </Link>
+              </div>
+            </Widget>
+          )}
+        </div>
+      )}
+
+      {/* ========== ANALYTICS — gated behind minimum data ========== */}
+      {analytics && totalClosed >= 5 && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           <div className="rounded-xl border border-white/10 bg-white/[0.035] p-3 text-center">
             <p className="text-lg font-semibold text-foreground">{analytics.winRate !== null ? `${analytics.winRate}%` : "--"}</p>
@@ -364,11 +683,10 @@ export default function HomePage() {
           <div className="rounded-xl border border-white/10 bg-white/[0.035] p-3 text-center col-span-2 md:col-span-1">
             <div className="flex justify-center gap-1.5">
               {(["critical", "warning", "healthy", "excellent"] as const).map((k) => {
-                const colors = { critical: "bg-red-400", warning: "bg-yellow-400", healthy: "bg-green-400", excellent: "bg-emerald-400" };
                 const v = analytics.healthDistribution[k];
                 return v > 0 ? (
                   <span key={k} className="flex items-center gap-0.5 text-[11px] text-muted-foreground">
-                    <span className={cn("h-1.5 w-1.5 rounded-full", colors[k])} />{v}
+                    <span className={cn("h-1.5 w-1.5 rounded-full", HEALTH_COLORS[k])} />{v}
                   </span>
                 ) : null;
               })}
@@ -378,12 +696,20 @@ export default function HomePage() {
         </div>
       )}
 
+      {/* Analytics nudge when not enough data */}
+      {analytics && totalClosed < 5 && totalClosed > 0 && (
+        <div className="rounded-xl border border-white/10 bg-white/[0.025] px-4 py-3 text-center">
+          <p className="text-xs text-muted-foreground">
+            Close {5 - totalClosed} more deal{5 - totalClosed !== 1 ? "s" : ""} to unlock win rate, revenue, and velocity analytics.
+            <span className="text-foreground/60 ml-1">{totalClosed}/5 closed so far.</span>
+          </p>
+        </div>
+      )}
 
-      {/* Monthly forecast */}
-      {analytics && Object.keys(analytics.monthlyForecast).length > 0 && (
+      {/* Monthly forecast — only if has data */}
+      {analytics && Object.keys(analytics.monthlyForecast).length > 0 && totalClosed >= 5 && (
         <Widget title="Monthly Forecast" icon={DollarSign} iconColor="text-green-400" subtitle="Weighted revenue by expected close" collapsible isCollapsed={collapsed["forecast"]} onToggle={() => toggleCollapse("forecast")}>
-          {Object.entries(analytics.monthlyForecast).sort(([a], [b]) => a.localeCompare(b)).map(([month, value]) => {
-            const maxVal = Math.max(...Object.values(analytics.monthlyForecast), 1);
+          {(() => { const maxVal = Math.max(...Object.values(analytics.monthlyForecast), 1); return Object.entries(analytics.monthlyForecast).sort(([a], [b]) => a.localeCompare(b)).map(([month, value]) => {
             const pct = (value / maxVal) * 100;
             return (
               <div key={month} className="flex items-center gap-3 py-1.5">
@@ -394,13 +720,12 @@ export default function HomePage() {
                 <span className="text-xs font-medium text-foreground w-20 text-right">${Math.round(value).toLocaleString()}</span>
               </div>
             );
-          })}
+          }); })()}
         </Widget>
       )}
 
-
-      {/* Lost reasons */}
-      {analytics && analytics.lostReasons.length > 0 && (
+      {/* Lost reasons — only if has data */}
+      {analytics && analytics.lostReasons.length > 0 && totalClosed >= 5 && (
         <Widget title="Lost Deal Reasons" icon={AlertTriangle} iconColor="text-red-400" subtitle={`${analytics.totalLost} lost deal${analytics.totalLost !== 1 ? "s" : ""}`} collapsible isCollapsed={collapsed["lost"]} onToggle={() => toggleCollapse("lost")}>
           {analytics.lostReasons.slice(0, 5).map((r) => (
             <div key={r.reason} className="flex items-center justify-between py-1.5">
@@ -411,7 +736,7 @@ export default function HomePage() {
         </Widget>
       )}
 
-      {/* Two-column layout */}
+      {/* ========== TWO-COLUMN LAYOUT ========== */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
         {/* Left column */}
@@ -420,15 +745,7 @@ export default function HomePage() {
           {/* Live Activity Feed */}
           <Widget title="Activity Feed" icon={Zap} iconColor="text-primary" subtitle="Last 48h" empty={activityFeed.length === 0} emptyText="No recent activity." collapsible isCollapsed={collapsed["activity"]} onToggle={() => toggleCollapse("activity")}>
             {activityFeed.slice(0, 12).map((evt: ActivityEvent) => {
-              const iconMap: Record<string, { icon: React.ElementType; color: string }> = {
-                stage_change: { icon: GitBranch, color: "text-purple-400" },
-                deal_created: { icon: ExternalLink, color: "text-green-400" },
-                broadcast: { icon: Send, color: "text-blue-400" },
-                tg_message: { icon: MessageCircle, color: "text-blue-400" },
-                member_event: { icon: UserPlus, color: "text-yellow-400" },
-                workflow_run: { icon: Radio, color: "text-cyan-400" },
-              };
-              const { icon: EvtIcon, color } = iconMap[evt.type] ?? { icon: Zap, color: "text-muted-foreground" };
+              const { icon: EvtIcon, color } = ACTIVITY_ICON_MAP[evt.type] ?? ACTIVITY_ICON_FALLBACK;
               const isFailed = evt.meta?.status === "failed";
               return (
                 <div key={evt.id} className="flex items-start gap-2 py-1.5">
@@ -446,7 +763,6 @@ export default function HomePage() {
               );
             })}
           </Widget>
-
 
           {/* Pinned deals */}
           {s.pinnedDeals.length > 0 && (
@@ -476,8 +792,7 @@ export default function HomePage() {
           {/* Pipeline funnel */}
           {s.stageBreakdown.length > 0 && (
             <Widget title="Pipeline Funnel" icon={BarChart3} iconColor="text-primary" collapsible isCollapsed={collapsed["funnel"]} onToggle={() => toggleCollapse("funnel")}>
-              {s.stageBreakdown.map((stage) => {
-                const maxCount = Math.max(...s.stageBreakdown.map((st) => st.count), 1);
+              {(() => { const maxCount = Math.max(...s.stageBreakdown.map((st) => st.count), 1); return s.stageBreakdown.map((stage) => {
                 const pct = (stage.count / maxCount) * 100;
                 return (
                   <div key={stage.id} className="flex items-center gap-3 py-1">
@@ -489,7 +804,7 @@ export default function HomePage() {
                     <span className="text-xs font-medium text-foreground w-6 text-right">{stage.count}</span>
                   </div>
                 );
-              })}
+              }); })()}
             </Widget>
           )}
 
@@ -514,7 +829,7 @@ export default function HomePage() {
           )}
 
           {/* Avg days per stage */}
-          {s.velocity.avgDaysPerStage.some((s) => s.avg_days !== null) && (
+          {s.velocity.avgDaysPerStage.some((stage) => stage.avg_days !== null) && (
             <Widget title="Avg. Days per Stage" icon={Clock} iconColor="text-cyan-400" subtitle="This week's pipeline speed" collapsible isCollapsed={collapsed["avgdays"]} onToggle={() => toggleCollapse("avgdays")}>
               {s.velocity.avgDaysPerStage.map((stage) => (
                 <div key={stage.id} className="flex items-center gap-3 py-1.5">
@@ -530,10 +845,6 @@ export default function HomePage() {
 
           {/* Actionable notifications */}
           <ActionableNotificationWidget />
-
-
-
-
         </div>
       </div>
     </div>
@@ -636,5 +947,30 @@ function BoardBadge({ type }: { type: string }) {
     )}>
       {type}
     </span>
+  );
+}
+
+function HealthBadge({ health }: { health: string }) {
+  const styles: Record<string, string> = {
+    active: "bg-green-500/20 text-green-400",
+    quiet: "bg-yellow-500/20 text-yellow-400",
+    stale: "bg-orange-500/20 text-orange-400",
+    dead: "bg-red-500/20 text-red-400",
+  };
+  return (
+    <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-medium", styles[health] ?? "bg-white/10 text-muted-foreground")}>
+      {health}
+    </span>
+  );
+}
+
+function HealthLegendItem({ color, label, count }: { color: string; label: string; count: number }) {
+  if (count === 0) return null;
+  return (
+    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+      <span className={cn("h-2 w-2 rounded-full", color)} />
+      <span>{label}</span>
+      <span className="font-medium text-foreground">{count}</span>
+    </div>
   );
 }
