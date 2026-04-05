@@ -9,9 +9,9 @@ import { BulkXImportModal } from "@/components/contacts/bulk-x-import-modal";
 import { SavedViewsBar } from "@/components/saved-views-bar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Download, Upload, Users, MessageCircle, Building2, ArrowUpDown, Trash2, Filter, GitMerge, Sparkles, AlertTriangle, Twitter } from "lucide-react";
+import { Download, Upload, Users, MessageCircle, Building2, ArrowUpDown, Trash2, Filter, GitMerge, Sparkles, AlertTriangle, Twitter, Wallet, Crown, Handshake } from "lucide-react";
 import { MergePreviewModal } from "@/components/contacts/merge-preview-modal";
-import type { Contact, PipelineStage, Deal, LifecycleStage } from "@/lib/types";
+import type { Contact, PipelineStage, Deal, LifecycleStage, DecisionMakerLevel, PartnershipType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -41,6 +41,9 @@ export default function ContactsPage() {
   const [filterHasEmail, setFilterHasEmail] = React.useState(false);
   const [filterHasTg, setFilterHasTg] = React.useState(false);
   const [filterHasDeals, setFilterHasDeals] = React.useState(false);
+  const [filterHasWallet, setFilterHasWallet] = React.useState(false);
+  const [decisionMakerFilter, setDecisionMakerFilter] = React.useState<DecisionMakerLevel | "all">("all");
+  const [partnershipFilter, setPartnershipFilter] = React.useState<PartnershipType | "all">("all");
   const [sortKey, setSortKey] = React.useState<SortKey>("created_at");
   const [sortDir, setSortDir] = React.useState<SortDir>("desc");
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
@@ -152,6 +155,9 @@ export default function ContactsPage() {
     if (filterHasEmail && !c.email) return false;
     if (filterHasTg && !c.telegram_username) return false;
     if (filterHasDeals && !dealCountMap[c.id]) return false;
+    if (filterHasWallet && (!c.wallets || c.wallets.length === 0) && !c.wallet_address) return false;
+    if (decisionMakerFilter !== "all" && c.decision_maker_level !== decisionMakerFilter) return false;
+    if (partnershipFilter !== "all" && c.partnership_type !== partnershipFilter) return false;
     if (search) {
       const q = search.toLowerCase();
       return (
@@ -292,7 +298,7 @@ export default function ContactsPage() {
     return counts;
   }, [contactsWithScore]);
 
-  const hasAdvancedFilters = filterHasEmail || filterHasTg || filterHasDeals || lifecycleFilter !== "all" || companyFilter !== "all";
+  const hasAdvancedFilters = filterHasEmail || filterHasTg || filterHasDeals || filterHasWallet || decisionMakerFilter !== "all" || partnershipFilter !== "all" || lifecycleFilter !== "all" || companyFilter !== "all";
 
   if (loading) {
     return (
@@ -520,9 +526,40 @@ export default function ContactsPage() {
             <input type="checkbox" checked={filterHasDeals} onChange={(e) => setFilterHasDeals(e.target.checked)} className="rounded border-white/20" />
             Has deals
           </label>
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+            <input type="checkbox" checked={filterHasWallet} onChange={(e) => setFilterHasWallet(e.target.checked)} className="rounded border-white/20" />
+            <Wallet className="h-3 w-3" /> Has wallet
+          </label>
+          <span className="text-white/10">|</span>
+          <select
+            value={decisionMakerFilter}
+            onChange={(e) => setDecisionMakerFilter(e.target.value as DecisionMakerLevel | "all")}
+            className="h-6 rounded border border-white/10 bg-white/5 px-1.5 text-[10px] text-foreground outline-none"
+          >
+            <option value="all">All roles</option>
+            <option value="founder">Founder</option>
+            <option value="c_level">C-Level</option>
+            <option value="vp">VP</option>
+            <option value="director">Director</option>
+            <option value="manager">Manager</option>
+            <option value="ic">IC</option>
+          </select>
+          <select
+            value={partnershipFilter}
+            onChange={(e) => setPartnershipFilter(e.target.value as PartnershipType | "all")}
+            className="h-6 rounded border border-white/10 bg-white/5 px-1.5 text-[10px] text-foreground outline-none"
+          >
+            <option value="all">All partnerships</option>
+            <option value="integration">Integration</option>
+            <option value="listing">Listing</option>
+            <option value="co_marketing">Co-Marketing</option>
+            <option value="investment">Investment</option>
+            <option value="advisory">Advisory</option>
+            <option value="node_operator">Node Operator</option>
+          </select>
           {hasAdvancedFilters && (
             <button
-              onClick={() => { setFilterHasEmail(false); setFilterHasTg(false); setFilterHasDeals(false); setLifecycleFilter("all"); }}
+              onClick={() => { setFilterHasEmail(false); setFilterHasTg(false); setFilterHasDeals(false); setFilterHasWallet(false); setDecisionMakerFilter("all"); setPartnershipFilter("all"); setLifecycleFilter("all"); }}
               className="text-xs text-primary hover:text-primary/80 ml-auto"
             >
               Clear filters

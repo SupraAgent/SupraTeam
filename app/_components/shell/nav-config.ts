@@ -15,11 +15,9 @@ import {
   Calendar,
   BarChart3,
   Shield,
-  Lightbulb,
   Settings,
   Crown,
   FolderSync,
-  QrCode,
   type LucideIcon,
 } from "lucide-react";
 
@@ -80,8 +78,6 @@ export const NAV_SECTIONS: NavSection[] = [
       { href: "/calendar", label: "Calendar & Tasks", icon: Calendar },
       { href: "/reports", label: "Reports", icon: BarChart3, requiredRole: ["admin_lead"] },
       { href: "/access", label: "Access Control", icon: Shield, requiredRole: ["admin_lead"] },
-      { href: "/qr-codes", label: "QR Codes", icon: QrCode },
-      { href: "/suggestions", label: "Suggestions", icon: Lightbulb },
     ],
   },
 ];

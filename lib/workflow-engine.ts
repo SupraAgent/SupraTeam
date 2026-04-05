@@ -25,6 +25,11 @@ import {
   executeCreateTask,
   executeAdvanceDealStage,
   executeGenerateBookingLink,
+  executeCreateDeal,
+  executeSendBroadcast,
+  executeHttpRequest,
+  executeAiSummarize,
+  executeAiClassify,
 } from "@/lib/workflow-actions";
 import type { Workflow } from "@/lib/workflow-db-types";
 
@@ -75,6 +80,16 @@ async function crmActionExecutor(
       return executeAdvanceDealStage(config as unknown as Parameters<typeof executeAdvanceDealStage>[0], crmCtx);
     case "generate_booking_link":
       return executeGenerateBookingLink(config as unknown as Parameters<typeof executeGenerateBookingLink>[0], crmCtx);
+    case "create_deal":
+      return executeCreateDeal(config as unknown as Parameters<typeof executeCreateDeal>[0], crmCtx);
+    case "send_broadcast":
+      return executeSendBroadcast(config as unknown as Parameters<typeof executeSendBroadcast>[0], crmCtx);
+    case "http_request":
+      return executeHttpRequest(config as unknown as Parameters<typeof executeHttpRequest>[0], crmCtx);
+    case "ai_summarize":
+      return executeAiSummarize(config as unknown as Parameters<typeof executeAiSummarize>[0], crmCtx);
+    case "ai_classify":
+      return executeAiClassify(config as unknown as Parameters<typeof executeAiClassify>[0], crmCtx);
     default:
       return { success: false, error: `Unknown action type: ${actionType}` };
   }

@@ -187,7 +187,24 @@ export default function OutreachPage() {
             setAiGeneratedName(data.name);
             setAiGeneratedBoard(data.board);
             setAiGeneratedTone(data.tone);
-            setAiGeneratedSteps(data.steps);
+            setAiGeneratedSteps(data.steps.map((s: Partial<NewStep>) => ({
+              message_template: s.message_template ?? "",
+              variant_b_template: s.variant_b_template ?? "",
+              variant_c_template: s.variant_c_template ?? "",
+              ab_split_pct: s.ab_split_pct ?? 100,
+              variant_b_delay_hours: s.variant_b_delay_hours ?? null,
+              delay_hours: s.delay_hours ?? 24,
+              step_type: s.step_type ?? "message",
+              step_label: s.step_label ?? "",
+              condition_type: s.condition_type ?? "none",
+              condition_config: s.condition_config ?? {},
+              on_true_step: s.on_true_step ?? null,
+              on_false_step: s.on_false_step ?? null,
+              split_percentage: s.split_percentage ?? null,
+              channel: s.channel ?? "telegram",
+              email_subject: s.email_subject ?? "",
+              email_template: s.email_template ?? "",
+            })));
             setShowAIGenerate(false);
             setShowCreate(true);
             toast.success("Sequence generated -- review and create");

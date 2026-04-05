@@ -36,6 +36,7 @@ import {
   Keyboard,
   CalendarClock,
   Hourglass,
+  Plus,
 } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
@@ -1665,7 +1666,33 @@ export default function InboxPage() {
                       </a>
                     ))}
                     {(deals[selChatId] ?? []).length === 0 && (
-                      <span className="text-[10px] text-muted-foreground/40">No linked deals</span>
+                      <button
+                        onClick={async () => {
+                          const name = window.prompt("Deal name:", selGroupName);
+                          if (!name) return;
+                          const res = await fetch("/api/deals", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              deal_name: name,
+                              board_type: "BD",
+                              telegram_chat_id: selChatId,
+                              telegram_chat_name: selGroupName,
+                              telegram_chat_link: `https://t.me/c/${String(selChatId).replace("-100", "")}`,
+                            }),
+                          });
+                          if (res.ok) {
+                            toast.success("Deal created and linked");
+                            fetchInbox();
+                          } else {
+                            toast.error("Failed to create deal");
+                          }
+                        }}
+                        className="text-[10px] text-primary hover:text-primary/80 flex items-center gap-1 transition-colors"
+                      >
+                        <Plus className="h-2.5 w-2.5" />
+                        Create Deal
+                      </button>
                     )}
                   </div>
                 </div>
