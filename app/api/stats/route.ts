@@ -11,17 +11,21 @@ export async function GET() {
   const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000).toISOString();
   const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
 
-  const [dealsRes, contactsRes, stagesRes, historyThisWeekRes, historyLastWeekRes, notificationsRes, pinnedRes, groupsRes, tokensRes, emailRes] = await Promise.all([
-    supabase.from("crm_deals").select("id, deal_name, board_type, stage_id, value, probability, created_at, updated_at, stage_changed_at, contact:crm_contacts(name, telegram_username), stage:pipeline_stages(id, name, color, position)").order("updated_at", { ascending: false }),
+  const [dealsRes, contactsRes, stagesRes, historyThisWeekRes, historyLastWeekRes, notificationsRes, pinnedRes, groupsRes, tokensRes, emailRes, linkedChatsRes, linkedGroupsRes] = await Promise.all([
+    supabase.from("crm_deals").select("id, deal_name, board_type, stage_id, value, probability, created_at, updated_at, stage_changed_at, telegram_chat_id, contact:crm_contacts(name, telegram_username), stage:pipeline_stages(id, name, color, position)").order("updated_at", { ascending: false }),
     supabase.from("crm_contacts").select("id", { count: "exact", head: true }),
     supabase.from("pipeline_stages").select("id, name, position, color").order("position"),
     supabase.from("crm_deal_stage_history").select("id, deal_id, from_stage_id, to_stage_id, changed_at").gte("changed_at", sevenDaysAgo),
     supabase.from("crm_deal_stage_history").select("id, deal_id, from_stage_id, to_stage_id, changed_at").gte("changed_at", fourteenDaysAgo).lt("changed_at", sevenDaysAgo),
-    supabase.from("crm_notifications").select("id, type, title, body, tg_deep_link, pipeline_link, tg_sender_name, created_at, deal:crm_deals(id, deal_name, board_type, stage:pipeline_stages(name, color)), tg_group:tg_groups(group_name)").eq("type", "tg_message").gte("created_at", twentyFourHoursAgo).order("created_at", { ascending: false }),
+    supabase.from("crm_notifications").select("id, type, title, body, tg_deep_link, pipeline_link, tg_sender_name, created_at, deal:crm_deals(id, deal_name, board_type, stage:pipeline_stages(name, color)), tg_group:tg_groups(group_name, telegram_group_id)").eq("type", "tg_message").gte("created_at", twentyFourHoursAgo).order("created_at", { ascending: false }),
     supabase.from("crm_deals").select("id, deal_name, board_type, value, stage:pipeline_stages(name, color)").eq("probability", 100).limit(5),
     supabase.from("tg_groups").select("id", { count: "exact", head: true }),
     supabase.from("user_tokens").select("id", { count: "exact", head: true }).eq("provider", "telegram_bot"),
     supabase.from("crm_email_connections").select("id", { count: "exact", head: true }),
+    // Fetch explicit deal-chat links for hot conversation matching
+    supabase.from("crm_deal_linked_chats").select("deal_id, telegram_chat_id"),
+    // Fetch TG groups with activity data for cross-signal detection
+    supabase.from("tg_groups").select("telegram_group_id, group_name, last_message_at, updated_at"),
   ]);
 
   const deals = dealsRes.data ?? [];
@@ -138,20 +142,121 @@ export async function GET() {
     total_moves: stageTransitions[s.id].from,
   }));
 
-  // --- Hot conversations (TG groups with most messages in 24h) ---
+  // --- Hot conversations (TG groups linked to deals with most messages in 24h) ---
+  // Build a set of linked telegram_chat_ids from the junction table + legacy deal.telegram_chat_id
+  interface LinkedChatRow { deal_id: string; telegram_chat_id: number }
+  const linkedChatRows = (linkedChatsRes.data ?? []) as LinkedChatRow[];
+  const chatIdToDealIds = new Map<number, Set<string>>();
+  for (const link of linkedChatRows) {
+    const existing = chatIdToDealIds.get(link.telegram_chat_id);
+    if (existing) {
+      existing.add(link.deal_id);
+    } else {
+      chatIdToDealIds.set(link.telegram_chat_id, new Set([link.deal_id]));
+    }
+  }
+  // Backward compat: also consider deals with telegram_chat_id set directly
+  for (const deal of deals) {
+    const legacyChatId = deal.telegram_chat_id as number | null;
+    if (legacyChatId && !chatIdToDealIds.has(legacyChatId)) {
+      chatIdToDealIds.set(legacyChatId, new Set([deal.id]));
+    }
+  }
+
+  // Build a deal lookup by id
+  const dealById = new Map(deals.map((d) => [d.id, d]));
+
+  // Count messages per group, but only for groups linked to deals
   const groupMessageCounts: Record<string, { name: string; count: number; deal_name: string; deal_id: string }> = {};
   for (const n of recentMessages) {
-    const group = n.tg_group as unknown as { group_name: string } | null;
-    const deal = n.deal as unknown as { id: string; deal_name: string } | null;
-    const key = group?.group_name ?? "Unknown";
+    const group = n.tg_group as unknown as { group_name: string; telegram_group_id: number } | null;
+    if (!group?.telegram_group_id) continue;
+    const linkedDealIds = chatIdToDealIds.get(group.telegram_group_id);
+    if (!linkedDealIds || linkedDealIds.size === 0) continue; // Only count groups linked to deals
+
+    const key = group.group_name ?? "Unknown";
     if (!groupMessageCounts[key]) {
-      groupMessageCounts[key] = { name: key, count: 0, deal_name: deal?.deal_name ?? "", deal_id: deal?.id ?? "" };
+      // Pick the first linked deal for display
+      const firstDealId = linkedDealIds.values().next().value as string;
+      const linkedDeal = dealById.get(firstDealId);
+      groupMessageCounts[key] = {
+        name: key,
+        count: 0,
+        deal_name: linkedDeal?.deal_name ?? "",
+        deal_id: firstDealId,
+      };
     }
     groupMessageCounts[key].count++;
   }
   const hotConversations = Object.values(groupMessageCounts)
     .sort((a, b) => b.count - a.count)
     .slice(0, 5);
+
+  // --- Cross-signal alerts: deals with linked TG groups that went quiet ---
+  // Build a map of telegram_group_id -> group data for health assessment
+  interface TgGroupRow { telegram_group_id: number; group_name: string; last_message_at: string | null; updated_at: string }
+  const tgGroups = (linkedGroupsRes.data ?? []) as TgGroupRow[];
+  const groupByChatId = new Map<number, TgGroupRow>();
+  for (const g of tgGroups) {
+    groupByChatId.set(g.telegram_group_id, g);
+  }
+
+  // Build deal_id -> linked chat_ids from junction table + legacy fallback
+  const dealIdToLinkedChatIds = new Map<string, Set<number>>();
+  for (const link of linkedChatRows) {
+    const existing = dealIdToLinkedChatIds.get(link.deal_id);
+    if (existing) {
+      existing.add(link.telegram_chat_id);
+    } else {
+      dealIdToLinkedChatIds.set(link.deal_id, new Set([link.telegram_chat_id]));
+    }
+  }
+  // Backward compat: also consider deals with telegram_chat_id set directly
+  for (const deal of deals) {
+    const legacyChatId = deal.telegram_chat_id as number | null;
+    if (legacyChatId && !dealIdToLinkedChatIds.has(deal.id)) {
+      dealIdToLinkedChatIds.set(deal.id, new Set([legacyChatId]));
+    }
+  }
+
+  // Determine group health based on last_message_at
+  const threeDaysAgo = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000).getTime();
+  const getGroupHealth = (g: TgGroupRow): string => {
+    const lastActive = g.last_message_at ? new Date(g.last_message_at).getTime() : null;
+    if (!lastActive) return "dead";
+    const daysSince = (now.getTime() - lastActive) / 86400000;
+    if (daysSince > 14) return "dead";
+    if (daysSince > 7) return "stale";
+    if (daysSince > 3) return "quiet";
+    return "active";
+  };
+
+  const QUIET_HEALTH = new Set(["stale", "dead", "quiet"]);
+  const activeDealIds = new Set(hotConversations.map((h) => h.deal_id));
+
+  const crossSignals: { deal_name: string; deal_id: string; group_name: string; health: string; days_stale: number; stage_name: string }[] = [];
+  for (const deal of staleDeals) {
+    if (activeDealIds.has(deal.id)) continue; // has active conversation — skip
+    const linkedChatIds = dealIdToLinkedChatIds.get(deal.id);
+    if (!linkedChatIds || linkedChatIds.size === 0) continue;
+
+    for (const chatId of linkedChatIds) {
+      const group = groupByChatId.get(chatId);
+      if (!group) continue;
+      const health = getGroupHealth(group);
+      if (QUIET_HEALTH.has(health)) {
+        crossSignals.push({
+          deal_name: deal.deal_name,
+          deal_id: deal.id,
+          group_name: group.group_name,
+          health,
+          days_stale: deal.days_stale,
+          stage_name: deal.stage_name,
+        });
+        break; // one alert per deal is enough
+      }
+    }
+  }
 
   // --- Recent deals ---
   const recentDeals = deals.slice(0, 5).map((d) => ({
@@ -175,6 +280,7 @@ export async function GET() {
     velocity: { movesThisWeek, movesLastWeek, avgDaysPerStage },
     conversionRates,
     hotConversations,
+    crossSignals,
     pinnedDeals: pinnedDeals.map((d) => ({
       id: d.id, deal_name: d.deal_name, board_type: d.board_type, value: d.value,
       stage_name: (d.stage as unknown as { name: string } | null)?.name ?? "",
