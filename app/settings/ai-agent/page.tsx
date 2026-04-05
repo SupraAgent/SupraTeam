@@ -18,6 +18,7 @@ import { toast } from "sonner";
 type AgentConfig = {
   id: string;
   name: string;
+  slug: string | null;
   is_active: boolean;
   role_prompt: string;
   knowledge_base: string | null;

@@ -74,6 +74,7 @@ function getProfileIdByTelegramId(telegramId: number): string | undefined {
 // ── AI Agent: cached config (refreshed every 60s) ──────────────
 interface AgentConfig {
   id: string;
+  slug: string | null;
   is_active: boolean;
   respond_to_dms: boolean;
   respond_to_groups: boolean;

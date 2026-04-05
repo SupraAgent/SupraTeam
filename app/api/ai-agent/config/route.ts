@@ -7,16 +7,23 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 
-export async function GET() {
+export async function GET(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
   const { supabase } = auth;
 
-  const { data: configs } = await supabase
-    .from("crm_ai_agent_config")
-    .select("*")
-    .order("created_at")
-    .limit(1);
+  const { searchParams } = new URL(request.url);
+  const slug = searchParams.get("slug");
+
+  let query = supabase.from("crm_ai_agent_config").select("*");
+
+  if (slug) {
+    query = query.eq("slug", slug);
+  } else {
+    query = query.order("created_at");
+  }
+
+  const { data: configs } = await query.limit(1);
 
   return NextResponse.json({ config: configs?.[0] ?? null });
 }
@@ -32,6 +39,7 @@ export async function POST(request: Request) {
     .from("crm_ai_agent_config")
     .insert({
       name: body.name ?? "Default Agent",
+      slug: body.slug ?? null,
       role_prompt: body.role_prompt ?? "You are a helpful assistant for Supra. Answer questions professionally and concisely.",
       knowledge_base: body.knowledge_base ?? null,
       qualification_fields: body.qualification_fields ?? ["company", "role", "interest", "budget_range"],
@@ -68,6 +76,7 @@ export async function PUT(request: Request) {
 
   const allowed: Record<string, unknown> = {
     name: body.name,
+    slug: body.slug,
     is_active: body.is_active,
     role_prompt: body.role_prompt,
     knowledge_base: body.knowledge_base,
