@@ -72,7 +72,11 @@ export async function GET(request: Request) {
   }
 
   const applications = (deals ?? []).map((deal) => {
-    const stageName = (deal.stage as { name: string } | null)?.name ?? "Unknown";
+    // Supabase join can return array or object depending on relationship
+    const stageRaw: unknown = deal.stage;
+    const stageName = Array.isArray(stageRaw)
+      ? (stageRaw[0] as { name: string } | undefined)?.name ?? "Unknown"
+      : (stageRaw as { name: string } | null)?.name ?? "Unknown";
     const stageIndex = APPLICATION_STAGES.indexOf(stageName as typeof APPLICATION_STAGES[number]);
     const isTerminal = stageName === "Approved" || stageName === "Rejected";
 
