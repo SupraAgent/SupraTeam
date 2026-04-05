@@ -43,6 +43,7 @@ Numbers continue sequentially across all groups.
 
 ## Grouping Rules
 
+- **User Personas**: Agents with "crypto-bd", "BD", or "persona" in name or description (case-insensitive)
 - **Product & Strategy**: Agents with "CPO" in name or description
 - **Code Quality**: Agents with "code", "reviewer", or "coder" in name (case-insensitive)
 - **Security**: Agents with "security", "auditor", "devil", "cypherpunk" in name (case-insensitive)
