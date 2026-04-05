@@ -1248,6 +1248,7 @@ export default function InboxPage() {
           <h1 className="text-xl font-semibold text-foreground">Inbox</h1>
           <p className="mt-1 text-sm text-muted-foreground hidden sm:block">
             Manage Telegram conversations across CRM-linked groups.
+            {" "}<a href="/settings/inbox/routing" className="text-primary hover:underline">Assignment rules</a>
           </p>
         </div>
         <div className="flex items-center gap-1">
@@ -1889,7 +1890,10 @@ export default function InboxPage() {
                   {showCanned && (
                     <div ref={cannedListRef} className="mb-2 rounded-lg border border-white/10 bg-[hsl(var(--background))] max-h-[200px] overflow-y-auto thin-scroll">
                       {filteredCanned.length === 0 ? (
-                        <p className="text-[10px] text-muted-foreground/50 px-3 py-2">No canned responses found</p>
+                        <div className="px-3 py-2">
+                          <p className="text-[10px] text-muted-foreground/50">No canned responses found</p>
+                          <a href="/settings/inbox/canned" className="text-[10px] text-primary hover:underline">Create your first response</a>
+                        </div>
                       ) : (
                         filteredCanned.map((r, idx) => (
                           <button
@@ -1913,6 +1917,12 @@ export default function InboxPage() {
                           </button>
                         ))
                       )}
+                      <a
+                        href="/settings/inbox/canned"
+                        className="block text-center text-[10px] text-primary hover:underline py-1.5 border-t border-white/5"
+                      >
+                        Manage responses
+                      </a>
                     </div>
                   )}
 

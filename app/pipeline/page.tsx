@@ -13,7 +13,8 @@ import { AISuggestionsPanel } from "@/components/pipeline/ai-suggestions-panel";
 import { SavedViewsBar } from "@/components/saved-views-bar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { LayoutGrid, List, Search, DollarSign, Filter, Brain, Sparkles, ChevronDown, ChevronUp, Zap } from "lucide-react";
+import { LayoutGrid, List, Search, DollarSign, Filter, Brain, Sparkles, ChevronDown, ChevronUp, Zap, Settings } from "lucide-react";
+import Link from "next/link";
 import { toast } from "sonner";
 import type { Deal, PipelineStage, Contact, BoardType } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -625,7 +626,16 @@ export default function PipelinePage() {
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-foreground">Pipeline</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-semibold text-foreground">Pipeline</h1>
+            <Link
+              href="/settings/pipeline"
+              title="Pipeline settings"
+              className="text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Settings className="h-4 w-4" />
+            </Link>
+          </div>
           <p className="mt-1 text-sm text-muted-foreground hidden sm:block">
             Drag deals between stages. Filter by BD, Marketing, or Admin board.
           </p>
