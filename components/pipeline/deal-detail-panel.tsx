@@ -1198,7 +1198,10 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
         dealId={deal.id}
         dealName={deal.deal_name}
         contactId={deal.contact_id}
+        contactEmail={deal.contact?.email ?? undefined}
+        contactName={deal.contact?.name ?? undefined}
         telegramChatId={deal.telegram_chat_id ?? undefined}
+        onEventCreated={() => onUpdated?.()}
       />
     </SlideOver>
   );
