@@ -10,7 +10,6 @@ import {
   X,
   Pencil,
   Loader2,
-  GripVertical,
   MessageCircle,
 } from "lucide-react";
 
@@ -46,6 +45,22 @@ export interface DragChatData {
   chatTitle: string;
 }
 
+function parseDragChatData(raw: string): DragChatData | null {
+  try {
+    const data = JSON.parse(raw) as unknown;
+    if (
+      typeof data === "object" && data !== null &&
+      "chatId" in data && typeof (data as Record<string, unknown>).chatId === "number" &&
+      "chatTitle" in data && typeof (data as Record<string, unknown>).chatTitle === "string"
+    ) {
+      return data as DragChatData;
+    }
+  } catch {
+    // invalid JSON
+  }
+  return null;
+}
+
 // ── Preset colors ───────────────────────────────────────────
 
 const GROUP_COLORS = [
@@ -58,16 +73,18 @@ const GROUP_COLORS = [
 export function useTgChatGroups() {
   const [groups, setGroups] = React.useState<TgChatGroup[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const groupsRef = React.useRef(groups);
-  groupsRef.current = groups;
 
   const fetchGroups = React.useCallback(async () => {
     try {
       const res = await globalThis.fetch("/api/telegram/groups");
+      if (!res.ok) {
+        toast.error("Failed to load chat groups");
+        return;
+      }
       const json = await res.json();
       if (json.data) setGroups(json.data);
     } catch {
-      // silent
+      toast.error("Failed to load chat groups");
     } finally {
       setLoading(false);
     }
@@ -91,15 +108,21 @@ export function useTgChatGroups() {
   }, []);
 
   const deleteGroup = React.useCallback(async (groupId: string) => {
+    // Capture for rollback before removing
+    const snapshot = groups;
     setGroups((prev) => prev.filter((g) => g.id !== groupId));
-    const res = await globalThis.fetch(`/api/telegram/groups?id=${groupId}`, { method: "DELETE" });
-    if (!res.ok) {
-      // rollback
-      const json = await res.json();
-      toast.error(json.error || "Failed to delete group");
-      fetchGroups();
+    try {
+      const res = await globalThis.fetch(`/api/telegram/groups?id=${groupId}`, { method: "DELETE" });
+      if (!res.ok) {
+        const json = await res.json();
+        toast.error(json.error || "Failed to delete group");
+        setGroups(snapshot);
+      }
+    } catch {
+      toast.error("Failed to delete group");
+      setGroups(snapshot);
     }
-  }, [fetchGroups]);
+  }, [groups]);
 
   const renameGroup = React.useCallback(async (groupId: string, name: string) => {
     setGroups((prev) => prev.map((g) => (g.id === groupId ? { ...g, name } : g)));
@@ -116,20 +139,36 @@ export function useTgChatGroups() {
   }, [fetchGroups]);
 
   const toggleCollapse = React.useCallback(async (groupId: string) => {
-    const group = groupsRef.current.find((g) => g.id === groupId);
-    if (!group) return;
-    const next = !group.is_collapsed;
-    setGroups((prev) => prev.map((g) => (g.id === groupId ? { ...g, is_collapsed: next } : g)));
-    await globalThis.fetch("/api/telegram/groups", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: groupId, is_collapsed: next }),
-    });
+    // Derive next value inside updater to avoid stale closure
+    let next = false;
+    setGroups((prev) =>
+      prev.map((g) => {
+        if (g.id !== groupId) return g;
+        next = !g.is_collapsed;
+        return { ...g, is_collapsed: next };
+      })
+    );
+    try {
+      const res = await globalThis.fetch("/api/telegram/groups", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: groupId, is_collapsed: next }),
+      });
+      if (!res.ok) {
+        // Revert on failure
+        setGroups((prev) =>
+          prev.map((g) => (g.id === groupId ? { ...g, is_collapsed: !next } : g))
+        );
+      }
+    } catch {
+      setGroups((prev) =>
+        prev.map((g) => (g.id === groupId ? { ...g, is_collapsed: !next } : g))
+      );
+    }
   }, []);
 
   const addChatToGroup = React.useCallback(async (groupId: string, chatId: number, chatTitle: string) => {
-    // Optimistic: add member
-    const tempId = `temp-${Date.now()}`;
+    const tempId = crypto.randomUUID();
     const tempMember: TgChatGroupMember = {
       id: tempId,
       group_id: groupId,
@@ -146,20 +185,58 @@ export function useTgChatGroups() {
       )
     );
 
-    const res = await globalThis.fetch("/api/telegram/groups/members", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        group_id: groupId,
-        chat_ids: [chatId],
-        chat_titles: { [chatId]: chatTitle },
-      }),
-    });
+    try {
+      const res = await globalThis.fetch("/api/telegram/groups/members", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          group_id: groupId,
+          chat_ids: [chatId],
+          chat_titles: { [chatId]: chatTitle },
+        }),
+      });
 
-    if (!res.ok) {
+      if (!res.ok) {
+        const json = await res.json();
+        toast.error(json.error || "Failed to add to group");
+        setGroups((prev) =>
+          prev.map((g) =>
+            g.id === groupId
+              ? { ...g, crm_tg_chat_group_members: g.crm_tg_chat_group_members.filter((m) => m.id !== tempId) }
+              : g
+          )
+        );
+        return;
+      }
+
       const json = await res.json();
-      toast.error(json.error || "Failed to add to group");
-      // rollback
+      const realMember = json.data?.[0];
+      // Replace temp with real data, or keep temp if API returned empty (upsert matched existing)
+      if (realMember) {
+        setGroups((prev) =>
+          prev.map((g) =>
+            g.id === groupId
+              ? {
+                  ...g,
+                  crm_tg_chat_group_members: g.crm_tg_chat_group_members.map((m) =>
+                    m.id === tempId ? realMember : m
+                  ),
+                }
+              : g
+          )
+        );
+      } else {
+        // API returned empty — member already existed server-side. Remove our temp duplicate.
+        setGroups((prev) =>
+          prev.map((g) =>
+            g.id === groupId
+              ? { ...g, crm_tg_chat_group_members: g.crm_tg_chat_group_members.filter((m) => m.id !== tempId) }
+              : g
+          )
+        );
+      }
+    } catch {
+      toast.error("Failed to add to group");
       setGroups((prev) =>
         prev.map((g) =>
           g.id === groupId
@@ -167,29 +244,10 @@ export function useTgChatGroups() {
             : g
         )
       );
-      return;
-    }
-
-    const json = await res.json();
-    // Replace temp with real data
-    if (json.data?.[0]) {
-      setGroups((prev) =>
-        prev.map((g) =>
-          g.id === groupId
-            ? {
-                ...g,
-                crm_tg_chat_group_members: g.crm_tg_chat_group_members.map((m) =>
-                  m.id === tempId ? json.data[0] : m
-                ),
-              }
-            : g
-        )
-      );
     }
   }, []);
 
   const removeChatFromGroup = React.useCallback(async (groupId: string, chatId: number) => {
-    // Optimistic
     setGroups((prev) =>
       prev.map((g) =>
         g.id === groupId
@@ -226,6 +284,8 @@ export function useTgChatGroups() {
 interface TgChatGroupPanelProps {
   groups: TgChatGroup[];
   loading: boolean;
+  activeGroupId: string | null;
+  onSelectGroup: (groupId: string | null) => void;
   onCreateGroup: (name: string, color: string) => Promise<TgChatGroup>;
   onDeleteGroup: (groupId: string) => void;
   onRenameGroup: (groupId: string, name: string) => void;
@@ -238,6 +298,8 @@ interface TgChatGroupPanelProps {
 export function TgChatGroupPanel({
   groups,
   loading,
+  activeGroupId,
+  onSelectGroup,
   onCreateGroup,
   onDeleteGroup,
   onRenameGroup,
@@ -271,7 +333,7 @@ export function TgChatGroupPanel({
   return (
     <div className="space-y-1">
       {/* Header */}
-      <div className="flex items-center justify-between px-1 mb-2">
+      <div className="flex items-center justify-between px-1 mb-1">
         <div className="flex items-center gap-1.5">
           <Folder className="h-3.5 w-3.5 text-muted-foreground" />
           <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
@@ -286,6 +348,17 @@ export function TgChatGroupPanel({
           <Plus className="h-3.5 w-3.5" />
         </button>
       </div>
+
+      {/* Active group indicator + clear */}
+      {activeGroupId && (
+        <button
+          onClick={() => onSelectGroup(null)}
+          className="w-full flex items-center gap-1.5 px-2 py-1 rounded-md bg-primary/10 text-primary text-[11px] font-medium hover:bg-primary/15 transition-colors"
+        >
+          <X className="h-3 w-3" />
+          <span>Clear group filter</span>
+        </button>
+      )}
 
       {/* Create form */}
       {showCreate && (
@@ -347,6 +420,8 @@ export function TgChatGroupPanel({
         <GroupRow
           key={group.id}
           group={group}
+          isActive={activeGroupId === group.id}
+          onSelect={() => onSelectGroup(activeGroupId === group.id ? null : group.id)}
           onToggleCollapse={onToggleCollapse}
           onDelete={onDeleteGroup}
           onRename={onRenameGroup}
@@ -363,6 +438,8 @@ export function TgChatGroupPanel({
 
 function GroupRow({
   group,
+  isActive,
+  onSelect,
   onToggleCollapse,
   onDelete,
   onRename,
@@ -371,6 +448,8 @@ function GroupRow({
   onSelectChat,
 }: {
   group: TgChatGroup;
+  isActive: boolean;
+  onSelect: () => void;
   onToggleCollapse: (id: string) => void;
   onDelete: (id: string) => void;
   onRename: (id: string, name: string) => void;
@@ -381,8 +460,13 @@ function GroupRow({
   const [isOver, setIsOver] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
   const [editName, setEditName] = React.useState(group.name);
-  const dropTimerRef = React.useRef<ReturnType<typeof setTimeout>>(undefined);
+  const recentDropRef = React.useRef(false);
   const members = group.crm_tg_chat_group_members ?? [];
+
+  // Sync editName if group.name changes externally
+  React.useEffect(() => {
+    if (!editing) setEditName(group.name);
+  }, [group.name, editing]);
 
   const handleDragOver = (e: React.DragEvent) => {
     if (!e.dataTransfer.types.includes(TG_CHAT_DRAG_TYPE)) return;
@@ -396,23 +480,23 @@ function GroupRow({
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsOver(false);
+    if (recentDropRef.current) return; // debounce rapid drops
+
     const raw = e.dataTransfer.getData(TG_CHAT_DRAG_TYPE);
     if (!raw) return;
-    try {
-      const data = JSON.parse(raw) as DragChatData;
-      // Skip if already in group
-      if (members.some((m) => m.telegram_chat_id === data.chatId)) {
-        toast("Chat is already in this group");
-        return;
-      }
-      // Deduplicate rapid drops
-      clearTimeout(dropTimerRef.current);
-      dropTimerRef.current = setTimeout(() => {}, 2000);
-      onDropChat(group.id, data);
-      toast.success(`Added to "${group.name}"`);
-    } catch {
-      // ignore bad data
+    const data = parseDragChatData(raw);
+    if (!data) return;
+
+    if (members.some((m) => m.telegram_chat_id === data.chatId)) {
+      toast("Chat is already in this group");
+      return;
     }
+
+    recentDropRef.current = true;
+    setTimeout(() => { recentDropRef.current = false; }, 1000);
+
+    onDropChat(group.id, data);
+    toast.success(`Added to "${group.name}"`);
   };
 
   const commitRename = () => {
@@ -425,22 +509,33 @@ function GroupRow({
     setEditing(false);
   };
 
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const confirmed = window.confirm(`Delete group "${group.name}" and remove all chats from it?`);
+    if (confirmed) onDelete(group.id);
+  };
+
   return (
     <div
       className={cn(
-        "rounded-lg border transition-colors",
+        "rounded-lg border transition-colors group",
         isOver
           ? "border-primary/50 bg-primary/5"
-          : "border-white/[0.06] bg-white/[0.02]"
+          : isActive
+            ? "border-primary/30 bg-primary/[0.06]"
+            : "border-white/[0.06] bg-white/[0.02]"
       )}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
       {/* Group header */}
-      <div className="flex items-center gap-1.5 px-2 py-1.5 cursor-pointer select-none">
+      <div
+        className="flex items-center gap-1.5 px-2 py-1.5 cursor-pointer select-none"
+        onClick={onSelect}
+      >
         <button
-          onClick={() => onToggleCollapse(group.id)}
+          onClick={(e) => { e.stopPropagation(); onToggleCollapse(group.id); }}
           className="shrink-0 text-muted-foreground hover:text-foreground"
         >
           <ChevronDown
@@ -457,6 +552,7 @@ function GroupRow({
             className="flex-1 bg-transparent text-xs text-foreground outline-none border-b border-primary/40 px-0.5"
             value={editName}
             onChange={(e) => setEditName(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
             onBlur={commitRename}
             onKeyDown={(e) => {
               if (e.key === "Enter") commitRename();
@@ -466,8 +562,11 @@ function GroupRow({
           />
         ) : (
           <span
-            className="flex-1 text-xs font-medium text-foreground truncate"
-            onDoubleClick={() => { setEditing(true); setEditName(group.name); }}
+            className={cn(
+              "flex-1 text-xs font-medium truncate",
+              isActive ? "text-primary" : "text-foreground"
+            )}
+            onDoubleClick={(e) => { e.stopPropagation(); setEditing(true); setEditName(group.name); }}
           >
             {group.name}
           </span>
@@ -485,7 +584,7 @@ function GroupRow({
           <Pencil className="h-2.5 w-2.5" />
         </button>
         <button
-          onClick={(e) => { e.stopPropagation(); onDelete(group.id); }}
+          onClick={handleDelete}
           className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground/40 hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-all shrink-0"
           title="Delete group"
         >
