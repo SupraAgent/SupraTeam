@@ -77,7 +77,7 @@ export async function GET(req: NextRequest) {
         title: d.deal_name,
         subtitle: `Expected close${d.value ? ` — $${Number(d.value).toLocaleString()}` : ""}`,
         color: stage?.color ?? "#3b82f6",
-        meta: { deal_id: d.id, board_type: d.board_type, value: d.value, probability: d.probability },
+        meta: { deal_id: d.id, deal_name: d.deal_name, board_type: d.board_type, value: d.value, probability: d.probability },
       });
     }
   }
@@ -94,7 +94,7 @@ export async function GET(req: NextRequest) {
       title: deal?.deal_name ?? "Unknown deal",
       subtitle: `${fromStage?.name ?? "?"} → ${toStage?.name ?? "?"}`,
       color: "#8b5cf6",
-      meta: { deal_id: h.deal_id },
+      meta: { deal_id: h.deal_id, deal_name: deal?.deal_name },
     });
   }
 
@@ -108,7 +108,7 @@ export async function GET(req: NextRequest) {
       title: r.message ?? `${r.type} reminder`,
       subtitle: deal?.deal_name ?? undefined,
       color: "#f59e0b",
-      meta: { deal_id: r.deal_id, type: r.type },
+      meta: { deal_id: r.deal_id, deal_name: deal?.deal_name, type: r.type },
     });
   }
 
