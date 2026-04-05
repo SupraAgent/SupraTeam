@@ -25,7 +25,15 @@ export async function GET(request: Request) {
 
   if (!reference && !email) {
     return NextResponse.json(
-      { error: "Provide a 'reference' or 'email' query parameter" },
+      { error: "Provide both 'reference' and 'email' query parameters" },
+      { status: 400 }
+    );
+  }
+
+  // Require both reference AND email to prevent enumeration
+  if (!reference || !email) {
+    return NextResponse.json(
+      { error: "Both 'reference' and 'email' are required for status lookup" },
       { status: 400 }
     );
   }
@@ -35,8 +43,19 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Service unavailable" }, { status: 503 });
   }
 
-  // Build query
-  let query = admin
+  // Look up contact by email to verify ownership
+  const { data: contact } = await admin
+    .from("crm_contacts")
+    .select("id")
+    .eq("email", email)
+    .single();
+
+  if (!contact) {
+    return NextResponse.json({ applications: [] });
+  }
+
+  // Build query: require both reference code AND contact match
+  const query = admin
     .from("crm_deals")
     .select(`
       id,
@@ -46,23 +65,9 @@ export async function GET(request: Request) {
       created_at,
       stage:pipeline_stages!stage_id(name)
     `)
-    .eq("board_type", "Applications");
-
-  if (reference) {
-    query = query.eq("reference_code", reference);
-  } else if (email) {
-    // Look up contact by email first, then find their deals
-    const { data: contact } = await admin
-      .from("crm_contacts")
-      .select("id")
-      .eq("email", email)
-      .single();
-
-    if (!contact) {
-      return NextResponse.json({ applications: [] });
-    }
-    query = query.eq("contact_id", contact.id);
-  }
+    .eq("board_type", "Applications")
+    .eq("reference_code", reference)
+    .eq("contact_id", contact.id);
 
   const { data: deals, error } = await query.order("created_at", { ascending: false }).limit(10);
 

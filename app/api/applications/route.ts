@@ -276,16 +276,22 @@ export async function POST(request: Request) {
 
   // Generate unique reference code (retry on collision)
   let referenceCode = generateReferenceCode();
-  let retries = 0;
-  while (retries < 5) {
+  let codeIsUnique = false;
+  for (let retries = 0; retries < 5; retries++) {
     const { data: existing } = await admin
       .from("crm_deals")
       .select("id")
       .eq("reference_code", referenceCode)
       .single();
-    if (!existing) break;
+    if (!existing) {
+      codeIsUnique = true;
+      break;
+    }
     referenceCode = generateReferenceCode();
-    retries++;
+  }
+  if (!codeIsUnique) {
+    console.error("[applications] reference code collision after 5 retries");
+    return NextResponse.json({ error: "Failed to generate unique reference code. Please try again." }, { status: 500 });
   }
 
   // Create deal
@@ -297,7 +303,7 @@ export async function POST(request: Request) {
       stage_id: submittedStage.id,
       contact_id: contactId,
       source: submissionSource,
-      value: funding_requested || null,
+      value: funding_requested ?? null,
       health_score: score,
       reference_code: referenceCode,
     })

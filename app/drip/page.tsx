@@ -140,15 +140,19 @@ export default function DripDashboardPage() {
   }
 
   async function dismissAlert(id: string) {
-    const res = await fetch("/api/outreach/alerts", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }),
-    });
-    if (res.ok) {
-      setAlerts((prev) => prev.filter((a) => a.id !== id));
-    } else {
-      toast.error("Failed to dismiss alert");
+    try {
+      const res = await fetch("/api/outreach/alerts", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      if (res.ok) {
+        setAlerts((prev) => prev.filter((a) => a.id !== id));
+      } else {
+        toast.error("Failed to dismiss alert");
+      }
+    } catch {
+      toast.error("Network error dismissing alert");
     }
   }
 
