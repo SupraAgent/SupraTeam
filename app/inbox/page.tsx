@@ -46,8 +46,12 @@ import { useNukeMessages } from "@/lib/client/use-nuke-messages";
 import { useNukeGroups } from "@/lib/client/use-nuke-groups";
 import { useTelegramAdminGroups } from "@/lib/client/use-telegram-admin-groups";
 import { useTelegram } from "@/lib/client/telegram-context";
+import { TelegramBrowserService } from "@/lib/client/telegram-service";
+import type { TgAvailableSession } from "@/lib/client/telegram-service";
 import { EmojiPicker } from "@/components/ui/emoji-picker";
 import { DealContextSidebar } from "@/components/inbox/deal-context-sidebar";
+import { LinkDealModal } from "@/components/inbox/link-deal-modal";
+import { GlobalMessageSearch } from "@/components/inbox/global-message-search";
 import {
   TgChatGroupPanel,
   useTgChatGroups,
@@ -230,6 +234,7 @@ export default function InboxPage() {
   const [lastSeen, setLastSeen] = React.useState<Record<number, string>>({});
   const [loading, setLoading] = React.useState(true);
   const [search, setSearch] = React.useState("");
+  const [searchMode, setSearchMode] = React.useState<"filter" | "messages">("filter");
   const [selectedChat, setSelectedChat] = React.useState<number | null>(null);
   const [showDealSidebar, setShowDealSidebar] = React.useState(true);
   const [expandedThreads, setExpandedThreads] = React.useState<Set<number>>(new Set());
@@ -246,6 +251,7 @@ export default function InboxPage() {
   } | null>(null);
   const [noteModal, setNoteModal] = React.useState<{ chatId: number; groupName: string } | null>(null);
   const [noteText, setNoteText] = React.useState("");
+  const [linkDealModal, setLinkDealModal] = React.useState(false);
 
   // Chat groups (drag-to-group + filtering)
   const chatGroups = useTgChatGroups();
@@ -326,6 +332,13 @@ export default function InboxPage() {
     return localStorage.getItem("inbox_bot_filter") ?? "";
   });
 
+  // TG account filter (multi-account team sessions)
+  const [teamSessions, setTeamSessions] = React.useState<TgAvailableSession[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = React.useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    return localStorage.getItem("inbox_tg_account_filter") ?? "";
+  });
+
   // Keyboard shortcut help modal
   const [showShortcutHelp, setShowShortcutHelp] = React.useState(false);
   // Highlighted index for keyboard nav in conversation list
@@ -344,6 +357,13 @@ export default function InboxPage() {
     fetch("/api/bots").then((r) => r.ok ? r.json() : null).then((d) => {
       if (d?.bots) setBots(d.bots.map((b: { id: string; label: string }) => ({ id: b.id, label: b.label })));
     }).catch(() => {});
+  }, []);
+
+  // Fetch team TG sessions for account filter
+  React.useEffect(() => {
+    TelegramBrowserService.getAvailableSessions(true).then((sessions) => {
+      setTeamSessions(sessions.filter((s) => s.is_active));
+    });
   }, []);
 
   // ── Data Fetching ──────────────────────────────────────────
@@ -1294,10 +1314,26 @@ export default function InboxPage() {
             ref={searchInputRef}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search... (from: has: is:)"
+            placeholder={searchMode === "messages" ? "Search messages..." : "Search... (from: has: is:)"}
             className="pl-8 h-8 text-xs"
           />
         </div>
+        <button
+          onClick={() => {
+            setSearchMode((m) => (m === "filter" ? "messages" : "filter"));
+            setSearch("");
+          }}
+          className={cn(
+            "flex items-center gap-1 h-8 px-2.5 rounded-lg border text-[11px] font-medium transition-colors shrink-0",
+            searchMode === "messages"
+              ? "border-primary/40 bg-primary/10 text-primary"
+              : "border-white/10 bg-transparent text-muted-foreground hover:text-foreground hover:border-white/20"
+          )}
+          title={searchMode === "messages" ? "Switch to filter chats" : "Switch to search messages"}
+        >
+          <MessageSquare className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">{searchMode === "messages" ? "Messages" : "Chats"}</span>
+        </button>
         {bots.length > 1 && (
           <select
             value={selectedBotId}
@@ -1314,10 +1350,27 @@ export default function InboxPage() {
             ))}
           </select>
         )}
+        {teamSessions.length > 1 && (
+          <select
+            value={selectedAccountId}
+            onChange={(e) => {
+              setSelectedAccountId(e.target.value);
+              localStorage.setItem("inbox_tg_account_filter", e.target.value);
+            }}
+            className="h-8 rounded-lg border border-white/10 bg-transparent px-2 text-xs text-foreground"
+          >
+            <option value="">All Accounts</option>
+            {teamSessions.map((s) => (
+              <option key={s.id} value={s.telegram_user_id?.toString() ?? s.id}>
+                {s.display_name || s.owner_name || `Account ***${s.phone_last4 ?? ""}`}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
 
       {/* Main layout */}
-      {filtered.length === 0 ? (
+      {filtered.length === 0 && searchMode !== "messages" ? (
         <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-8 text-center">
           <InboxIcon className="mx-auto h-8 w-8 text-muted-foreground/30" />
           <p className="mt-2 text-sm text-muted-foreground">
@@ -1333,9 +1386,19 @@ export default function InboxPage() {
         </div>
       ) : (
         <div className={cn("grid grid-cols-1 gap-4 min-h-[60vh]", showDealSidebar && selectedChat && (deals[selectedChat] ?? []).length > 0 ? "lg:grid-cols-[320px_1fr_260px]" : "lg:grid-cols-[320px_1fr]")}>
-          {/* Left column: Conversation list + Chat groups */}
+          {/* Left column: Conversation list / Message search + Chat groups */}
           <div className="flex flex-col gap-2 min-h-0">
           <div className="rounded-xl border border-white/10 bg-white/[0.02] overflow-hidden flex-1">
+            {searchMode === "messages" ? (
+              <div className="max-h-[70vh]">
+                <GlobalMessageSearch
+                  onSelectChat={(chatId) => {
+                    setSelectedChat(chatId);
+                    setSearchMode("filter");
+                  }}
+                />
+              </div>
+            ) : (
             <div className="divide-y divide-white/5 max-h-[70vh] overflow-y-auto thin-scroll">
               {filtered.map((conv, convIndex) => {
                 const chatDeals = deals[conv.chat_id] ?? [];
@@ -1466,6 +1529,24 @@ export default function InboxPage() {
                       {assignee && (
                         <span className="text-[10px] text-primary/60 truncate max-w-[80px]">{assignee.display_name}</span>
                       )}
+                      {teamSessions.length > 1 && (() => {
+                        // Show which TG account is associated via matching telegram_user_id
+                        // to the first sender in the conversation that matches a session
+                        const senderIds = new Set(conv.messages.map((m) => m.sender_telegram_id));
+                        const matchedSession = teamSessions.find((s) =>
+                          s.telegram_user_id && senderIds.has(s.telegram_user_id)
+                        );
+                        if (!matchedSession) return null;
+                        const label2 = matchedSession.display_name || matchedSession.owner_name || `***${matchedSession.phone_last4 ?? ""}`;
+                        return (
+                          <span
+                            className="text-[9px] rounded px-1 py-0 bg-indigo-500/15 text-indigo-400 truncate max-w-[70px]"
+                            title={`TG Account: ${label2}`}
+                          >
+                            <UserIcon className="inline h-2 w-2 mr-0.5" />{label2}
+                          </span>
+                        );
+                      })()}
                       {chatDeals.length > 0 && (
                         <span className="text-[10px] text-primary/70 ml-auto">
                           {chatDeals.length} deal{chatDeals.length > 1 ? "s" : ""}
@@ -1479,6 +1560,7 @@ export default function InboxPage() {
                 <InboxLoadMore loading={loadingMore} onVisible={loadMore} />
               )}
             </div>
+            )}
           </div>
 
           {/* Chat Groups — compact drop targets + filter */}
@@ -1665,42 +1747,13 @@ export default function InboxPage() {
                         )}
                       </a>
                     ))}
-                    {(deals[selChatId] ?? []).length === 0 && (
-                      <button
-                        onClick={async (e) => {
-                          const btn = e.currentTarget;
-                          if (btn.dataset.creating === "true") return;
-                          btn.dataset.creating = "true";
-                          try {
-                            const name = window.prompt("Deal name:", selGroupName);
-                            if (!name) return;
-                            const res = await fetch("/api/deals", {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({
-                                deal_name: name,
-                                board_type: "BD",
-                                telegram_chat_id: selChatId,
-                                telegram_chat_name: selGroupName,
-                                telegram_chat_link: `https://t.me/c/${String(selChatId).replace(/^-100/, "")}`,
-                              }),
-                            });
-                            if (res.ok) {
-                              toast.success("Deal created and linked");
-                              fetchInbox();
-                            } else {
-                              toast.error("Failed to create deal");
-                            }
-                          } finally {
-                            btn.dataset.creating = "false";
-                          }
-                        }}
-                        className="text-[10px] text-primary hover:text-primary/80 flex items-center gap-1 transition-colors"
-                      >
-                        <Plus className="h-2.5 w-2.5" />
-                        Create Deal
-                      </button>
-                    )}
+                    <button
+                      onClick={() => setLinkDealModal(true)}
+                      className="text-[10px] text-primary hover:text-primary/80 flex items-center gap-1 transition-colors"
+                    >
+                      <Plus className="h-2.5 w-2.5" />
+                      {(deals[selChatId] ?? []).length === 0 ? "Link Deal" : "Link Another"}
+                    </button>
                   </div>
                 </div>
 
@@ -1979,6 +2032,7 @@ export default function InboxPage() {
               chatId={selectedChat}
               onClose={() => setShowDealSidebar(false)}
               onDealUpdated={fetchInbox}
+              onLinkDeal={() => setLinkDealModal(true)}
             />
           )}
         </div>
@@ -2133,6 +2187,22 @@ export default function InboxPage() {
       )}
 
       {/* ── Note Modal ─────────────────────────────────────── */}
+      {/* ── Link Deal Modal ───────────────────────────────── */}
+      {selectedConversation && (
+        <LinkDealModal
+          chatId={selectedConversation.chat_id}
+          chatType={(selectedConversation.group_type === "supergroup" || selectedConversation.group_type === "group" || selectedConversation.group_type === "channel" || selectedConversation.group_type === "dm") ? selectedConversation.group_type as "dm" | "group" | "channel" | "supergroup" : "group"}
+          chatTitle={selectedConversation.group_name}
+          chatLink={`https://t.me/c/${String(selectedConversation.chat_id).replace(/^-100/, "")}`}
+          open={linkDealModal}
+          onClose={() => setLinkDealModal(false)}
+          onDealLinked={() => {
+            fetchInbox();
+            setShowDealSidebar(true);
+          }}
+        />
+      )}
+
       {noteModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"

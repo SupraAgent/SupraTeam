@@ -3,7 +3,8 @@
 import * as React from "react";
 import { cn, timeAgo } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
-import { Send, Loader2, ExternalLink, Search, ChevronUp, ChevronDown, MessageCircle, Bot, User, Image, FileText, Sparkles, GitBranch, StickyNote, Brain } from "lucide-react";
+import { Send, Loader2, ExternalLink, Search, ChevronUp, ChevronDown, MessageCircle, Bot, User, Image, FileText, Sparkles, GitBranch, StickyNote, Brain, Users, Megaphone } from "lucide-react";
+import type { DealLinkedChat } from "@/lib/types";
 
 type Message = {
   id: string;
@@ -23,6 +24,9 @@ type Message = {
   source: "synced" | "notification";
   contact_id?: string | null;
   contact_name?: string | null;
+  /** Chat title/id for multi-linked-chat display */
+  chat_title?: string | null;
+  chat_id?: number | null;
 };
 
 type ActivityCard = {
@@ -41,13 +45,23 @@ type ConversationTimelineProps = {
   dealId: string;
   telegramChatId: number | null;
   telegramChatLink?: string | null;
+  linkedChats?: DealLinkedChat[];
   onUnreadChange?: (count: number) => void;
   activities?: ActivityCard[];
 };
 
 const POLL_INTERVAL = 15_000; // 15 seconds
 
-export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink, onUnreadChange, activities = [] }: ConversationTimelineProps) {
+/** Stable color palette for multi-chat labels */
+const CHAT_COLORS = [
+  { bg: "bg-blue-500/8", border: "border-blue-500/15", text: "text-blue-300" },
+  { bg: "bg-emerald-500/8", border: "border-emerald-500/15", text: "text-emerald-300" },
+  { bg: "bg-purple-500/8", border: "border-purple-500/15", text: "text-purple-300" },
+  { bg: "bg-amber-500/8", border: "border-amber-500/15", text: "text-amber-300" },
+  { bg: "bg-rose-500/8", border: "border-rose-500/15", text: "text-rose-300" },
+];
+
+export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink, linkedChats = [], onUnreadChange, activities = [] }: ConversationTimelineProps) {
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [hasMore, setHasMore] = React.useState(false);
@@ -61,6 +75,27 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
   const [loadingSuggestions, setLoadingSuggestions] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const isAtBottomRef = React.useRef(true);
+
+  const hasMultipleChats = linkedChats.length > 1;
+  const hasAnyChat = telegramChatId !== null || linkedChats.length > 0;
+
+  // Build stable color map for multi-chat display
+  const chatColorMap = React.useMemo(() => {
+    const map = new Map<number, typeof CHAT_COLORS[0]>();
+    linkedChats.forEach((lc, i) => {
+      map.set(lc.telegram_chat_id, CHAT_COLORS[i % CHAT_COLORS.length]);
+    });
+    return map;
+  }, [linkedChats]);
+
+  // Build chat title map for label display
+  const chatTitleMap = React.useMemo(() => {
+    const map = new Map<number, string>();
+    linkedChats.forEach((lc) => {
+      map.set(lc.telegram_chat_id, lc.chat_title || `Chat ${lc.telegram_chat_id}`);
+    });
+    return map;
+  }, [linkedChats]);
 
   const fetchMessages = React.useCallback(async (cursor?: string) => {
     try {
@@ -79,13 +114,19 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
     }
   }, [dealId]);
 
+  // Track latest message timestamp for polling without re-creating the callback
+  const lastSentAtRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (messages.length > 0) {
+      lastSentAtRef.current = messages[messages.length - 1]?.sent_at ?? null;
+    }
+  }, [messages]);
+
   // Poll for new messages
   const pollNewMessages = React.useCallback(async () => {
-    if (!telegramChatId || messages.length === 0) return;
-    const lastSentAt = messages[messages.length - 1]?.sent_at;
-    if (!lastSentAt) return;
+    if (!hasAnyChat || !lastSentAtRef.current) return;
     try {
-      const url = `/api/deals/${dealId}/conversation?after=${encodeURIComponent(lastSentAt)}`;
+      const url = `/api/deals/${dealId}/conversation?after=${encodeURIComponent(lastSentAtRef.current)}`;
       const res = await fetch(url);
       if (!res.ok) return;
       const data = await res.json();
@@ -114,7 +155,7 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
     } catch {
       // silent fail
     }
-  }, [dealId, telegramChatId, messages]);
+  }, [dealId, hasAnyChat]);
 
   React.useEffect(() => {
     setLoading(true);
@@ -123,7 +164,7 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
 
   // Real-time: subscribe to notification inserts for this deal, plus fallback polling
   React.useEffect(() => {
-    if (!telegramChatId || loading) return;
+    if (!hasAnyChat || loading) return;
 
     // Fallback polling (less frequent — realtime handles most updates)
     const interval = setInterval(pollNewMessages, 60_000);
@@ -150,7 +191,7 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
       clearInterval(interval);
       supabase.removeChannel(channel);
     };
-  }, [telegramChatId, loading, pollNewMessages, dealId]);
+  }, [hasAnyChat, loading, pollNewMessages, dealId]);
 
   // Track scroll position to determine if user is at bottom
   const handleScroll = React.useCallback(() => {
@@ -253,12 +294,12 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
     return items;
   }, [filtered, activities]);
 
-  if (!telegramChatId) {
+  if (!hasAnyChat) {
     return (
       <div className="text-center py-10">
         <MessageCircle className="mx-auto h-8 w-8 text-muted-foreground/20" />
         <p className="mt-3 text-xs text-muted-foreground">No Telegram chat linked to this deal</p>
-        <p className="mt-1 text-[10px] text-muted-foreground/50">Link a TG group in the Details tab to see conversations here.</p>
+        <p className="mt-1 text-[10px] text-muted-foreground/50">Use the &ldquo;Link conversation&rdquo; button above to connect TG chats.</p>
       </div>
     );
   }
@@ -288,7 +329,28 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
           >
             <Search className="h-3.5 w-3.5" />
           </button>
-          {telegramChatLink && (
+          {linkedChats.length > 0 ? (
+            linkedChats
+              .filter((lc) => lc.chat_link)
+              .map((lc) => (
+                <a
+                  key={lc.id}
+                  href={lc.chat_link!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={cn(
+                    "p-1 rounded hover:bg-white/5 transition-colors flex items-center gap-0.5",
+                    chatColorMap.has(lc.telegram_chat_id) ? chatColorMap.get(lc.telegram_chat_id)!.text : "text-blue-400"
+                  )}
+                  title={`Open ${lc.chat_title || "chat"} in Telegram`}
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  {hasMultipleChats && (
+                    <span className="text-[8px] max-w-[60px] truncate">{lc.chat_title}</span>
+                  )}
+                </a>
+              ))
+          ) : telegramChatLink ? (
             <a
               href={telegramChatLink}
               target="_blank"
@@ -298,7 +360,7 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
             >
               <ExternalLink className="h-3.5 w-3.5" />
             </a>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -428,8 +490,19 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
                     "flex-1 rounded-lg px-2.5 py-1.5 text-xs leading-relaxed",
                     msg.is_from_bot
                       ? "bg-blue-500/10 border border-blue-500/10"
-                      : "bg-white/[0.04]"
+                      : hasMultipleChats && msg.chat_id && chatColorMap.has(msg.chat_id)
+                        ? cn(chatColorMap.get(msg.chat_id)!.bg, "border", chatColorMap.get(msg.chat_id)!.border)
+                        : "bg-white/[0.04]"
                   )}>
+                    {/* Multi-chat source label */}
+                    {hasMultipleChats && msg.chat_id && chatTitleMap.has(msg.chat_id) && (
+                      <span className={cn(
+                        "inline-block text-[8px] font-medium mb-0.5 opacity-70",
+                        chatColorMap.has(msg.chat_id) ? chatColorMap.get(msg.chat_id)!.text : "text-muted-foreground"
+                      )}>
+                        {chatTitleMap.get(msg.chat_id)}
+                      </span>
+                    )}
                     {msg.media_type && msg.media_file_id && (
                       <MediaPreview
                         mediaType={msg.media_type}

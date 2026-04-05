@@ -33,7 +33,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "deals must be a non-empty array" }, { status: 400 });
   }
 
-  const VALID_BOARDS = ["BD", "Marketing", "Admin", "Applications"];
+  const VALID_BOARDS = ["BD", "Marketing", "Admin"];
   for (const d of deals) {
     if (!d.telegram_chat_id || !d.chat_title || !d.stage_id || !d.board_type) {
       return NextResponse.json(

@@ -107,6 +107,18 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     }
   }
 
+  // Trigger enrichment asynchronously when relevant fields change
+  if (contact) {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+    if ("x_handle" in raw && raw.x_handle) {
+      fetch(`${appUrl}/api/contacts/enrich-x`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contact_id: id, x_handle: raw.x_handle }),
+      }).catch(() => {});
+    }
+  }
+
   // Save custom field values
   if (raw.custom_fields && typeof raw.custom_fields === "object") {
     for (const [fieldId, val] of Object.entries(raw.custom_fields)) {

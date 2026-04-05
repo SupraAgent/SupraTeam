@@ -491,7 +491,6 @@ export default function TelegramFoldersPage() {
                         <option value="BD">BD</option>
                         <option value="Marketing">Marketing</option>
                         <option value="Admin">Admin</option>
-                        <option value="Applications">Applications</option>
                       </select>
                       <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 text-zinc-500 pointer-events-none" />
                     </div>

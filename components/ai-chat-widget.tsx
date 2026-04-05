@@ -87,14 +87,6 @@ const PAGE_CONFIG: Record<string, { label: string; suggestions: string[] }> = {
       "Create a task checklist for onboarding a new partner",
     ],
   },
-  "/conversations": {
-    label: "Conversations assistant",
-    suggestions: [
-      "Which conversations need my attention?",
-      "Help me respond to this message",
-      "What's the sentiment in my recent chats?",
-    ],
-  },
   "/access": {
     label: "Access control assistant",
     suggestions: [

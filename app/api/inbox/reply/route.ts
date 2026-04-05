@@ -59,7 +59,9 @@ export async function POST(request: Request) {
       .select("session_encrypted, encryption_method")
       .eq("user_id", user.id)
       .eq("is_active", true)
-      .single();
+      .order("connected_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
     if (session && session.encryption_method !== "client") {
       try {

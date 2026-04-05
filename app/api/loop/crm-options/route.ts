@@ -72,7 +72,6 @@ export async function GET(request: Request) {
           { value: "BD", label: "BD Board" },
           { value: "Marketing", label: "Marketing Board" },
           { value: "Admin", label: "Admin Board" },
-          { value: "Applications", label: "Applications Board" },
         ],
       });
     }

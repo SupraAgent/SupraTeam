@@ -200,7 +200,6 @@ export function CreateDealModal({ open, onClose, stages, contacts, onCreated }: 
                 { value: "BD", label: "BD" },
                 { value: "Marketing", label: "Marketing" },
                 { value: "Admin", label: "Admin" },
-                { value: "Applications", label: "Applications" },
               ]}
               className="mt-1"
             />

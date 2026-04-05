@@ -44,7 +44,10 @@ export async function GET() {
     .from("tg_client_sessions")
     .select("session_encrypted, phone_last4, telegram_user_id, is_active, connected_at, encryption_method")
     .eq("user_id", user.id)
-    .single();
+    .eq("is_active", true)
+    .order("connected_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
   if (error || !data) {
     return NextResponse.json({ connected: false });

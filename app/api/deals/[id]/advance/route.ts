@@ -36,12 +36,8 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     .select("id, name, position, color, board_type")
     .order("position");
 
-  // Filter by board_type: custom board stages match exactly, standard boards use null board_type
-  if (deal.board_type === "Applications") {
-    stagesQuery = stagesQuery.eq("board_type", "Applications");
-  } else {
-    stagesQuery = stagesQuery.is("board_type", null);
-  }
+  // Standard boards use shared stages (board_type IS NULL)
+  stagesQuery = stagesQuery.is("board_type", null);
 
   const { data: stages } = await stagesQuery;
 

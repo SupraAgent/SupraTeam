@@ -40,6 +40,7 @@ type Stats = {
   velocity: { movesThisWeek: number; movesLastWeek: number; avgDaysPerStage: { id: string; name: string; color: string; avg_days: number | null }[] };
   conversionRates: { id: string; name: string; color: string; next_stage: string; rate: number | null; total_moves: number }[];
   hotConversations: { name: string; count: number; deal_name: string; deal_id: string }[];
+  crossSignals: { deal_name: string; deal_id: string; group_name: string; health: string; days_stale: number; stage_name: string }[];
   pinnedDeals: { id: string; deal_name: string; board_type: string; value: number | null; stage_name: string; stage_color: string | null }[];
   onboarding: { hasBotToken: boolean; hasGroups: boolean; hasDeals: boolean; hasContacts: boolean; hasEmail: boolean };
 };
@@ -174,7 +175,7 @@ export default function HomePage() {
     stageBreakdown: [], recentDeals: [], totalPipelineValue: 0, weightedPipelineValue: 0,
     valueByBoard: { BD: 0, Marketing: 0, Admin: 0 }, staleDeals: [], followUps: [],
     velocity: { movesThisWeek: 0, movesLastWeek: 0, avgDaysPerStage: [] },
-    conversionRates: [], hotConversations: [], pinnedDeals: [],
+    conversionRates: [], hotConversations: [], crossSignals: [], pinnedDeals: [],
     onboarding: { hasBotToken: false, hasGroups: false, hasDeals: false, hasContacts: false, hasEmail: false },
   };
 
@@ -185,35 +186,8 @@ export default function HomePage() {
   const ghs = extras?.groupHealthSummary;
   const wfs = extras?.workflowStats;
 
-  // Cross-signal alerts: deals with linked TG groups that went quiet
-  // Uses heuristic name matching (min 3 chars to avoid false positives on short/common words)
-  const crossSignals: { deal_name: string; deal_id: string; group_name: string; health: string; days_stale: number; stage_name: string }[] = [];
-  const CROSS_SIGNAL_HEALTH = new Set(["stale", "dead", "quiet"]);
-  const MIN_MATCH_LEN = 3;
-  const STOP_WORDS = new Set(["the", "new", "our", "a", "an", "for", "and", "with"]);
-  if (extras?.groups && s.staleDeals.length > 0) {
-    const unhealthyGroups = extras.groups.filter((g) => CROSS_SIGNAL_HEALTH.has(g.health));
-    const activeDeals = new Set(s.hotConversations.map((h) => h.deal_id));
-    for (const deal of s.staleDeals) {
-      if (activeDeals.has(deal.id)) continue; // has active conversation — skip
-      const dealWords = deal.deal_name.toLowerCase().split(/\s+/).filter((w) => w.length >= MIN_MATCH_LEN && !STOP_WORDS.has(w));
-      if (dealWords.length === 0) continue;
-      const matchingGroup = unhealthyGroups.find((g) => {
-        const groupLower = g.name.toLowerCase();
-        return dealWords.some((w) => groupLower.includes(w));
-      });
-      if (matchingGroup) {
-        crossSignals.push({
-          deal_name: deal.deal_name,
-          deal_id: deal.id,
-          group_name: matchingGroup.name,
-          health: matchingGroup.health,
-          days_stale: deal.days_stale,
-          stage_name: deal.stage_name,
-        });
-      }
-    }
-  }
+  // Cross-signal alerts: deals with linked TG groups that went quiet (computed server-side via crm_deal_linked_chats)
+  const crossSignals = s.crossSignals;
 
   // Count total closed deals for analytics gating
   const totalClosed = analytics ? analytics.totalWon + analytics.totalLost : 0;

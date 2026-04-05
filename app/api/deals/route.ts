@@ -35,6 +35,11 @@ export async function GET(request: Request) {
     query = query.eq("tg_group_id", tgGroupId);
   }
 
+  const searchTerm = searchParams.get("search");
+  if (searchTerm) {
+    query = query.ilike("deal_name", `%${searchTerm}%`);
+  }
+
   query = query.range(offset, offset + limit - 1);
 
   const { data: deals, error, count } = await query;
@@ -86,8 +91,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "deal_name, board_type, and stage_id are required" }, { status: 400 });
   }
 
-  if (!["BD", "Marketing", "Admin", "Applications"].includes(board_type as string)) {
-    return NextResponse.json({ error: "board_type must be BD, Marketing, Admin, or Applications" }, { status: 400 });
+  if (!["BD", "Marketing", "Admin"].includes(board_type as string)) {
+    return NextResponse.json({ error: "board_type must be BD, Marketing, or Admin" }, { status: 400 });
   }
 
   // Use scoped client — RLS INSERT policy allows any authenticated user

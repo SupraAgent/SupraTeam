@@ -72,6 +72,8 @@ export type Contact = {
   x_bio: string | null;
   x_followers: number | null;
   x_last_tweet_at: string | null;
+  tg_bio: string | null;
+  tg_photo_url: string | null;
   enriched_at: string | null;
   enrichment_source: string | null;
   created_by: string | null;
@@ -89,7 +91,7 @@ export type Deal = {
   deal_name: string;
   contact_id: string | null;
   assigned_to: string | null;
-  board_type: "BD" | "Marketing" | "Admin" | "Applications";
+  board_type: "BD" | "Marketing" | "Admin";
   stage_id: string | null;
   value: number | null;
   probability: number | null;
@@ -117,7 +119,7 @@ export type Deal = {
   assigned_profile?: { display_name: string; avatar_url: string } | null;
 };
 
-export type BoardType = "All" | "BD" | "Marketing" | "Admin" | "Applications";
+export type BoardType = "All" | "BD" | "Marketing" | "Admin";
 
 export type Doc = {
   id: string;
@@ -203,4 +205,28 @@ export interface GraphEdge {
   type: string;
   strength?: number;
   label?: string;
+}
+
+export type LinkedChatType = "dm" | "group" | "channel" | "supergroup";
+
+export interface DealLinkedChat {
+  id: string;
+  deal_id: string;
+  telegram_chat_id: number;
+  chat_type: LinkedChatType;
+  chat_title: string | null;
+  chat_link: string | null;
+  is_primary: boolean;
+  linked_by: string | null;
+  linked_at: string;
+}
+
+export interface DealEmailThread {
+  id: string;
+  deal_id: string;
+  thread_id: string;
+  connection_id: string;
+  subject: string | null;
+  linked_by: string | null;
+  linked_at: string;
 }

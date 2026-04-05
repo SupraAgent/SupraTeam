@@ -183,23 +183,119 @@ export interface TgChatProfile {
   isMegagroup: boolean;
 }
 
-// ── Singleton Service ─────────────────────────────────────────
+// ── Available Session Info ────────────────────────────────────
+
+export interface TgAvailableSession {
+  id: string;
+  user_id: string;
+  display_name: string | null;
+  is_active: boolean;
+  phone_last4: string | null;
+  telegram_user_id: number | null;
+  owner_name: string | null;
+  owner_avatar: string | null;
+}
+
+// ── Multi-Instance Service ───────────────────────────────────
 
 export class TelegramBrowserService {
-  private static instance: TelegramBrowserService | null = null;
+  /** Default instance (backward-compatible singleton). */
+  private static defaultInstance: TelegramBrowserService | null = null;
+  /** Map of session-specific instances keyed by session ID. */
+  private static instances = new Map<string, TelegramBrowserService>();
+  /** Cached available sessions from server. */
+  private static availableSessionsCache: TgAvailableSession[] = [];
+
   private client: TelegramClient | null = null;
   private _connected = false;
   private _selfId: number | null = null;
   private _lastApiCall = 0;
+  private _sessionId: string | null = null;
   private eventHandlers = new Set<TgEventHandler>();
   private eventHandlerRegistered = false;
   private userCache = new Map<string, { firstName: string; lastName?: string }>();
 
-  static getInstance(): TelegramBrowserService {
-    if (!TelegramBrowserService.instance) {
-      TelegramBrowserService.instance = new TelegramBrowserService();
+  /**
+   * Get a TelegramBrowserService instance.
+   *
+   * @param sessionId - If provided, returns (or creates) an instance for that session.
+   *                     If omitted, returns the default singleton instance (backward-compatible).
+   */
+  static getInstance(sessionId?: string): TelegramBrowserService {
+    if (!sessionId) {
+      // Backward-compatible: return the default singleton
+      if (!TelegramBrowserService.defaultInstance) {
+        TelegramBrowserService.defaultInstance = new TelegramBrowserService();
+      }
+      return TelegramBrowserService.defaultInstance;
     }
-    return TelegramBrowserService.instance;
+
+    let instance = TelegramBrowserService.instances.get(sessionId);
+    if (!instance) {
+      instance = new TelegramBrowserService();
+      instance._sessionId = sessionId;
+      TelegramBrowserService.instances.set(sessionId, instance);
+    }
+    return instance;
+  }
+
+  /**
+   * Fetch available team sessions from the server.
+   * Results are cached; pass `forceRefresh` to re-fetch.
+   */
+  static async getAvailableSessions(forceRefresh = false): Promise<TgAvailableSession[]> {
+    if (!forceRefresh && TelegramBrowserService.availableSessionsCache.length > 0) {
+      return TelegramBrowserService.availableSessionsCache;
+    }
+
+    try {
+      const res = await fetch("/api/telegram/sessions");
+      if (!res.ok) return [];
+      const data = await res.json();
+      const sessions: TgAvailableSession[] = (data.sessions ?? []).map(
+        (s: Record<string, unknown>) => ({
+          id: s.id as string,
+          user_id: s.user_id as string,
+          display_name: (s.display_name as string) ?? null,
+          is_active: s.is_active as boolean,
+          phone_last4: (s.phone_last4 as string) ?? null,
+          telegram_user_id: (s.telegram_user_id as number) ?? null,
+          owner_name: (s.owner_name as string) ?? null,
+          owner_avatar: (s.owner_avatar as string) ?? null,
+        })
+      );
+      TelegramBrowserService.availableSessionsCache = sessions;
+      return sessions;
+    } catch {
+      return TelegramBrowserService.availableSessionsCache;
+    }
+  }
+
+  /**
+   * Get all currently active instances (connected sessions).
+   */
+  static getActiveInstances(): Map<string, TelegramBrowserService> {
+    return new Map(
+      [...TelegramBrowserService.instances.entries()].filter(
+        ([, inst]) => inst.connected
+      )
+    );
+  }
+
+  /**
+   * Disconnect and remove a session-specific instance.
+   */
+  static async removeInstance(sessionId: string): Promise<void> {
+    const instance = TelegramBrowserService.instances.get(sessionId);
+    if (instance) {
+      await instance.disconnect();
+      TelegramBrowserService.instances.delete(sessionId);
+    }
+  }
+
+  /** The session ID this instance is bound to (null for default instance). */
+  get sessionId(): string | null {
+    return this._sessionId;
   }
 
   get connected(): boolean {

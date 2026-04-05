@@ -1,10 +1,102 @@
 import { NextResponse } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireAuth } from "@/lib/auth-guard";
+
+const MESSAGE_SELECT =
+  "id, telegram_chat_id, sender_name, sender_username, sender_telegram_id, message_text, message_type, media_type, media_file_id, media_thumb_id, media_mime, reply_to_message_id, sent_at, is_from_bot";
+
+/**
+ * Resolve which Telegram chat IDs to query for a given deal.
+ * Prefers the junction table `crm_deal_linked_chats`; falls back to
+ * `crm_deals.telegram_chat_id` for backward compatibility.
+ *
+ * If `filterChatId` is provided, only that chat is returned (provided it
+ * is actually linked to the deal).
+ */
+async function resolveChatIds(
+  supabase: SupabaseClient,
+  dealId: string,
+  legacyChatId: string | number | null,
+  filterChatId: string | null
+): Promise<number[]> {
+  const { data: linkedChats } = await supabase
+    .from("crm_deal_linked_chats")
+    .select("telegram_chat_id")
+    .eq("deal_id", dealId);
+
+  if (linkedChats && linkedChats.length > 0) {
+    const chatIds = (linkedChats as Array<{ telegram_chat_id: number }>).map(
+      (lc) => lc.telegram_chat_id
+    );
+    if (filterChatId) {
+      const filtered = Number(filterChatId);
+      return chatIds.includes(filtered) ? [filtered] : [];
+    }
+    return chatIds;
+  }
+
+  // Backward compat: fall back to legacy single chat field
+  if (legacyChatId) {
+    const legacy = Number(legacyChatId);
+    if (filterChatId && Number(filterChatId) !== legacy) return [];
+    return [legacy];
+  }
+
+  return [];
+}
+
+interface MessageRow {
+  id: string;
+  telegram_chat_id: number;
+  sender_name: string | null;
+  sender_username: string | null;
+  sender_telegram_id: number | null;
+  message_text: string | null;
+  message_type: string;
+  media_type: string | null;
+  media_file_id: string | null;
+  media_thumb_id: string | null;
+  media_mime: string | null;
+  reply_to_message_id: number | null;
+  sent_at: string;
+  is_from_bot: boolean;
+}
+
+function formatSyncedMessage(
+  m: MessageRow,
+  contactMap: Record<number, { id: string; name: string }>
+) {
+  const contact = m.sender_telegram_id ? contactMap[m.sender_telegram_id] : null;
+  return {
+    id: m.id,
+    telegram_chat_id: m.telegram_chat_id,
+    sender_name: m.sender_name,
+    sender_username: m.sender_username,
+    sender_telegram_id: m.sender_telegram_id,
+    text: m.message_text,
+    message_type: m.message_type,
+    media_type: m.media_type ?? null,
+    media_file_id: m.media_file_id ?? null,
+    media_thumb_id: m.media_thumb_id ?? null,
+    media_mime: m.media_mime ?? null,
+    reply_to_message_id: m.reply_to_message_id,
+    sent_at: m.sent_at,
+    is_from_bot: m.is_from_bot,
+    source: "synced" as const,
+    contact_id: contact?.id ?? null,
+    contact_name: contact?.name ?? null,
+  };
+}
 
 /**
  * GET /api/deals/[id]/conversation
- * Fetch chat messages for a deal's linked Telegram group.
- * Query params: cursor (ISO timestamp), limit (default 50)
+ * Fetch chat messages for a deal's linked Telegram conversations.
+ *
+ * Query params:
+ *   - chat_id: filter to a single linked chat
+ *   - cursor: ISO timestamp for backward pagination
+ *   - after: ISO timestamp for forward polling
+ *   - limit: page size (default 50, max 100)
  */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -12,7 +104,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   if ("error" in auth) return auth.error;
   const { supabase } = auth;
 
-  // Get deal's telegram_chat_id
+  // Get deal (need legacy telegram_chat_id for backward compat)
   const { data: deal } = await supabase
     .from("crm_deals")
     .select("telegram_chat_id")
@@ -23,22 +115,25 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     return NextResponse.json({ error: "Deal not found" }, { status: 404 });
   }
 
-  if (!deal.telegram_chat_id) {
+  const url = new URL(request.url);
+  const chatIdFilter = url.searchParams.get("chat_id");
+  const cursor = url.searchParams.get("cursor");
+  const after = url.searchParams.get("after");
+  const limit = Math.min(Number(url.searchParams.get("limit") || "50"), 100);
+
+  const chatIds = await resolveChatIds(supabase, id, deal.telegram_chat_id, chatIdFilter);
+
+  if (chatIds.length === 0) {
     return NextResponse.json({ messages: [], hasMore: false, source: "no_chat" });
   }
 
-  const url = new URL(request.url);
-  const cursor = url.searchParams.get("cursor");
-  const after = url.searchParams.get("after"); // for polling: messages after this timestamp
-  const limit = Math.min(Number(url.searchParams.get("limit") || "50"), 100);
-
-  // Try tg_group_messages first (full synced messages)
+  // Query synced messages across all linked chats
   let query = supabase
     .from("tg_group_messages")
-    .select("id, sender_name, sender_username, sender_telegram_id, message_text, message_type, media_type, media_file_id, media_thumb_id, media_mime, reply_to_message_id, sent_at, is_from_bot")
-    .eq("telegram_chat_id", deal.telegram_chat_id)
-    .order("sent_at", { ascending: after ? true : false })
-    .limit(after ? 50 : limit + 1); // fetch one extra to check hasMore (not needed for after-polling)
+    .select(MESSAGE_SELECT)
+    .in("telegram_chat_id", chatIds)
+    .order("sent_at", { ascending: !!after })
+    .limit(after ? 50 : limit + 1);
 
   if (after) {
     query = query.gt("sent_at", after);
@@ -54,73 +149,36 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   }
 
   if (messages && messages.length > 0) {
+    const typedMessages = messages as MessageRow[];
+
     // Batch-lookup contacts for senders
-    const senderTgIds = [...new Set(messages.map((m) => m.sender_telegram_id).filter(Boolean))] as number[];
-    let contactMap: Record<number, { id: string; name: string }> = {};
+    const senderTgIds = [
+      ...new Set(typedMessages.map((m) => m.sender_telegram_id).filter(Boolean)),
+    ] as number[];
+    const contactMap: Record<number, { id: string; name: string }> = {};
     if (senderTgIds.length > 0) {
       const { data: contacts } = await supabase
         .from("crm_contacts")
         .select("id, name, telegram_user_id")
         .in("telegram_user_id", senderTgIds);
       if (contacts) {
-        for (const c of contacts) {
+        for (const c of contacts as Array<{ id: string; name: string; telegram_user_id: number | null }>) {
           if (c.telegram_user_id) contactMap[c.telegram_user_id] = { id: c.id, name: c.name };
         }
       }
     }
 
     if (after) {
-      // Polling mode: return new messages in chronological order (already ascending)
       return NextResponse.json({
-        messages: messages.map((m) => {
-          const contact = m.sender_telegram_id ? contactMap[m.sender_telegram_id] : null;
-          return {
-            id: m.id,
-            sender_name: m.sender_name,
-            sender_username: m.sender_username,
-            sender_telegram_id: m.sender_telegram_id,
-            text: m.message_text,
-            message_type: m.message_type,
-            media_type: m.media_type,
-            media_file_id: m.media_file_id ?? null,
-            media_thumb_id: m.media_thumb_id ?? null,
-            media_mime: m.media_mime ?? null,
-            reply_to_message_id: m.reply_to_message_id,
-            sent_at: m.sent_at,
-            is_from_bot: m.is_from_bot,
-            source: "synced" as const,
-            contact_id: contact?.id ?? null,
-            contact_name: contact?.name ?? null,
-          };
-        }),
+        messages: typedMessages.map((m) => formatSyncedMessage(m, contactMap)),
         hasMore: false,
       });
     }
 
-    const hasMore = messages.length > limit;
-    const result = (hasMore ? messages.slice(0, limit) : messages).reverse(); // oldest first for chat display
+    const hasMore = typedMessages.length > limit;
+    const result = (hasMore ? typedMessages.slice(0, limit) : typedMessages).reverse();
     return NextResponse.json({
-      messages: result.map((m) => {
-        const contact = m.sender_telegram_id ? contactMap[m.sender_telegram_id] : null;
-        return {
-          id: m.id,
-          sender_name: m.sender_name,
-          sender_username: m.sender_username,
-          sender_telegram_id: m.sender_telegram_id,
-          text: m.message_text,
-          message_type: m.message_type,
-          media_type: m.media_type,
-          media_file_id: m.media_file_id ?? null,
-          media_thumb_id: m.media_thumb_id ?? null,
-          media_mime: m.media_mime ?? null,
-          reply_to_message_id: m.reply_to_message_id,
-          sent_at: m.sent_at,
-          is_from_bot: m.is_from_bot,
-          source: "synced" as const,
-          contact_id: contact?.id ?? null,
-          contact_name: contact?.name ?? null,
-        };
-      }),
+      messages: result.map((m) => formatSyncedMessage(m, contactMap)),
       hasMore,
     });
   }
@@ -183,18 +241,49 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "Message required" }, { status: 400 });
   }
 
-  // Get deal's telegram_chat_id
+  // Resolve target chat — prefer chat_id param, then junction table, then legacy column
+  const targetChatParam = new URL(request.url).searchParams.get("chat_id");
   const { data: deal } = await supabase
     .from("crm_deals")
     .select("telegram_chat_id")
     .eq("id", id)
     .single();
 
-  if (!deal?.telegram_chat_id) {
-    return NextResponse.json({ error: "No Telegram chat linked to this deal" }, { status: 400 });
+  let chatId: number | null = null;
+
+  if (targetChatParam) {
+    chatId = Number(targetChatParam);
+  } else {
+    // Check junction table for primary linked chat
+    const { data: linkedChats } = await supabase
+      .from("crm_deal_linked_chats")
+      .select("telegram_chat_id")
+      .eq("deal_id", id)
+      .eq("is_primary", true)
+      .limit(1);
+
+    if (linkedChats && linkedChats.length > 0) {
+      chatId = Number(linkedChats[0].telegram_chat_id);
+    } else {
+      // Fallback: any linked chat
+      const { data: anyLinked } = await supabase
+        .from("crm_deal_linked_chats")
+        .select("telegram_chat_id")
+        .eq("deal_id", id)
+        .limit(1);
+
+      if (anyLinked && anyLinked.length > 0) {
+        chatId = Number(anyLinked[0].telegram_chat_id);
+      } else if (deal?.telegram_chat_id) {
+        // Legacy fallback
+        chatId = Number(deal.telegram_chat_id);
+      }
+    }
   }
 
-  const chatId = Number(deal.telegram_chat_id);
+  if (!chatId) {
+    return NextResponse.json({ error: "No Telegram chat linked to this deal" }, { status: 400 });
+  }
 
   // Try MTProto user client first (only for server-encrypted sessions)
   const { data: session } = await supabase
@@ -202,7 +291,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     .select("session_encrypted, encryption_method")
     .eq("user_id", user.id)
     .eq("is_active", true)
-    .single();
+    .order("connected_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
   if (session && session.encryption_method !== "client") {
     try {

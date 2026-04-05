@@ -36,7 +36,7 @@ interface ContactOption {
   name: string;
 }
 
-const BOARD_TYPES = ["All", "BD", "Marketing", "Admin", "Applications"] as const;
+const BOARD_TYPES = ["All", "BD", "Marketing", "Admin"] as const;
 
 export default function TMADealsPage() {
   const router = useRouter();
@@ -396,7 +396,7 @@ export default function TMADealsPage() {
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">Board</label>
               <div className="flex gap-2">
-                {(["BD", "Marketing", "Admin", "Applications"] as const).map((bt) => (
+                {(["BD", "Marketing", "Admin"] as const).map((bt) => (
                   <button
                     key={bt}
                     onClick={() => setCreateForm((f) => ({ ...f, board_type: bt, stage_id: "" }))}
@@ -418,7 +418,6 @@ export default function TMADealsPage() {
               <label className="text-xs text-muted-foreground mb-1 block">Stage *</label>
               <div className="flex flex-wrap gap-1.5">
                 {stages.filter((s) => {
-                  if (createForm.board_type === "Applications") return s.board_type === "Applications";
                   return !s.board_type;
                 }).map((s) => (
                   <button

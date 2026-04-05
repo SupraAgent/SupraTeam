@@ -5,16 +5,17 @@ import { SlideOver } from "@/components/ui/slide-over";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import type { Deal, PipelineStage, Contact } from "@/lib/types";
+import type { Deal, PipelineStage, Contact, DealLinkedChat, DealEmailThread } from "@/lib/types";
 import { timeAgo, cn } from "@/lib/utils";
 import { toast } from "sonner";
 import {
   MessageCircle, Save, Trash2, Send, GitBranch, StickyNote, ExternalLink, FileText, Plus, Clock,
-  ChevronRight, UserPlus, Trophy, XCircle,
+  ChevronRight, UserPlus, Trophy, XCircle, Link2, Mail, Unlink, Loader2, Calendar,
 } from "lucide-react";
+import { ScheduleCallModal } from "./schedule-call-modal";
 import Link from "next/link";
 import { ConversationTimeline } from "./conversation-timeline";
-import { ApplicationReviewCard } from "./application-review-card";
+import { LinkConversationModal } from "./link-conversation-modal";
 
 type Note = {
   id: string;
@@ -47,7 +48,7 @@ type LinkedDoc = {
   updated_at: string;
 };
 
-type Tab = "details" | "conversation" | "activity" | "docs";
+type Tab = "details" | "conversation" | "activity" | "email" | "docs";
 
 export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cachedStages, cachedTeamMembers }: DealDetailPanelProps) {
   const [tab, setTab] = React.useState<Tab>("details");
@@ -78,11 +79,18 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
   // Linked docs
   const [linkedDocs, setLinkedDocs] = React.useState<LinkedDoc[]>([]);
 
+  // Linked email threads
+  const [linkedEmails, setLinkedEmails] = React.useState<DealEmailThread[]>([]);
+  const [unlinkingEmail, setUnlinkingEmail] = React.useState<string | null>(null);
+
   // Task creation
   const [showTaskForm, setShowTaskForm] = React.useState(false);
   const [taskMessage, setTaskMessage] = React.useState("");
   const [taskDue, setTaskDue] = React.useState("");
   const [creatingTask, setCreatingTask] = React.useState(false);
+
+  // Schedule call modal
+  const [scheduleCallOpen, setScheduleCallOpen] = React.useState(false);
 
   // AI Sentiment
   type SentimentData = {
@@ -122,6 +130,10 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
       setSummaryLoading(false);
     }
   }, [aiLoaded, deal]);
+
+  // Linked TG conversations
+  const [linkedChats, setLinkedChats] = React.useState<DealLinkedChat[]>([]);
+  const [showLinkModal, setShowLinkModal] = React.useState(false);
 
   // TG groups for auto-link dropdown
   type TgGroup = { id: string; group_name: string; telegram_group_id: string };
@@ -175,6 +187,8 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
         fetch("/api/pipeline/fields").then((r) => r.json()).then((d) => setCustomFields(d.fields ?? [])).catch(() => {}),
         fetch(`/api/deals/${deal.id}`).then((r) => r.json()).then((d) => setCustomValues(d.custom_fields ?? {})).catch(() => {}),
         fetch("/api/groups").then((r) => r.json()).then((d) => setTgGroups(d.groups ?? [])).catch(() => {}),
+        fetch(`/api/deals/${deal.id}/linked-chats`).then((r) => r.json()).then((d) => setLinkedChats(d.data ?? [])).catch(() => setLinkedChats([])),
+        fetch(`/api/deals/${deal.id}/email-threads`).then((r) => r.json()).then((d) => setLinkedEmails(d.data ?? [])).catch(() => setLinkedEmails([])),
       ]).finally(() => setLoadingContent(false));
     }
   }, [deal, open, cachedStages, cachedTeamMembers]);
@@ -185,6 +199,19 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
       loadAI();
     }
   }, [tab, open, loadingContent, loadAI]);
+
+  const refreshLinkedChats = React.useCallback(async () => {
+    if (!deal) return;
+    try {
+      const res = await fetch(`/api/deals/${deal.id}/linked-chats`);
+      if (res.ok) {
+        const json = await res.json();
+        setLinkedChats(json.data ?? []);
+      }
+    } catch {
+      // silent
+    }
+  }, [deal]);
 
   if (!deal) return null;
 
@@ -371,9 +398,31 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
     }
   }
 
+  async function handleUnlinkEmail(emailLink: DealEmailThread) {
+    if (!deal) return;
+    setUnlinkingEmail(emailLink.id);
+    try {
+      const res = await fetch(
+        `/api/deals/${deal.id}/email-threads?thread_id=${encodeURIComponent(emailLink.thread_id)}&connection_id=${encodeURIComponent(emailLink.connection_id)}`,
+        { method: "DELETE" }
+      );
+      if (res.ok) {
+        setLinkedEmails((prev) => prev.filter((e) => e.id !== emailLink.id));
+        toast.success("Email thread unlinked");
+      } else {
+        toast.error("Failed to unlink");
+      }
+    } catch {
+      toast.error("Network error");
+    } finally {
+      setUnlinkingEmail(null);
+    }
+  }
+
   const TABS: { key: Tab; label: string; badge?: number }[] = [
     { key: "details", label: "Details" },
     { key: "conversation", label: "Chat", badge: chatUnread },
+    { key: "email", label: `Email${linkedEmails.length > 0 ? ` (${linkedEmails.length})` : ""}` },
     { key: "activity", label: "Activity" },
     { key: "docs", label: `Docs${linkedDocs.length > 0 ? ` (${linkedDocs.length})` : ""}` },
   ];
@@ -393,6 +442,17 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
             Open Telegram Chat
           </a>
         )}
+
+        {/* Schedule Call */}
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full justify-center gap-2"
+          onClick={() => setScheduleCallOpen(true)}
+        >
+          <Calendar className="h-4 w-4 text-[#006BFF]" />
+          Schedule a Call
+        </Button>
 
         {/* Tabs */}
         <div className="flex gap-1 border-b border-white/10 pb-0">
@@ -429,18 +489,6 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
         {/* Details tab */}
         {!loadingContent && tab === "details" && (
           <div className="space-y-3">
-            {/* Application review card for Applications board */}
-            {deal.board_type === "Applications" && (
-              <ApplicationReviewCard
-                deal={deal}
-                stages={stages}
-                customValues={customValues}
-                fieldLabels={Object.fromEntries(customFields.map((f) => [f.id, f.label]))}
-                onStageChange={(newStageId) => handleQuickStageMove(newStageId)}
-                onUpdated={onUpdated}
-              />
-            )}
-
             <div>
               <label className="text-[11px] font-medium text-muted-foreground">Deal Name</label>
               <Input value={dealName} onChange={(e) => setDealName(e.target.value)} className="mt-1" />
@@ -456,7 +504,6 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
                     { value: "BD", label: "BD" },
                     { value: "Marketing", label: "Marketing" },
                     { value: "Admin", label: "Admin" },
-                    { value: "Applications", label: "Applications" },
                   ]}
                   className="mt-1"
                 />
@@ -805,11 +852,44 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
         {/* Chat tab */}
         {!loadingContent && tab === "conversation" && (
           <div className="space-y-4">
+            {/* Linked conversations header */}
+            <div className="flex items-center gap-2 flex-wrap">
+              {linkedChats.length > 0 && (
+                <div className="flex items-center gap-1 flex-wrap">
+                  {linkedChats.map((lc) => (
+                    <span
+                      key={lc.id}
+                      className={cn(
+                        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] border",
+                        lc.is_primary
+                          ? "bg-primary/10 text-primary border-primary/20"
+                          : "bg-white/5 text-muted-foreground border-white/10"
+                      )}
+                    >
+                      {lc.chat_type === "dm" ? <MessageCircle className="h-2.5 w-2.5" /> :
+                       lc.chat_type === "channel" ? <MessageCircle className="h-2.5 w-2.5" /> :
+                       <MessageCircle className="h-2.5 w-2.5" />}
+                      {lc.chat_title || `Chat ${lc.telegram_chat_id}`}
+                      {lc.is_primary && <span className="text-[8px] opacity-60">primary</span>}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <button
+                onClick={() => setShowLinkModal(true)}
+                className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] text-muted-foreground border border-dashed border-white/10 hover:border-primary/30 hover:text-primary transition-colors"
+              >
+                <Link2 className="h-2.5 w-2.5" />
+                {linkedChats.length === 0 ? "Link conversation" : "Manage"}
+              </button>
+            </div>
+
             {/* Conversation timeline */}
             <ConversationTimeline
               dealId={deal.id}
               telegramChatId={deal.telegram_chat_id ? Number(deal.telegram_chat_id) : null}
               telegramChatLink={deal.telegram_chat_link || tgLink || null}
+              linkedChats={linkedChats}
               onUnreadChange={setChatUnread}
               activities={activities
                 .filter((a): a is Activity & { type: "stage_change" | "note" | "created" } =>
@@ -817,6 +897,14 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
                 )
                 .map((a) => ({ id: a.id, type: a.type, title: a.title, body: a.body, created_at: a.created_at }))
               }
+            />
+
+            {/* Link conversation modal */}
+            <LinkConversationModal
+              dealId={deal.id}
+              open={showLinkModal}
+              onClose={() => setShowLinkModal(false)}
+              onLinksChanged={refreshLinkedChats}
             />
 
             {/* Quick action bar */}
@@ -964,6 +1052,66 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
           </div>
         )}
 
+        {/* Email tab */}
+        {!loadingContent && tab === "email" && (
+          <div className="space-y-3">
+            {linkedEmails.length === 0 ? (
+              <div className="text-center py-8">
+                <Mail className="mx-auto h-6 w-6 text-muted-foreground/20" />
+                <p className="mt-2 text-xs text-muted-foreground">No email threads linked to this deal</p>
+                <p className="mt-1 text-[10px] text-muted-foreground/50">
+                  Open an email thread and use the &quot;Link Deal&quot; button to connect it here
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {linkedEmails.map((emailLink) => (
+                  <div
+                    key={emailLink.id}
+                    className="rounded-xl border border-white/10 bg-white/[0.03] p-3 hover:bg-white/[0.05] transition"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-start gap-2 min-w-0">
+                        <Mail className="h-3.5 w-3.5 text-blue-400 mt-0.5 shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-foreground truncate">
+                            {emailLink.subject || "No subject"}
+                          </p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-[10px] text-muted-foreground">
+                              Linked {timeAgo(emailLink.linked_at)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Link
+                          href={`/email?thread=${emailLink.thread_id}`}
+                          className="text-[10px] text-primary hover:text-primary/80 flex items-center gap-0.5"
+                        >
+                          <ExternalLink className="h-2.5 w-2.5" /> Open
+                        </Link>
+                        <button
+                          onClick={() => handleUnlinkEmail(emailLink)}
+                          disabled={unlinkingEmail === emailLink.id}
+                          className="ml-1 text-muted-foreground hover:text-red-400 transition-colors"
+                          title="Unlink email thread"
+                        >
+                          {unlinkingEmail === emailLink.id ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Unlink className="h-3 w-3" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Activity tab */}
         {!loadingContent && tab === "activity" && (
           <div className="space-y-1">
@@ -1037,6 +1185,16 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
           </div>
         )}
       </div>
+
+      {/* Schedule Call Modal */}
+      <ScheduleCallModal
+        open={scheduleCallOpen}
+        onClose={() => setScheduleCallOpen(false)}
+        dealId={deal.id}
+        dealName={deal.deal_name}
+        contactId={deal.contact_id}
+        telegramChatId={deal.telegram_chat_id ?? undefined}
+      />
     </SlideOver>
   );
 }

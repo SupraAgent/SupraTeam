@@ -281,16 +281,6 @@ You are helping the user manage their tasks. You can help with:
 - Snoozing tasks for later
 - Linking tasks to specific deals
 - Organizing daily/weekly task workflow`;
-  } else if (page === "/conversations") {
-    prompt += `
-
-CURRENT PAGE: Conversations
-You are helping the user manage Telegram conversations. You can help with:
-- Understanding conversation context and history
-- Suggesting responses to messages
-- Identifying hot conversations that need attention
-- Analyzing conversation sentiment and tone
-- Flagging conversations that may need escalation`;
   } else if (page.startsWith("/access")) {
     prompt += `
 

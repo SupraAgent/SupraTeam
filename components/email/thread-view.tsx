@@ -8,10 +8,12 @@ import type { Thread, Message } from "@/lib/email/types";
 import { ContactAvatar } from "./contact-avatar";
 import { ThreadCrmLinks } from "./thread-crm-links";
 import { ReadReceiptIndicator } from "./read-receipt-indicator";
+import { LinkDealButton } from "./link-deal-button";
 
 type ThreadViewProps = {
   thread: Thread;
   loading: boolean;
+  connectionId?: string;
   onReply: () => void;
   onReplyAll: () => void;
   onForward: (messageId: string) => void;
@@ -25,6 +27,7 @@ type ThreadViewProps = {
 export function ThreadView({
   thread,
   loading,
+  connectionId,
   onReply,
   onReplyAll,
   onForward,
@@ -63,6 +66,11 @@ export function ThreadView({
 
         {/* Actions */}
         <div className="flex items-center gap-1 shrink-0">
+          <LinkDealButton
+            threadId={thread.id}
+            connectionId={connectionId}
+            subject={thread.subject}
+          />
           <ActionButton title="Archive (e)" onClick={onArchive}>
             <ArchiveIcon className="h-4 w-4" />
           </ActionButton>

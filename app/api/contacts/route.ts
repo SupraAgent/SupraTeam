@@ -125,5 +125,14 @@ export async function POST(request: Request) {
     dispatchWebhook("contact.created", { contact_id: contact.id, name: contact.name, company: contact.company, source: contact.source }).catch(() => {});
   }
 
+  // Trigger X enrichment asynchronously if x_handle is set
+  if (contact && contact.x_handle) {
+    fetch(`${process.env.NEXT_PUBLIC_APP_URL || ""}/api/contacts/enrich-x`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contact_id: contact.id }),
+    }).catch(() => {});
+  }
+
   return NextResponse.json({ contact, ok: true });
 }
