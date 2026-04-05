@@ -80,6 +80,7 @@ export type Deal = {
   outcome_reason: string | null;
   outcome_at: string | null;
   health_score: number | null;
+  reference_code: string | null;
   expected_close_date: string | null;
   stage_changed_at: string;
   created_by: string | null;

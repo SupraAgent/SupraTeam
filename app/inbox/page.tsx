@@ -31,6 +31,11 @@ import {
   ChevronLeft,
   Flame,
   UserX,
+  Sparkles,
+  MessageSquare,
+  Keyboard,
+  CalendarClock,
+  Hourglass,
 } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
@@ -133,7 +138,44 @@ interface CannedResponse {
   usage_count: number;
 }
 
-type InboxTab = "mine" | "unassigned" | "open" | "vip" | "archived" | "closed";
+type InboxTab = "awaiting_reply" | "mine" | "unassigned" | "open" | "vip" | "archived" | "closed";
+
+// ── Advanced Search Parser ─────────────────────────────────────
+interface SearchFilters {
+  text: string;
+  fromUsername: string | null;
+  hasAttachment: boolean;
+  isUnread: boolean;
+  isVip: boolean;
+}
+
+function parseSearchFilters(raw: string): SearchFilters {
+  let text = raw;
+  let fromUsername: string | null = null;
+  let hasAttachment = false;
+  let isUnread = false;
+  let isVip = false;
+
+  const fromMatch = text.match(/from:(\S+)/i);
+  if (fromMatch) {
+    fromUsername = fromMatch[1].toLowerCase();
+    text = text.replace(fromMatch[0], "");
+  }
+  if (/has:attachment/i.test(text)) {
+    hasAttachment = true;
+    text = text.replace(/has:attachment/gi, "");
+  }
+  if (/is:unread/i.test(text)) {
+    isUnread = true;
+    text = text.replace(/is:unread/gi, "");
+  }
+  if (/is:vip/i.test(text)) {
+    isVip = true;
+    text = text.replace(/is:vip/gi, "");
+  }
+
+  return { text: text.trim(), fromUsername, hasAttachment, isUnread, isVip };
+}
 
 // ── Main Component ─────────────────────────────────────────────
 
@@ -151,7 +193,7 @@ export default function InboxPage() {
   const [showDealSidebar, setShowDealSidebar] = React.useState(true);
   const [expandedThreads, setExpandedThreads] = React.useState<Set<number>>(new Set());
   const [refreshing, setRefreshing] = React.useState(false);
-  const [activeTab, setActiveTab] = React.useState<InboxTab>("mine");
+  const [activeTab, setActiveTab] = React.useState<InboxTab>("awaiting_reply");
 
   // Chat labels (VIP, tags, notes, archive, pin, mute)
   const [labels, setLabels] = React.useState<Record<string, ChatLabel>>({});
@@ -193,6 +235,20 @@ export default function InboxPage() {
     if (typeof window === "undefined") return "";
     return localStorage.getItem("inbox_bot_filter") ?? "";
   });
+
+  // Keyboard shortcut help modal
+  const [showShortcutHelp, setShowShortcutHelp] = React.useState(false);
+  // Highlighted index for keyboard nav in conversation list
+  const [highlightedIndex, setHighlightedIndex] = React.useState<number>(-1);
+  // AI state
+  const [aiSummary, setAiSummary] = React.useState<string | null>(null);
+  const [aiSummarizing, setAiSummarizing] = React.useState(false);
+  const [aiSuggesting, setAiSuggesting] = React.useState(false);
+  // Schedule send
+  const [showScheduleMenu, setShowScheduleMenu] = React.useState(false);
+  const scheduleRef = React.useRef<HTMLDivElement>(null);
+  // Search input ref for keyboard shortcut focus
+  const searchInputRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
     fetch("/api/bots").then((r) => r.ok ? r.json() : null).then((d) => {
@@ -572,9 +628,10 @@ export default function InboxPage() {
   const filtered = React.useMemo(() => {
     let result = conversations;
 
-    // Text search — also search notes and tags
-    if (search.trim()) {
-      const q = search.toLowerCase();
+    // Advanced search — parse filter tokens then apply text search
+    const filters = parseSearchFilters(search);
+    if (filters.text) {
+      const q = filters.text.toLowerCase();
       result = result.filter((c) => {
         const l = getLabel(c.chat_id);
         return (
@@ -588,9 +645,36 @@ export default function InboxPage() {
         );
       });
     }
+    if (filters.fromUsername) {
+      const uname = filters.fromUsername;
+      result = result.filter((c) =>
+        c.messages.some((m) => m.sender_username?.toLowerCase() === uname || m.sender_name.toLowerCase().includes(uname))
+      );
+    }
+    if (filters.hasAttachment) {
+      result = result.filter((c) =>
+        c.messages.some((m) => m.message_type !== "text")
+      );
+    }
+    if (filters.isUnread) {
+      result = result.filter((c) => {
+        const seenAt = lastSeen[c.chat_id];
+        return !seenAt || c.messages.some((m) => m.sent_at > seenAt);
+      });
+    }
+    if (filters.isVip) {
+      result = result.filter((c) => getLabel(c.chat_id)?.is_vip);
+    }
 
     // Tab filtering
-    if (activeTab === "mine") {
+    if (activeTab === "awaiting_reply") {
+      result = result.filter((c) => {
+        const s = statuses[c.chat_id];
+        if (s?.status === "closed" || getLabel(c.chat_id)?.is_archived) return false;
+        const lastMsg = c.messages[0];
+        return lastMsg && !lastMsg.is_from_bot;
+      });
+    } else if (activeTab === "mine") {
       result = result.filter((c) => {
         const s = statuses[c.chat_id];
         return s?.assigned_to === currentUserId && s?.status !== "closed" && !getLabel(c.chat_id)?.is_archived;
@@ -647,6 +731,13 @@ export default function InboxPage() {
     return s?.assigned_to === currentUserId && s?.status !== "closed";
   }).length;
 
+  const awaitingReplyCount = conversations.filter((c) => {
+    const s = statuses[c.chat_id];
+    if (s?.status === "closed" || getLabel(c.chat_id)?.is_archived) return false;
+    const lastMsg = c.messages[0];
+    return lastMsg && !lastMsg.is_from_bot;
+  }).length;
+
   const vipCount = conversations.filter((c) => getLabel(c.chat_id)?.is_vip && !getLabel(c.chat_id)?.is_archived).length;
   const archivedCount = conversations.filter((c) => getLabel(c.chat_id)?.is_archived).length;
 
@@ -686,6 +777,259 @@ export default function InboxPage() {
       setShowCanned(false);
     }
   }, [replyText, showCanned]);
+
+  // ── AI Actions ──────────────────────────────────────────────
+
+  async function handleAiSummarize() {
+    if (!selectedConversation || aiSummarizing) return;
+    setAiSummarizing(true);
+    setAiSummary(null);
+    try {
+      const messageContext = selectedConversation.messages
+        .slice(0, 30)
+        .reverse()
+        .map((m) => `${m.sender_name}${m.is_from_bot ? " (bot)" : ""}: ${m.message_text ?? `(${m.message_type})`}`)
+        .join("\n");
+      const res = await fetch("/api/ai-chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: `Summarize this Telegram conversation concisely (3-5 bullet points). Focus on key topics, decisions, and action items:\n\n${messageContext}`,
+          context: `Conversation: ${selectedConversation.group_name}`,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAiSummary(data.reply ?? data.message ?? "No summary generated.");
+      } else {
+        toast.error("Failed to generate summary");
+      }
+    } catch {
+      toast.error("Network error generating summary");
+    } finally {
+      setAiSummarizing(false);
+    }
+  }
+
+  async function handleAiSuggestReply() {
+    if (!selectedConversation || aiSuggesting) return;
+    setAiSuggesting(true);
+    try {
+      const messageContext = selectedConversation.messages
+        .slice(0, 15)
+        .reverse()
+        .map((m) => `${m.sender_name}${m.is_from_bot ? " (bot)" : ""}: ${m.message_text ?? `(${m.message_type})`}`)
+        .join("\n");
+      const dealContext = (deals[selectedConversation.chat_id] ?? [])
+        .map((d) => `Deal: ${d.deal_name} (${d.stage?.name ?? "no stage"})`)
+        .join(", ");
+      const res = await fetch("/api/ai-chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: `Based on this conversation, suggest a professional reply message. Just provide the reply text, no explanation.\n\nConversation in "${selectedConversation.group_name}":\n${messageContext}${dealContext ? `\n\nDeal context: ${dealContext}` : ""}`,
+          context: `Telegram CRM reply suggestion`,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const suggestion = data.reply ?? data.message ?? "";
+        if (suggestion) {
+          setReplyText(suggestion);
+          replyTextareaRef.current?.focus();
+          toast.success("Reply suggestion inserted");
+        }
+      } else {
+        toast.error("Failed to generate suggestion");
+      }
+    } catch {
+      toast.error("Network error generating suggestion");
+    } finally {
+      setAiSuggesting(false);
+    }
+  }
+
+  // ── Schedule Send ──────────────────────────────────────────
+
+  async function handleScheduleSend(sendAt: Date) {
+    if (!replyText.trim() || !selectedChat) return;
+    setShowScheduleMenu(false);
+    try {
+      const res = await fetch("/api/scheduled-messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: selectedChat,
+          text: replyText.trim(),
+          send_at: sendAt.toISOString(),
+          reply_to_message_id: replyTo?.telegram_message_id ?? undefined,
+          send_as: sendAs,
+        }),
+      });
+      if (res.ok) {
+        toast.success(`Scheduled for ${sendAt.toLocaleString()}`);
+        setReplyText("");
+        setReplyTo(null);
+        if (replyTextareaRef.current) replyTextareaRef.current.style.height = "auto";
+      } else {
+        const err = await res.json().catch(() => ({ error: "Request failed" }));
+        toast.error(err.error || "Failed to schedule message");
+      }
+    } catch {
+      toast.error("Network error scheduling message");
+    }
+  }
+
+  // Close schedule menu on outside click
+  React.useEffect(() => {
+    if (!showScheduleMenu) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (scheduleRef.current && !scheduleRef.current.contains(e.target as Node)) {
+        setShowScheduleMenu(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showScheduleMenu]);
+
+  // ── Keyboard Shortcuts ─────────────────────────────────────
+
+  React.useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      const target = e.target as HTMLElement;
+      const isInput = target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable;
+
+      // ? always toggles help
+      if (e.key === "?" && !e.ctrlKey && !e.metaKey) {
+        if (isInput && target.tagName !== "INPUT") return;
+        // Allow ? in textareas but not plain typing
+        if (target.tagName === "INPUT") return;
+        e.preventDefault();
+        setShowShortcutHelp((p) => !p);
+        return;
+      }
+
+      // Escape works everywhere
+      if (e.key === "Escape") {
+        if (showShortcutHelp) { setShowShortcutHelp(false); return; }
+        if (showScheduleMenu) { setShowScheduleMenu(false); return; }
+        if (showCanned) { setShowCanned(false); return; }
+        if (aiSummary) { setAiSummary(null); return; }
+        if (selectedChat) { setSelectedChat(null); return; }
+        return;
+      }
+
+      // Skip shortcuts when typing in input/textarea
+      if (isInput) return;
+
+      // Shift+A — assign to me
+      if (e.key === "A" && e.shiftKey && !e.ctrlKey && !e.metaKey) {
+        if (selectedChat && currentUserId) {
+          e.preventDefault();
+          handleAssign(selectedChat, currentUserId);
+        }
+        return;
+      }
+
+      switch (e.key) {
+        case "j": {
+          // Next conversation
+          e.preventDefault();
+          setHighlightedIndex((prev) => {
+            const next = Math.min(prev + 1, filtered.length - 1);
+            return next;
+          });
+          break;
+        }
+        case "k": {
+          // Previous conversation
+          e.preventDefault();
+          setHighlightedIndex((prev) => {
+            const next = Math.max(prev - 1, 0);
+            return next;
+          });
+          break;
+        }
+        case "Enter": {
+          // Open highlighted conversation
+          if (highlightedIndex >= 0 && highlightedIndex < filtered.length) {
+            e.preventDefault();
+            handleSelectChat(filtered[highlightedIndex].chat_id);
+          }
+          break;
+        }
+        case "r": {
+          // Focus reply textarea
+          if (selectedChat && replyTextareaRef.current) {
+            e.preventDefault();
+            replyTextareaRef.current.focus();
+          }
+          break;
+        }
+        case "e": {
+          // Archive
+          if (selectedConversation) {
+            e.preventDefault();
+            toggleLabel(selectedConversation.chat_id, selectedConversation.group_name, "is_archived");
+          }
+          break;
+        }
+        case "s": {
+          // Toggle VIP/star
+          if (selectedConversation) {
+            e.preventDefault();
+            toggleLabel(selectedConversation.chat_id, selectedConversation.group_name, "is_vip");
+          }
+          break;
+        }
+        case "p": {
+          // Toggle pin
+          if (selectedConversation) {
+            e.preventDefault();
+            toggleLabel(selectedConversation.chat_id, selectedConversation.group_name, "is_pinned");
+          }
+          break;
+        }
+        case "m": {
+          // Toggle mute
+          if (selectedConversation) {
+            e.preventDefault();
+            toggleLabel(selectedConversation.chat_id, selectedConversation.group_name, "is_muted");
+          }
+          break;
+        }
+        case "/": {
+          // Focus search when no conversation open
+          if (!selectedChat && searchInputRef.current) {
+            e.preventDefault();
+            searchInputRef.current.focus();
+          }
+          break;
+        }
+        case "n": {
+          // Snooze / mark unread
+          if (selectedChat) {
+            e.preventDefault();
+            const oneHour = new Date(Date.now() + 3600000).toISOString();
+            handleStatusChange(selectedChat, "snoozed", oneHour);
+          }
+          break;
+        }
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtered, highlightedIndex, selectedChat, selectedConversation, currentUserId, showShortcutHelp, showScheduleMenu, showCanned, aiSummary]);
+
+  // Sync highlighted index with selected chat
+  React.useEffect(() => {
+    if (selectedChat) {
+      const idx = filtered.findIndex((c) => c.chat_id === selectedChat);
+      if (idx >= 0) setHighlightedIndex(idx);
+    }
+  }, [selectedChat, filtered]);
 
   // ── Render ─────────────────────────────────────────────────
 
