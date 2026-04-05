@@ -430,6 +430,7 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
                 deal={deal}
                 stages={stages}
                 customValues={customValues}
+                fieldLabels={Object.fromEntries(customFields.map((f) => [f.id, f.label]))}
                 onStageChange={(newStageId) => handleQuickStageMove(newStageId)}
                 onUpdated={onUpdated}
               />

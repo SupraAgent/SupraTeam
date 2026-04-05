@@ -23,6 +23,7 @@ interface ApplicationReviewCardProps {
   deal: Deal;
   stages: PipelineStage[];
   customValues: Record<string, string>;
+  fieldLabels?: Record<string, string>;
   onStageChange: (stageId: string) => void;
   onUpdated?: () => void;
 }
@@ -39,6 +40,7 @@ export function ApplicationReviewCard({
   deal,
   stages,
   customValues,
+  fieldLabels,
   onStageChange,
   onUpdated,
 }: ApplicationReviewCardProps) {
@@ -51,6 +53,9 @@ export function ApplicationReviewCard({
   const fieldEntries = Object.entries(customValues);
 
   const handleQuickAction = async (stageName: string) => {
+    if (stageName === "Rejected" && !confirm("Reject this application? This action is terminal.")) {
+      return;
+    }
     const stage = stages.find((s) => s.name === stageName);
     if (!stage) {
       toast.error(`Stage "${stageName}" not found`);
@@ -63,7 +68,6 @@ export function ApplicationReviewCard({
     } catch {
       toast.error(`Failed to move to "${stageName}"`);
     } finally {
-      // Reset after a brief delay to show the loading state
       setTimeout(() => setMovingTo(null), 500);
     }
   };
@@ -152,6 +156,8 @@ export function ApplicationReviewCard({
           {fieldEntries.map(([fieldId, value]) => {
             if (!value) return null;
 
+            const label = fieldLabels?.[fieldId] ?? fieldId.replace(/_/g, " ");
+
             // Detect URLs
             const isUrl = value.startsWith("http://") || value.startsWith("https://");
 
@@ -169,6 +175,7 @@ export function ApplicationReviewCard({
 
             return (
               <div key={fieldId} className="px-3 py-2">
+                <p className="text-[10px] text-white/40 uppercase tracking-wider mb-0.5">{label}</p>
                 {arrayValues ? (
                   <div className="flex flex-wrap gap-1">
                     {arrayValues.map((v) => (

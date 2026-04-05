@@ -236,13 +236,7 @@ export default function TMAApplyPage() {
           initData: webapp.initData,
           user: webapp.initDataUnsafe?.user,
         });
-        // Auto-fill twitter handle from username
-        if (webapp.initDataUnsafe?.user?.username) {
-          setForm((prev) => ({
-            ...prev,
-            twitter_handle: `@${webapp.initDataUnsafe.user!.username}`,
-          }));
-        }
+        // Note: TG username is NOT auto-filled into Twitter handle — they are different platforms
       } else {
         setTgData({ initData: "" });
       }

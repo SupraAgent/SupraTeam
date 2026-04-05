@@ -27,6 +27,7 @@ interface Stage {
   name: string;
   position: number;
   color: string;
+  board_type: string | null;
 }
 
 interface ContactOption {
@@ -405,7 +406,10 @@ export default function TMADealsPage() {
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">Stage *</label>
               <div className="flex flex-wrap gap-1.5">
-                {stages.map((s) => (
+                {stages.filter((s) => {
+                  if (createForm.board_type === "Applications") return s.board_type === "Applications";
+                  return !s.board_type;
+                }).map((s) => (
                   <button
                     key={s.id}
                     onClick={() => setCreateForm((f) => ({ ...f, stage_id: s.id }))}
@@ -452,6 +456,9 @@ export default function TMADealsPage() {
                 <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
                   <Loader2 className="h-3 w-3 animate-spin" /> Searching...
                 </div>
+              )}
+              {contactSearch && !contactLoading && contactOptions.length === 0 && !createForm.contact_id && (
+                <p className="mt-1 text-[10px] text-muted-foreground/60">No contacts found</p>
               )}
               {contactOptions.length > 0 && (
                 <div className="mt-1 rounded-xl border border-white/10 bg-white/5 overflow-hidden max-h-32 overflow-y-auto">

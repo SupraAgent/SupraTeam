@@ -213,7 +213,7 @@ export function ReviewSection({ formData, phase, error, onEditSection, onSubmit,
         {score !== null && score !== undefined && (
           <div className="w-full max-w-sm rounded-xl border border-white/10 bg-white/[0.03] p-3">
             <div className="flex items-center justify-between mb-1.5">
-              <span className="text-xs text-white/50">Application Score</span>
+              <span className="text-xs text-white/50">Profile Completeness</span>
               <span className={cn(
                 "text-sm font-semibold",
                 score >= 70 ? "text-green-400" : score >= 40 ? "text-amber-400" : "text-red-400"

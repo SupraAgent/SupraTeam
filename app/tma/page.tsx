@@ -111,7 +111,7 @@ export default function TMAHomePage() {
   }, []);
 
   React.useEffect(() => {
-    fetchData().finally(() => setLoading(false));
+    fetchData();
   }, [fetchData]);
 
   if (loading) {

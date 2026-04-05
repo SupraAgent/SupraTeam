@@ -74,7 +74,7 @@ export default function TMAContactsPage() {
         setContacts(d.contacts ?? []);
       }
     } catch {
-      // silent
+      toast.error("Failed to load contacts");
     }
   }, []);
 
