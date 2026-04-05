@@ -41,13 +41,13 @@ export async function POST(request: Request) {
   const escalationKeywords: string[] = config.escalation_keywords ?? [];
   const shouldEscalate = escalationKeywords.some((kw) => lowerMsg.includes(kw.toLowerCase()));
 
-  // Get recent conversation history for context
+  // Get recent conversation history for context (expanded from 5 to 15 for multi-day BD conversations)
   const { data: history } = await supabase
     .from("crm_ai_conversations")
     .select("user_message, ai_response")
     .eq("tg_chat_id", tg_chat_id)
     .order("created_at", { ascending: false })
-    .limit(5);
+    .limit(15);
 
   const conversationHistory = (history ?? []).reverse();
 
@@ -131,6 +131,26 @@ export async function POST(request: Request) {
       }
     }
 
+    // Generate handoff summary on escalation
+    let handoffSummary: string | null = null;
+    if (shouldEscalate && conversationHistory.length > 0) {
+      const summaryMessages = conversationHistory.slice(-5).map((h) =>
+        `User: ${h.user_message}\nAI: ${h.ai_response}`
+      ).join("\n---\n");
+      const qualSummary = qualificationData
+        ? `\nQualification data: ${JSON.stringify(qualificationData)}`
+        : "";
+      handoffSummary = [
+        `Contact: ${safeName}`,
+        `Escalation trigger: "${escalationKeywords.find((kw) => lowerMsg.includes(kw.toLowerCase()))}"`,
+        dealContext ? `Deal: ${dealContext.trim()}` : null,
+        qualSummary || null,
+        `Conversation (last ${Math.min(5, conversationHistory.length)} messages):`,
+        summaryMessages,
+        `Latest message: "${user_message}"`,
+      ].filter(Boolean).join("\n");
+    }
+
     // Log conversation
     await supabase.from("crm_ai_conversations").insert({
       tg_chat_id: Number(tg_chat_id),
@@ -140,6 +160,7 @@ export async function POST(request: Request) {
       qualification_data: qualificationData,
       escalated: shouldEscalate,
       escalation_reason: shouldEscalate ? `Keyword match: ${escalationKeywords.find((kw) => lowerMsg.includes(kw.toLowerCase()))}` : null,
+      handoff_summary: handoffSummary,
       agent_config_id: config.id,
       deal_id: deal_id ?? null,
     });
@@ -148,6 +169,7 @@ export async function POST(request: Request) {
       response: aiResponse,
       escalated: shouldEscalate,
       qualification: qualificationData,
+      handoff_summary: handoffSummary,
       ok: true,
     });
   } catch (err) {

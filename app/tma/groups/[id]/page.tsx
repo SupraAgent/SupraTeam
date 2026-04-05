@@ -14,6 +14,7 @@ import {
   Sparkles,
   Loader2,
   Tag,
+  AlertTriangle,
 } from "lucide-react";
 import { useTelegramWebApp } from "@/components/tma/use-telegram";
 import { hapticImpact, hapticNotification } from "@/components/tma/haptic";
@@ -54,6 +55,9 @@ interface LinkedDeal {
   id: string;
   deal_name: string;
   stage: { name: string; color: string } | null;
+  health_score: number | null;
+  outcome: string | null;
+  updated_at: string | null;
 }
 
 const HEALTH_CONFIG: Record<
@@ -431,6 +435,29 @@ export default function TMAGroupDetailPage() {
                 }
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cross-Signal Alert: stale/dead group + active deal */}
+      {(group.health_status === "stale" || group.health_status === "dead") &&
+        deals.some((d) => d.outcome === "open" || !d.outcome) && (
+        <div className="px-4 pb-3">
+          <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 space-y-1">
+            <p className="text-xs font-medium text-red-400 flex items-center gap-1">
+              <AlertTriangle className="h-3 w-3" /> Partnership at Risk
+            </p>
+            {deals.filter((d) => d.outcome === "open" || !d.outcome).map((d) => (
+              <Link key={d.id} href={`/tma/deals/${d.id}`} className="flex items-center justify-between py-1">
+                <span className="text-xs text-foreground">{d.deal_name}</span>
+                <span className="text-[10px]" style={{ color: d.stage?.color }}>
+                  {d.stage?.name ?? "No stage"}
+                </span>
+              </Link>
+            ))}
+            <p className="text-[10px] text-red-400/70">
+              This group is {group.health_status} but has active deals. Follow up now.
+            </p>
           </div>
         </div>
       )}

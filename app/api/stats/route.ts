@@ -12,7 +12,7 @@ export async function GET() {
   const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
 
   const [dealsRes, contactsRes, stagesRes, historyThisWeekRes, historyLastWeekRes, notificationsRes, pinnedRes, groupsRes, tokensRes, emailRes] = await Promise.all([
-    supabase.from("crm_deals").select("id, deal_name, board_type, stage_id, value, probability, created_at, updated_at, stage_changed_at, contact:crm_contacts(name, telegram_username), stage:pipeline_stages(id, name, color, position)").order("updated_at", { ascending: false }),
+    supabase.from("crm_deals").select("id, deal_name, board_type, stage_id, value, probability, created_at, updated_at, stage_changed_at, expected_close_date, outcome, contact:crm_contacts(name, telegram_username), stage:pipeline_stages(id, name, color, position)").order("updated_at", { ascending: false }),
     supabase.from("crm_contacts").select("id", { count: "exact", head: true }),
     supabase.from("pipeline_stages").select("id, name, position, color").order("position"),
     supabase.from("crm_deal_stage_history").select("id, deal_id, from_stage_id, to_stage_id, changed_at").gte("changed_at", sevenDaysAgo),
@@ -153,6 +153,29 @@ export async function GET() {
     .sort((a, b) => b.count - a.count)
     .slice(0, 5);
 
+  // --- Closing this week ---
+  const weekEnd = new Date(now);
+  weekEnd.setDate(weekEnd.getDate() + (7 - weekEnd.getDay())); // end of current week (Sunday)
+  weekEnd.setHours(23, 59, 59, 999);
+  const closingThisWeek = deals
+    .filter((d) => {
+      if (!d.expected_close_date || d.outcome !== "open") return false;
+      const closeDate = new Date(d.expected_close_date);
+      return closeDate.getTime() <= weekEnd.getTime();
+    })
+    .sort((a, b) => new Date(a.expected_close_date!).getTime() - new Date(b.expected_close_date!).getTime())
+    .slice(0, 10)
+    .map((d) => ({
+      id: d.id,
+      deal_name: d.deal_name,
+      board_type: d.board_type,
+      value: d.value,
+      stage_name: (d.stage as unknown as { name: string } | null)?.name ?? "",
+      stage_color: (d.stage as unknown as { color: string } | null)?.color ?? null,
+      expected_close_date: d.expected_close_date,
+      days_until: Math.ceil((new Date(d.expected_close_date!).getTime() - now.getTime()) / 86400000),
+    }));
+
   // --- Recent deals ---
   const recentDeals = deals.slice(0, 5).map((d) => ({
     id: d.id, deal_name: d.deal_name, board_type: d.board_type,
@@ -171,6 +194,7 @@ export async function GET() {
     weightedPipelineValue,
     valueByBoard,
     staleDeals,
+    closingThisWeek,
     followUps,
     velocity: { movesThisWeek, movesLastWeek, avgDaysPerStage },
     conversionRates,

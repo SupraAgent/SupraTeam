@@ -3,11 +3,11 @@
 import * as React from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, Flame, ChevronRight, Zap, WifiOff, Plus, Users, MessageSquare } from "lucide-react";
+import { AlertTriangle, Flame, ChevronRight, Zap, WifiOff, Plus, Users, MessageSquare, Calendar, Video } from "lucide-react";
 import { BottomTabBar } from "@/components/tma/bottom-tab-bar";
 import { PullToRefresh } from "@/components/tma/pull-to-refresh";
 import { useTelegramWebApp } from "@/components/tma/use-telegram";
-import { cacheGet, cacheSet } from "@/components/tma/offline-cache";
+import { cacheGet, cacheGetWithTimestamp, cacheSet } from "@/components/tma/offline-cache";
 
 type Deal = {
   id: string;
@@ -34,38 +34,54 @@ type Group = {
   last_message_at: string | null;
 };
 
+type Meeting = {
+  id: string;
+  summary: string;
+  start_at: string | null;
+  start_date: string | null;
+  hangout_link: string | null;
+  html_link: string | null;
+};
+
 export default function TMAHomePage() {
   const [deals, setDeals] = React.useState<Deal[]>([]);
   const [stats, setStats] = React.useState<Stats | null>(null);
   const [groups, setGroups] = React.useState<Group[]>([]);
+  const [meetings, setMeetings] = React.useState<Meeting[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [fromCache, setFromCache] = React.useState(false);
+  const [cacheAge, setCacheAge] = React.useState<number | null>(null);
 
   const { tgUser } = useTelegramWebApp();
 
   const fetchData = React.useCallback(async () => {
-    // Try loading from cache first
+    // Try loading from cache first (with timestamp for stale indicator)
     const [cachedDeals, cachedStats, cachedGroups] = await Promise.all([
-      cacheGet<Deal[]>("deals", "tma-home"),
+      cacheGetWithTimestamp<Deal[]>("deals", "tma-home"),
       cacheGet<Stats>("stats", "tma-home"),
       cacheGet<Group[]>("groups", "tma-home"),
     ]);
 
-    if (cachedDeals || cachedStats || cachedGroups) {
-      if (cachedDeals) setDeals(cachedDeals);
+    if (cachedDeals?.data || cachedStats || cachedGroups) {
+      if (cachedDeals?.data) setDeals(cachedDeals.data);
       if (cachedStats) setStats(cachedStats);
       if (cachedGroups) setGroups(cachedGroups);
       setFromCache(true);
+      if (cachedDeals?.cachedAt) setCacheAge(cachedDeals.cachedAt);
       setLoading(false);
     }
 
     // Fetch fresh data from network
     try {
-      const [dealsData, statsData, groupsData] = await Promise.all([
+      const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+      const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
+      const [dealsData, statsData, groupsData, calData] = await Promise.all([
         fetch("/api/deals").then((r) => r.ok ? r.json() : { deals: [] }).catch(() => ({ deals: [] })),
         fetch("/api/stats").then((r) => r.ok ? r.json() : null).catch(() => null),
         fetch("/api/groups").then((r) => r.ok ? r.json() : { groups: [] }).catch(() => ({ groups: [] })),
+        fetch(`/api/calendar/google/events?from=${todayStart.toISOString()}&to=${todayEnd.toISOString()}`).then((r) => r.ok ? r.json() : { events: [] }).catch(() => ({ events: [] })),
       ]);
+      setMeetings((calData.events ?? []).sort((a: Meeting, b: Meeting) => (a.start_at ?? "").localeCompare(b.start_at ?? "")));
 
       const parsedDeals: Deal[] = dealsData.deals ?? [];
       const parsedStats: Stats = statsData ? {
@@ -85,6 +101,7 @@ export default function TMAHomePage() {
       setStats(parsedStats);
       setGroups(parsedGroups);
       setFromCache(false);
+      setCacheAge(null);
 
       // Cache the fresh data
       await Promise.all([
@@ -135,7 +152,8 @@ export default function TMAHomePage() {
           {deals.length} active deals
           {fromCache && (
             <span className="inline-flex items-center gap-1 ml-2 text-[10px] text-amber-400">
-              <WifiOff className="h-2.5 w-2.5" /> Offline
+              <WifiOff className="h-2.5 w-2.5" />
+              {cacheAge ? `Updated ${Math.round((Date.now() - cacheAge) / 60000)}m ago` : "Offline"}
             </span>
           )}
         </p>
@@ -206,6 +224,76 @@ export default function TMAHomePage() {
                 <span className="text-[10px] text-blue-400">{c.count} msgs</span>
               </Link>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Cross-Signal Alerts: stale/dead groups with active deals */}
+      {(() => {
+        const staleGroups = groups.filter((g) => g.health_status === "stale" || g.health_status === "dead");
+        if (staleGroups.length === 0) return null;
+        // Simple name-based cross-reference: check if any deal name partially matches group name
+        const alerts = staleGroups
+          .map((g) => {
+            const matchingDeal = deals.find((d) =>
+              g.group_name.toLowerCase().includes(d.deal_name.toLowerCase().split(" ")[0]) ||
+              d.deal_name.toLowerCase().includes(g.group_name.toLowerCase().split(" ")[0])
+            );
+            return matchingDeal ? { group: g, deal: matchingDeal } : null;
+          })
+          .filter(Boolean) as { group: Group; deal: Deal }[];
+        if (alerts.length === 0) return null;
+        return (
+          <div className="px-4 mb-4">
+            <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-3 space-y-2">
+              <p className="text-xs font-medium text-red-400 flex items-center gap-1">
+                <AlertTriangle className="h-3 w-3" /> Deal + Group Alerts
+              </p>
+              {alerts.slice(0, 3).map((a, i) => (
+                <Link key={i} href={`/tma/deals/${a.deal.id}`} className="flex items-center justify-between py-1">
+                  <span className="text-xs text-foreground truncate">{a.deal.deal_name}</span>
+                  <span className="text-[10px] text-red-400">{a.group.group_name} is {a.group.health_status}</span>
+                </Link>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Today's Meetings */}
+      {meetings.length > 0 && (
+        <div className="px-4 mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+              <Calendar className="h-3 w-3" /> Today&apos;s Calls
+            </p>
+            <span className="text-[10px] text-muted-foreground">{meetings.length} meetings</span>
+          </div>
+          <div className="space-y-1.5">
+            {meetings.slice(0, 5).map((m) => {
+              const time = m.start_at ? new Date(m.start_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "All day";
+              return (
+                <div
+                  key={m.id}
+                  className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-[10px] text-primary font-medium shrink-0 w-12">{time}</span>
+                    <span className="text-xs text-foreground truncate">{m.summary || "No title"}</span>
+                  </div>
+                  {m.hangout_link && (
+                    <a
+                      href={m.hangout_link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="shrink-0 flex items-center gap-1 rounded-lg bg-green-500/15 px-2 py-1 text-[10px] text-green-400 font-medium"
+                    >
+                      <Video className="h-3 w-3" /> Join
+                    </a>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

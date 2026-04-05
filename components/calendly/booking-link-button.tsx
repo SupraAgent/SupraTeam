@@ -18,6 +18,8 @@ interface BookingLinkButtonProps {
   /** If true, shows as compact inline button. Otherwise shows full dialog trigger. */
   compact?: boolean;
   onLinkGenerated?: (url: string) => void;
+  /** Called when user wants to send the link via Telegram */
+  onSendViaTelegram?: (url: string) => void;
 }
 
 export function BookingLinkButton({
@@ -26,6 +28,7 @@ export function BookingLinkButton({
   tgChatId,
   compact,
   onLinkGenerated,
+  onSendViaTelegram,
 }: BookingLinkButtonProps) {
   const [eventTypes, setEventTypes] = React.useState<CalendlyEventType[]>([]);
   const [loading, setLoading] = React.useState(false);

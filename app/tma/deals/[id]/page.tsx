@@ -3,9 +3,10 @@
 import * as React from "react";
 import { useParams, useRouter } from "next/navigation";
 import { cn, timeAgo } from "@/lib/utils";
-import { ArrowLeft, MessageCircle, Send, GitBranch, StickyNote, ExternalLink, Calendar, ChevronRight } from "lucide-react";
+import { ArrowLeft, MessageCircle, Send, GitBranch, StickyNote, ExternalLink, Calendar, ChevronRight, Sparkles } from "lucide-react";
 import { BookingLinkButton } from "@/components/calendly/booking-link-button";
 import { useTelegramWebApp } from "@/components/tma/use-telegram";
+import { hapticNotification } from "@/components/tma/haptic";
 
 type Deal = {
   id: string;
@@ -14,6 +15,7 @@ type Deal = {
   value: number | null;
   probability: number | null;
   telegram_chat_link: string | null;
+  telegram_chat_id: number | null;
   health_score: number | null;
   ai_summary: string | null;
   outcome: string | null;
@@ -53,6 +55,7 @@ export default function TMADealDetailPage() {
   const [chatReply, setChatReply] = React.useState("");
   const [chatSending, setChatSending] = React.useState(false);
   const chatEndRef = React.useRef<HTMLDivElement>(null);
+  const [tgSendStatus, setTgSendStatus] = React.useState<"idle" | "sending" | "sent" | "error">("idle");
 
   const goBack = React.useCallback(() => router.back(), [router]);
   useTelegramWebApp({ onBack: goBack });
@@ -208,9 +211,61 @@ export default function TMADealDetailPage() {
         </div>
       )}
 
-      {/* Quick actions: TG Chat + Booking Link */}
-      <div className="px-4 pb-3 flex gap-2">
+      {/* Quick actions: Booking Link + Send via TG + Ask AI */}
+      <div className="px-4 pb-3 flex gap-2 flex-wrap">
         <BookingLinkButton dealId={id} contactId={deal.contact?.id} compact />
+        {deal.telegram_chat_id && (
+          <button
+            onClick={async () => {
+              setTgSendStatus("sending");
+              try {
+                // Generate a booking link first, then send via TG
+                const linkRes = await fetch("/api/calendly/booking-link", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ deal_id: id, contact_id: deal.contact?.id }),
+                });
+                if (!linkRes.ok) { setTgSendStatus("error"); return; }
+                const linkData = await linkRes.json();
+                const url = linkData.data?.booking_url;
+                if (!url) { setTgSendStatus("error"); return; }
+
+                const contactName = deal.contact?.name?.split(" ")[0] ?? "there";
+                const msg = `Hi ${contactName}, here is a link to schedule our call: ${url}`;
+                const sendRes = await fetch("/api/inbox/reply", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ chat_id: deal.telegram_chat_id, message: msg, send_as: "user" }),
+                });
+                if (sendRes.ok) {
+                  setTgSendStatus("sent");
+                  hapticNotification("success");
+                  setTimeout(() => setTgSendStatus("idle"), 3000);
+                } else {
+                  setTgSendStatus("error");
+                }
+              } catch {
+                setTgSendStatus("error");
+              }
+            }}
+            disabled={tgSendStatus === "sending"}
+            className={cn(
+              "flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-medium transition active:scale-95",
+              tgSendStatus === "sent"
+                ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-400"
+                : "border-blue-500/20 bg-blue-500/10 text-blue-400",
+            )}
+          >
+            <Send className="h-3.5 w-3.5" />
+            {tgSendStatus === "sending" ? "Sending..." : tgSendStatus === "sent" ? "Sent!" : "Send Calendly via TG"}
+          </button>
+        )}
+        <button
+          onClick={() => router.push(`/tma/ai-chat?deal_id=${id}`)}
+          className="flex items-center justify-center gap-1.5 rounded-xl border border-purple-500/20 bg-purple-500/10 px-3 py-2 text-xs font-medium text-purple-400 transition active:bg-purple-500/20"
+        >
+          <Sparkles className="h-3.5 w-3.5" /> Ask AI
+        </button>
       </div>
 
       {/* Advance to next stage — 1-click shortcut */}

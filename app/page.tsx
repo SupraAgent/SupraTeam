@@ -2,9 +2,9 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { timeAgo, cn } from "@/lib/utils";
+import { timeAgo, cn, formatDealValue, type DealDenomination } from "@/lib/utils";
 import {
-  MessageCircle, GitBranch, ExternalLink, UserPlus, Bell,
+  MessageCircle, GitBranch, ExternalLink, UserPlus, Bell, Calendar,
   AlertTriangle, Clock, TrendingUp, Zap, DollarSign, BarChart3, Pin,
   ChevronDown, ChevronRight, Radio, Send, Activity, Shield, Workflow,
   Globe, ArrowRight,
@@ -40,6 +40,7 @@ type Stats = {
   velocity: { movesThisWeek: number; movesLastWeek: number; avgDaysPerStage: { id: string; name: string; color: string; avg_days: number | null }[] };
   conversionRates: { id: string; name: string; color: string; next_stage: string; rate: number | null; total_moves: number }[];
   hotConversations: { name: string; count: number; deal_name: string; deal_id: string }[];
+  closingThisWeek: { id: string; deal_name: string; board_type: string; value: number | null; stage_name: string; stage_color: string | null; expected_close_date: string; days_until: number }[];
   pinnedDeals: { id: string; deal_name: string; board_type: string; value: number | null; stage_name: string; stage_color: string | null }[];
   onboarding: { hasBotToken: boolean; hasGroups: boolean; hasDeals: boolean; hasContacts: boolean; hasEmail: boolean };
 };
@@ -95,13 +96,30 @@ export default function HomePage() {
   const [lastUpdated, setLastUpdated] = React.useState<Date | null>(null);
   const [loading, setLoading] = React.useState(true);
 
+  const [denomination, setDenomination] = React.useState<DealDenomination>("USD");
+  const [supraPrice, setSupraPrice] = React.useState<number>(0);
+
   const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>({});
   React.useEffect(() => {
     try {
       const stored = localStorage.getItem("dashboard_collapsed");
       if (stored) setCollapsed(JSON.parse(stored));
+      const savedDenom = localStorage.getItem("deal_denomination") as DealDenomination | null;
+      if (savedDenom && ["USD", "USDT", "SUPRA"].includes(savedDenom)) setDenomination(savedDenom);
     } catch { /* noop */ }
   }, []);
+
+  const changeDenomination = React.useCallback((d: DealDenomination) => {
+    setDenomination(d);
+    try { localStorage.setItem("deal_denomination", d); } catch { /* noop */ }
+    if (d === "SUPRA" && supraPrice === 0) {
+      fetch("/api/supra-price").then((r) => r.ok ? r.json() : null).then((data) => {
+        if (data?.price) setSupraPrice(data.price);
+      }).catch(() => { /* noop */ });
+    }
+  }, [supraPrice]);
+
+  const fmtVal = React.useCallback((v: number | null | undefined) => formatDealValue(v, denomination, supraPrice), [denomination, supraPrice]);
 
   const toggleCollapse = React.useCallback((key: string) => {
     setCollapsed((prev: Record<string, boolean>) => {
@@ -174,7 +192,7 @@ export default function HomePage() {
     stageBreakdown: [], recentDeals: [], totalPipelineValue: 0, weightedPipelineValue: 0,
     valueByBoard: { BD: 0, Marketing: 0, Admin: 0 }, staleDeals: [], followUps: [],
     velocity: { movesThisWeek: 0, movesLastWeek: 0, avgDaysPerStage: [] },
-    conversionRates: [], hotConversations: [], pinnedDeals: [],
+    conversionRates: [], hotConversations: [], closingThisWeek: [], pinnedDeals: [],
     onboarding: { hasBotToken: false, hasGroups: false, hasDeals: false, hasContacts: false, hasEmail: false },
   };
 
@@ -242,6 +260,20 @@ export default function HomePage() {
               Updated {timeAgo(lastUpdated.toISOString())}
             </span>
           )}
+          <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-white/[0.035] p-0.5">
+            {(["USD", "USDT", "SUPRA"] as const).map((d) => (
+              <button
+                key={d}
+                onClick={() => changeDenomination(d)}
+                className={cn(
+                  "rounded-lg px-2 py-1.5 text-xs font-medium transition",
+                  denomination === d ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {d}
+              </button>
+            ))}
+          </div>
           <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-white/[0.035] p-0.5">
             {(["7d", "30d", "90d", "all"] as const).map((range) => (
               <button
@@ -465,6 +497,47 @@ export default function HomePage() {
         </Widget>
       )}
 
+      {/* ========== CLOSING THIS WEEK ========== */}
+      {s.closingThisWeek.length > 0 && (
+        <Widget
+          title="Closing This Week"
+          icon={Calendar}
+          iconColor="text-emerald-400"
+          subtitle={`${s.closingThisWeek.length} deal${s.closingThisWeek.length !== 1 ? "s" : ""} · ${fmtVal(s.closingThisWeek.reduce((sum, d) => sum + Number(d.value ?? 0), 0))}`}
+          collapsible
+          isCollapsed={collapsed["closing_week"]}
+          onToggle={() => toggleCollapse("closing_week")}
+        >
+          {s.closingThisWeek.map((d) => (
+            <Link
+              key={d.id}
+              href={`/pipeline?highlight=${d.id}`}
+              className="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-white/[0.03] transition"
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                {d.stage_color && <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: d.stage_color }} />}
+                <div className="min-w-0">
+                  <p className="text-sm text-foreground truncate">{d.deal_name}</p>
+                  <p className="text-xs text-muted-foreground truncate">{d.stage_name}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0 ml-2">
+                <BoardBadge type={d.board_type} />
+                {d.value != null && d.value > 0 && (
+                  <span className="text-xs text-muted-foreground">{fmtVal(d.value)}</span>
+                )}
+                <span className={cn(
+                  "rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+                  d.days_until < 0 ? "bg-red-500/20 text-red-400" : d.days_until <= 1 ? "bg-amber-500/20 text-amber-400" : "bg-emerald-500/20 text-emerald-400",
+                )}>
+                  {d.days_until < 0 ? `${Math.abs(d.days_until)}d overdue` : d.days_until === 0 ? "Today" : `${d.days_until}d left`}
+                </span>
+              </div>
+            </Link>
+          ))}
+        </Widget>
+      )}
+
       {/* ========== ACTION REQUIRED ========== */}
       {(s.staleDeals.length > 0 || s.followUps.length > 0 || reminders.length > 0 || groupsNeedingAttention.length > 0) && (
         <div className="space-y-4">
@@ -486,7 +559,7 @@ export default function HomePage() {
                   </div>
                   <div className="text-right">
                     <BoardBadge type={d.board_type} />
-                    {d.value != null && d.value > 0 && <p className="text-xs text-muted-foreground mt-0.5">${Number(d.value).toLocaleString()}</p>}
+                    {d.value != null && d.value > 0 && <p className="text-xs text-muted-foreground mt-0.5">{fmtVal(d.value)}</p>}
                   </div>
                 </Link>
               ))}
@@ -778,7 +851,7 @@ export default function HomePage() {
                   </div>
                   <div className="text-right">
                     <BoardBadge type={d.board_type} />
-                    {d.value != null && d.value > 0 && <p className="text-[11px] text-muted-foreground mt-0.5">${Number(d.value).toLocaleString()}</p>}
+                    {d.value != null && d.value > 0 && <p className="text-[11px] text-muted-foreground mt-0.5">{fmtVal(d.value)}</p>}
                   </div>
                 </Link>
               ))}

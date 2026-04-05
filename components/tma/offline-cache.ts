@@ -34,6 +34,11 @@ export async function cacheSet(store: typeof STORES[number], key: string, value:
   }
 }
 
+export interface CacheResult<T> {
+  data: T;
+  cachedAt: number;
+}
+
 export async function cacheGet<T>(store: typeof STORES[number], key: string, maxAgeMs = 300000): Promise<T | null> {
   try {
     const db = await openDB();
@@ -46,6 +51,24 @@ export async function cacheGet<T>(store: typeof STORES[number], key: string, max
     if (!result) return null;
     if (Date.now() - result.cachedAt > maxAgeMs) return null; // Stale
     return result.value;
+  } catch {
+    return null;
+  }
+}
+
+/** Like cacheGet but also returns the timestamp when the data was cached */
+export async function cacheGetWithTimestamp<T>(store: typeof STORES[number], key: string, maxAgeMs = 300000): Promise<CacheResult<T> | null> {
+  try {
+    const db = await openDB();
+    const tx = db.transaction(store, "readonly");
+    const result = await new Promise<{ value: T; cachedAt: number } | undefined>((resolve, reject) => {
+      const req = tx.objectStore(store).get(key);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    if (!result) return null;
+    if (Date.now() - result.cachedAt > maxAgeMs) return null;
+    return { data: result.value, cachedAt: result.cachedAt };
   } catch {
     return null;
   }

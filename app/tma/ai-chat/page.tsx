@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Send, Loader2, Sparkles, Bot, User } from "lucide-react";
 import { BottomTabBar } from "@/components/tma/bottom-tab-bar";
@@ -11,22 +12,52 @@ type Message = {
   content: string;
 };
 
-const SUGGESTIONS = [
+type DealContext = {
+  id: string;
+  deal_name: string;
+  board_type: string;
+  value: number | null;
+  stage: { name: string } | null;
+  contact: { name: string; company: string | null } | null;
+};
+
+const DEFAULT_SUGGESTIONS = [
   "What deals need my attention?",
   "Help me draft an outreach message",
   "Summarize my pipeline health",
   "What tasks are overdue?",
 ];
 
+const DEAL_SUGGESTIONS = [
+  "Summarize this deal's conversation history",
+  "Draft a follow-up message for this deal",
+  "What's the recommended next step?",
+  "Assess the risk of this deal stalling",
+];
+
 export default function TMAAIChatPage() {
+  const searchParams = useSearchParams();
+  const dealId = searchParams.get("deal_id");
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [input, setInput] = React.useState("");
   const [loading, setLoading] = React.useState(false);
+  const [dealContext, setDealContext] = React.useState<DealContext | null>(null);
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
   const abortRef = React.useRef<AbortController | null>(null);
 
   useTelegramWebApp();
+
+  // Fetch deal context if deal_id provided
+  React.useEffect(() => {
+    if (!dealId) return;
+    fetch(`/api/deals/${dealId}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => { if (data?.deal) setDealContext(data.deal); })
+      .catch(() => {});
+  }, [dealId]);
+
+  const suggestions = dealContext ? DEAL_SUGGESTIONS : DEFAULT_SUGGESTIONS;
 
   // Cancel any in-flight streaming request on unmount
   React.useEffect(() => {
@@ -57,7 +88,9 @@ export default function TMAAIChatPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: newMessages,
-          page_context: "/tma",
+          page_context: dealContext
+            ? `/tma/deals/${dealContext.id} — Deal: "${dealContext.deal_name}" (${dealContext.board_type}), Stage: ${dealContext.stage?.name ?? "Unknown"}, Value: ${dealContext.value != null ? `$${Number(dealContext.value).toLocaleString()}` : "N/A"}${dealContext.contact ? `, Contact: ${dealContext.contact.name}${dealContext.contact.company ? ` (${dealContext.contact.company})` : ""}` : ""}`
+            : "/tma",
         }),
         signal: controller.signal,
       });
@@ -132,8 +165,12 @@ export default function TMAAIChatPage() {
             <Sparkles className="h-3.5 w-3.5 text-primary" />
           </div>
           <div>
-            <h1 className="text-sm font-semibold text-foreground">AI Assistant</h1>
-            <p className="text-[10px] text-muted-foreground">SupraTeam powered by Claude</p>
+            <h1 className="text-sm font-semibold text-foreground">
+              {dealContext ? dealContext.deal_name : "AI Assistant"}
+            </h1>
+            <p className="text-[10px] text-muted-foreground">
+              {dealContext ? `${dealContext.board_type} · ${dealContext.stage?.name ?? "No stage"}` : "SupraTeam powered by Claude"}
+            </p>
           </div>
         </div>
       </div>
@@ -148,7 +185,7 @@ export default function TMAAIChatPage() {
               <p className="text-[10px] text-muted-foreground">Ask me anything about your CRM</p>
             </div>
             <div className="space-y-1.5">
-              {SUGGESTIONS.map((s) => (
+              {suggestions.map((s) => (
                 <button
                   key={s}
                   onClick={() => sendMessage(s)}

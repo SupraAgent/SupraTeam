@@ -252,6 +252,12 @@ async function _performIncrementalSyncInner(
       await autoLinkEvents(userId, connectionId, calendarId, nonCancelledIds);
     }
 
+    // Auto-advance deals from "Calendly Sent" to "Video Call" when meeting confirmed
+    const confirmedEvents = allEvents.filter((e) => e.status === "confirmed");
+    if (confirmedEvents.length > 0) {
+      await autoAdvanceDealsOnMeetingConfirmed(admin, userId, connectionId, calendarId, confirmedEvents.map((e) => e.id));
+    }
+
     return { eventCount: allEvents.length, fullSyncRequired: false };
   } catch (err: unknown) {
     // Handle 410 GONE — syncToken is stale, fall back to full sync
@@ -478,6 +484,89 @@ async function autoLinkEvents(
       onConflict: "event_id,contact_id",
       ignoreDuplicates: true,
     });
+  }
+}
+
+/**
+ * Auto-advance deals from "Calendly Sent" to "Video Call" stage when a confirmed
+ * calendar event is linked to a deal (via crm_calendar_event_deals junction).
+ */
+async function autoAdvanceDealsOnMeetingConfirmed(
+  admin: SupabaseClient,
+  userId: string,
+  connectionId: string,
+  calendarId: string,
+  googleEventIds: string[]
+): Promise<void> {
+  try {
+    // Find internal event IDs for these google events
+    const { data: events } = await admin
+      .from("crm_calendar_events")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("connection_id", connectionId)
+      .eq("calendar_id", calendarId)
+      .in("google_event_id", googleEventIds);
+
+    if (!events?.length) return;
+
+    const eventIds = events.map((e) => e.id);
+
+    // Find deals linked to these events
+    const { data: links } = await admin
+      .from("crm_calendar_event_deals")
+      .select("deal_id")
+      .in("calendar_event_id", eventIds);
+
+    if (!links?.length) return;
+
+    const dealIds = [...new Set(links.map((l) => l.deal_id))];
+
+    // Get pipeline stages to find "Calendly Sent" and "Video Call"
+    const { data: stages } = await admin
+      .from("pipeline_stages")
+      .select("id, name, position")
+      .order("position");
+
+    if (!stages?.length) return;
+
+    const calendlySentStage = stages.find((s) => s.name.toLowerCase().includes("calendly"));
+    const videoCallStage = stages.find((s) => s.name.toLowerCase().includes("video call"));
+
+    if (!calendlySentStage || !videoCallStage) return;
+
+    // Find deals in "Calendly Sent" stage
+    const { data: dealsToAdvance } = await admin
+      .from("crm_deals")
+      .select("id, stage_id")
+      .in("id", dealIds)
+      .eq("stage_id", calendlySentStage.id)
+      .eq("outcome", "open");
+
+    if (!dealsToAdvance?.length) return;
+
+    // Advance each deal to "Video Call"
+    for (const deal of dealsToAdvance) {
+      await admin
+        .from("crm_deals")
+        .update({
+          stage_id: videoCallStage.id,
+          stage_changed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", deal.id);
+
+      // Log stage change history
+      await admin.from("crm_deal_stage_history").insert({
+        deal_id: deal.id,
+        from_stage_id: calendlySentStage.id,
+        to_stage_id: videoCallStage.id,
+        changed_by: userId,
+        change_reason: "Auto-advanced: meeting confirmed via calendar sync",
+      });
+    }
+  } catch (err) {
+    console.error("[calendar/sync] autoAdvanceDealsOnMeetingConfirmed error:", err instanceof Error ? err.message : "unknown");
   }
 }
 

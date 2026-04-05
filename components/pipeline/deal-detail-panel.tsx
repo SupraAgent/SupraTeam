@@ -15,6 +15,7 @@ import {
 import Link from "next/link";
 import { ConversationTimeline } from "./conversation-timeline";
 import { ApplicationReviewCard } from "./application-review-card";
+import { BookingLinkButton } from "@/components/calendly/booking-link-button";
 
 type Note = {
   id: string;
@@ -376,18 +377,25 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
   return (
     <SlideOver open={open} onClose={onClose} title={dealName || deal.deal_name} wide={tab === "conversation"}>
       <div className="space-y-4">
-        {/* TG Chat button -- most prominent action */}
-        {(deal.telegram_chat_link || tgLink) && (
-          <a
-            href={tgLink || deal.telegram_chat_link || "#"}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-center gap-2 rounded-xl bg-[#2AABEE] text-white px-4 py-2.5 text-sm font-medium transition hover:bg-[#2AABEE]/90 w-full"
-          >
-            <MessageCircle className="h-4 w-4" />
-            Open Telegram Chat
-          </a>
-        )}
+        {/* TG Chat + Schedule Meeting buttons */}
+        <div className="flex gap-2">
+          {(deal.telegram_chat_link || tgLink) && (
+            <a
+              href={tgLink || deal.telegram_chat_link || "#"}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2 rounded-xl bg-[#2AABEE] text-white px-4 py-2.5 text-sm font-medium transition hover:bg-[#2AABEE]/90 flex-1"
+            >
+              <MessageCircle className="h-4 w-4" />
+              Open Telegram Chat
+            </a>
+          )}
+          <BookingLinkButton
+            dealId={deal.id}
+            contactId={deal.contact_id ?? undefined}
+            tgChatId={deal.telegram_chat_id ? Number(deal.telegram_chat_id) : undefined}
+          />
+        </div>
 
         {/* Tabs */}
         <div className="flex gap-1 border-b border-white/10 pb-0">

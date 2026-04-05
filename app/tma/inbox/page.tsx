@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { cn, timeAgo } from "@/lib/utils";
-import { Inbox, MessageCircle, ChevronRight, Send } from "lucide-react";
+import { Inbox, MessageCircle, ChevronRight, Send, AlertCircle } from "lucide-react";
 import { BottomTabBar } from "@/components/tma/bottom-tab-bar";
 import { PullToRefresh } from "@/components/tma/pull-to-refresh";
 import { useTelegramWebApp } from "@/components/tma/use-telegram";
@@ -51,6 +51,10 @@ export default function TMAInboxPage() {
   const [replyOpen, setReplyOpen] = React.useState<number | null>(null);
   const [replyText, setReplyText] = React.useState("");
   const [replySending, setReplySending] = React.useState(false);
+  const [sendAsUser, setSendAsUser] = React.useState(true);
+  const [expandedHistory, setExpandedHistory] = React.useState<number | null>(null);
+  const [historyMessages, setHistoryMessages] = React.useState<Record<number, { sender_name: string; message_text: string; sent_at: string }[]>>({});
+  const [escalations, setEscalations] = React.useState<Set<number>>(new Set());
 
   useTelegramWebApp();
 
@@ -62,9 +66,10 @@ export default function TMAInboxPage() {
 
   const fetchData = React.useCallback(async () => {
     try {
-      const [inboxRes, statusRes] = await Promise.all([
+      const [inboxRes, statusRes, escalationRes] = await Promise.all([
         fetch("/api/inbox?limit=30"),
         fetch("/api/inbox/status"),
+        fetch("/api/ai-agent/escalations").catch(() => null),
       ]);
       if (inboxRes.ok) {
         const data = await inboxRes.json();
@@ -80,6 +85,11 @@ export default function TMAInboxPage() {
           map.set(Number(key), s);
         }
         setStatuses(map);
+      }
+      if (escalationRes?.ok) {
+        const data = await escalationRes.json();
+        const chatIds = new Set<number>((data.escalations ?? []).map((e: { tg_chat_id: number }) => e.tg_chat_id));
+        setEscalations(chatIds);
       }
     } catch {
       // Network failed — fall back to offline cache
@@ -130,7 +140,7 @@ export default function TMAInboxPage() {
       const res = await fetch("/api/inbox/reply", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: chatId, message: replyText, send_as: "bot" }),
+        body: JSON.stringify({ chat_id: chatId, message: replyText, send_as: sendAsUser ? "user" : "bot" }),
       });
       if (res.ok) {
         hapticImpact("light");
@@ -237,7 +247,15 @@ export default function TMAInboxPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-medium text-foreground truncate">{conv.group_name}</p>
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <p className="text-sm font-medium text-foreground truncate">{conv.group_name}</p>
+                          {escalations.has(conv.chat_id) && (
+                            <span className="shrink-0 flex items-center gap-0.5 rounded-full bg-red-500/20 px-1.5 py-0.5 text-[9px] font-medium text-red-400">
+                              <AlertCircle className="h-2.5 w-2.5" />
+                              Escalated
+                            </span>
+                          )}
+                        </div>
                         <div className="flex items-center gap-1.5 shrink-0">
                           {conv.latest_at && (
                             <span className="text-[10px] text-muted-foreground/60">{timeAgo(conv.latest_at)}</span>
@@ -312,24 +330,70 @@ export default function TMAInboxPage() {
                       </button>
                     </div>
                   )}
+                  {/* Expanded message history */}
+                  {replyOpen === conv.chat_id && expandedHistory === conv.chat_id && historyMessages[conv.chat_id] && (
+                    <div className="px-3 py-2 border-t border-white/5 bg-white/[0.01] space-y-1 max-h-32 overflow-y-auto">
+                      {historyMessages[conv.chat_id].map((msg, i) => (
+                        <div key={i} className="text-[10px]">
+                          <span className="font-medium text-foreground/70">{msg.sender_name}:</span>{" "}
+                          <span className="text-muted-foreground">{msg.message_text}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {/* Inline reply input */}
                   {replyOpen === conv.chat_id && (
-                    <div className="flex items-center gap-2 px-3 py-2 border-t border-white/5 bg-white/[0.02]">
-                      <input
-                        value={replyText}
-                        onChange={(e) => setReplyText(e.target.value)}
-                        placeholder="Reply via bot..."
-                        className="flex-1 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs text-foreground outline-none"
-                        onKeyDown={(e) => e.key === "Enter" && handleInlineReply(conv.chat_id)}
-                        autoFocus
-                      />
-                      <button
-                        onClick={() => handleInlineReply(conv.chat_id)}
-                        disabled={replySending || !replyText.trim()}
-                        className="rounded-lg bg-primary p-1.5 text-primary-foreground disabled:opacity-50"
-                      >
-                        <Send className="h-3.5 w-3.5" />
-                      </button>
+                    <div className="px-3 py-2 border-t border-white/5 bg-white/[0.02] space-y-1.5">
+                      {/* Context + Send-as toggle row */}
+                      <div className="flex items-center justify-between">
+                        <button
+                          onClick={() => {
+                            if (expandedHistory === conv.chat_id) {
+                              setExpandedHistory(null);
+                            } else {
+                              setExpandedHistory(conv.chat_id);
+                              if (!historyMessages[conv.chat_id]) {
+                                // Fetch last 5 messages for context
+                                const msgs = conv.messages.slice(0, 5).reverse().map((m) => ({
+                                  sender_name: m.is_from_bot ? "Bot" : m.sender_name,
+                                  message_text: m.message_text,
+                                  sent_at: m.sent_at,
+                                }));
+                                setHistoryMessages((prev) => ({ ...prev, [conv.chat_id]: msgs }));
+                              }
+                            }
+                          }}
+                          className="text-[10px] text-primary"
+                        >
+                          {expandedHistory === conv.chat_id ? "Hide context" : "Show context"}
+                        </button>
+                        <button
+                          onClick={() => setSendAsUser((v) => !v)}
+                          className={cn(
+                            "text-[10px] rounded-full px-2 py-0.5 font-medium transition",
+                            sendAsUser ? "bg-blue-500/20 text-blue-400" : "bg-white/10 text-muted-foreground"
+                          )}
+                        >
+                          {sendAsUser ? "Send as You" : "Send as Bot"}
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          value={replyText}
+                          onChange={(e) => setReplyText(e.target.value)}
+                          placeholder={sendAsUser ? "Reply as you..." : "Reply via bot..."}
+                          className="flex-1 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs text-foreground outline-none"
+                          onKeyDown={(e) => e.key === "Enter" && handleInlineReply(conv.chat_id)}
+                          autoFocus
+                        />
+                        <button
+                          onClick={() => handleInlineReply(conv.chat_id)}
+                          disabled={replySending || !replyText.trim()}
+                          className="rounded-lg bg-primary p-1.5 text-primary-foreground disabled:opacity-50"
+                        >
+                          <Send className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </div>
                   )}
                   {status === "snoozed" && (

@@ -43,3 +43,25 @@ export function timeAgo(timestamp: string): string {
   if (days < 7) return `${days}d ago`;
   return new Date(timestamp).toLocaleDateString();
 }
+
+export type DealDenomination = "USD" | "USDT" | "SUPRA";
+
+export function formatDealValue(
+  value: number | null | undefined,
+  denomination: DealDenomination = "USD",
+  supraPrice?: number,
+): string {
+  if (value == null || value === 0) return "--";
+  const v = Number(value);
+  if (denomination === "SUPRA" && supraPrice && supraPrice > 0) {
+    const tokens = v / supraPrice;
+    return tokens >= 1000
+      ? `${(tokens / 1000).toFixed(1)}K SUPRA`
+      : `${Math.round(tokens).toLocaleString()} SUPRA`;
+  }
+  const prefix = denomination === "USDT" ? "" : "$";
+  const suffix = denomination === "USDT" ? " USDT" : "";
+  if (v >= 1_000_000) return `${prefix}${(v / 1_000_000).toFixed(1)}M${suffix}`;
+  if (v >= 1_000) return `${prefix}${(v / 1_000).toFixed(v >= 10_000 ? 0 : 1)}K${suffix}`;
+  return `${prefix}${v.toLocaleString()}${suffix}`;
+}

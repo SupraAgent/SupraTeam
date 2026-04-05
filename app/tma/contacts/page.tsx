@@ -18,6 +18,16 @@ interface Contact {
   email: string | null;
   phone: string | null;
   lifecycle_stage: string | null;
+  wallet_address: string | null;
+  wallet_chain: string | null;
+}
+
+interface ContactDeal {
+  id: string;
+  deal_name: string;
+  board_type: string;
+  value: number | null;
+  stage: { name: string; color: string } | null;
 }
 
 interface ContactFormData {
@@ -27,9 +37,13 @@ interface ContactFormData {
   phone: string;
   company: string;
   lifecycle_stage: string;
+  wallet_address: string;
+  wallet_chain: string;
 }
 
 const LIFECYCLE_STAGES = ["prospect", "lead", "opportunity", "customer", "churned"] as const;
+
+const WALLET_CHAINS = ["supra", "evm", "solana"] as const;
 
 const emptyForm: ContactFormData = {
   name: "",
@@ -38,6 +52,8 @@ const emptyForm: ContactFormData = {
   phone: "",
   company: "",
   lifecycle_stage: "prospect",
+  wallet_address: "",
+  wallet_chain: "supra",
 };
 
 export default function TMAContactsPage() {
@@ -54,8 +70,18 @@ export default function TMAContactsPage() {
 
   // Detail view
   const [selectedContact, setSelectedContact] = React.useState<Contact | null>(null);
+  const [contactDeals, setContactDeals] = React.useState<ContactDeal[]>([]);
 
   useTelegramWebApp();
+
+  // Fetch deals when a contact is selected
+  React.useEffect(() => {
+    if (!selectedContact) { setContactDeals([]); return; }
+    fetch(`/api/deals?contact_id=${selectedContact.id}`)
+      .then((r) => r.ok ? r.json() : { deals: [] })
+      .then((data) => setContactDeals(data.deals ?? []))
+      .catch(() => setContactDeals([]));
+  }, [selectedContact]);
 
   // Open create modal if navigated with ?create=1
   React.useEffect(() => {
@@ -312,7 +338,44 @@ export default function TMAContactsPage() {
                   <span className="text-foreground">{selectedContact.phone}</span>
                 </div>
               )}
+              {selectedContact.wallet_address && (
+                <div className="flex justify-between text-xs">
+                  <span className="text-muted-foreground">Wallet ({selectedContact.wallet_chain ?? "supra"})</span>
+                  <span className="text-foreground font-mono text-[10px]">
+                    {selectedContact.wallet_address.slice(0, 8)}...{selectedContact.wallet_address.slice(-6)}
+                  </span>
+                </div>
+              )}
             </div>
+
+            {/* Linked Deals */}
+            {contactDeals.length > 0 && (
+              <div className="pt-2">
+                <p className="text-xs font-medium text-muted-foreground mb-2">Deals</p>
+                <div className="space-y-1">
+                  {contactDeals.map((deal) => (
+                    <a
+                      key={deal.id}
+                      href={`/tma/deals/${deal.id}`}
+                      className="flex items-center justify-between rounded-lg bg-white/[0.03] border border-white/10 px-3 py-2 transition active:bg-white/[0.06]"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        {deal.stage && (
+                          <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ backgroundColor: deal.stage.color }} />
+                        )}
+                        <span className="text-xs text-foreground truncate">{deal.deal_name}</span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {deal.value != null && deal.value > 0 && (
+                          <span className="text-[10px] text-muted-foreground">${Number(deal.value).toLocaleString()}</span>
+                        )}
+                        <ChevronLeft className="h-3 w-3 text-muted-foreground/30 rotate-180" />
+                      </div>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -389,6 +452,38 @@ export default function TMAContactsPage() {
                 placeholder="Company name"
                 className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-foreground outline-none placeholder:text-muted-foreground/50"
               />
+            </div>
+
+            {/* Wallet Address */}
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Wallet Address</label>
+              <input
+                value={formData.wallet_address}
+                onChange={(e) => setFormData((f) => ({ ...f, wallet_address: e.target.value }))}
+                placeholder="0x... or supra1..."
+                className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-foreground outline-none placeholder:text-muted-foreground/50 font-mono"
+              />
+            </div>
+
+            {/* Wallet Chain */}
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Chain</label>
+              <div className="flex gap-1.5">
+                {WALLET_CHAINS.map((chain) => (
+                  <button
+                    key={chain}
+                    onClick={() => setFormData((f) => ({ ...f, wallet_chain: chain }))}
+                    className={cn(
+                      "rounded-lg px-3 py-2 text-xs capitalize transition",
+                      formData.wallet_chain === chain
+                        ? "ring-2 ring-primary bg-white/10 text-foreground"
+                        : "bg-white/5 text-muted-foreground active:bg-white/10"
+                    )}
+                  >
+                    {chain === "evm" ? "EVM" : chain.charAt(0).toUpperCase() + chain.slice(1)}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Lifecycle stage */}
