@@ -51,7 +51,14 @@ export async function POST(request: Request) {
     .update(dataCheckString)
     .digest("hex");
 
-  if (computedHash !== hash) {
+  // Use timing-safe comparison to prevent timing attacks
+  try {
+    const hashBuffer = Buffer.from(hash, "hex");
+    const computedBuffer = Buffer.from(computedHash, "hex");
+    if (hashBuffer.length !== computedBuffer.length || !crypto.timingSafeEqual(hashBuffer, computedBuffer)) {
+      return NextResponse.json({ error: "Invalid initData signature" }, { status: 401 });
+    }
+  } catch {
     return NextResponse.json({ error: "Invalid initData signature" }, { status: 401 });
   }
 

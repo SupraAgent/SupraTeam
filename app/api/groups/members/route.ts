@@ -44,7 +44,8 @@ export async function GET(request: Request) {
     .order("message_count_7d", { ascending: false });
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("[groups/members]", error.message);
+    return NextResponse.json({ error: "Operation failed" }, { status: 500 });
   }
 
   // Compute summary stats
@@ -219,7 +220,8 @@ export async function PATCH(request: Request) {
     .eq("id", id);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("[groups/members]", error.message);
+    return NextResponse.json({ error: "Operation failed" }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });

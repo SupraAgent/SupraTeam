@@ -87,10 +87,12 @@ export async function GET(request: Request) {
     const [timedResult, allDayResult] = await Promise.all([timedQ, allDayQ]);
 
     if (timedResult.error) {
-      return NextResponse.json({ error: timedResult.error.message }, { status: 500 });
+      console.error("[calendar/events]", timedResult.error.message);
+      return NextResponse.json({ error: "Failed to fetch events" }, { status: 500 });
     }
     if (allDayResult.error) {
-      return NextResponse.json({ error: allDayResult.error.message }, { status: 500 });
+      console.error("[calendar/events]", allDayResult.error.message);
+      return NextResponse.json({ error: "Failed to fetch events" }, { status: 500 });
     }
 
     // Merge and sort by start time (start_at for timed, start_date for all-day)

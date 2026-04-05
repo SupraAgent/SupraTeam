@@ -60,7 +60,8 @@ export async function POST(request: Request) {
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("[api-keys] create error:", error.message);
+    return NextResponse.json({ error: "Failed to create API key" }, { status: 500 });
   }
 
   // Return the raw key ONLY on creation (never stored in plain text)
@@ -81,6 +82,9 @@ export async function DELETE(request: Request) {
     .eq("id", id)
     .eq("created_by", user.id);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error("[api-keys] delete error:", error.message);
+    return NextResponse.json({ error: "Failed to delete API key" }, { status: 500 });
+  }
   return NextResponse.json({ ok: true });
 }

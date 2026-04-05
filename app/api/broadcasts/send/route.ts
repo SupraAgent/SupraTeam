@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
 import { requireLeadRole } from "@/lib/auth-guard";
-import { formatBroadcastMessage } from "@/lib/telegram-templates";
+import { formatBroadcastMessage, escapeHtml } from "@/lib/telegram-templates";
 import { sendTelegramWithTracking, sendTelegramMediaWithTracking } from "@/lib/telegram-send";
 import { dispatchWebhook } from "@/lib/webhooks";
+
+/** Strip HTML tags from user-provided template variable values to prevent stored XSS */
+function sanitizeTemplateInput(value: string): string {
+  return escapeHtml(value.replace(/<[^>]*>/g, ""));
+}
 
 export async function POST(request: Request) {
   const auth = await requireLeadRole();
@@ -124,9 +129,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "All groups filtered by suppression rules", suppressed: allGroups.length }, { status: 200 });
   }
 
-  const formattedMessage = formatBroadcastMessage(message.trim(), senderName);
+  // Sanitize user-provided message content to prevent stored XSS via template variables
+  const sanitizedMessage = sanitizeTemplateInput(message.trim());
+  const formattedMessage = formatBroadcastMessage(sanitizedMessage, senderName);
   const hasVariantB = variant_b_message?.trim();
-  const formattedVariantB = hasVariantB ? formatBroadcastMessage(variant_b_message.trim(), senderName) : null;
+  const formattedVariantB = hasVariantB ? formatBroadcastMessage(sanitizeTemplateInput(variant_b_message.trim()), senderName) : null;
 
   // Create broadcast record
   const isScheduled = scheduled_at && new Date(scheduled_at) > new Date();

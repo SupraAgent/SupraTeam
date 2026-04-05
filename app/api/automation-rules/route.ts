@@ -12,7 +12,8 @@ export async function GET() {
     .order("created_at", { ascending: false });
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("[automation-rules]", error.message);
+    return NextResponse.json({ error: "Operation failed" }, { status: 500 });
   }
 
   return NextResponse.json({ rules: data ?? [] });
@@ -45,7 +46,8 @@ export async function POST(request: Request) {
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("[automation-rules]", error.message);
+    return NextResponse.json({ error: "Operation failed" }, { status: 500 });
   }
 
   return NextResponse.json({ rule: data, ok: true });
@@ -77,7 +79,8 @@ export async function PUT(request: Request) {
     .single();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("[automation-rules]", error.message);
+    return NextResponse.json({ error: "Operation failed" }, { status: 500 });
   }
 
   return NextResponse.json({ rule: data, ok: true });
@@ -97,7 +100,8 @@ export async function DELETE(request: Request) {
     .eq("id", id);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("[automation-rules]", error.message);
+    return NextResponse.json({ error: "Operation failed" }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });

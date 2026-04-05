@@ -27,7 +27,8 @@ export async function GET(request: Request) {
   });
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("[groups/engagement]", error.message);
+    return NextResponse.json({ error: "Failed to fetch engagement scores" }, { status: 500 });
   }
 
   // Enrich with group names

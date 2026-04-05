@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { getAnthropicKey } from "@/lib/ai-key";
+import { rateLimit } from "@/lib/rate-limit";
 
 /**
  * POST: Global AI assistant chat
@@ -9,6 +10,10 @@ import { getAnthropicKey } from "@/lib/ai-key";
 export async function POST(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
+
+  // Rate limit: 20 requests per 60 seconds per user
+  const limited = rateLimit(`ai-chat:${auth.user.id}`, { max: 20, windowSec: 60 });
+  if (limited) return limited;
 
   const apiKey = await getAnthropicKey(auth.user.id);
   if (!apiKey) {

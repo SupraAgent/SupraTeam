@@ -29,7 +29,8 @@ export async function POST(request: Request) {
       .from("tg_group_slugs")
       .upsert(rows, { onConflict: "group_id,slug", ignoreDuplicates: true });
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      console.error("[groups/bulk]", error.message);
+      return NextResponse.json({ error: "Operation failed" }, { status: 500 });
     }
     for (const gid of group_ids) results.push({ group_id: gid, ok: true });
   } else if (action === "remove_slug") {
@@ -42,7 +43,8 @@ export async function POST(request: Request) {
         .delete()
         .eq("group_id", gid)
         .eq("slug", slug);
-      results.push({ group_id: gid, ok: !error, error: error?.message });
+      if (error) console.error("[groups/bulk] remove_slug:", error.message);
+      results.push({ group_id: gid, ok: !error, error: error ? "Failed to remove slug" : undefined });
     }
   } else if (action === "archive") {
     const { error } = await supabase
@@ -50,7 +52,8 @@ export async function POST(request: Request) {
       .update({ is_archived: true, archived_at: new Date().toISOString() })
       .in("id", group_ids);
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      console.error("[groups/bulk]", error.message);
+      return NextResponse.json({ error: "Operation failed" }, { status: 500 });
     }
     for (const gid of group_ids) results.push({ group_id: gid, ok: true });
   } else if (action === "unarchive") {
@@ -59,7 +62,8 @@ export async function POST(request: Request) {
       .update({ is_archived: false, archived_at: null })
       .in("id", group_ids);
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      console.error("[groups/bulk]", error.message);
+      return NextResponse.json({ error: "Operation failed" }, { status: 500 });
     }
     for (const gid of group_ids) results.push({ group_id: gid, ok: true });
   } else if (action === "assign_bot") {
@@ -71,7 +75,8 @@ export async function POST(request: Request) {
       .update({ bot_id, updated_at: new Date().toISOString() })
       .in("id", group_ids);
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      console.error("[groups/bulk]", error.message);
+      return NextResponse.json({ error: "Operation failed" }, { status: 500 });
     }
     for (const gid of group_ids) results.push({ group_id: gid, ok: true });
   } else if (action === "refresh_status") {
@@ -108,10 +113,11 @@ export async function POST(request: Request) {
           results.push({ group_id: g.id, ok: false, error: data.description });
         }
       } catch (err) {
+        console.error("[groups/bulk] refresh_status:", err instanceof Error ? err.message : "Unknown error");
         results.push({
           group_id: g.id,
           ok: false,
-          error: err instanceof Error ? err.message : "Unknown error",
+          error: "Failed to refresh status",
         });
       }
     }
