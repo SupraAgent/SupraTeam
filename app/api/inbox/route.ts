@@ -173,6 +173,59 @@ export async function GET(request: Request) {
     dealsByChat[chatId].push(deal);
   }
 
+  // Fetch urgency data from active highlights for each conversation
+  const allDealIds = (deals ?? []).map((d) => d.id).filter(Boolean);
+  interface HighlightUrgency {
+    deal_id: string;
+    triage_urgency: string | null;
+    triage_category: string | null;
+    triage_summary: string | null;
+    priority: string | null;
+    sender_name: string | null;
+    message_preview: string | null;
+    created_at: string;
+  }
+  let highlightsByDeal: Record<string, HighlightUrgency[]> = {};
+  if (allDealIds.length > 0) {
+    const { data: highlights } = await supabase
+      .from("crm_highlights")
+      .select("deal_id, triage_urgency, triage_category, triage_summary, priority, sender_name, message_preview, created_at")
+      .in("deal_id", allDealIds)
+      .eq("is_active", true)
+      .order("created_at", { ascending: false })
+      .limit(100);
+    for (const h of (highlights ?? []) as HighlightUrgency[]) {
+      if (!highlightsByDeal[h.deal_id]) highlightsByDeal[h.deal_id] = [];
+      highlightsByDeal[h.deal_id].push(h);
+    }
+  }
+
+  // Compute per-chat urgency from highlights (highest urgency wins)
+  const urgencyRank: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
+  const urgencyByChat: Record<number, { level: string; category: string | null; summary: string | null; count: number }> = {};
+  for (const conv of conversations) {
+    const chatDeals = dealsByChat[conv.chat_id] ?? [];
+    let maxUrgency = "low";
+    let topCategory: string | null = null;
+    let topSummary: string | null = null;
+    let urgentCount = 0;
+    for (const deal of chatDeals) {
+      const highlights = highlightsByDeal[deal.id] ?? [];
+      for (const h of highlights) {
+        const level = h.triage_urgency ?? h.priority ?? "medium";
+        if ((urgencyRank[level] ?? 0) >= (urgencyRank["high"] ?? 0)) urgentCount++;
+        if ((urgencyRank[level] ?? 0) > (urgencyRank[maxUrgency] ?? 0)) {
+          maxUrgency = level;
+          topCategory = h.triage_category;
+          topSummary = h.triage_summary;
+        }
+      }
+    }
+    if (maxUrgency !== "low" || urgentCount > 0) {
+      urgencyByChat[conv.chat_id] = { level: maxUrgency, category: topCategory, summary: topSummary, count: urgentCount };
+    }
+  }
+
   const page = conversations.slice(0, limit);
   const hasMore = conversations.length > limit;
   const nextCursor = hasMore && page.length > 0 ? page[page.length - 1].latest_at : null;
@@ -180,6 +233,7 @@ export async function GET(request: Request) {
   return NextResponse.json({
     conversations: page,
     deals: dealsByChat,
+    urgency: urgencyByChat,
     hasMore,
     nextCursor,
   });
