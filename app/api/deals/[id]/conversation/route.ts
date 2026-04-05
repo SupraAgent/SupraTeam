@@ -250,30 +250,42 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     .single();
 
   let chatId: number | null = null;
+  let chatType: string | null = null;
 
   if (targetChatParam) {
     chatId = Number(targetChatParam);
+    // Look up chat_type for the specified chat
+    const { data: chatInfo } = await supabase
+      .from("crm_deal_linked_chats")
+      .select("chat_type")
+      .eq("deal_id", id)
+      .eq("telegram_chat_id", chatId)
+      .limit(1)
+      .maybeSingle();
+    chatType = chatInfo?.chat_type ?? null;
   } else {
     // Check junction table for primary linked chat
     const { data: linkedChats } = await supabase
       .from("crm_deal_linked_chats")
-      .select("telegram_chat_id")
+      .select("telegram_chat_id, chat_type")
       .eq("deal_id", id)
       .eq("is_primary", true)
       .limit(1);
 
     if (linkedChats && linkedChats.length > 0) {
       chatId = Number(linkedChats[0].telegram_chat_id);
+      chatType = linkedChats[0].chat_type;
     } else {
       // Fallback: any linked chat
       const { data: anyLinked } = await supabase
         .from("crm_deal_linked_chats")
-        .select("telegram_chat_id")
+        .select("telegram_chat_id, chat_type")
         .eq("deal_id", id)
         .limit(1);
 
       if (anyLinked && anyLinked.length > 0) {
         chatId = Number(anyLinked[0].telegram_chat_id);
+        chatType = anyLinked[0].chat_type;
       } else if (deal?.telegram_chat_id) {
         // Legacy fallback
         chatId = Number(deal.telegram_chat_id);
@@ -299,10 +311,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     try {
       const { getConnectedClient, sendMessage, buildPeer } = await import("@/lib/telegram-client");
       const client = await getConnectedClient(user.id, session.session_encrypted);
-      // Negative IDs = supergroup/channel, positive = regular chat
-      const peer = chatId < 0
-        ? buildPeer("channel", Math.abs(chatId) - 1000000000000, 0)
-        : buildPeer("chat", chatId);
+      // Use chat_type to determine correct peer type
+      let peer;
+      if (chatType === "channel" || chatType === "supergroup") {
+        // Supergroups/channels use channel peer with the positive ID portion
+        peer = buildPeer("channel", Math.abs(chatId) - 1000000000000, 0);
+      } else if (chatType === "dm" || chatId > 0) {
+        peer = buildPeer("user", chatId, 0);
+      } else {
+        // Regular group (negative ID, no -100 prefix)
+        peer = buildPeer("chat", Math.abs(chatId));
+      }
       await sendMessage(client, peer, body.message.trim());
       return NextResponse.json({ ok: true, via: "user_client" });
     } catch (err) {
@@ -330,9 +349,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chat_id: chatId, text: body.message.trim() }),
     });
-    const data = await res.json();
+    let data: Record<string, unknown>;
+    try {
+      data = await res.json();
+    } catch {
+      return NextResponse.json({ error: `Telegram API returned ${res.status} (non-JSON)` }, { status: 502 });
+    }
     if (!data.ok) {
-      return NextResponse.json({ error: data.description || "Bot send failed" }, { status: 500 });
+      return NextResponse.json({ error: (data.description as string) || "Bot send failed" }, { status: 500 });
     }
     return NextResponse.json({ ok: true, via: "bot" });
   } catch (err) {

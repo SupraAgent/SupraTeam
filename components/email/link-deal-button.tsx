@@ -4,7 +4,6 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 import { Link2, Search, X, Loader2, Check, Unlink } from "lucide-react";
 import { toast } from "sonner";
-import type { DealEmailThread } from "@/lib/types";
 
 interface LinkedDeal {
   id: string;
@@ -60,22 +59,15 @@ export function LinkDealButton({ threadId, connectionId, subject }: LinkDealButt
   async function fetchLinkedDeals() {
     if (!connectionId) return;
     try {
-      // Fetch all deals then filter for ones linked to this thread
-      const res = await fetch(`/api/deals?limit=500`);
-      if (!res.ok) return;
-      const json = await res.json();
-      const allDeals: DealSearchResult[] = json.deals ?? [];
-
-      // Fetch links for each deal that might be linked to this thread
-      // Better approach: query by thread_id across all deals
       const linksRes = await fetch(`/api/email/thread-deals?thread_id=${encodeURIComponent(threadId)}&connection_id=${encodeURIComponent(connectionId)}`);
       if (linksRes.ok) {
         const linksJson = await linksRes.json();
-        const links: DealEmailThread[] = linksJson.data ?? [];
-        const linkedDealIds = new Set(links.map((l) => l.deal_id));
-        const linked = allDeals
-          .filter((d) => linkedDealIds.has(d.id))
-          .map((d) => ({ id: d.id, deal_name: d.deal_name, board_type: d.board_type }));
+        const links = linksJson.data ?? [];
+        const linked = links.map((l: { deal_id: string; deal?: { deal_name: string; board_type: string } | null }) => ({
+          id: l.deal_id,
+          deal_name: l.deal?.deal_name ?? "Linked Deal",
+          board_type: l.deal?.board_type ?? "",
+        }));
         setLinkedDeals(linked);
       }
     } catch {
@@ -95,18 +87,11 @@ export function LinkDealButton({ threadId, connectionId, subject }: LinkDealButt
     setSearching(true);
     searchTimerRef.current = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/deals?limit=20`);
+        const res = await fetch(`/api/deals?search=${encodeURIComponent(searchQuery.trim())}&limit=10`);
         if (!res.ok) return;
         const json = await res.json();
         const allDeals: DealSearchResult[] = json.deals ?? [];
-        const query = searchQuery.toLowerCase();
-        const filtered = allDeals.filter(
-          (d) =>
-            d.deal_name.toLowerCase().includes(query) ||
-            d.contact?.name?.toLowerCase().includes(query) ||
-            d.board_type.toLowerCase().includes(query)
-        );
-        setSearchResults(filtered.slice(0, 10));
+        setSearchResults(allDeals);
       } catch {
         // silent
       } finally {

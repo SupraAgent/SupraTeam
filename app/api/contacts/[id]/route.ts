@@ -42,7 +42,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const { user, supabase } = auth;
   const { id } = await params;
 
-  const raw = await request.json();
+  let raw: Record<string, unknown>;
+  try {
+    raw = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
   const body: Record<string, unknown> = { updated_at: new Date().toISOString() };
   for (const key of CONTACT_FIELDS) {
     if (key in raw) body[key] = raw[key];
@@ -110,10 +115,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   // Trigger enrichment asynchronously when relevant fields change
   if (contact) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+    const cookieHeader = request.headers.get("cookie") ?? "";
     if ("x_handle" in raw && raw.x_handle) {
       fetch(`${appUrl}/api/contacts/enrich-x`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Cookie": cookieHeader },
         body: JSON.stringify({ contact_id: id, x_handle: raw.x_handle }),
       }).catch(() => {});
     }

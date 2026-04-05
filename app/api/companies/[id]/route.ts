@@ -40,7 +40,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const { supabase } = auth;
   const { id } = await params;
 
-  const body = await request.json();
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
 
   for (const key of ALLOWED_FIELDS) {

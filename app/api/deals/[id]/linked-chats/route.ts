@@ -43,15 +43,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "chat_type must be dm, group, channel, or supergroup" }, { status: 400 });
   }
 
-  // If setting as primary, unset existing primary first
-  if (is_primary) {
-    await supabase
-      .from("crm_deal_linked_chats")
-      .update({ is_primary: false })
-      .eq("deal_id", id)
-      .eq("is_primary", true);
-  }
-
   const { data, error } = await supabase
     .from("crm_deal_linked_chats")
     .upsert(
@@ -74,6 +65,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "Failed to link chat" }, { status: 500 });
   }
 
+  // Unset other primaries only AFTER successful upsert (atomic swap)
+  if (is_primary) {
+    await supabase
+      .from("crm_deal_linked_chats")
+      .update({ is_primary: false })
+      .eq("deal_id", id)
+      .eq("is_primary", true)
+      .neq("telegram_chat_id", telegram_chat_id);
+  }
+
   return NextResponse.json({ data, ok: true });
 }
 
@@ -86,8 +87,8 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   const { searchParams } = new URL(request.url);
   const chatId = searchParams.get("chat_id");
 
-  if (!chatId) {
-    return NextResponse.json({ error: "chat_id query param is required" }, { status: 400 });
+  if (!chatId || !Number.isFinite(Number(chatId))) {
+    return NextResponse.json({ error: "chat_id query param must be a valid number" }, { status: 400 });
   }
 
   const { error } = await supabase
@@ -122,15 +123,6 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "telegram_chat_id and is_primary are required" }, { status: 400 });
   }
 
-  // If setting as primary, unset existing primary first
-  if (is_primary) {
-    await supabase
-      .from("crm_deal_linked_chats")
-      .update({ is_primary: false })
-      .eq("deal_id", id)
-      .eq("is_primary", true);
-  }
-
   const { data, error } = await supabase
     .from("crm_deal_linked_chats")
     .update({ is_primary })
@@ -142,6 +134,16 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (error) {
     console.error("[api/deals/[id]/linked-chats] patch error:", error);
     return NextResponse.json({ error: "Failed to update linked chat" }, { status: 500 });
+  }
+
+  // Unset other primaries only AFTER successful update (atomic swap)
+  if (is_primary) {
+    await supabase
+      .from("crm_deal_linked_chats")
+      .update({ is_primary: false })
+      .eq("deal_id", id)
+      .eq("is_primary", true)
+      .neq("telegram_chat_id", telegram_chat_id);
   }
 
   return NextResponse.json({ data, ok: true });
