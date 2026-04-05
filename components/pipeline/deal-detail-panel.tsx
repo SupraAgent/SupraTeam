@@ -319,6 +319,11 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
         onUpdated?.();
         // Replace optimistic activity with real data
         fetch(`/api/deals/${deal.id}/activity`).then((r) => r.json()).then((d) => setActivities(d.activities ?? [])).catch(() => {});
+        // Fire-and-forget: auto-trigger AI sentiment analysis on stage change
+        fetch(`/api/deals/${deal.id}/sentiment`, { method: "POST" })
+          .then((r) => r.ok ? r.json() : null)
+          .then((d) => { if (d?.sentiment) setSentiment(d.sentiment); })
+          .catch(() => {});
       } else {
         // Rollback
         setStageId(prevStageId);
@@ -624,7 +629,7 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
                   className="text-[10px] text-primary hover:underline"
                   disabled={sentimentLoading}
                 >
-                  {sentimentLoading ? "Analyzing..." : sentiment ? "Refresh" : "Analyze"}
+                  {sentimentLoading ? "Analyzing..." : "Re-analyze"}
                 </button>
               </div>
               {sentiment ? (
@@ -666,7 +671,7 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
                   )}
                 </>
               ) : (
-                <p className="text-[10px] text-muted-foreground/50">Click Analyze to assess conversation sentiment.</p>
+                <p className="text-[10px] text-muted-foreground/50">Sentiment auto-analyzes on stage changes. Click Re-analyze to refresh manually.</p>
               )}
             </div>
 
