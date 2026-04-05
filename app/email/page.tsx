@@ -1011,6 +1011,7 @@ function EmailPageInner() {
             <ThreadView
               thread={activeThread}
               loading={threadLoading}
+              connectionId={activeConnectionId}
               onReply={() => openCompose("reply", selectedThreadId ?? undefined)}
               onReplyAll={() => openCompose("replyAll", selectedThreadId ?? undefined)}
               onForward={(msgId) => openCompose("forward", selectedThreadId ?? undefined, msgId)}

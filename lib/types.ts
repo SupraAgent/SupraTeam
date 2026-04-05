@@ -218,3 +218,13 @@ export interface DealLinkedChat {
   linked_by: string | null;
   linked_at: string;
 }
+
+export interface DealEmailThread {
+  id: string;
+  deal_id: string;
+  thread_id: string;
+  connection_id: string;
+  subject: string | null;
+  linked_by: string | null;
+  linked_at: string;
+}

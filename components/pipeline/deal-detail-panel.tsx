@@ -5,12 +5,12 @@ import { SlideOver } from "@/components/ui/slide-over";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import type { Deal, PipelineStage, Contact, DealLinkedChat } from "@/lib/types";
+import type { Deal, PipelineStage, Contact, DealLinkedChat, DealEmailThread } from "@/lib/types";
 import { timeAgo, cn } from "@/lib/utils";
 import { toast } from "sonner";
 import {
   MessageCircle, Save, Trash2, Send, GitBranch, StickyNote, ExternalLink, FileText, Plus, Clock,
-  ChevronRight, UserPlus, Trophy, XCircle, Link2,
+  ChevronRight, UserPlus, Trophy, XCircle, Link2, Mail, Unlink, Loader2,
 } from "lucide-react";
 import Link from "next/link";
 import { ConversationTimeline } from "./conversation-timeline";
@@ -47,7 +47,7 @@ type LinkedDoc = {
   updated_at: string;
 };
 
-type Tab = "details" | "conversation" | "activity" | "docs";
+type Tab = "details" | "conversation" | "activity" | "email" | "docs";
 
 export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cachedStages, cachedTeamMembers }: DealDetailPanelProps) {
   const [tab, setTab] = React.useState<Tab>("details");
@@ -77,6 +77,10 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
 
   // Linked docs
   const [linkedDocs, setLinkedDocs] = React.useState<LinkedDoc[]>([]);
+
+  // Linked email threads
+  const [linkedEmails, setLinkedEmails] = React.useState<DealEmailThread[]>([]);
+  const [unlinkingEmail, setUnlinkingEmail] = React.useState<string | null>(null);
 
   // Task creation
   const [showTaskForm, setShowTaskForm] = React.useState(false);
@@ -180,6 +184,7 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
         fetch(`/api/deals/${deal.id}`).then((r) => r.json()).then((d) => setCustomValues(d.custom_fields ?? {})).catch(() => {}),
         fetch("/api/groups").then((r) => r.json()).then((d) => setTgGroups(d.groups ?? [])).catch(() => {}),
         fetch(`/api/deals/${deal.id}/linked-chats`).then((r) => r.json()).then((d) => setLinkedChats(d.data ?? [])).catch(() => setLinkedChats([])),
+        fetch(`/api/deals/${deal.id}/email-threads`).then((r) => r.json()).then((d) => setLinkedEmails(d.data ?? [])).catch(() => setLinkedEmails([])),
       ]).finally(() => setLoadingContent(false));
     }
   }, [deal, open, cachedStages, cachedTeamMembers]);
@@ -389,9 +394,31 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
     }
   }
 
+  async function handleUnlinkEmail(emailLink: DealEmailThread) {
+    if (!deal) return;
+    setUnlinkingEmail(emailLink.id);
+    try {
+      const res = await fetch(
+        `/api/deals/${deal.id}/email-threads?thread_id=${encodeURIComponent(emailLink.thread_id)}&connection_id=${encodeURIComponent(emailLink.connection_id)}`,
+        { method: "DELETE" }
+      );
+      if (res.ok) {
+        setLinkedEmails((prev) => prev.filter((e) => e.id !== emailLink.id));
+        toast.success("Email thread unlinked");
+      } else {
+        toast.error("Failed to unlink");
+      }
+    } catch {
+      toast.error("Network error");
+    } finally {
+      setUnlinkingEmail(null);
+    }
+  }
+
   const TABS: { key: Tab; label: string; badge?: number }[] = [
     { key: "details", label: "Details" },
     { key: "conversation", label: "Chat", badge: chatUnread },
+    { key: "email", label: `Email${linkedEmails.length > 0 ? ` (${linkedEmails.length})` : ""}` },
     { key: "activity", label: "Activity" },
     { key: "docs", label: `Docs${linkedDocs.length > 0 ? ` (${linkedDocs.length})` : ""}` },
   ];
@@ -1007,6 +1034,66 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
                 ))}
               </div>
             </details>
+          </div>
+        )}
+
+        {/* Email tab */}
+        {!loadingContent && tab === "email" && (
+          <div className="space-y-3">
+            {linkedEmails.length === 0 ? (
+              <div className="text-center py-8">
+                <Mail className="mx-auto h-6 w-6 text-muted-foreground/20" />
+                <p className="mt-2 text-xs text-muted-foreground">No email threads linked to this deal</p>
+                <p className="mt-1 text-[10px] text-muted-foreground/50">
+                  Open an email thread and use the &quot;Link Deal&quot; button to connect it here
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {linkedEmails.map((emailLink) => (
+                  <div
+                    key={emailLink.id}
+                    className="rounded-xl border border-white/10 bg-white/[0.03] p-3 hover:bg-white/[0.05] transition"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-start gap-2 min-w-0">
+                        <Mail className="h-3.5 w-3.5 text-blue-400 mt-0.5 shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-foreground truncate">
+                            {emailLink.subject || "No subject"}
+                          </p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-[10px] text-muted-foreground">
+                              Linked {timeAgo(emailLink.linked_at)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Link
+                          href={`/email?thread=${emailLink.thread_id}`}
+                          className="text-[10px] text-primary hover:text-primary/80 flex items-center gap-0.5"
+                        >
+                          <ExternalLink className="h-2.5 w-2.5" /> Open
+                        </Link>
+                        <button
+                          onClick={() => handleUnlinkEmail(emailLink)}
+                          disabled={unlinkingEmail === emailLink.id}
+                          className="ml-1 text-muted-foreground hover:text-red-400 transition-colors"
+                          title="Unlink email thread"
+                        >
+                          {unlinkingEmail === emailLink.id ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Unlink className="h-3 w-3" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
