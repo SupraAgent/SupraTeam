@@ -33,6 +33,7 @@ export async function GET(request: Request) {
   const { data: linkedRows, error: linkedError } = await supabase
     .from("crm_deal_linked_chats")
     .select(`
+      id,
       deal_id,
       telegram_chat_id,
       chat_type,
@@ -66,6 +67,7 @@ export async function GET(request: Request) {
     if (!deal) continue;
 
     const link: DealLinkedChat = {
+      id: row.id,
       deal_id: row.deal_id,
       telegram_chat_id: row.telegram_chat_id,
       chat_type: row.chat_type,
@@ -99,6 +101,7 @@ export async function GET(request: Request) {
     if (dealsMap.has(deal.id)) continue;
 
     const syntheticLink: DealLinkedChat = {
+      id: deal.id,
       deal_id: deal.id,
       telegram_chat_id: chatId,
       chat_type: "group",
