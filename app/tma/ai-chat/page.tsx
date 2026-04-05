@@ -90,6 +90,7 @@ export default function TMAAIChatPage() {
         // Last element may be incomplete — keep it in buffer
         lineBuffer = lines.pop() ?? "";
 
+        let chunkUpdated = false;
         for (const line of lines) {
           if (line.startsWith("data: ")) {
             const data = line.slice(6);
@@ -101,14 +102,18 @@ export default function TMAAIChatPage() {
               const parsed = JSON.parse(data);
               if (parsed.text) {
                 assistantContent += parsed.text;
-                setMessages([...newMessages, { role: "assistant", content: assistantContent }]);
+                chunkUpdated = true;
               }
             } catch {
               // Non-JSON data lines are plain text
               assistantContent += data;
-              setMessages([...newMessages, { role: "assistant", content: assistantContent }]);
+              chunkUpdated = true;
             }
           }
+        }
+        // Batch: one setState per read() chunk instead of per SSE line
+        if (chunkUpdated) {
+          setMessages([...newMessages, { role: "assistant", content: assistantContent }]);
         }
       }
 

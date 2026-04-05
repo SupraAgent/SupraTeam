@@ -81,7 +81,7 @@ export async function POST(request: Request) {
       source: source || "manual",
       x_handle: x_handle || null,
       wallet_address: wallet_address || null,
-      ...(wallet_chain ? { wallet_chain } : {}),
+      wallet_chain: wallet_chain || null,
       wallets: Array.isArray(wallets) ? wallets : [],
       decision_maker_level: decision_maker_level || null,
       partnership_type: partnership_type || null,

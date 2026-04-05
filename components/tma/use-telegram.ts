@@ -123,6 +123,7 @@ export function useTelegramWebApp(options: UseTelegramOptions = {}) {
   const [tgUser, setTgUser] = React.useState<{ id: number; first_name: string; username?: string } | null>(null);
   const [isValidated, setIsValidated] = React.useState(false);
   const webAppRef = React.useRef<TelegramWebApp | null>(null);
+  const [webApp, setWebApp] = React.useState<TelegramWebApp | null>(null);
 
   // Store callbacks in refs to avoid re-subscription on every render
   const onBackRef = React.useRef(onBack);
@@ -142,6 +143,7 @@ export function useTelegramWebApp(options: UseTelegramOptions = {}) {
     const tg = getWebApp();
     if (!tg) return;
     webAppRef.current = tg;
+    setWebApp(tg);
     tg.ready();
     tg.expand();
 
@@ -270,5 +272,5 @@ export function useTelegramWebApp(options: UseTelegramOptions = {}) {
     }
   }, [hasSettings]);
 
-  return { tgUser, isValidated, webApp: webAppRef.current };
+  return { tgUser, isValidated, webApp };
 }

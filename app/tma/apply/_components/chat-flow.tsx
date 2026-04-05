@@ -10,7 +10,7 @@ import { SummaryCard } from "./summary-card";
 
 let msgCounter = 0;
 function msgId() {
-  return `msg-${++msgCounter}`;
+  return `msg-${Date.now()}-${++msgCounter}`;
 }
 
 function reducer(state: FlowState, action: FlowAction): FlowState {

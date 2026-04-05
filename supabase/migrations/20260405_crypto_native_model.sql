@@ -3,7 +3,7 @@
 
 -- Companies: add protocol metadata fields
 ALTER TABLE crm_companies
-  ADD COLUMN IF NOT EXISTS tvl numeric,
+  ADD COLUMN IF NOT EXISTS tvl numeric(20,2),
   ADD COLUMN IF NOT EXISTS chain_deployments text[] DEFAULT '{}',
   ADD COLUMN IF NOT EXISTS token_status text CHECK (token_status IN ('pre_tge', 'post_tge', 'no_token')),
   ADD COLUMN IF NOT EXISTS funding_stage text CHECK (funding_stage IN ('pre_seed', 'seed', 'series_a', 'series_b', 'series_c', 'public', 'bootstrapped')),

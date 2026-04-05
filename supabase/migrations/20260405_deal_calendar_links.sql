@@ -4,7 +4,7 @@
 CREATE TABLE IF NOT EXISTS public.crm_deal_calendar_links (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   deal_id uuid NOT NULL REFERENCES public.crm_deals(id) ON DELETE CASCADE,
-  calendar_event_id uuid NOT NULL,
+  calendar_event_id uuid NOT NULL REFERENCES public.crm_calendar_events(id) ON DELETE CASCADE,
   created_at timestamptz DEFAULT now(),
   UNIQUE(deal_id, calendar_event_id)
 );

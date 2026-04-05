@@ -41,8 +41,9 @@ export default function CompaniesPage() {
     groups: { id: string; group_name: string; telegram_group_id: string; bot_is_admin: boolean; member_count: number | null }[];
   } | null>(null);
 
-  const fetchCompanies = React.useCallback(async () => {
-    const res = await fetch("/api/companies");
+  const fetchCompanies = React.useCallback(async (query?: string) => {
+    const url = query ? `/api/companies?search=${encodeURIComponent(query)}` : "/api/companies";
+    const res = await fetch(url);
     if (res.ok) {
       const data = await res.json();
       setCompanies(data.companies ?? []);
@@ -51,6 +52,18 @@ export default function CompaniesPage() {
   }, []);
 
   React.useEffect(() => { fetchCompanies(); }, [fetchCompanies]);
+
+  // Debounced server-side search
+  const searchTimerRef = React.useRef<ReturnType<typeof setTimeout>>(null);
+  React.useEffect(() => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    if (!search) {
+      fetchCompanies();
+      return;
+    }
+    searchTimerRef.current = setTimeout(() => fetchCompanies(search), 300);
+    return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
+  }, [search, fetchCompanies]);
 
   React.useEffect(() => {
     if (!selectedId) { setDetail(null); return; }
@@ -109,11 +122,8 @@ export default function CompaniesPage() {
     }
   }
 
-  const filtered = companies.filter((c) => {
-    if (!search) return true;
-    const q = search.toLowerCase();
-    return c.name.toLowerCase().includes(q) || c.domain?.toLowerCase().includes(q) || c.industry?.toLowerCase().includes(q);
-  });
+  // Filtering is now server-side via API search param
+  const filtered = companies;
 
   if (loading) {
     return (

@@ -74,9 +74,13 @@ export default function TMAVoicePage() {
         if (e.data.size > 0) chunksRef.current.push(e.data);
       };
 
-      mediaRecorder.onstop = () => {
-        stream.getTracks().forEach((t) => t.stop());
-      };
+      const stopPromise = new Promise<void>((resolve) => {
+        mediaRecorder.onstop = () => {
+          stream.getTracks().forEach((t) => t.stop());
+          resolve();
+        };
+      });
+      (mediaRecorder as unknown as { _stopPromise: Promise<void> })._stopPromise = stopPromise;
 
       mediaRecorder.start(1000);
       mediaRecorderRef.current = mediaRecorder;
@@ -99,13 +103,15 @@ export default function TMAVoicePage() {
 
   async function stopRecording() {
     if (!mediaRecorderRef.current) return;
-    mediaRecorderRef.current.stop();
+    const recorder = mediaRecorderRef.current;
+    const stopPromise = (recorder as unknown as { _stopPromise?: Promise<void> })._stopPromise;
+    recorder.stop();
     setIsRecording(false);
     if (timerRef.current) clearInterval(timerRef.current);
     hapticImpact("heavy");
 
-    // Wait for chunks to finalize
-    await new Promise((r) => setTimeout(r, 200));
+    // Wait for onstop to fire (ensures all chunks are finalized)
+    if (stopPromise) await stopPromise;
 
     if (chunksRef.current.length === 0) return;
 

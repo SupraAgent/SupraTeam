@@ -83,15 +83,13 @@ export function CreateContactModal({ open, onClose, onCreated }: CreateContactMo
       Promise.all([
         fetch("/api/pipeline").then((r) => r.json()).then((data) => {
           setStages(data.stages ?? []);
-          if (data.stages?.length > 0 && !stageId) {
-            setStageId(data.stages[0].id);
-          }
+          setStageId((prev) => prev || (data.stages?.[0]?.id ?? ""));
         }).catch(() => {}),
         fetch("/api/contacts/fields").then((r) => r.json()).then((d) => setCustomFields(d.fields ?? [])).catch(() => {}),
         fetch("/api/qr-codes").then((r) => r.json()).then((d) => setQrRecipes(d.data ?? [])).catch(() => {}),
       ]);
     }
-  }, [open, stageId]);
+  }, [open]);
 
   // Company autocomplete
   React.useEffect(() => {
