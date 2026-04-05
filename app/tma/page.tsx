@@ -198,8 +198,8 @@ export default function TMAHomePage() {
                 <span className="text-[10px] text-yellow-400">{d.hours_since}h follow-up</span>
               </Link>
             ))}
-            {stats.hotConversations.slice(0, 2).map((c, i) => (
-              <Link key={i} href={c.deal_id ? `/tma/deals/${c.deal_id}` : "#"} className="flex items-center justify-between py-1">
+            {stats.hotConversations.slice(0, 2).map((c) => (
+              <Link key={c.deal_id || c.name} href={c.deal_id ? `/tma/deals/${c.deal_id}` : "#"} className="flex items-center justify-between py-1">
                 <span className="text-xs text-foreground flex items-center gap-1">
                   <Flame className="h-3 w-3 text-orange-400" /> {c.name}
                 </span>

@@ -109,6 +109,12 @@ export default function TMADealsPage() {
   const dealsCache = useOfflineCache<{ deals: Deal[] }>("/api/deals", { maxAgeMs: 5 * 60_000 });
   const stagesCache = useOfflineCache<{ stages: Stage[] }>("/api/pipeline", { maxAgeMs: 60 * 60_000 });
 
+  // Keep cache data in refs to avoid infinite loop in fetchData useCallback
+  const dealsCacheRef = React.useRef(dealsCache.data);
+  dealsCacheRef.current = dealsCache.data;
+  const stagesCacheRef = React.useRef(stagesCache.data);
+  stagesCacheRef.current = stagesCache.data;
+
   // Data fetching with offline fallback
   const fetchData = React.useCallback(async () => {
     try {
@@ -129,14 +135,14 @@ export default function TMADealsPage() {
       setExpandedStages((prev) => prev.size === 0 ? new Set(newStages.map((s: Stage) => s.id)) : prev);
     } catch {
       // Network failed — fall back to offline cache
-      if (dealsCache.data) setDeals(dealsCache.data.deals ?? []);
-      if (stagesCache.data) {
-        const cached = stagesCache.data.stages ?? [];
+      if (dealsCacheRef.current) setDeals(dealsCacheRef.current.deals ?? []);
+      if (stagesCacheRef.current) {
+        const cached = stagesCacheRef.current.stages ?? [];
         setStages(cached);
         setExpandedStages((prev) => prev.size === 0 ? new Set(cached.map((s) => s.id)) : prev);
       }
     }
-  }, [dealsCache.data, stagesCache.data]);
+  }, []);
 
   React.useEffect(() => {
     fetchData().finally(() => setLoading(false));
@@ -216,7 +222,7 @@ export default function TMADealsPage() {
           deal_name: createForm.deal_name.trim(),
           board_type: createForm.board_type,
           stage_id: createForm.stage_id,
-          value: createForm.value ? Number(createForm.value) : null,
+          value: createForm.value !== "" ? Number(createForm.value) : null,
           contact_id: createForm.contact_id || null,
         }),
       });

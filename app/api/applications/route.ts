@@ -230,7 +230,10 @@ export async function POST(request: Request) {
       contactId = newContact.id;
     }
   } else if (webUser) {
-    // Web: upsert by email
+    // Web: upsert by email — guard against undefined email from Supabase auth
+    if (!webUser.email) {
+      return NextResponse.json({ error: "Email required for application" }, { status: 400 });
+    }
     const { data: existingContact } = await admin
       .from("crm_contacts")
       .select("id")
@@ -282,26 +285,6 @@ export async function POST(request: Request) {
     supra_tech_used: supra_tech_used as string[] | undefined,
   });
 
-  // Generate unique reference code (retry on collision)
-  let referenceCode = generateReferenceCode();
-  let codeIsUnique = false;
-  for (let retries = 0; retries < 5; retries++) {
-    const { data: existing } = await admin
-      .from("crm_deals")
-      .select("id")
-      .eq("reference_code", referenceCode)
-      .single();
-    if (!existing) {
-      codeIsUnique = true;
-      break;
-    }
-    referenceCode = generateReferenceCode();
-  }
-  if (!codeIsUnique) {
-    console.error("[applications] reference code collision after 5 retries");
-    return NextResponse.json({ error: "Failed to generate unique reference code. Please try again." }, { status: 500 });
-  }
-
   // If QR code specified, use its pipeline stage and assigned_to as defaults
   let dealStageId = submittedStage.id;
   let dealAssignedTo: string | null = null;
@@ -321,27 +304,45 @@ export async function POST(request: Request) {
     }
   }
 
-  // Create deal
-  const { data: deal, error: dealErr } = await admin
-    .from("crm_deals")
-    .insert({
-      deal_name: project_name.trim(),
-      board_type: "Applications",
-      stage_id: dealStageId,
-      contact_id: contactId,
-      assigned_to: dealAssignedTo,
-      source: dealSource,
-      value: funding_requested ?? null,
-      health_score: score,
-      reference_code: referenceCode,
-    })
-    .select("id, reference_code")
-    .single();
+  // Create deal with unique reference code (retry on unique constraint violation)
+  let deal: { id: string; reference_code: string } | null = null;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const referenceCode = generateReferenceCode();
+    const { data: inserted, error: dealErr } = await admin
+      .from("crm_deals")
+      .insert({
+        deal_name: project_name.trim(),
+        board_type: "Applications",
+        stage_id: dealStageId,
+        contact_id: contactId,
+        assigned_to: dealAssignedTo,
+        source: dealSource,
+        value: funding_requested ?? null,
+        health_score: score,
+        reference_code: referenceCode,
+      })
+      .select("id, reference_code")
+      .single();
 
-  if (dealErr || !deal) {
+    if (inserted) {
+      deal = inserted;
+      break;
+    }
+    // Retry only on unique constraint violation (code 23505)
+    if (dealErr?.code === "23505" && dealErr.message?.includes("reference_code")) {
+      continue;
+    }
+    // Any other error is a real failure
     console.error("[applications] deal create error:", dealErr);
     return NextResponse.json({ error: "Failed to create application" }, { status: 500 });
   }
+
+  if (!deal) {
+    console.error("[applications] reference code collision after 5 retries");
+    return NextResponse.json({ error: "Failed to generate unique reference code. Please try again." }, { status: 500 });
+  }
+
+  const referenceCode = deal.reference_code;
 
   // Link QR scan to the created deal (update the most recent scan for this TG user + QR code)
   if (qr_code_id && tgUser) {
@@ -440,7 +441,7 @@ export async function POST(request: Request) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ chat_id: tgUser.id, text: confirmText }),
-      }).catch((err) => console.error("[applications] confirm msg error:", err));
+      }).catch(() => console.error("[applications] Telegram API request failed"));
     }
   }
 

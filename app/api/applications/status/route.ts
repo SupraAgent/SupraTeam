@@ -47,7 +47,8 @@ export async function GET(request: Request) {
     .from("crm_contacts")
     .select("id")
     .eq("email", email)
-    .single();
+    .limit(1)
+    .maybeSingle();
 
   if (!contact) {
     return NextResponse.json({ applications: [] });

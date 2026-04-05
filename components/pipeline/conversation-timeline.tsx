@@ -61,6 +61,10 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
   const [loadingSuggestions, setLoadingSuggestions] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const isAtBottomRef = React.useRef(true);
+  const messagesRef = React.useRef(messages);
+  messagesRef.current = messages;
+  const onUnreadChangeRef = React.useRef(onUnreadChange);
+  onUnreadChangeRef.current = onUnreadChange;
 
   const fetchMessages = React.useCallback(async (cursor?: string) => {
     try {
@@ -81,8 +85,8 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
 
   // Poll for new messages
   const pollNewMessages = React.useCallback(async () => {
-    if (!telegramChatId || messages.length === 0) return;
-    const lastSentAt = messages[messages.length - 1]?.sent_at;
+    if (!telegramChatId || messagesRef.current.length === 0) return;
+    const lastSentAt = messagesRef.current[messagesRef.current.length - 1]?.sent_at;
     if (!lastSentAt) return;
     try {
       const url = `/api/deals/${dealId}/conversation?after=${encodeURIComponent(lastSentAt)}`;
@@ -114,7 +118,7 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
     } catch {
       // silent fail
     }
-  }, [dealId, telegramChatId, messages]);
+  }, [dealId, telegramChatId]);
 
   React.useEffect(() => {
     setLoading(true);
@@ -174,9 +178,9 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
   React.useEffect(() => {
     if (!loading && messages.length > 0) {
       fetch(`/api/deals/${dealId}/read-cursor`, { method: "POST" }).catch(() => {});
-      onUnreadChange?.(0);
+      onUnreadChangeRef.current?.(0);
     }
-  }, [dealId, loading, messages.length, onUnreadChange]);
+  }, [dealId, loading, messages.length]);
 
   function scrollToBottom() {
     if (scrollRef.current) {
@@ -277,7 +281,7 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
       <div className="flex items-center justify-between pb-2 shrink-0">
         <div className="flex items-center gap-2">
           <span className="text-[10px] text-muted-foreground">{messages.length} messages</span>
-          {messages.length > 0 && messages[0].source === "notification" && (
+          {messages.length > 0 && messages.every(m => m.source === "notification") && (
             <span className="text-[9px] text-amber-400/60 bg-amber-400/5 px-1.5 py-0.5 rounded">bot only</span>
           )}
         </div>

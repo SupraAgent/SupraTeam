@@ -97,7 +97,7 @@ export function ConversationListItem({
         {!status?.assigned_to && status?.status !== "closed" && (
           <span className="h-2 w-2 rounded-full bg-amber-400 shrink-0" title="Unassigned" />
         )}
-        {conv.member_count && (
+        {conv.member_count != null && conv.member_count > 0 && (
           <span className="text-[10px] text-muted-foreground/50 shrink-0 flex items-center gap-0.5 ml-auto">
             <Users className="h-2.5 w-2.5" />
             {conv.member_count}

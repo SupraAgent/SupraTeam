@@ -157,10 +157,13 @@ export default function InboxPage() {
 
   // Bot filter
   const [bots, setBots] = React.useState<{ id: string; label: string }[]>([]);
-  const [selectedBotId, setSelectedBotId] = React.useState<string>(() => {
-    if (typeof window === "undefined") return "";
-    return localStorage.getItem("inbox_bot_filter") ?? "";
-  });
+  const [selectedBotId, setSelectedBotId] = React.useState<string>("");
+
+  // Hydrate selectedBotId from localStorage after mount
+  React.useEffect(() => {
+    const stored = localStorage.getItem("inbox_bot_filter");
+    if (stored) setSelectedBotId(stored);
+  }, []);
 
   // Keyboard shortcut help modal
   const [showShortcutHelp, setShowShortcutHelp] = React.useState(false);
@@ -384,14 +387,15 @@ export default function InboxPage() {
   }
 
   async function handleSendReply() {
-    if (!replyText.trim() || !selectedChat) return;
+    const chatId = selectedChatRef.current;
+    if (!replyText.trim() || !chatId) return;
     setSending(true);
     try {
       const res = await fetch("/api/inbox/reply", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          chat_id: selectedChat,
+          chat_id: chatId,
           message: replyText.trim(),
           reply_to_message_id: replyTo?.telegram_message_id ?? undefined,
           send_as: sendAs,
@@ -409,11 +413,11 @@ export default function InboxPage() {
         // Optimistic: inject sent message into local state immediately
         setConversations((prev) =>
           prev.map((c) => {
-            if (c.chat_id !== selectedChat) return c;
+            if (c.chat_id !== chatId) return c;
             const optimisticMsg: ThreadMessage = {
               id: `optimistic-${Date.now()}`,
               telegram_message_id: -Date.now(),
-              telegram_chat_id: selectedChat,
+              telegram_chat_id: chatId,
               sender_telegram_id: 0,
               sender_name: "You",
               sender_username: null,
@@ -433,10 +437,8 @@ export default function InboxPage() {
           })
         );
         // Track last user message time for response-time analytics
-        if (selectedChat) {
-          const conv = conversationsRef.current.find((c) => c.chat_id === selectedChat);
-          if (conv) updateLabel(selectedChat, conv.group_name, { last_user_message_at: new Date().toISOString() });
-        }
+        const conv = conversationsRef.current.find((c) => c.chat_id === chatId);
+        if (conv) updateLabel(chatId, conv.group_name, { last_user_message_at: new Date().toISOString() });
         // Still refresh after delay to get the real message with proper IDs
         setTimeout(() => fetchInbox(), 3000);
       } else {
@@ -554,10 +556,10 @@ export default function InboxPage() {
       if (chatDeals && chatDeals.length > 0) {
         const deal = chatDeals[0];
         text = text
-          .replace(/\{\{deal_name\}\}/g, deal.deal_name ?? "")
-          .replace(/\{\{contact_name\}\}/g, deal.contact?.name ?? "")
-          .replace(/\{\{stage\}\}/g, (deal.stage as { name: string } | null)?.name ?? "")
-          .replace(/\{\{board_type\}\}/g, deal.board_type ?? "");
+          .replace(/\{\{deal_name\}\}/g, () => deal.deal_name ?? "")
+          .replace(/\{\{contact_name\}\}/g, () => deal.contact?.name ?? "")
+          .replace(/\{\{stage\}\}/g, () => (deal.stage as { name: string } | null)?.name ?? "")
+          .replace(/\{\{board_type\}\}/g, () => deal.board_type ?? "");
       }
     }
     // Strip any remaining unresolved merge vars (e.g. no linked deal)
@@ -681,26 +683,29 @@ export default function InboxPage() {
   }, [conversations, search, activeTab, statuses, currentUserId, lastSeen, labels, activeGroupId, chatGroups.groups]);
   filteredRef.current = filtered;
 
-  const unassignedCount = conversations.filter((c) => {
-    const s = statuses[c.chat_id];
-    return (!s || !s.assigned_to) && (!s || s.status !== "closed");
-  }).length;
+  const { unassignedCount, mineCount, awaitingReplyCount, vipCount, archivedCount } = React.useMemo(() => {
+    let unassigned = 0;
+    let mine = 0;
+    let awaiting = 0;
+    let vip = 0;
+    let archived = 0;
+    for (const c of conversations) {
+      const s = statuses[c.chat_id];
+      const lbl = getLabel(c.chat_id);
+      const isClosed = s?.status === "closed";
+      const isArchived = !!lbl?.is_archived;
 
-  const mineCount = conversations.filter((c) => {
-    const s = statuses[c.chat_id];
-    return s?.assigned_to === currentUserId && s?.status !== "closed";
-  }).length;
-
-  const awaitingReplyCount = conversations.filter((c) => {
-    const s = statuses[c.chat_id];
-    if (s?.status === "closed" || getLabel(c.chat_id)?.is_archived) return false;
-    const lastMsg = c.messages[0];
-    return lastMsg && !lastMsg.is_from_bot;
-  }).length;
-
-
-  const vipCount = conversations.filter((c) => getLabel(c.chat_id)?.is_vip && !getLabel(c.chat_id)?.is_archived).length;
-  const archivedCount = conversations.filter((c) => getLabel(c.chat_id)?.is_archived).length;
+      if ((!s || !s.assigned_to) && !isClosed) unassigned++;
+      if (s?.assigned_to === currentUserId && !isClosed) mine++;
+      if (!isClosed && !isArchived) {
+        const lastMsg = c.messages[0];
+        if (lastMsg && !lastMsg.is_from_bot) awaiting++;
+      }
+      if (lbl?.is_vip && !isArchived) vip++;
+      if (isArchived) archived++;
+    }
+    return { unassignedCount: unassigned, mineCount: mine, awaitingReplyCount: awaiting, vipCount: vip, archivedCount: archived };
+  }, [conversations, statuses, currentUserId, labels]);
 
   const selectedConversation = selectedChat
     ? conversations.find((c) => c.chat_id === selectedChat)

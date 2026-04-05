@@ -44,10 +44,9 @@ export function useInboxKeyboardShortcuts(refs: KeyboardRefs, actions: KeyboardA
       const target = e.target as HTMLElement;
       const isInput = target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable;
 
-      // ? always toggles help
+      // ? toggles help when not typing in a textarea or contentEditable
       if (e.key === "?" && !e.ctrlKey && !e.metaKey) {
-        if (isInput && target.tagName !== "INPUT") return;
-        if (target.tagName === "INPUT") return;
+        if (target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable) return;
         e.preventDefault();
         actions.setShowShortcutHelp((p) => !p);
         return;

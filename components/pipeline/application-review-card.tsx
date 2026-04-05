@@ -24,7 +24,7 @@ interface ApplicationReviewCardProps {
   stages: PipelineStage[];
   customValues: Record<string, string>;
   fieldLabels?: Record<string, string>;
-  onStageChange: (stageId: string) => void;
+  onStageChange: (stageId: string) => Promise<void> | void;
   onUpdated?: () => void;
 }
 
@@ -63,7 +63,10 @@ export function ApplicationReviewCard({
     }
     setMovingTo(stageName);
     try {
-      await Promise.resolve(onStageChange(stage.id));
+      const result = onStageChange(stage.id);
+      if (result && typeof result.then === "function") {
+        await result;
+      }
       onUpdated?.();
     } catch {
       toast.error(`Failed to move to "${stageName}"`);
@@ -171,7 +174,7 @@ export function ApplicationReviewCard({
             }
 
             // Detect numeric values
-            const isNumber = !isNaN(Number(value)) && value.length < 15 && !value.includes("[");
+            const isNumber = !isNaN(Number(value)) && Number.isFinite(Number(value)) && value.length < 15 && !value.includes("[");
 
             return (
               <div key={fieldId} className="px-3 py-2">

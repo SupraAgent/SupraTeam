@@ -93,11 +93,17 @@ export async function POST(request: Request) {
   try {
     const { decryptToken } = await import("@/lib/crypto");
     const token = decryptToken(botToken.encrypted_token);
-    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(sendPayload),
-    });
+    let res: Response;
+    try {
+      res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(sendPayload),
+      });
+    } catch {
+      // Catch fetch errors to avoid leaking bot token from URL in error messages
+      throw new Error("Telegram API request failed");
+    }
     const data = await res.json();
     if (!data.ok) {
       return NextResponse.json({ error: data.description || "Bot send failed" }, { status: 500 });
