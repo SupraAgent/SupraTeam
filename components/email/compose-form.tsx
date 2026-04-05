@@ -249,6 +249,50 @@ export function ComposeForm({
     }
   }
 
+  // Save draft on unmount (SPA navigation) and beforeunload (hard navigation)
+  const draftStateRef = React.useRef({ to, cc, bcc, subject, bodyHtml, bodyText, mode, connectionId });
+  draftStateRef.current = { to, cc, bcc, subject, bodyHtml, bodyText, mode, connectionId };
+
+  React.useEffect(() => {
+    function saveDraftBeforeUnload() {
+      const s = draftStateRef.current;
+      if (!s.bodyText.trim()) return;
+      const payload: Record<string, unknown> = {
+        body: s.bodyHtml || `<div>${s.bodyText.replace(/\n/g, "<br>")}</div>`,
+        bodyText: s.bodyText,
+        subject: s.subject,
+        ...(s.connectionId ? { connection_id: s.connectionId } : {}),
+      };
+      if (s.to.trim()) {
+        payload.to = s.to.split(/[,;]/).map((e) => e.trim()).filter(Boolean).map((email) => ({ name: "", email }));
+      }
+      if (s.cc.trim()) {
+        payload.cc = s.cc.split(/[,;]/).map((e) => e.trim()).filter(Boolean).map((email) => ({ name: "", email }));
+      }
+      if (s.bcc.trim()) {
+        payload.bcc = s.bcc.split(/[,;]/).map((e) => e.trim()).filter(Boolean).map((email) => ({ name: "", email }));
+      }
+      // Use sendBeacon for reliability during unload; fall back to fetch for SPA unmount
+      const body = JSON.stringify(payload);
+      if (typeof navigator.sendBeacon === "function") {
+        navigator.sendBeacon("/api/email/drafts", new Blob([body], { type: "application/json" }));
+      } else {
+        fetch("/api/email/drafts", { method: "POST", headers: { "Content-Type": "application/json" }, body, keepalive: true }).catch(() => {});
+      }
+    }
+
+    function handleBeforeUnload() {
+      saveDraftBeforeUnload();
+    }
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      // Save draft on SPA unmount (React cleanup)
+      saveDraftBeforeUnload();
+    };
+  }, []);
+
   // Keyboard shortcuts
   React.useEffect(() => {
     if (!active) return;

@@ -59,7 +59,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Not configured" }, { status: 503 });
   }
 
-  let body: { message?: { data?: string; messageId?: string }; subscription?: string };
+  let body: { message?: { data?: string; messageId?: string; publishTime?: string }; subscription?: string };
   try {
     body = await request.json();
   } catch {
@@ -68,6 +68,15 @@ export async function POST(request: Request) {
 
   if (!body.message?.data) {
     return NextResponse.json({ ok: true }); // Ack empty messages
+  }
+
+  // Reject stale Pub/Sub messages older than 5 minutes to mitigate replay attacks
+  if (body.message.publishTime) {
+    const publishedAt = new Date(body.message.publishTime).getTime();
+    if (!isNaN(publishedAt) && Date.now() - publishedAt > 5 * 60 * 1000) {
+      console.error("[gmail-webhook] Rejecting stale message published at:", body.message.publishTime);
+      return NextResponse.json({ ok: true }); // Ack to stop retries but don't process
+    }
   }
 
   // Decode Pub/Sub payload
