@@ -630,7 +630,10 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
         {/* Custom fields */}
         {customFields.length > 0 && (
           <div className="space-y-3 pt-1 border-t border-white/10">
-            <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wider pt-2">Custom Fields</p>
+            <div className="flex items-center justify-between pt-2">
+              <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wider">Custom Fields</p>
+              <Link href="/settings/pipeline/contacts" className="text-[10px] text-primary hover:underline">Customize</Link>
+            </div>
             {customFields.map((field) => (
               <div key={field.id}>
                 <label className="text-[11px] font-medium text-muted-foreground">

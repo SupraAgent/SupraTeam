@@ -10,10 +10,13 @@ import { AutomateDealModal, type WorkflowTemplate } from "@/components/pipeline/
 import { PipelineFilterBar } from "@/components/pipeline/pipeline-filter-bar";
 import { BulkActionBar } from "@/components/pipeline/bulk-action-bar";
 import { AISuggestionsPanel } from "@/components/pipeline/ai-suggestions-panel";
+import { StageEditor } from "@/components/pipeline/stage-editor";
+import { SlideOver } from "@/components/ui/slide-over";
 import { SavedViewsBar } from "@/components/saved-views-bar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { LayoutGrid, List, Search, DollarSign, Filter, Brain, Sparkles, ChevronDown, ChevronUp, Zap } from "lucide-react";
+import { LayoutGrid, List, Search, DollarSign, Filter, Brain, Sparkles, ChevronDown, ChevronUp, Zap, Settings } from "lucide-react";
+import Link from "next/link";
 import { toast } from "sonner";
 import type { Deal, PipelineStage, Contact, BoardType } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -108,6 +111,7 @@ export default function PipelinePage() {
   const [unreadCounts, setUnreadCounts] = React.useState<Record<string, number>>({});
   const [teamMembers, setTeamMembers] = React.useState<{ id: string; display_name: string }[]>([]);
   const [showSuggestions, setShowSuggestions] = React.useState(true);
+  const [showStageEditor, setShowStageEditor] = React.useState(false);
 
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -625,7 +629,16 @@ export default function PipelinePage() {
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-foreground">Pipeline</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-semibold text-foreground">Pipeline</h1>
+            <button
+              onClick={() => setShowStageEditor(true)}
+              title="Configure stages"
+              className="text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Settings className="h-4 w-4" />
+            </button>
+          </div>
           <p className="mt-1 text-sm text-muted-foreground hidden sm:block">
             Drag deals between stages. Filter by BD, Marketing, or Admin board.
           </p>
@@ -914,6 +927,19 @@ export default function PipelinePage() {
         templatesLoading={templatesLoading}
         onWorkflowCreated={fetchData}
       />
+
+      <SlideOver
+        open={showStageEditor}
+        onClose={() => setShowStageEditor(false)}
+        title="Pipeline Stages"
+      >
+        <StageEditor compact />
+        <div className="mt-4 pt-4 border-t border-white/10">
+          <Link href="/settings/pipeline" className="text-xs text-primary hover:underline">
+            Full pipeline settings (stages, fields & reminders)
+          </Link>
+        </div>
+      </SlideOver>
     </div>
   );
 }

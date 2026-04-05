@@ -157,6 +157,7 @@ export default function BroadcastsPage() {
           <h1 className="text-xl font-semibold text-foreground">Broadcasts</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Send messages to Telegram groups. Filter by slug for targeted broadcasts.
+            {" "}<a href="/settings/automations/templates" className="text-primary hover:underline">Manage templates</a>
           </p>
         </div>
         <div className="flex items-center gap-1">

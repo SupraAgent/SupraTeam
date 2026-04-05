@@ -48,8 +48,6 @@ const SETTINGS_GROUPS: { label: string; items: SettingsItem[] }[] = [
   {
     label: "Automation",
     items: [
-      { href: "/settings/automations", label: "Rules" },
-      { href: "/settings/automations/sequences", label: "Sequences" },
       { href: "/settings/automations/templates", label: "Bot Templates" },
     ],
   },
@@ -57,13 +55,6 @@ const SETTINGS_GROUPS: { label: string; items: SettingsItem[] }[] = [
     label: "AI",
     items: [
       { href: "/settings/ai-agent", label: "AI Agent" },
-    ],
-  },
-  {
-    label: "Coming Soon",
-    items: [
-      { href: "#", label: "Graph (soon)", disabled: true },
-      { href: "#", label: "Docs (soon)", disabled: true },
     ],
   },
   {
