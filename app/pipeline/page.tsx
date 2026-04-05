@@ -13,7 +13,7 @@ import { AISuggestionsPanel } from "@/components/pipeline/ai-suggestions-panel";
 import { SavedViewsBar } from "@/components/saved-views-bar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { LayoutGrid, List, Search, DollarSign, Filter, Brain, Sparkles, ChevronDown, ChevronUp } from "lucide-react";
+import { LayoutGrid, List, Search, DollarSign, Filter, Brain, Sparkles, ChevronDown, ChevronUp, Zap } from "lucide-react";
 import { toast } from "sonner";
 import type { Deal, PipelineStage, Contact, BoardType } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -26,11 +26,12 @@ export type PipelineFilters = {
   assignedTo: string | null;
   staleDays: number | null;
   outcome: string | null;
+  urgentOnly: boolean;
 };
 
 const EMPTY_FILTERS: PipelineFilters = {
   minValue: null, maxValue: null, minProbability: null, maxProbability: null,
-  assignedTo: null, staleDays: null, outcome: null,
+  assignedTo: null, staleDays: null, outcome: null, urgentOnly: false,
 };
 
 const BOARDS: BoardType[] = ["All", "BD", "Marketing", "Admin"];
@@ -91,7 +92,7 @@ export default function PipelinePage() {
   const [usingSamples, setUsingSamples] = React.useState(false);
   const [highlightDealId, setHighlightDealId] = React.useState<string | null>(null);
   const [highlightedDealIds, setHighlightedDealIds] = React.useState<Set<string>>(new Set());
-  const [highlightDetails, setHighlightDetails] = React.useState<Record<string, { priority?: string; sentiment?: string; message_count?: number; sender_name?: string }>>({});
+  const [highlightDetails, setHighlightDetails] = React.useState<Record<string, { priority?: string; sentiment?: string; message_count?: number; sender_name?: string; triage_urgency?: string; triage_category?: string }>>({});
   const [filters, setFilters] = React.useState<PipelineFilters>(EMPTY_FILTERS);
   const [showFilters, setShowFilters] = React.useState(false);
   const [selectedDealIds, setSelectedDealIds] = React.useState<Set<string>>(new Set());
@@ -198,7 +199,7 @@ export default function PipelinePage() {
 
   const hasActiveFilters = filters.minValue != null || filters.maxValue != null ||
     filters.minProbability != null || filters.maxProbability != null ||
-    filters.assignedTo != null || filters.staleDays != null || filters.outcome != null;
+    filters.assignedTo != null || filters.staleDays != null || filters.outcome != null || filters.urgentOnly;
 
   // Handle ?highlight=deal-id
   React.useEffect(() => {
@@ -250,17 +251,23 @@ export default function PipelinePage() {
         const { highlighted_deal_ids, highlights: hlList } = await highlightsRes.json();
         setHighlightedDealIds(new Set(highlighted_deal_ids ?? []));
         // Build a details map keyed by deal_id (use highest priority highlight per deal)
-        const detailsMap: Record<string, { priority?: string; sentiment?: string; message_count?: number; sender_name?: string }> = {};
+        const detailsMap: Record<string, { priority?: string; sentiment?: string; message_count?: number; sender_name?: string; triage_urgency?: string; triage_category?: string }> = {};
         const priorityRank: Record<string, number> = { urgent: 4, high: 3, medium: 2, low: 1 };
+        const triageRank: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
         for (const h of hlList ?? []) {
           if (!h.deal_id) continue;
           const existing = detailsMap[h.deal_id];
-          if (!existing || (priorityRank[h.priority] ?? 0) > (priorityRank[existing.priority ?? ""] ?? 0)) {
+          // Use triage_urgency if available, otherwise fall back to keyword priority
+          const hScore = Math.max(triageRank[h.triage_urgency] ?? 0, priorityRank[h.priority] ?? 0);
+          const eScore = existing ? Math.max(triageRank[existing.triage_urgency ?? ""] ?? 0, priorityRank[existing.priority ?? ""] ?? 0) : 0;
+          if (!existing || hScore > eScore) {
             detailsMap[h.deal_id] = {
               priority: h.priority,
               sentiment: h.sentiment,
               message_count: h.message_count,
               sender_name: h.sender_name,
+              triage_urgency: h.triage_urgency ?? undefined,
+              triage_category: h.triage_category ?? undefined,
             };
           }
         }
@@ -420,9 +427,18 @@ export default function PipelinePage() {
       const cutoff = Date.now() - filters.staleDays * 86400000;
       result = result.filter((d) => new Date(d.stage_changed_at).getTime() < cutoff);
     }
+    if (filters.urgentOnly) {
+      const urgencyRank: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1, urgent: 4 };
+      result = result.filter((d) => {
+        const details = highlightDetails[d.id];
+        if (!details) return false;
+        const score = Math.max(urgencyRank[details.triage_urgency ?? ""] ?? 0, urgencyRank[details.priority ?? ""] ?? 0);
+        return score >= 3; // high or above
+      });
+    }
 
     return result;
-  }, [deals, search, filters]);
+  }, [deals, search, filters, highlightDetails]);
 
   // Filter stages by active board (standard boards use shared stages with null board_type)
   const activeStages = React.useMemo(() => {
@@ -662,6 +678,30 @@ export default function PipelinePage() {
               );
             })}
           </div>
+          {/* Urgent filter toggle */}
+          {Object.keys(highlightDetails).length > 0 && (
+            <button
+              onClick={() => setFiltersAndSync({ ...filters, urgentOnly: !filters.urgentOnly })}
+              className={cn(
+                "rounded-lg px-2 py-1.5 text-xs font-medium transition-colors whitespace-nowrap flex items-center gap-1",
+                filters.urgentOnly
+                  ? "bg-red-500/20 text-red-400"
+                  : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+              )}
+              title="Show only deals with urgent messages"
+            >
+              <Zap className="h-3 w-3" />
+              Urgent
+              {(() => {
+                const urgencyRank: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1, urgent: 4 };
+                const count = Object.values(highlightDetails).filter((d) => {
+                  const score = Math.max(urgencyRank[d.triage_urgency ?? ""] ?? 0, urgencyRank[d.priority ?? ""] ?? 0);
+                  return score >= 3;
+                }).length;
+                return count > 0 ? <span className="rounded-full px-1 py-0 text-[10px] bg-red-500/20">{count}</span> : null;
+              })()}
+            </button>
+          )}
           <button
             onClick={() => setShowFilters(!showFilters)}
             className={cn(

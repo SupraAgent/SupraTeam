@@ -22,7 +22,7 @@ type KanbanBoardProps = {
   onToggleSelect: (dealId: string) => void;
   highlightDealId?: string | null;
   highlightedDealIds?: Set<string>;
-  highlightDetails?: Record<string, { priority?: string; sentiment?: string; message_count?: number; sender_name?: string }>;
+  highlightDetails?: Record<string, { priority?: string; sentiment?: string; message_count?: number; sender_name?: string; triage_urgency?: string; triage_category?: string }>;
   unreadCounts?: Record<string, number>;
   onAutomateDeal?: (deal: Deal) => void;
 };

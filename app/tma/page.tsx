@@ -24,6 +24,18 @@ type Stats = {
   hotConversations: { name: string; count: number; deal_id: string }[];
 };
 
+type Highlight = {
+  id: string;
+  deal_id: string | null;
+  sender_name: string | null;
+  message_preview: string | null;
+  tg_deep_link: string | null;
+  triage_urgency: string | null;
+  triage_category: string | null;
+  triage_summary: string | null;
+  created_at: string;
+};
+
 type Group = {
   id: string;
   group_name: string;
@@ -38,6 +50,7 @@ export default function TMAHomePage() {
   const [deals, setDeals] = React.useState<Deal[]>([]);
   const [stats, setStats] = React.useState<Stats | null>(null);
   const [groups, setGroups] = React.useState<Group[]>([]);
+  const [urgentHighlights, setUrgentHighlights] = React.useState<Highlight[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [fromCache, setFromCache] = React.useState<false | "cache" | "stale">(false);
 
@@ -61,10 +74,11 @@ export default function TMAHomePage() {
 
     // Fetch fresh data from network
     try {
-      const [dealsData, statsData, groupsData] = await Promise.all([
+      const [dealsData, statsData, groupsData, highlightsData] = await Promise.all([
         fetch("/api/deals").then((r) => r.ok ? r.json() : { deals: [] }).catch(() => ({ deals: [] })),
         fetch("/api/stats").then((r) => r.ok ? r.json() : null).catch(() => null),
         fetch("/api/groups").then((r) => r.ok ? r.json() : { groups: [] }).catch(() => ({ groups: [] })),
+        fetch("/api/highlights").then((r) => r.ok ? r.json() : { highlights: [] }).catch(() => ({ highlights: [] })),
       ]);
 
       const parsedDeals: Deal[] = dealsData.deals ?? [];
@@ -80,6 +94,17 @@ export default function TMAHomePage() {
           const order = { active: 0, quiet: 1, stale: 2, dead: 3, unknown: 4 };
           return (order[a.health_status] ?? 4) - (order[b.health_status] ?? 4);
         });
+
+      // Extract critical + high urgency highlights
+      const allHighlights: Highlight[] = highlightsData.highlights ?? [];
+      const urgent = allHighlights
+        .filter((h: Highlight) => h.triage_urgency === "critical" || h.triage_urgency === "high")
+        .sort((a: Highlight, b: Highlight) => {
+          const rank: Record<string, number> = { critical: 2, high: 1 };
+          return (rank[b.triage_urgency ?? ""] ?? 0) - (rank[a.triage_urgency ?? ""] ?? 0);
+        })
+        .slice(0, 5);
+      setUrgentHighlights(urgent);
 
       setDeals(parsedDeals);
       setStats(parsedStats);
@@ -181,6 +206,53 @@ export default function TMAHomePage() {
           </Link>
         </div>
       </div>
+
+      {/* AI Urgency — Needs Attention Now */}
+      {urgentHighlights.length > 0 && (
+        <div className="px-4 mb-4">
+          <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-3 space-y-2">
+            <p className="text-xs font-medium text-red-400 flex items-center gap-1">
+              <Zap className="h-3 w-3" /> Needs Attention Now
+              <span className="ml-auto rounded-full bg-red-500/20 px-1.5 py-0 text-[10px] font-bold">{urgentHighlights.length}</span>
+            </p>
+            {urgentHighlights.map((h) => {
+              const isCritical = h.triage_urgency === "critical";
+              const href = h.tg_deep_link ?? (h.deal_id ? `/tma/deals/${h.deal_id}` : "/tma/inbox");
+              const summary = h.triage_summary ? h.triage_summary.split(" | ")[0] : h.message_preview;
+              return (
+                <Link
+                  key={h.id}
+                  href={href}
+                  className={cn(
+                    "flex items-start gap-2 py-1.5 rounded-lg px-1 -mx-1 transition active:bg-white/[0.04]",
+                    isCritical && "border-l-2 border-l-red-500 pl-2"
+                  )}
+                >
+                  <span className={cn(
+                    "h-2 w-2 rounded-full shrink-0 mt-1",
+                    isCritical ? "bg-red-500 animate-pulse" : "bg-orange-500"
+                  )} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-medium text-foreground truncate">{h.sender_name ?? "Unknown"}</span>
+                      {h.triage_category && (
+                        <span className={cn(
+                          "rounded px-1 py-0 text-[8px] font-medium",
+                          isCritical ? "bg-red-500/20 text-red-400" : "bg-orange-500/20 text-orange-400"
+                        )}>
+                          {h.triage_category.replace(/_/g, " ")}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground truncate">{summary?.slice(0, 80) ?? "New message"}</p>
+                  </div>
+                  <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0 mt-1" />
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Urgent section */}
       {stats && (stats.staleDeals.length > 0 || stats.followUps.length > 0 || stats.hotConversations.length > 0) && (
