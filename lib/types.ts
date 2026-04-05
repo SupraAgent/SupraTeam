@@ -204,3 +204,15 @@ export interface GraphEdge {
   strength?: number;
   label?: string;
 }
+
+// --- Email-to-Deal linking ---
+
+export interface DealEmailThread {
+  id: string;
+  deal_id: string;
+  thread_id: string;
+  connection_id: string;
+  subject: string | null;
+  linked_by: string | null;
+  linked_at: string;
+}
