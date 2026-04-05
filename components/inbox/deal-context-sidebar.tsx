@@ -161,15 +161,16 @@ function DealActions({ deal, onDealUpdated }: { deal: Deal; onDealUpdated?: () =
 
   return (
     <div className="space-y-1.5 pt-1">
-      {/* Quick advance button */}
+      {/* Quick advance button — primary action, prominent styling */}
       {nextStage && (
         <button
           onClick={() => handleStageMove(nextStage.id)}
           disabled={movingStage}
-          className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded bg-primary/10 text-primary text-[10px] font-medium hover:bg-primary/20 disabled:opacity-50 transition-colors"
+          className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors shadow-sm"
         >
-          <ChevronRight className="h-3 w-3" />
+          <ChevronRight className="h-4 w-4" />
           {movingStage ? "Moving..." : `Advance to ${nextStage.name}`}
+          <kbd className="ml-auto rounded bg-primary-foreground/20 px-1.5 py-0.5 text-[9px] font-mono">Shift+M</kbd>
         </button>
       )}
 
@@ -209,6 +210,20 @@ function DealActions({ deal, onDealUpdated }: { deal: Deal; onDealUpdated?: () =
           Task
         </button>
       </div>
+
+      {/* Schedule Meeting — opens Google Calendar with contact pre-filled */}
+      {deal.contact?.name && (
+        <a
+          href={`https://calendar.google.com/calendar/render?action=TEMPLATE&text=Meeting+with+${encodeURIComponent(deal.contact.name)}+-+${encodeURIComponent(deal.deal_name)}&details=${encodeURIComponent(`Deal: ${deal.deal_name}\nContact: ${deal.contact.name}`)}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center justify-center gap-1.5 w-full px-2 py-1.5 rounded bg-blue-500/10 text-blue-400 text-[10px] font-medium hover:bg-blue-500/20 transition-colors"
+        >
+          <Clock className="h-3 w-3" />
+          Schedule Meeting
+          <ExternalLink className="h-2.5 w-2.5 ml-auto opacity-50" />
+        </a>
+      )}
 
       {/* Outcome buttons (double-click to confirm) */}
       <div className="flex items-center gap-1">

@@ -90,6 +90,20 @@ export function createSupabasePersistence(): PersistenceAdapter {
       // Upsert per-node execution records from nodeOutputs
       await upsertNodeExecutions(supabase, runId, nodeOutputs);
 
+      // On failure, queue transient errors to DLQ for auto-retry
+      if (status === "failed" && error && workflowId) {
+        const failureType = classifyFailure(error);
+        if (isTransientError(failureType)) {
+          queueToDlq(supabase, {
+            workflowId,
+            runId,
+            nodeOutputs,
+            errorClass: failureType,
+            errorMessage: error,
+          }).catch(() => {}); // best effort
+        }
+      }
+
       // Fire alerts on completion/failure (best effort, don't block)
       if ((status === "completed" || status === "failed") && workflowId) {
         checkWorkflowAlerts(
@@ -199,4 +213,53 @@ function classifyFailure(error: string): string {
   if (e.includes("500") || e.includes("503") || e.includes("server error")) return "server";
   if (e.includes("invalid") || e.includes("required") || e.includes("missing")) return "validation";
   return "unknown";
+}
+
+/** Transient errors that are worth retrying automatically. */
+function isTransientError(failureType: string): boolean {
+  return failureType === "rate_limit" || failureType === "timeout" || failureType === "server";
+}
+
+/** Queue a failed node to the DLQ with exponential backoff schedule. */
+async function queueToDlq(
+  supabase: NonNullable<ReturnType<typeof createSupabaseAdmin>>,
+  params: {
+    workflowId: string;
+    runId: string;
+    nodeOutputs: Record<string, unknown>;
+    errorClass: string;
+    errorMessage: string;
+  }
+) {
+  // Find the failed node from outputs
+  const failedNode = Object.entries(params.nodeOutputs)
+    .filter(([k]) => !k.startsWith("_"))
+    .find(([, v]) => {
+      const d = v as Record<string, unknown>;
+      return d.success === false || !!d.error;
+    });
+
+  const nodeId = failedNode?.[0] ?? "unknown";
+  const nodeData = (failedNode?.[1] ?? {}) as Record<string, unknown>;
+  const maxRetries = 3;
+
+  // First retry in 30s (exponential: 30s, 120s, 480s)
+  const nextRetryAt = new Date(Date.now() + 30_000);
+
+  await supabase.from("crm_workflow_dlq").insert({
+    workflow_id: params.workflowId,
+    run_id: params.runId,
+    node_id: nodeId,
+    node_type: (nodeData.type as string) ?? null,
+    error_class: params.errorClass,
+    error_message: params.errorMessage,
+    retry_count: 0,
+    max_retries: maxRetries,
+    next_retry_at: nextRetryAt.toISOString(),
+    payload_snapshot: {
+      node_outputs: params.nodeOutputs,
+      failed_node: nodeData,
+    },
+    status: "pending",
+  });
 }

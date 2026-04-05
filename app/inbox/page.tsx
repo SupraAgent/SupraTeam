@@ -275,6 +275,39 @@ export default function InboxPage() {
   conversationsRef.current = conversations;
   const labelsRef = React.useRef(labels);
   labelsRef.current = labels;
+
+  // Keyboard shortcut: Shift+M to advance the selected conversation's linked deal
+  React.useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.shiftKey && e.key === "M" && selectedChat) {
+        e.preventDefault();
+        const chatDeals = deals[selectedChat];
+        const linkedDeal = chatDeals?.[0];
+        if (linkedDeal) {
+          fetch(`/api/deals/${linkedDeal.id}/advance`, { method: "POST" })
+            .then((r) => {
+              if (r.ok) return r.json();
+              throw new Error("Failed");
+            })
+            .then((data) => {
+              toast.success(`Advanced to ${data.to_stage?.name ?? "next stage"}`, {
+                action: { label: "Undo", onClick: () => {
+                  fetch(`/api/deals/${linkedDeal.id}/move`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ stage_id: data.from_stage?.id }),
+                  }).then(() => fetchInbox());
+                }},
+              });
+              fetchInbox();
+            })
+            .catch(() => toast.error("Failed to advance deal"));
+        }
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedChat, deals]);
   const selectedChatRef = React.useRef(selectedChat);
   selectedChatRef.current = selectedChat;
   const currentUserIdRef = React.useRef(currentUserId);

@@ -192,34 +192,99 @@ export default function TMAGroupsPage() {
           ))}
         </div>
 
-        {/* Group list */}
-        <div className="px-4 space-y-1.5">
-          {filteredGroups.map((group) => (
-            <GroupHealthCard
-              key={group.id}
-              id={group.id}
-              name={group.group_name}
-              healthStatus={group.health_status}
-              memberCount={group.member_count}
-              messageCount7d={group.message_count_7d}
-              messageHistory={group.message_history}
-              slugs={group.slugs}
-              engagementScore={engagementScores.get(group.id) ?? null}
-              onTap={handleGroupTap}
-            />
-          ))}
-          {filteredGroups.length === 0 && (
-            <div className="text-center py-8">
-              <Users className="mx-auto h-6 w-6 text-muted-foreground/20" />
-              <p className="mt-2 text-xs text-muted-foreground">
-                {search ? "No groups match your search" : "No groups found"}
-              </p>
-            </div>
-          )}
-        </div>
+        {/* Group list — windowed rendering for large lists */}
+        <GroupList
+          groups={filteredGroups}
+          engagementScores={engagementScores}
+          onTap={handleGroupTap}
+          search={search}
+        />
       </PullToRefresh>
 
       <BottomTabBar active="groups" />
+    </div>
+  );
+}
+
+/**
+ * Windowed group list — renders only visible items + buffer for lists >50.
+ * Uses IntersectionObserver to progressively reveal items as the user scrolls.
+ */
+function GroupList({
+  groups,
+  engagementScores,
+  onTap,
+  search,
+}: {
+  groups: TgGroup[];
+  engagementScores: Map<string, number>;
+  onTap: (id: string) => void;
+  search: string;
+}) {
+  const WINDOW_SIZE = 50;
+  const [visibleCount, setVisibleCount] = React.useState(WINDOW_SIZE);
+  const sentinelRef = React.useRef<HTMLDivElement>(null);
+
+  // Reset visible count when groups change (filter/search)
+  React.useEffect(() => {
+    setVisibleCount(WINDOW_SIZE);
+  }, [groups.length, search]);
+
+  // IntersectionObserver to load more when sentinel is visible
+  React.useEffect(() => {
+    if (groups.length <= WINDOW_SIZE) return;
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setVisibleCount((prev) => Math.min(prev + WINDOW_SIZE, groups.length));
+        }
+      },
+      { rootMargin: "200px" }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [groups.length]);
+
+  if (groups.length === 0) {
+    return (
+      <div className="px-4">
+        <div className="text-center py-8">
+          <Users className="mx-auto h-6 w-6 text-muted-foreground/20" />
+          <p className="mt-2 text-xs text-muted-foreground">
+            {search ? "No groups match your search" : "No groups found"}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const visible = groups.slice(0, visibleCount);
+
+  return (
+    <div className="px-4 space-y-1.5">
+      {visible.map((group) => (
+        <GroupHealthCard
+          key={group.id}
+          id={group.id}
+          name={group.group_name}
+          healthStatus={group.health_status}
+          memberCount={group.member_count}
+          messageCount7d={group.message_count_7d}
+          messageHistory={group.message_history}
+          slugs={group.slugs}
+          engagementScore={engagementScores.get(group.id) ?? null}
+          onTap={onTap}
+        />
+      ))}
+      {visibleCount < groups.length && (
+        <div ref={sentinelRef} className="h-8 flex items-center justify-center">
+          <span className="text-[10px] text-muted-foreground/40">Loading more...</span>
+        </div>
+      )}
     </div>
   );
 }

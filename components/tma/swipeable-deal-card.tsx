@@ -33,7 +33,7 @@ interface SwipeableDealCardProps {
   onLongPress: (deal: Deal, rect: DOMRect) => void;
 }
 
-export function SwipeableDealCard({ deal, stages, onStageChange, onLongPress }: SwipeableDealCardProps) {
+export const SwipeableDealCard = React.memo(function SwipeableDealCard({ deal, stages, onStageChange, onLongPress }: SwipeableDealCardProps) {
   const [offsetX, setOffsetX] = React.useState(0);
   const [swiping, setSwiping] = React.useState(false);
   const [undoStage, setUndoStage] = React.useState<{ stageId: string; stageName: string } | null>(null);
@@ -229,4 +229,4 @@ export function SwipeableDealCard({ deal, stages, onStageChange, onLongPress }: 
       )}
     </div>
   );
-}
+});
