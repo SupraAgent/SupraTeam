@@ -72,6 +72,8 @@ export type Contact = {
   x_bio: string | null;
   x_followers: number | null;
   x_last_tweet_at: string | null;
+  tg_bio: string | null;
+  tg_photo_url: string | null;
   enriched_at: string | null;
   enrichment_source: string | null;
   created_by: string | null;
