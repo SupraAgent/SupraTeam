@@ -35,6 +35,11 @@ export async function GET(request: Request) {
     query = query.eq("tg_group_id", tgGroupId);
   }
 
+  const searchTerm = searchParams.get("search");
+  if (searchTerm) {
+    query = query.ilike("deal_name", `%${searchTerm}%`);
+  }
+
   query = query.range(offset, offset + limit - 1);
 
   const { data: deals, error, count } = await query;

@@ -4,7 +4,7 @@ import * as React from "react";
 import { cn, timeAgo } from "@/lib/utils";
 import {
   ExternalLink, TrendingUp, TrendingDown, Minus, Clock, X,
-  ChevronRight, StickyNote, Plus, Trophy, XCircle, AlarmClock, Send,
+  ChevronRight, StickyNote, Plus, Trophy, XCircle, AlarmClock, Send, Link2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -37,6 +37,7 @@ interface DealContextSidebarProps {
   chatId: number;
   onClose: () => void;
   onDealUpdated?: () => void;
+  onLinkDeal?: () => void;
 }
 
 function DealActions({ deal, onDealUpdated }: { deal: Deal; onDealUpdated?: () => void }) {
@@ -337,7 +338,7 @@ function DealActions({ deal, onDealUpdated }: { deal: Deal; onDealUpdated?: () =
   );
 }
 
-export function DealContextSidebar({ deals, onClose, onDealUpdated }: DealContextSidebarProps) {
+export function DealContextSidebar({ deals, onClose, onDealUpdated, onLinkDeal }: DealContextSidebarProps) {
   if (deals.length === 0) {
     return (
       <div className="w-[260px] shrink-0 border-l border-white/[0.06] bg-white/[0.01] flex flex-col">
@@ -347,8 +348,17 @@ export function DealContextSidebar({ deals, onClose, onDealUpdated }: DealContex
             <X className="h-3.5 w-3.5 text-muted-foreground" />
           </button>
         </div>
-        <div className="flex-1 flex items-center justify-center p-4">
-          <p className="text-xs text-muted-foreground/50 text-center">No linked deals.<br />Create one from the pipeline.</p>
+        <div className="flex-1 flex flex-col items-center justify-center p-4 gap-3">
+          <p className="text-xs text-muted-foreground/50 text-center">No linked deals.</p>
+          {onLinkDeal && (
+            <button
+              onClick={onLinkDeal}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 text-primary text-xs font-medium hover:bg-primary/20 transition-colors"
+            >
+              <Link2 className="h-3.5 w-3.5" />
+              Link a Deal
+            </button>
+          )}
         </div>
       </div>
     );
@@ -360,9 +370,20 @@ export function DealContextSidebar({ deals, onClose, onDealUpdated }: DealContex
         <span className="text-xs font-medium text-muted-foreground">
           {deals.length === 1 ? "Linked Deal" : `${deals.length} Linked Deals`}
         </span>
-        <button onClick={onClose} className="h-6 w-6 flex items-center justify-center rounded hover:bg-white/[0.06]">
-          <X className="h-3.5 w-3.5 text-muted-foreground" />
-        </button>
+        <div className="flex items-center gap-1">
+          {onLinkDeal && (
+            <button
+              onClick={onLinkDeal}
+              className="h-6 w-6 flex items-center justify-center rounded hover:bg-white/[0.06]"
+              title="Link another deal"
+            >
+              <Plus className="h-3.5 w-3.5 text-muted-foreground" />
+            </button>
+          )}
+          <button onClick={onClose} className="h-6 w-6 flex items-center justify-center rounded hover:bg-white/[0.06]">
+            <X className="h-3.5 w-3.5 text-muted-foreground" />
+          </button>
+        </div>
       </div>
 
       {deals.map((deal) => (
