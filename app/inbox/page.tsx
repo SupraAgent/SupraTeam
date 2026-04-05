@@ -52,6 +52,9 @@ import { EmojiPicker } from "@/components/ui/emoji-picker";
 import { DealContextSidebar } from "@/components/inbox/deal-context-sidebar";
 import { LinkDealModal } from "@/components/inbox/link-deal-modal";
 import { GlobalMessageSearch } from "@/components/inbox/global-message-search";
+import { InlineCannedForm } from "@/components/inbox/inline-canned-form";
+import { AssignmentRulesPanel } from "@/components/inbox/assignment-rules-panel";
+import { SlideOver } from "@/components/ui/slide-over";
 import {
   TgChatGroupPanel,
   useTgChatGroups,
@@ -289,6 +292,8 @@ export default function InboxPage() {
   const [cannedSearch, setCannedSearch] = React.useState("");
   const [cannedIndex, setCannedIndex] = React.useState(0);
   const cannedListRef = React.useRef<HTMLDivElement>(null);
+  const [showCannedForm, setShowCannedForm] = React.useState(false);
+  const [showRulesPanel, setShowRulesPanel] = React.useState(false);
   const replyTextareaRef = React.useRef<HTMLTextAreaElement>(null);
   const statusesRef = React.useRef(statuses);
   statusesRef.current = statuses;
@@ -1248,7 +1253,7 @@ export default function InboxPage() {
           <h1 className="text-xl font-semibold text-foreground">Inbox</h1>
           <p className="mt-1 text-sm text-muted-foreground hidden sm:block">
             Manage Telegram conversations across CRM-linked groups.
-            {" "}<a href="/settings/inbox/routing" className="text-primary hover:underline">Assignment rules</a>
+            {" "}<button onClick={() => setShowRulesPanel(true)} className="text-primary hover:underline">Assignment rules</button>
           </p>
         </div>
         <div className="flex items-center gap-1">
@@ -1888,11 +1893,11 @@ export default function InboxPage() {
 
                   {/* Canned response picker */}
                   {showCanned && (
-                    <div ref={cannedListRef} className="mb-2 rounded-lg border border-white/10 bg-[hsl(var(--background))] max-h-[200px] overflow-y-auto thin-scroll">
-                      {filteredCanned.length === 0 ? (
+                    <div ref={cannedListRef} className="mb-2 rounded-lg border border-white/10 bg-[hsl(var(--background))] max-h-[280px] overflow-y-auto thin-scroll">
+                      {filteredCanned.length === 0 && !showCannedForm ? (
                         <div className="px-3 py-2">
                           <p className="text-[10px] text-muted-foreground/50">No canned responses found</p>
-                          <a href="/settings/inbox/canned" className="text-[10px] text-primary hover:underline">Create your first response</a>
+                          <button onClick={() => setShowCannedForm(true)} className="text-[10px] text-primary hover:underline">Create your first response</button>
                         </div>
                       ) : (
                         filteredCanned.map((r, idx) => (
@@ -1917,12 +1922,22 @@ export default function InboxPage() {
                           </button>
                         ))
                       )}
-                      <a
-                        href="/settings/inbox/canned"
-                        className="block text-center text-[10px] text-primary hover:underline py-1.5 border-t border-white/5"
-                      >
-                        Manage responses
-                      </a>
+                      {showCannedForm ? (
+                        <InlineCannedForm
+                          onCreated={() => {
+                            setShowCannedForm(false);
+                            fetch("/api/inbox/canned").then((r) => r.ok ? r.json() : null).then((d) => {
+                              if (d) setCannedResponses(d.responses ?? []);
+                            });
+                          }}
+                          onCancel={() => setShowCannedForm(false)}
+                        />
+                      ) : (
+                        <div className="flex items-center justify-between px-3 py-1.5 border-t border-white/5">
+                          <button onClick={() => setShowCannedForm(true)} className="text-[10px] text-primary hover:underline">+ New response</button>
+                          <a href="/settings/inbox/canned" className="text-[10px] text-primary hover:underline">Manage all</a>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -2381,6 +2396,14 @@ export default function InboxPage() {
           onCancel={nukeTarget.type === "messages" ? nukeMessages.cancel : nukeGroups.cancel}
         />
       )}
+
+      <SlideOver
+        open={showRulesPanel}
+        onClose={() => setShowRulesPanel(false)}
+        title="Assignment Rules"
+      >
+        <AssignmentRulesPanel />
+      </SlideOver>
     </div>
   );
 }
