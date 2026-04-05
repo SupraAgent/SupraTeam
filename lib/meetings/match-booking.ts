@@ -25,7 +25,7 @@ interface MatchParams {
  *
  * Tier 1: clientReferenceId direct match (booking_link_id or deal_id)
  * Tier 2: google_calendar_event_id exact match (deterministic)
- * Tier 3: scheduled_at ±15min + attendee email overlap (fuzzy)
+ * Tier 3: scheduled_at ±30min + attendee email overlap (fuzzy)
  */
 export async function matchBookingLink(
   params: MatchParams
@@ -74,6 +74,7 @@ export async function matchBookingLink(
 
   // Tier 2: Google Calendar event ID (deterministic)
   if (params.googleCalendarEventId) {
+    // 2a: Check booking links
     const { data } = await admin
       .from("crm_booking_links")
       .select("id, deal_id, contact_id, user_id")
@@ -90,12 +91,38 @@ export async function matchBookingLink(
         matchTier: 2,
       };
     }
+
+    // 2b: Check calendar event links (for non-Calendly meetings)
+    const { data: calLink } = await admin
+      .from("crm_deal_calendar_links")
+      .select("deal_id, calendar_event_id")
+      .eq("calendar_event_id", (
+        await admin
+          .from("crm_calendar_events")
+          .select("id")
+          .eq("google_event_id", params.googleCalendarEventId)
+          .limit(1)
+          .maybeSingle()
+      ).data?.id ?? "00000000-0000-0000-0000-000000000000")
+      .limit(1)
+      .maybeSingle();
+
+    if (calLink?.deal_id) {
+      return {
+        bookingLinkId: "",
+        dealId: calLink.deal_id,
+        contactId: null,
+        userId: params.userId ?? "",
+        matchTier: 2,
+      };
+    }
   }
 
-  // Tier 3: Fuzzy match — scheduled_at ±15min + attendee email overlap
+  // Tier 3: Fuzzy match — scheduled_at ±30min + attendee email overlap
+  // Widened from ±15min because prospects often join late (common in crypto BD)
   if (params.scheduledAt && params.attendeeEmails?.length) {
-    const windowMin = new Date(params.scheduledAt.getTime() - 15 * 60 * 1000).toISOString();
-    const windowMax = new Date(params.scheduledAt.getTime() + 15 * 60 * 1000).toISOString();
+    const windowMin = new Date(params.scheduledAt.getTime() - 30 * 60 * 1000).toISOString();
+    const windowMax = new Date(params.scheduledAt.getTime() + 30 * 60 * 1000).toISOString();
 
     const normalizedEmails = params.attendeeEmails.map((e) => e.toLowerCase().trim());
 

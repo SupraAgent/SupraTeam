@@ -95,6 +95,9 @@ const EVENT_TO_WORKFLOW_TRIGGER: Record<string, string> = {
   deal_created: "deal_created",
   deal_value_change: "deal_value_change",
   tag_added: "tag_added",
+  meeting_transcribed: "meeting_transcribed",
+  booking_scheduled: "booking_scheduled",
+  booking_canceled: "booking_canceled",
 };
 
 /**
@@ -213,6 +216,56 @@ async function executeAction(
       send_at: sendAt,
       automation_rule_id: rule.id as string,
     });
+    return !error;
+  }
+
+  if (actionType === "move_stage") {
+    const targetStageName = actionConfig.stage_name as string;
+    if (!targetStageName) return false;
+
+    // Look up the target stage
+    const { data: targetStage } = await supabase
+      .from("pipeline_stages")
+      .select("id, name, position")
+      .eq("name", targetStageName)
+      .limit(1)
+      .maybeSingle();
+
+    if (!targetStage) return false;
+
+    // Only advance if the deal is currently before the target stage
+    const currentStageId = deal.stage_id as string | null;
+    if (currentStageId) {
+      const { data: currentStage } = await supabase
+        .from("pipeline_stages")
+        .select("position")
+        .eq("id", currentStageId)
+        .single();
+
+      if (currentStage && currentStage.position >= targetStage.position) {
+        return false; // Don't move backwards
+      }
+    }
+
+    const { error } = await supabase
+      .from("crm_deals")
+      .update({
+        stage_id: targetStage.id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", event.dealId);
+
+    if (!error) {
+      // Log the stage change
+      await supabase.from("crm_deal_stage_history").insert({
+        deal_id: event.dealId,
+        from_stage_id: currentStageId,
+        to_stage_id: targetStage.id,
+        changed_by: null, // System auto-advance
+        change_reason: "Auto-advanced by meeting transcript automation",
+      });
+    }
+
     return !error;
   }
 

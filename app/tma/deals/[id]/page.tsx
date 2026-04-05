@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useParams, useRouter } from "next/navigation";
 import { cn, timeAgo } from "@/lib/utils";
-import { ArrowLeft, MessageCircle, Send, GitBranch, StickyNote, ExternalLink, Calendar, ChevronRight } from "lucide-react";
+import { ArrowLeft, MessageCircle, Send, GitBranch, StickyNote, ExternalLink, Calendar, ChevronRight, FileText, CheckCircle2 } from "lucide-react";
 import { BookingLinkButton } from "@/components/calendly/booking-link-button";
 import { useTelegramWebApp } from "@/components/tma/use-telegram";
 
@@ -34,6 +34,23 @@ type ChatMessage = {
   source: "synced" | "notification";
 };
 
+type MeetingTranscript = {
+  id: string;
+  title: string | null;
+  duration_minutes: number | null;
+  scheduled_at: string | null;
+  summary: string | null;
+  action_items: Array<{ text: string; completed?: boolean }>;
+  ai_extraction: {
+    deal_summary?: string;
+    suggested_followup?: { message: string; urgency: string };
+    stage_recommendation?: { suggested_stage?: string; confidence: string; reason: string };
+    sentiment_summary?: string;
+    action_items?: Array<{ text: string; owner?: string; due?: string }>;
+  } | null;
+  transcript_url: string | null;
+};
+
 export default function TMADealDetailPage() {
   const rawId = useParams().id;
   const id = Array.isArray(rawId) ? rawId[0] : rawId;
@@ -41,7 +58,9 @@ export default function TMADealDetailPage() {
   const [deal, setDeal] = React.useState<Deal | null>(null);
   const [notes, setNotes] = React.useState<Note[]>([]);
   const [activities, setActivities] = React.useState<Activity[]>([]);
-  const [tab, setTab] = React.useState<"info" | "notes" | "activity" | "chat">("info");
+  const [tab, setTab] = React.useState<"info" | "meetings" | "notes" | "activity" | "chat">("info");
+  const [meetings, setMeetings] = React.useState<MeetingTranscript[]>([]);
+  const [meetingsFetched, setMeetingsFetched] = React.useState(false);
   const [stages, setStages] = React.useState<Stage[]>([]);
   const [movingStage, setMovingStage] = React.useState(false);
   const [newNote, setNewNote] = React.useState("");
@@ -91,6 +110,16 @@ export default function TMADealDetailPage() {
       .catch(() => {})
       .finally(() => { setChatLoading(false); setChatFetched(true); });
   }, [tab, id, chatFetched, chatLoading]);
+
+  // Fetch meetings when switching to meetings tab
+  React.useEffect(() => {
+    if (tab !== "meetings" || meetingsFetched) return;
+    fetch(`/api/deals/${id}/meetings`)
+      .then((r) => r.ok ? r.json() : { data: {} })
+      .then((res) => setMeetings(res.data?.transcripts ?? []))
+      .catch(() => {})
+      .finally(() => setMeetingsFetched(true));
+  }, [tab, id, meetingsFetched]);
 
   // Auto-scroll to bottom when messages load
   React.useEffect(() => {
@@ -267,7 +296,7 @@ export default function TMADealDetailPage() {
 
       {/* Tabs */}
       <div className="flex border-b border-white/10 px-4">
-        {(["info", "chat", "notes", "activity"] as const).map((t) => (
+        {(["info", "meetings", "chat", "notes", "activity"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -374,6 +403,24 @@ export default function TMADealDetailPage() {
             <Row label="Probability" value={deal.probability != null ? `${deal.probability}%` : "--"} />
             <Row label="Board" value={deal.board_type} />
           </div>
+        </div>
+      )}
+
+      {/* Meetings tab */}
+      {tab === "meetings" && (
+        <div className="px-4 pt-3 space-y-3">
+          {!meetingsFetched ? (
+            <div className="space-y-2 py-4">{[1, 2].map((i) => <div key={i} className="h-16 bg-white/[0.02] rounded-xl animate-pulse" />)}</div>
+          ) : meetings.length === 0 ? (
+            <div className="text-center py-8">
+              <FileText className="mx-auto h-6 w-6 text-muted-foreground/20" />
+              <p className="mt-2 text-xs text-muted-foreground">No meeting transcripts yet</p>
+            </div>
+          ) : (
+            meetings.map((m) => (
+              <TMATranscriptCard key={m.id} transcript={m} />
+            ))
+          )}
         </div>
       )}
 
@@ -486,6 +533,102 @@ export default function TMADealDetailPage() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function TMATranscriptCard({ transcript: t }: { transcript: MeetingTranscript }) {
+  const [expanded, setExpanded] = React.useState(false);
+  const ai = t.ai_extraction;
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3 space-y-2">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between text-left"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <FileText className="h-3.5 w-3.5 shrink-0 text-purple-400" />
+          <span className="text-sm font-medium text-foreground truncate">
+            {t.title || "Call"}
+          </span>
+          {t.duration_minutes && (
+            <span className="text-[10px] text-muted-foreground shrink-0">
+              {t.duration_minutes}m
+            </span>
+          )}
+        </div>
+        <ChevronRight className={cn("h-4 w-4 text-muted-foreground transition-transform shrink-0", expanded && "rotate-90")} />
+      </button>
+
+      {/* AI Summary (always visible if available) */}
+      {(ai?.deal_summary ?? t.summary) && (
+        <p className={cn("text-xs text-muted-foreground", !expanded && "line-clamp-2")}>
+          {ai?.deal_summary ?? t.summary}
+        </p>
+      )}
+
+      {expanded && (
+        <>
+          {/* AI Action Items */}
+          {(ai?.action_items ?? t.action_items)?.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-[10px] font-medium text-foreground">Action Items</p>
+              {(ai?.action_items ?? t.action_items).slice(0, 5).map((item, i) => (
+                <div key={i} className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                  <CheckCircle2 className="h-3 w-3 mt-0.5 shrink-0 text-muted-foreground/40" />
+                  <span>
+                    {item.text}
+                    {"owner" in item && item.owner && (
+                      <span className="ml-1 opacity-60">({item.owner})</span>
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Sentiment */}
+          {ai?.sentiment_summary && (
+            <p className="text-[10px] text-muted-foreground/70">{ai.sentiment_summary}</p>
+          )}
+
+          {/* Stage recommendation */}
+          {ai?.stage_recommendation?.suggested_stage && (
+            <div className="rounded-lg bg-purple-500/10 border border-purple-500/20 px-2.5 py-1.5">
+              <p className="text-[10px] text-purple-400">
+                Stage suggestion: <span className="font-medium">{ai.stage_recommendation.suggested_stage}</span>
+                <span className="opacity-60 ml-1">— {ai.stage_recommendation.reason}</span>
+              </p>
+            </div>
+          )}
+
+          {/* Suggested follow-up */}
+          {ai?.suggested_followup?.message && (
+            <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 px-2.5 py-1.5">
+              <p className="text-[10px] font-medium text-blue-400 mb-0.5">Suggested follow-up</p>
+              <p className="text-xs text-foreground">{ai.suggested_followup.message}</p>
+            </div>
+          )}
+
+          {/* Full transcript link */}
+          {t.transcript_url && (
+            <a
+              href={t.transcript_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-[10px] text-primary"
+            >
+              <ExternalLink className="h-2.5 w-2.5" />
+              View Full Transcript
+            </a>
+          )}
+        </>
+      )}
+
+      <p className="text-[9px] text-muted-foreground/40">
+        {t.scheduled_at ? new Date(t.scheduled_at).toLocaleDateString() : ""}
+      </p>
     </div>
   );
 }
