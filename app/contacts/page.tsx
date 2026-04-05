@@ -9,11 +9,12 @@ import { BulkXImportModal } from "@/components/contacts/bulk-x-import-modal";
 import { SavedViewsBar } from "@/components/saved-views-bar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Download, Upload, Users, MessageCircle, Building2, ArrowUpDown, Trash2, Filter, GitMerge, Sparkles, AlertTriangle, Twitter, Wallet } from "lucide-react";
+import { Download, Upload, Users, MessageCircle, Building2, ArrowUpDown, Trash2, Filter, GitMerge, Sparkles, AlertTriangle, Twitter, Wallet, RefreshCw, Loader2 } from "lucide-react";
 import { MergePreviewModal } from "@/components/contacts/merge-preview-modal";
 import type { Contact, PipelineStage, Deal, LifecycleStage, DecisionMakerLevel, PartnershipType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { enrichContact } from "@/lib/enrichment/pipeline";
 
 type SortKey = "name" | "company" | "created_at" | "deals" | "quality_score";
 type SortDir = "asc" | "desc";
@@ -64,6 +65,8 @@ export default function ContactsPage() {
   const [scanningDupes, setScanningDupes] = React.useState(false);
   const [mergingId, setMergingId] = React.useState<string | null>(null);
   const [mergePreviewGroup, setMergePreviewGroup] = React.useState<DupGroup | null>(null);
+  const [enrichingIds, setEnrichingIds] = React.useState<Set<string>>(new Set());
+  const [bulkEnriching, setBulkEnriching] = React.useState(false);
 
   const fetchData = React.useCallback(async () => {
     try {
@@ -283,6 +286,100 @@ export default function ContactsPage() {
     }
   }
 
+  async function enrichSingleContact(contact: Contact) {
+    setEnrichingIds((prev) => new Set(prev).add(contact.id));
+    try {
+      const result = await enrichContact(contact);
+      if (result.errors.length > 0) {
+        toast.error(`Enrichment errors: ${result.errors.join(", ")}`);
+      } else {
+        const sources: string[] = [];
+        if (result.xTriggered) sources.push("X");
+        if (result.telegramData) sources.push("Telegram");
+        if (sources.length > 0) {
+          toast.success(`Enriched ${contact.name} via ${sources.join(", ")}`);
+        } else {
+          toast.info(`No enrichment sources available for ${contact.name}`);
+        }
+      }
+      fetchData();
+    } catch {
+      toast.error(`Failed to enrich ${contact.name}`);
+    } finally {
+      setEnrichingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(contact.id);
+        return next;
+      });
+    }
+  }
+
+  async function enrichAllContacts() {
+    const enrichable = contacts.filter((c) => c.x_handle || c.telegram_user_id);
+    if (enrichable.length === 0) {
+      toast.info("No contacts have X handle or Telegram ID for enrichment");
+      return;
+    }
+    setSelected(new Set(enrichable.map((c) => c.id)));
+    setBulkEnriching(true);
+    let enriched = 0;
+    let errored = 0;
+    for (const contact of enrichable) {
+      setEnrichingIds((prev) => new Set(prev).add(contact.id));
+      try {
+        const result = await enrichContact(contact);
+        if (result.xTriggered || result.telegramData) enriched++;
+        if (result.errors.length > 0) errored++;
+      } catch {
+        errored++;
+      } finally {
+        setEnrichingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(contact.id);
+          return next;
+        });
+      }
+    }
+    setBulkEnriching(false);
+    if (enriched > 0) toast.success(`Enriched ${enriched} contact(s)`);
+    if (errored > 0) toast.error(`${errored} contact(s) had enrichment errors`);
+    setSelected(new Set());
+    fetchData();
+  }
+
+  async function bulkEnrich() {
+    const ids = Array.from(selected);
+    const targets = contacts.filter((c) => ids.includes(c.id) && (c.x_handle || c.telegram_user_id));
+    if (targets.length === 0) {
+      toast.info("No selected contacts have X handle or Telegram ID for enrichment");
+      return;
+    }
+    setBulkEnriching(true);
+    let enriched = 0;
+    let errored = 0;
+    for (const contact of targets) {
+      setEnrichingIds((prev) => new Set(prev).add(contact.id));
+      try {
+        const result = await enrichContact(contact);
+        if (result.xTriggered || result.telegramData) enriched++;
+        if (result.errors.length > 0) errored++;
+      } catch {
+        errored++;
+      } finally {
+        setEnrichingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(contact.id);
+          return next;
+        });
+      }
+    }
+    setBulkEnriching(false);
+    if (enriched > 0) toast.success(`Enriched ${enriched} contact(s)`);
+    if (errored > 0) toast.error(`${errored} contact(s) had enrichment errors`);
+    setSelected(new Set());
+    fetchData();
+  }
+
   // Stats
   const withTg = contacts.filter((c) => c.telegram_username).length;
   const withDeals = new Set(deals.filter((d) => d.contact_id).map((d) => d.contact_id)).size;
@@ -330,6 +427,16 @@ export default function ContactsPage() {
             <Twitter className="mr-1 h-3.5 w-3.5" />
             <span className="hidden sm:inline">Bulk X Import</span>
             <span className="sm:hidden">X Import</span>
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={enrichAllContacts}
+            disabled={bulkEnriching}
+          >
+            {bulkEnriching ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-1 h-3.5 w-3.5" />}
+            <span className="hidden sm:inline">{bulkEnriching ? "Enriching..." : "Enrich All"}</span>
+            <span className="sm:hidden">Enrich</span>
           </Button>
           <Button size="sm" variant="ghost" onClick={() => setImportOpen(true)}>
             <Download className="mr-1 h-3.5 w-3.5" />
@@ -600,6 +707,10 @@ export default function ContactsPage() {
           </select>
 
           <div className="flex items-center gap-1 ml-auto">
+            <Button size="sm" variant="ghost" onClick={bulkEnrich} disabled={bulkEnriching} className="h-6 text-[10px]">
+              {bulkEnriching ? <Loader2 className="h-2.5 w-2.5 mr-0.5 animate-spin" /> : <Sparkles className="h-2.5 w-2.5 mr-0.5" />}
+              {bulkEnriching ? "Enriching..." : "Enrich"}
+            </Button>
             <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())} className="h-6 text-[10px]">
               Clear
             </Button>
@@ -688,6 +799,8 @@ export default function ContactsPage() {
         selected={selected}
         onToggleSelect={toggleSelect}
         onToggleSelectAll={toggleSelectAll}
+        enrichingIds={enrichingIds}
+        onEnrich={enrichSingleContact}
       />
 
       {contacts.length < totalContacts && (

@@ -2,6 +2,7 @@
 
 import type { Contact } from "@/lib/types";
 import { timeAgo, cn } from "@/lib/utils";
+import { Loader2, RefreshCw } from "lucide-react";
 
 const LIFECYCLE_COLORS: Record<string, string> = {
   prospect: "bg-slate-500/20 text-slate-400",
@@ -90,9 +91,11 @@ type ContactTableProps = {
   selected?: Set<string>;
   onToggleSelect?: (id: string) => void;
   onToggleSelectAll?: () => void;
+  enrichingIds?: Set<string>;
+  onEnrich?: (contact: Contact) => void;
 };
 
-export function ContactTable({ contacts, onRowClick, dealCountMap, selected, onToggleSelect, onToggleSelectAll }: ContactTableProps) {
+export function ContactTable({ contacts, onRowClick, dealCountMap, selected, onToggleSelect, onToggleSelectAll, enrichingIds, onEnrich }: ContactTableProps) {
   if (contacts.length === 0) {
     return (
       <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-8 text-center">
@@ -197,9 +200,25 @@ export function ContactTable({ contacts, onRowClick, dealCountMap, selected, onT
                     <OnChainBadge score={contact.on_chain_score} />
                   </div>
                 </td>
-                <td className="px-4 py-3" onClick={() => onRowClick(contact)}>
-                  <div className="flex justify-center">
-                    <EnrichmentBadge contact={contact} />
+                <td className="px-4 py-3">
+                  <div className="flex items-center justify-center gap-1">
+                    <span onClick={() => onRowClick(contact)}>
+                      <EnrichmentBadge contact={contact} />
+                    </span>
+                    {onEnrich && (contact.x_handle || contact.telegram_user_id) && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onEnrich(contact); }}
+                        disabled={enrichingIds?.has(contact.id)}
+                        className="rounded p-0.5 text-muted-foreground/50 hover:text-primary hover:bg-white/5 transition-colors disabled:opacity-50"
+                        title="Enrich contact"
+                      >
+                        {enrichingIds?.has(contact.id) ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-3 w-3" />
+                        )}
+                      </button>
+                    )}
                   </div>
                 </td>
                 <td className="px-4 py-3" onClick={() => onRowClick(contact)}>
@@ -262,6 +281,20 @@ export function ContactTable({ contacts, onRowClick, dealCountMap, selected, onT
               <div className="flex items-center gap-2">
                 <QualityDots score={contact.quality_score} />
                 <EngagementBadge score={contact.engagement_score ?? 0} />
+                {onEnrich && (contact.x_handle || contact.telegram_user_id) && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onEnrich(contact); }}
+                    disabled={enrichingIds?.has(contact.id)}
+                    className="rounded p-1 text-muted-foreground/50 hover:text-primary hover:bg-white/5 transition-colors disabled:opacity-50"
+                    title="Enrich contact"
+                  >
+                    {enrichingIds?.has(contact.id) ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-3 w-3" />
+                    )}
+                  </button>
+                )}
                 {dealCountMap && dealCountMap[contact.id] && (
                   <span className="rounded-full bg-primary/20 px-1.5 py-0.5 text-[10px] font-medium text-primary">
                     {dealCountMap[contact.id]} deal{dealCountMap[contact.id] !== 1 ? "s" : ""}
