@@ -204,3 +204,19 @@ export interface GraphEdge {
   strength?: number;
   label?: string;
 }
+
+// --- Deal Linked Chats ---
+
+export type LinkedChatType = "dm" | "group" | "channel" | "supergroup";
+
+export interface DealLinkedChat {
+  id: string;
+  deal_id: string;
+  telegram_chat_id: number;
+  chat_type: LinkedChatType;
+  chat_title: string | null;
+  chat_link: string | null;
+  is_primary: boolean;
+  linked_by: string | null;
+  linked_at: string;
+}
