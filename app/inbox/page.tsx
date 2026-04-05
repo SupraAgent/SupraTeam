@@ -145,8 +145,6 @@ export default function InboxPage() {
   statusesRef.current = statuses;
   const conversationsRef = React.useRef(conversations);
   conversationsRef.current = conversations;
-  const labelsRef = React.useRef(labels);
-  labelsRef.current = labels;
   const selectedChatRef = React.useRef(selectedChat);
   selectedChatRef.current = selectedChat;
   const currentUserIdRef = React.useRef(currentUserId);
@@ -306,13 +304,17 @@ export default function InboxPage() {
             if (currentStatus?.status === "closed") {
               setStatuses((prev) => ({
                 ...prev,
-                [chatId]: { ...prev[chatId], status: "open" as const, closed_at: null } as InboxStatus,
+                [chatId]: {
+                  ...(prev[chatId] ?? { chat_id: chatId, assigned_to: null, snoozed_until: null, updated_at: new Date().toISOString() }),
+                  status: "open" as const,
+                  closed_at: null,
+                } as InboxStatus,
               }));
               fetch("/api/inbox/status", {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ chat_id: chatId, status: "open" }),
-              });
+              }).catch(() => fetchInboxRef.current());
             }
             if (!currentStatus?.assigned_to) {
               fetch("/api/inbox/assign", {
@@ -336,7 +338,7 @@ export default function InboxPage() {
                     }));
                   }
                 }
-              });
+              }).catch(() => fetchInboxRef.current());
             }
           }, 1000);
         }

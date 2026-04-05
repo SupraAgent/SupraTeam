@@ -14,11 +14,6 @@ const APPLICATION_STAGES = [
 ] as const;
 
 export async function GET(request: Request) {
-  // Rate limit by IP — 20 lookups per minute
-  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
-  const limited = rateLimit(`app-status:${ip}`, { max: 20, windowSec: 60 });
-  if (limited) return limited;
-
   const { searchParams } = new URL(request.url);
   const reference = searchParams.get("reference")?.trim().toUpperCase();
   const email = searchParams.get("email")?.trim().toLowerCase();
@@ -37,6 +32,10 @@ export async function GET(request: Request) {
       { status: 400 }
     );
   }
+
+  // Rate limit by email — 20 lookups per minute (prevents brute-force enumeration)
+  const limited = rateLimit(`app-status:${email}`, { max: 20, windowSec: 60 });
+  if (limited) return limited;
 
   const admin = createSupabaseAdmin();
   if (!admin) {

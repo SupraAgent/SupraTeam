@@ -12,12 +12,12 @@ export const runtime = "nodejs";
 // Read SuperDapp bot ID from environment (bracket notation to avoid hook false positive)
 const SUPERDAPP_BOT_ID = process["env"]["SUPERDAPP_BOT_ID"];
 
-/** Generate a unique reference code like APP-X7K2 */
+/** Generate a unique reference code like APP-X7K2N9AB */
 function generateReferenceCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no ambiguous chars (0/O, 1/I)
-  const bytes = randomBytes(4);
+  const bytes = randomBytes(8);
   let code = "";
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 8; i++) {
     code += chars[bytes[i] % chars.length];
   }
   return `APP-${code}`;
@@ -83,11 +83,6 @@ function calculateApplicationScore(data: {
 }
 
 export async function POST(request: Request) {
-  // Rate limit by IP — 5 submissions per 10 minutes
-  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
-  const limited = rateLimit(`applications:${ip}`, { max: 5, windowSec: 600 });
-  if (limited) return limited;
-
   const admin = createSupabaseAdmin();
   if (!admin) {
     return NextResponse.json({ error: "Service unavailable" }, { status: 503 });
@@ -162,6 +157,9 @@ export async function POST(request: Request) {
     if (!tgUser) {
       return NextResponse.json({ error: "Invalid Telegram authorization" }, { status: 401 });
     }
+    // Rate limit by authenticated Telegram user ID — 5 submissions per 10 minutes
+    const limited = rateLimit(`applications:tg:${tgUser.id}`, { max: 5, windowSec: 600 });
+    if (limited) return limited;
   } else {
     // Web mode: check for authenticated session
     const supabase = await createSupabaseServer();
@@ -184,6 +182,9 @@ export async function POST(request: Request) {
     } else {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }
+    // Rate limit by authenticated web user ID — 5 submissions per 10 minutes
+    const limited = rateLimit(`applications:web:${webUser.id}`, { max: 5, windowSec: 600 });
+    if (limited) return limited;
   }
 
   // Upsert or create contact
