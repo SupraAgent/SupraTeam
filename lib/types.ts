@@ -9,6 +9,18 @@ export type PipelineStage = {
 export type LifecycleStage = "prospect" | "lead" | "opportunity" | "customer" | "churned" | "inactive";
 export type ContactSource = "manual" | "telegram_import" | "telegram_bot" | "csv_import" | "referral" | "event" | "inbound" | "outbound";
 
+export type TokenStatus = "pre_tge" | "post_tge" | "no_token";
+export type FundingStage = "pre_seed" | "seed" | "series_a" | "series_b" | "series_c" | "public" | "bootstrapped";
+export type ProtocolType = "defi" | "infrastructure" | "gaming" | "nft" | "dao" | "social" | "bridge" | "oracle" | "wallet" | "other";
+export type DecisionMakerLevel = "founder" | "c_level" | "vp" | "director" | "manager" | "ic";
+export type PartnershipType = "integration" | "listing" | "co_marketing" | "investment" | "advisory" | "node_operator";
+
+export interface Wallet {
+  address: string;
+  chain: string;
+  label?: string;
+}
+
 export interface Company {
   id: string;
   name: string;
@@ -19,6 +31,11 @@ export interface Company {
   logo_url: string | null;
   employee_count: number | null;
   location: string | null;
+  tvl: number | null;
+  chain_deployments: string[];
+  token_status: TokenStatus | null;
+  funding_stage: FundingStage | null;
+  protocol_type: ProtocolType | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -48,6 +65,9 @@ export type Contact = {
   x_handle: string | null;
   wallet_address: string | null;
   wallet_chain: string | null;
+  wallets: Wallet[];
+  decision_maker_level: DecisionMakerLevel | null;
+  partnership_type: PartnershipType | null;
   on_chain_score: number;
   x_bio: string | null;
   x_followers: number | null;

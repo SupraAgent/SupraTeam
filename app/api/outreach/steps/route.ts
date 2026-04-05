@@ -67,7 +67,7 @@ export async function PUT(request: Request) {
     (existingSteps ?? []).map((s: { id: string; step_number: number }) => [s.step_number, s.id])
   );
 
-  type StepInput = { message_template: string; variant_b_template?: string; variant_c_template?: string; ab_split_pct?: number; variant_b_delay_hours?: number; delay_hours?: number; step_type?: string; step_label?: string; condition_type?: string; condition_config?: Record<string, unknown>; on_true_step?: number; on_false_step?: number; split_percentage?: number };
+  type StepInput = { message_template: string; variant_b_template?: string; variant_c_template?: string; ab_split_pct?: number; variant_b_delay_hours?: number; delay_hours?: number; step_type?: string; step_label?: string; condition_type?: string; condition_config?: Record<string, unknown>; on_true_step?: number; on_false_step?: number; split_percentage?: number; channel?: string; email_subject?: string; email_template?: string };
 
   const buildStepFields = (s: StepInput) => ({
     delay_hours: s.delay_hours ?? 24,
@@ -83,6 +83,9 @@ export async function PUT(request: Request) {
     on_true_step: s.on_true_step ?? null,
     on_false_step: s.on_false_step ?? null,
     split_percentage: s.split_percentage ?? null,
+    channel: s.channel === "email" ? "email" : "telegram",
+    email_subject: s.email_subject || null,
+    email_template: s.email_template || null,
   });
 
   // Update existing steps, insert new ones

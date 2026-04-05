@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 export default function TMALayout({ children }: { children: React.ReactNode }) {
   // No sidebar, no topbar -- minimal layout for Telegram Mini App
   return (
-    <div className="min-h-dvh bg-[hsl(225,35%,5%)]" style={{ overscrollBehavior: "contain" }}>
+    <div className="min-h-dvh bg-[var(--tg-theme-bg-color,hsl(225,35%,5%))]" style={{ overscrollBehavior: "contain" }}>
       <TMAOfflineProvider>
         <Suspense fallback={null}>{children}</Suspense>
       </TMAOfflineProvider>

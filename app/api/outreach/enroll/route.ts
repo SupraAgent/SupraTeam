@@ -83,6 +83,25 @@ export async function POST(request: Request) {
     chatId = deal?.telegram_chat_id ?? null;
   }
 
+  // Resolve contact email for email-channel steps
+  let contactEmail: string | null = null;
+  if (contact_id) {
+    const { data: contactData } = await supabase
+      .from("crm_contacts")
+      .select("email")
+      .eq("id", contact_id)
+      .single();
+    contactEmail = contactData?.email ?? null;
+  } else if (deal_id) {
+    const { data: dealWithContact } = await supabase
+      .from("crm_deals")
+      .select("contact:crm_contacts(email)")
+      .eq("id", deal_id)
+      .single();
+    const contactArr = dealWithContact?.contact as unknown as { email: string | null }[] | null;
+    contactEmail = contactArr?.[0]?.email ?? null;
+  }
+
   const { data: enrollment, error } = await supabase
     .from("crm_outreach_enrollments")
     .insert({
@@ -90,6 +109,7 @@ export async function POST(request: Request) {
       deal_id: deal_id || null,
       contact_id: contact_id || null,
       tg_chat_id: chatId || null,
+      contact_email: contactEmail,
       current_step: 1,
       next_send_at: nextSendAt,
       enrolled_by: user.id,

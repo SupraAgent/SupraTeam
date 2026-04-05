@@ -268,9 +268,9 @@ export default function TMAVoicePage() {
 
   return (
     <PullToRefresh onRefresh={fetchData}>
-      <div className="flex min-h-dvh flex-col bg-[hsl(225,35%,5%)]">
+      <div className="flex min-h-dvh flex-col bg-[var(--tg-theme-bg-color,hsl(225,35%,5%))]">
         {/* Header */}
-        <div className="sticky top-0 z-10 border-b border-zinc-800/50 bg-[hsl(225,35%,5%)]/90 backdrop-blur-md">
+        <div className="sticky top-0 z-10 border-b border-zinc-800/50 bg-[var(--tg-theme-bg-color,hsl(225,35%,5%))]/90 backdrop-blur-md">
           <div className="flex items-center gap-3 px-4 py-3">
             <button
               type="button"

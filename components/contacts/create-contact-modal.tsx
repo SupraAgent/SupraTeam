@@ -8,7 +8,7 @@ import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { AlertTriangle, ShieldAlert, QrCode } from "lucide-react";
-import type { PipelineStage, LifecycleStage, ContactSource, Company } from "@/lib/types";
+import type { PipelineStage, LifecycleStage, ContactSource, Company, Wallet, DecisionMakerLevel, PartnershipType } from "@/lib/types";
 
 interface QrCodeRecipe {
   id: string;
@@ -59,6 +59,9 @@ export function CreateContactModal({ open, onClose, onCreated }: CreateContactMo
   const [tgGroupLink, setTgGroupLink] = React.useState("");
   const [xHandle, setXHandle] = React.useState("");
   const [walletAddress, setWalletAddress] = React.useState("");
+  const [wallets, setWallets] = React.useState<Wallet[]>([]);
+  const [decisionMakerLevel, setDecisionMakerLevel] = React.useState<DecisionMakerLevel | "">("");
+  const [partnershipType, setPartnershipType] = React.useState<PartnershipType | "">("");
   const [stageId, setStageId] = React.useState("");
   const [lifecycle, setLifecycle] = React.useState<LifecycleStage>("prospect");
   const [source, setSource] = React.useState<ContactSource>("manual");
@@ -156,6 +159,9 @@ export function CreateContactModal({ open, onClose, onCreated }: CreateContactMo
           telegram_username: telegram || null,
           x_handle: xHandle || null,
           wallet_address: walletAddress || null,
+          wallets: wallets.length > 0 ? wallets : [],
+          decision_maker_level: decisionMakerLevel || null,
+          partnership_type: partnershipType || null,
           title: title || null,
           notes: notes ? (tgGroupLink ? `${notes}\nTG Group: ${tgGroupLink}` : notes) : (tgGroupLink ? `TG Group: ${tgGroupLink}` : null),
           stage_id: stageId || null,
@@ -169,7 +175,8 @@ export function CreateContactModal({ open, onClose, onCreated }: CreateContactMo
       if (res.ok) {
         toast.success("Contact added");
         setName(""); setCompany(""); setCompanyId(null); setEmail(""); setPhone("");
-        setTelegram(""); setXHandle(""); setWalletAddress(""); setTitle(""); setNotes(""); setLifecycle("prospect");
+        setTelegram(""); setXHandle(""); setWalletAddress(""); setWallets([]); setDecisionMakerLevel(""); setPartnershipType("");
+        setTitle(""); setNotes(""); setLifecycle("prospect");
         setSource("manual"); setStageId(stages[0]?.id ?? ""); setDuplicates([]); setCustomValues({}); setSelectedRecipeId("");
         onCreated();
         onClose();
@@ -288,6 +295,85 @@ export function CreateContactModal({ open, onClose, onCreated }: CreateContactMo
             <label className="text-xs font-medium text-muted-foreground">Wallet Address</label>
             <Input value={walletAddress} onChange={(e) => setWalletAddress(e.target.value)} placeholder="0x... or supra1..." className="mt-1" />
           </div>
+        </div>
+
+        {/* Partnership context */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">Decision Maker Level</label>
+            <select
+              value={decisionMakerLevel}
+              onChange={(e) => setDecisionMakerLevel(e.target.value as DecisionMakerLevel | "")}
+              className="mt-1 w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-foreground"
+            >
+              <option value="">Select...</option>
+              <option value="founder">Founder</option>
+              <option value="c_level">C-Level</option>
+              <option value="vp">VP</option>
+              <option value="director">Director</option>
+              <option value="manager">Manager</option>
+              <option value="ic">IC</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">Partnership Type</label>
+            <select
+              value={partnershipType}
+              onChange={(e) => setPartnershipType(e.target.value as PartnershipType | "")}
+              className="mt-1 w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-foreground"
+            >
+              <option value="">Select...</option>
+              <option value="integration">Integration</option>
+              <option value="listing">Listing</option>
+              <option value="co_marketing">Co-Marketing</option>
+              <option value="investment">Investment</option>
+              <option value="advisory">Advisory</option>
+              <option value="node_operator">Node Operator</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Additional wallets */}
+        <div>
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-medium text-muted-foreground">Additional Wallets</label>
+            <button
+              type="button"
+              onClick={() => setWallets([...wallets, { address: "", chain: "", label: "" }])}
+              className="text-[10px] text-primary hover:text-primary/80 transition"
+            >
+              + Add Wallet
+            </button>
+          </div>
+          {wallets.map((w, i) => (
+            <div key={i} className="grid grid-cols-[1fr_80px_80px_24px] gap-1.5 mt-1.5">
+              <Input
+                value={w.address}
+                onChange={(e) => { const next = [...wallets]; next[i] = { ...w, address: e.target.value }; setWallets(next); }}
+                placeholder="0x... or supra1..."
+                className="text-xs"
+              />
+              <Input
+                value={w.chain}
+                onChange={(e) => { const next = [...wallets]; next[i] = { ...w, chain: e.target.value }; setWallets(next); }}
+                placeholder="Chain"
+                className="text-xs"
+              />
+              <Input
+                value={w.label ?? ""}
+                onChange={(e) => { const next = [...wallets]; next[i] = { ...w, label: e.target.value }; setWallets(next); }}
+                placeholder="Label"
+                className="text-xs"
+              />
+              <button
+                type="button"
+                onClick={() => setWallets(wallets.filter((_, j) => j !== i))}
+                className="text-red-400 hover:text-red-300 text-xs"
+              >
+                x
+              </button>
+            </div>
+          ))}
         </div>
 
         <div className="grid grid-cols-3 gap-3">

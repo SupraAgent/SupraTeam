@@ -199,7 +199,7 @@ export default function TMAAIChatPage() {
       </div>
 
       {/* Input bar */}
-      <div className="fixed bottom-16 left-0 right-0 px-4 py-3 border-t border-white/5 bg-[hsl(225,35%,5%)] safe-area-bottom">
+      <div className="fixed bottom-16 left-0 right-0 px-4 py-3 border-t border-white/5 bg-[var(--tg-theme-bg-color,hsl(225,35%,5%))] safe-area-bottom">
         <div className="flex gap-2">
           <input
             ref={inputRef}

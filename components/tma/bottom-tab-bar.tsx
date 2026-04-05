@@ -47,7 +47,7 @@ const TABS: { key: Tab; label: string; href: string; icon: React.ReactNode }[] =
 
 export function BottomTabBar({ active }: { active: Tab }) {
   return (
-    <div className="fixed bottom-0 left-0 right-0 border-t border-white/10 bg-[hsl(225,35%,5%)] flex items-center justify-around py-2 px-2 safe-area-bottom z-50">
+    <div className="fixed bottom-0 left-0 right-0 border-t border-white/10 bg-[var(--tg-theme-bottom-bar-bg-color,var(--tg-theme-bg-color,hsl(225,35%,5%)))] flex items-center justify-around py-2 px-2 safe-area-bottom z-50">
       {TABS.map((tab) => (
         <Link
           key={tab.key}

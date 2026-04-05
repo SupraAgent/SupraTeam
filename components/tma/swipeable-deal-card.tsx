@@ -180,7 +180,7 @@ export function SwipeableDealCard({ deal, stages, onStageChange, onLongPress }: 
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
-        className="relative bg-[hsl(225,35%,5%)] transition-transform"
+        className="relative bg-[var(--tg-theme-bg-color,hsl(225,35%,5%))] transition-transform"
         style={{
           transform: `translateX(${offsetX}px)`,
           transition: swiping ? "none" : "transform 200ms ease-out",

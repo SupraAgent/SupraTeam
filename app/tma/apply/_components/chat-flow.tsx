@@ -269,7 +269,7 @@ export function ChatFlow() {
   };
 
   return (
-    <div className="flex flex-col h-[100dvh] bg-[hsl(225,35%,5%)]">
+    <div className="flex flex-col h-[100dvh] bg-[var(--tg-theme-bg-color,hsl(225,35%,5%))]">
       {/* Header */}
       <div className="shrink-0 px-4 pt-4 pb-3 border-b border-white/5">
         <h1 className="text-base font-semibold text-white">SuperDapp Application</h1>

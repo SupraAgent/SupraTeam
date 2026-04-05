@@ -45,7 +45,7 @@ export async function POST(request: Request) {
   const { user, supabase } = auth;
 
   const body = await request.json();
-  const { name, domain, industry, website, description, logo_url, employee_count, location } = body;
+  const { name, domain, industry, website, description, logo_url, employee_count, location, tvl, chain_deployments, token_status, funding_stage, protocol_type } = body;
 
   if (!name) {
     return NextResponse.json({ error: "name is required" }, { status: 400 });
@@ -73,6 +73,11 @@ export async function POST(request: Request) {
       logo_url: logo_url || null,
       employee_count: employee_count ?? null,
       location: location || null,
+      tvl: tvl ?? null,
+      chain_deployments: Array.isArray(chain_deployments) ? chain_deployments : [],
+      token_status: token_status || null,
+      funding_stage: funding_stage || null,
+      protocol_type: protocol_type || null,
       created_by: user.id,
     })
     .select()
