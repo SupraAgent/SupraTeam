@@ -11,11 +11,8 @@ export async function GET(request: Request) {
 
   let query = supabase.from("pipeline_stages").select("*").order("position");
 
-  if (boardType === "Applications") {
-    // Applications board has its own dedicated stages
-    query = query.eq("board_type", "Applications");
-  } else if (boardType) {
-    // Other specific boards use legacy shared stages (board_type IS NULL)
+  if (boardType) {
+    // Specific boards use shared stages (board_type IS NULL)
     query = query.is("board_type", null);
   }
   // No board_type param = return all stages (for pipeline page that shows all boards)

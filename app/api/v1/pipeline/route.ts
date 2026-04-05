@@ -23,9 +23,7 @@ export async function GET(request: Request) {
     .select("*")
     .order("position");
 
-  if (boardType === "Applications") {
-    query = query.eq("board_type", "Applications");
-  } else if (boardType) {
+  if (boardType) {
     query = query.is("board_type", null);
   }
 

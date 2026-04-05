@@ -89,7 +89,7 @@ export type Deal = {
   deal_name: string;
   contact_id: string | null;
   assigned_to: string | null;
-  board_type: "BD" | "Marketing" | "Admin" | "Applications";
+  board_type: "BD" | "Marketing" | "Admin";
   stage_id: string | null;
   value: number | null;
   probability: number | null;
@@ -129,7 +129,7 @@ export interface DealLinkedChat {
   linked_at: string;
 }
 
-export type BoardType = "All" | "BD" | "Marketing" | "Admin" | "Applications";
+export type BoardType = "All" | "BD" | "Marketing" | "Admin";
 
 export type Doc = {
   id: string;
