@@ -10,8 +10,9 @@ import { timeAgo, cn } from "@/lib/utils";
 import { toast } from "sonner";
 import {
   MessageCircle, Save, Trash2, Send, GitBranch, StickyNote, ExternalLink, FileText, Plus, Clock,
-  ChevronRight, UserPlus, Trophy, XCircle, Link2, Mail, Unlink, Loader2,
+  ChevronRight, UserPlus, Trophy, XCircle, Link2, Mail, Unlink, Loader2, Calendar,
 } from "lucide-react";
+import { ScheduleCallModal } from "./schedule-call-modal";
 import Link from "next/link";
 import { ConversationTimeline } from "./conversation-timeline";
 import { LinkConversationModal } from "./link-conversation-modal";
@@ -87,6 +88,9 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
   const [taskMessage, setTaskMessage] = React.useState("");
   const [taskDue, setTaskDue] = React.useState("");
   const [creatingTask, setCreatingTask] = React.useState(false);
+
+  // Schedule call modal
+  const [scheduleCallOpen, setScheduleCallOpen] = React.useState(false);
 
   // AI Sentiment
   type SentimentData = {
@@ -438,6 +442,17 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
             Open Telegram Chat
           </a>
         )}
+
+        {/* Schedule Call */}
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full justify-center gap-2"
+          onClick={() => setScheduleCallOpen(true)}
+        >
+          <Calendar className="h-4 w-4 text-[#006BFF]" />
+          Schedule a Call
+        </Button>
 
         {/* Tabs */}
         <div className="flex gap-1 border-b border-white/10 pb-0">
@@ -1170,6 +1185,16 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
           </div>
         )}
       </div>
+
+      {/* Schedule Call Modal */}
+      <ScheduleCallModal
+        open={scheduleCallOpen}
+        onClose={() => setScheduleCallOpen(false)}
+        dealId={deal.id}
+        dealName={deal.deal_name}
+        contactId={deal.contact_id}
+        telegramChatId={deal.telegram_chat_id ?? undefined}
+      />
     </SlideOver>
   );
 }
