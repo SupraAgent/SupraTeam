@@ -47,6 +47,12 @@ import { useTelegramAdminGroups } from "@/lib/client/use-telegram-admin-groups";
 import { useTelegram } from "@/lib/client/telegram-context";
 import { EmojiPicker } from "@/components/ui/emoji-picker";
 import { DealContextSidebar } from "@/components/inbox/deal-context-sidebar";
+import {
+  TgChatGroupPanel,
+  useTgChatGroups,
+  TG_CHAT_DRAG_TYPE,
+} from "@/components/inbox/tg-chat-group-panel";
+import type { DragChatData } from "@/components/inbox/tg-chat-group-panel";
 
 // ── Chat Label Types & Constants ────────────────────────────────
 
@@ -115,9 +121,14 @@ interface Deal {
   id: string;
   deal_name: string;
   board_type: string;
+  stage_id: string | null;
   stage: { name: string; color: string } | null;
   assigned_to: string | null;
   contact: { id: string; name: string } | null;
+  value?: number | null;
+  probability?: number | null;
+  health_score?: number | null;
+  ai_summary?: string | null;
 }
 
 interface InboxStatus {
@@ -177,6 +188,35 @@ function parseSearchFilters(raw: string): SearchFilters {
   return { text: text.trim(), fromUsername, hasAttachment, isUnread, isVip };
 }
 
+// ── Infinite Scroll Sentinel ──────────────────────────────────
+
+function InboxLoadMore({ loading, onVisible }: { loading: boolean; onVisible: () => void }) {
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && !loading) {
+          onVisible();
+        }
+      },
+      { rootMargin: "200px" }
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [loading, onVisible]);
+
+  return (
+    <div ref={ref} className="p-3 flex justify-center">
+      {loading && <span className="text-xs text-muted-foreground/50">Loading...</span>}
+    </div>
+  );
+}
+
 // ── Main Component ─────────────────────────────────────────────
 
 export default function InboxPage() {
@@ -194,6 +234,9 @@ export default function InboxPage() {
   const [expandedThreads, setExpandedThreads] = React.useState<Set<number>>(new Set());
   const [refreshing, setRefreshing] = React.useState(false);
   const [activeTab, setActiveTab] = React.useState<InboxTab>("awaiting_reply");
+  const [hasMore, setHasMore] = React.useState(false);
+  const [loadingMore, setLoadingMore] = React.useState(false);
+  const [nextCursor, setNextCursor] = React.useState<string | null>(null);
 
   // Chat labels (VIP, tags, notes, archive, pin, mute)
   const [labels, setLabels] = React.useState<Record<string, ChatLabel>>({});
@@ -202,6 +245,10 @@ export default function InboxPage() {
   } | null>(null);
   const [noteModal, setNoteModal] = React.useState<{ chatId: number; groupName: string } | null>(null);
   const [noteText, setNoteText] = React.useState("");
+
+  // Chat groups (drag-to-group + filtering)
+  const chatGroups = useTgChatGroups();
+  const [activeGroupId, setActiveGroupId] = React.useState<string | null>(null);
 
   // Nuke state
   const [nukeTarget, setNukeTarget] = React.useState<{ chatId: number; name: string; type: "messages" | "groups" } | null>(null);
@@ -287,6 +334,8 @@ export default function InboxPage() {
           messages: c.messages.filter((m: ThreadMessage) => !String(m.id).startsWith("optimistic-")),
         })));
         setDeals(data.deals ?? {});
+        setHasMore(data.hasMore ?? false);
+        setNextCursor(data.nextCursor ?? null);
       }
       if (statusRes.status === "fulfilled" && statusRes.value.ok) {
         const data = await statusRes.value.json();
@@ -309,6 +358,30 @@ export default function InboxPage() {
       setRefreshing(false);
     }
   }, [selectedBotId]);
+
+  const loadMore = React.useCallback(async () => {
+    if (loadingMore || !hasMore || !nextCursor) return;
+    setLoadingMore(true);
+    try {
+      const params = new URLSearchParams();
+      if (selectedBotId) params.set("bot_id", selectedBotId);
+      params.set("before", nextCursor);
+      const res = await fetch(`/api/inbox?${params.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        const newConvs = (data.conversations ?? []).map((c: Conversation) => ({
+          ...c,
+          messages: c.messages.filter((m: ThreadMessage) => !String(m.id).startsWith("optimistic-")),
+        }));
+        setConversations((prev) => [...prev, ...newConvs]);
+        setDeals((prev) => ({ ...prev, ...(data.deals ?? {}) }));
+        setHasMore(data.hasMore ?? false);
+        setNextCursor(data.nextCursor ?? null);
+      }
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, hasMore, nextCursor, selectedBotId]);
 
   // Get current user ID + team members
   React.useEffect(() => {
@@ -715,6 +788,15 @@ export default function InboxPage() {
       });
     }
 
+    // Group filter: only show chats in the active group
+    if (activeGroupId) {
+      const activeGroup = chatGroups.groups.find((g) => g.id === activeGroupId);
+      if (activeGroup) {
+        const memberChatIds = new Set(activeGroup.crm_tg_chat_group_members.map((m) => m.telegram_chat_id));
+        result = result.filter((c) => memberChatIds.has(c.chat_id));
+      }
+    }
+
     // Sort: pinned first, then unread, then by time
     result = [...result].sort((a, b) => {
       const aPinned = getLabel(a.chat_id)?.is_pinned ? 1 : 0;
@@ -728,7 +810,7 @@ export default function InboxPage() {
     });
 
     return result;
-  }, [conversations, search, activeTab, statuses, currentUserId, lastSeen, labels]);
+  }, [conversations, search, activeTab, statuses, currentUserId, lastSeen, labels, activeGroupId, chatGroups.groups]);
   filteredRef.current = filtered;
 
   const unassignedCount = conversations.filter((c) => {
@@ -747,6 +829,7 @@ export default function InboxPage() {
     const lastMsg = c.messages[0];
     return lastMsg && !lastMsg.is_from_bot;
   }).length;
+
 
   const vipCount = conversations.filter((c) => getLabel(c.chat_id)?.is_vip && !getLabel(c.chat_id)?.is_archived).length;
   const archivedCount = conversations.filter((c) => getLabel(c.chat_id)?.is_archived).length;
@@ -1216,8 +1299,9 @@ export default function InboxPage() {
         </div>
       ) : (
         <div className={cn("grid grid-cols-1 gap-4 min-h-[60vh]", showDealSidebar && selectedChat && (deals[selectedChat] ?? []).length > 0 ? "lg:grid-cols-[320px_1fr_260px]" : "lg:grid-cols-[320px_1fr]")}>
-          {/* Conversation list */}
-          <div className="rounded-xl border border-white/10 bg-white/[0.02] overflow-hidden">
+          {/* Left column: Conversation list + Chat groups */}
+          <div className="flex flex-col gap-2 min-h-0">
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] overflow-hidden flex-1">
             <div className="divide-y divide-white/5 max-h-[70vh] overflow-y-auto thin-scroll">
               {filtered.map((conv, convIndex) => {
                 const chatDeals = deals[conv.chat_id] ?? [];
@@ -1250,10 +1334,19 @@ export default function InboxPage() {
                 return (
                   <button
                     key={conv.chat_id}
+                    draggable
+                    onDragStart={(e) => {
+                      const dragData: DragChatData = {
+                        chatId: conv.chat_id,
+                        chatTitle: conv.group_name,
+                      };
+                      e.dataTransfer.setData(TG_CHAT_DRAG_TYPE, JSON.stringify(dragData));
+                      e.dataTransfer.effectAllowed = "move";
+                    }}
                     onClick={() => handleSelectChat(conv.chat_id)}
                     onContextMenu={(e) => handleContextMenu(e, conv.chat_id, conv.group_name)}
                     className={cn(
-                      "w-full text-left px-3 py-2.5 transition-colors",
+                      "w-full text-left px-3 py-2.5 transition-colors cursor-grab active:cursor-grabbing",
                       isSelected ? "bg-primary/10" :
                       convIndex === highlightedIndex ? "bg-white/[0.06] ring-1 ring-primary/30" :
                       label?.is_vip ? "bg-amber-500/[0.04] hover:bg-amber-500/[0.08]" :
@@ -1318,8 +1411,16 @@ export default function InboxPage() {
                         <span className="text-[10px] text-muted-foreground/50">{timeAgo(conv.latest_at)}</span>
                       )}
                       {slaLabel && status?.status !== "closed" && (
-                        <span className={cn("text-[10px] font-medium", slaColor)} title="Time since last customer message">
-                          {slaLabel}
+                        <span
+                          className={cn(
+                            "font-medium",
+                            slaHours && slaHours >= 4
+                              ? "text-[10px] rounded-full px-1.5 py-0.5 bg-red-500/15 text-red-400"
+                              : cn("text-[10px]", slaColor)
+                          )}
+                          title="Time since last customer message"
+                        >
+                          {slaHours && slaHours >= 4 ? `⏱ ${slaLabel}` : slaLabel}
                         </span>
                       )}
                       {activeTab === "awaiting_reply" && lastCustomerMsg && (
@@ -1340,7 +1441,28 @@ export default function InboxPage() {
                   </button>
                 );
               })}
+              {hasMore && (
+                <InboxLoadMore loading={loadingMore} onVisible={loadMore} />
+              )}
             </div>
+          </div>
+
+          {/* Chat Groups — compact drop targets + filter */}
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-2 max-h-[25vh] overflow-y-auto thin-scroll shrink-0">
+            <TgChatGroupPanel
+              groups={chatGroups.groups}
+              loading={chatGroups.loading}
+              activeGroupId={activeGroupId}
+              onSelectGroup={setActiveGroupId}
+              onCreateGroup={chatGroups.createGroup}
+              onDeleteGroup={(id) => { if (activeGroupId === id) setActiveGroupId(null); chatGroups.deleteGroup(id); }}
+              onRenameGroup={chatGroups.renameGroup}
+              onToggleCollapse={chatGroups.toggleCollapse}
+              onDropChat={(groupId, data) => chatGroups.addChatToGroup(groupId, data.chatId, data.chatTitle)}
+              onRemoveChat={chatGroups.removeChatFromGroup}
+              onSelectChat={(chatId) => setSelectedChat(chatId)}
+            />
+          </div>
           </div>
 
           {/* Message detail + reply */}
@@ -1789,6 +1911,7 @@ export default function InboxPage() {
               deals={deals[selectedChat] ?? []}
               chatId={selectedChat}
               onClose={() => setShowDealSidebar(false)}
+              onDealUpdated={fetchInbox}
             />
           )}
         </div>

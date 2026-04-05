@@ -105,9 +105,12 @@ type Props = {
   mode: "tma" | "web";
   telegramInitData?: string;
   telegramUser?: { id: number; first_name: string; last_name?: string; username?: string };
+  qrCodeId?: string;
+  qrCampaign?: string;
+  qrSource?: string;
 };
 
-export function ApplicationForm({ mode, telegramInitData, telegramUser }: Props) {
+export function ApplicationForm({ mode, telegramInitData, telegramUser, qrCodeId, qrCampaign, qrSource }: Props) {
   const [state, dispatch] = React.useReducer(reducer, INITIAL_STATE);
   const [animKey, setAnimKey] = React.useState(0);
 
@@ -154,6 +157,13 @@ export function ApplicationForm({ mode, telegramInitData, telegramUser }: Props)
 
       if (mode === "tma" && telegramInitData) {
         payload.initData = telegramInitData;
+      }
+
+      // Include QR code context if present (from QR lead capture flow)
+      if (qrCodeId) {
+        payload.qr_code_id = qrCodeId;
+        if (qrCampaign) payload.qr_campaign = qrCampaign;
+        if (qrSource) payload.qr_source = qrSource;
       }
 
       const res = await fetch("/api/applications", {

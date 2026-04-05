@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useParams, useRouter } from "next/navigation";
 import { cn, timeAgo } from "@/lib/utils";
-import { ArrowLeft, MessageCircle, Send, GitBranch, StickyNote, ExternalLink, Calendar } from "lucide-react";
+import { ArrowLeft, MessageCircle, Send, GitBranch, StickyNote, ExternalLink, Calendar, ChevronRight } from "lucide-react";
 import { BookingLinkButton } from "@/components/calendly/booking-link-button";
 import { useTelegramWebApp } from "@/components/tma/use-telegram";
 
@@ -212,6 +212,32 @@ export default function TMADealDetailPage() {
       <div className="px-4 pb-3 flex gap-2">
         <BookingLinkButton dealId={id} contactId={deal.contact?.id} compact />
       </div>
+
+      {/* Advance to next stage — 1-click shortcut */}
+      {stages.length > 0 && deal.outcome === "open" && (() => {
+        const sortedStages = [...stages].sort((a, b) => a.position - b.position);
+        const currentIdx = sortedStages.findIndex((s) => s.id === deal.stage_id);
+        const nextStage = currentIdx >= 0 && currentIdx < sortedStages.length - 1
+          ? sortedStages[currentIdx + 1]
+          : null;
+
+        return nextStage ? (
+          <div className="px-4 pb-2">
+            <button
+              onClick={() => handleMoveStage(nextStage.id)}
+              disabled={movingStage}
+              className={cn(
+                "w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium transition active:scale-[0.98]",
+                movingStage && "opacity-50"
+              )}
+              style={{ backgroundColor: `${nextStage.color}20`, color: nextStage.color, border: `1px solid ${nextStage.color}30` }}
+            >
+              <ChevronRight className="h-4 w-4" />
+              Advance to {nextStage.name}
+            </button>
+          </div>
+        ) : null;
+      })()}
 
       {/* Quick stage move */}
       {stages.length > 0 && deal.outcome === "open" && (

@@ -5,6 +5,7 @@ import { validateTelegramInitData } from "@/lib/telegram-auth";
 import { getBotById } from "@/lib/bot-registry";
 import { rateLimit } from "@/lib/rate-limit";
 import { randomBytes } from "crypto";
+import { dispatchWebhook } from "@/lib/webhooks";
 
 export const runtime = "nodejs";
 
@@ -113,6 +114,9 @@ export async function POST(request: Request) {
     applying_for,
     supra_tech_used,
     funding_requested,
+    qr_code_id,
+    qr_campaign,
+    qr_source,
   } = body as {
     initData?: string;
     project_name?: string;
@@ -127,6 +131,9 @@ export async function POST(request: Request) {
     applying_for?: string[];
     supra_tech_used?: string[];
     funding_requested?: number;
+    qr_code_id?: string;
+    qr_campaign?: string;
+    qr_source?: string;
   };
 
   // Validate required fields
@@ -294,15 +301,35 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Failed to generate unique reference code. Please try again." }, { status: 500 });
   }
 
+  // If QR code specified, use its pipeline stage and assigned_to as defaults
+  let dealStageId = submittedStage.id;
+  let dealAssignedTo: string | null = null;
+  let dealSource = submissionSource;
+
+  if (qr_code_id) {
+    const { data: qrCode } = await admin
+      .from("crm_qr_codes")
+      .select("pipeline_stage_id, assigned_to, campaign, source")
+      .eq("id", qr_code_id)
+      .single();
+
+    if (qrCode) {
+      if (qrCode.pipeline_stage_id) dealStageId = qrCode.pipeline_stage_id;
+      if (qrCode.assigned_to) dealAssignedTo = qrCode.assigned_to;
+      dealSource = `qr_scan${qrCode.campaign ? `:${qrCode.campaign}` : ""}`;
+    }
+  }
+
   // Create deal
   const { data: deal, error: dealErr } = await admin
     .from("crm_deals")
     .insert({
       deal_name: project_name.trim(),
       board_type: "Applications",
-      stage_id: submittedStage.id,
+      stage_id: dealStageId,
       contact_id: contactId,
-      source: submissionSource,
+      assigned_to: dealAssignedTo,
+      source: dealSource,
       value: funding_requested ?? null,
       health_score: score,
       reference_code: referenceCode,
@@ -313,6 +340,18 @@ export async function POST(request: Request) {
   if (dealErr || !deal) {
     console.error("[applications] deal create error:", dealErr);
     return NextResponse.json({ error: "Failed to create application" }, { status: 500 });
+  }
+
+  // Link QR scan to the created deal (update the most recent scan for this TG user + QR code)
+  if (qr_code_id && tgUser) {
+    await admin
+      .from("crm_qr_scans")
+      .update({ converted_to_deal_id: deal.id })
+      .eq("qr_code_id", qr_code_id)
+      .eq("telegram_user_id", tgUser.id)
+      .is("converted_to_deal_id", null)
+      .order("scanned_at", { ascending: false })
+      .limit(1);
   }
 
   // Save custom field values
@@ -358,6 +397,27 @@ export async function POST(request: Request) {
     deal_id: deal.id,
     text: scoreNote,
   }).then(() => {}, (err) => console.error("[applications] score note error:", err));
+
+  // Dispatch webhooks (non-blocking)
+  dispatchWebhook("deal.created", {
+    deal_id: deal.id,
+    deal_name: project_name.trim(),
+    contact_id: contactId,
+    source: dealSource,
+    stage_id: dealStageId,
+    assigned_to: dealAssignedTo,
+  });
+
+  if (qr_code_id) {
+    dispatchWebhook("qr.converted", {
+      qr_code_id,
+      deal_id: deal.id,
+      contact_id: contactId,
+      campaign: qr_campaign ?? null,
+      source: qr_source ?? null,
+      telegram_user_id: tgUser?.id ?? null,
+    });
+  }
 
   // Send confirmation message via Telegram (non-blocking, TMA only)
   if (tgUser && SUPERDAPP_BOT_ID) {

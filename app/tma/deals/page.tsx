@@ -11,6 +11,7 @@ import { QuickActionMenu } from "@/components/tma/quick-action-menu";
 import { hapticImpact, hapticNotification } from "@/components/tma/haptic";
 import { useTelegramWebApp } from "@/components/tma/use-telegram";
 import { toast } from "sonner";
+import { useOfflineCache } from "@/lib/client/tma-offline";
 
 interface Deal {
   id: string;
@@ -104,7 +105,11 @@ export default function TMADealsPage() {
     };
   }, [contactSearch]);
 
-  // Data fetching
+  // Offline cache for deals and pipeline stages
+  const dealsCache = useOfflineCache<{ deals: Deal[] }>("/api/deals", { maxAgeMs: 5 * 60_000 });
+  const stagesCache = useOfflineCache<{ stages: Stage[] }>("/api/pipeline", { maxAgeMs: 60 * 60_000 });
+
+  // Data fetching with offline fallback
   const fetchData = React.useCallback(async () => {
     try {
       const [dealsRes, stagesRes] = await Promise.all([
@@ -122,10 +127,16 @@ export default function TMADealsPage() {
       setStages(newStages);
       // Expand all stages on first load
       setExpandedStages((prev) => prev.size === 0 ? new Set(newStages.map((s: Stage) => s.id)) : prev);
-    } catch (err) {
-      console.error("[tma/deals] fetch error:", err);
+    } catch {
+      // Network failed — fall back to offline cache
+      if (dealsCache.data) setDeals(dealsCache.data.deals ?? []);
+      if (stagesCache.data) {
+        const cached = stagesCache.data.stages ?? [];
+        setStages(cached);
+        setExpandedStages((prev) => prev.size === 0 ? new Set(cached.map((s) => s.id)) : prev);
+      }
     }
-  }, []);
+  }, [dealsCache.data, stagesCache.data]);
 
   React.useEffect(() => {
     fetchData().finally(() => setLoading(false));
