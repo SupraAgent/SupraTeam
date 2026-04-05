@@ -46,6 +46,8 @@ import { useNukeMessages } from "@/lib/client/use-nuke-messages";
 import { useNukeGroups } from "@/lib/client/use-nuke-groups";
 import { useTelegramAdminGroups } from "@/lib/client/use-telegram-admin-groups";
 import { useTelegram } from "@/lib/client/telegram-context";
+import { TelegramBrowserService } from "@/lib/client/telegram-service";
+import type { TgAvailableSession } from "@/lib/client/telegram-service";
 import { EmojiPicker } from "@/components/ui/emoji-picker";
 import { DealContextSidebar } from "@/components/inbox/deal-context-sidebar";
 import { LinkDealModal } from "@/components/inbox/link-deal-modal";
@@ -330,6 +332,13 @@ export default function InboxPage() {
     return localStorage.getItem("inbox_bot_filter") ?? "";
   });
 
+  // TG account filter (multi-account team sessions)
+  const [teamSessions, setTeamSessions] = React.useState<TgAvailableSession[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = React.useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    return localStorage.getItem("inbox_tg_account_filter") ?? "";
+  });
+
   // Keyboard shortcut help modal
   const [showShortcutHelp, setShowShortcutHelp] = React.useState(false);
   // Highlighted index for keyboard nav in conversation list
@@ -348,6 +357,13 @@ export default function InboxPage() {
     fetch("/api/bots").then((r) => r.ok ? r.json() : null).then((d) => {
       if (d?.bots) setBots(d.bots.map((b: { id: string; label: string }) => ({ id: b.id, label: b.label })));
     }).catch(() => {});
+  }, []);
+
+  // Fetch team TG sessions for account filter
+  React.useEffect(() => {
+    TelegramBrowserService.getAvailableSessions(true).then((sessions) => {
+      setTeamSessions(sessions.filter((s) => s.is_active));
+    });
   }, []);
 
   // ── Data Fetching ──────────────────────────────────────────
@@ -1334,6 +1350,23 @@ export default function InboxPage() {
             ))}
           </select>
         )}
+        {teamSessions.length > 1 && (
+          <select
+            value={selectedAccountId}
+            onChange={(e) => {
+              setSelectedAccountId(e.target.value);
+              localStorage.setItem("inbox_tg_account_filter", e.target.value);
+            }}
+            className="h-8 rounded-lg border border-white/10 bg-transparent px-2 text-xs text-foreground"
+          >
+            <option value="">All Accounts</option>
+            {teamSessions.map((s) => (
+              <option key={s.id} value={s.telegram_user_id?.toString() ?? s.id}>
+                {s.display_name || s.owner_name || `Account ***${s.phone_last4 ?? ""}`}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
 
       {/* Main layout */}
@@ -1496,6 +1529,24 @@ export default function InboxPage() {
                       {assignee && (
                         <span className="text-[10px] text-primary/60 truncate max-w-[80px]">{assignee.display_name}</span>
                       )}
+                      {teamSessions.length > 1 && (() => {
+                        // Show which TG account is associated via matching telegram_user_id
+                        // to the first sender in the conversation that matches a session
+                        const senderIds = new Set(conv.messages.map((m) => m.sender_telegram_id));
+                        const matchedSession = teamSessions.find((s) =>
+                          s.telegram_user_id && senderIds.has(s.telegram_user_id)
+                        );
+                        if (!matchedSession) return null;
+                        const label2 = matchedSession.display_name || matchedSession.owner_name || `***${matchedSession.phone_last4 ?? ""}`;
+                        return (
+                          <span
+                            className="text-[9px] rounded px-1 py-0 bg-indigo-500/15 text-indigo-400 truncate max-w-[70px]"
+                            title={`TG Account: ${label2}`}
+                          >
+                            <UserIcon className="inline h-2 w-2 mr-0.5" />{label2}
+                          </span>
+                        );
+                      })()}
                       {chatDeals.length > 0 && (
                         <span className="text-[10px] text-primary/70 ml-auto">
                           {chatDeals.length} deal{chatDeals.length > 1 ? "s" : ""}
