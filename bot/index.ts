@@ -10,6 +10,9 @@ import { startSlaPoller } from "./handlers/sla-poller.js";
 import { registerCallbackHandler } from "./handlers/callback-actions.js";
 import { registerInlineHandler } from "./handlers/inline-query.js";
 import { registerJoinRequestHandler } from "./handlers/join-requests.js";
+import { registerQrStartHandler } from "./handlers/qr-start.js";
+import { registerVoiceHandlers } from "./handlers/voice-messages.js";
+import { registerSequenceTriggers } from "./handlers/sequence-triggers.js";
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 if (!token) {
@@ -20,6 +23,7 @@ if (!token) {
 const bot = new Bot(token);
 
 // Register handlers
+registerQrStartHandler(bot); // Must be before registerCommands to intercept /start qr_*
 registerCommands(bot);
 registerGroupHandlers(bot);
 registerMessageHandlers(bot);
@@ -27,6 +31,8 @@ registerDripTriggers(bot);
 registerCallbackHandler(bot);
 registerInlineHandler(bot);
 registerJoinRequestHandler(bot);
+registerVoiceHandlers(bot);
+registerSequenceTriggers(bot);
 
 // Start notification poller (stage changes -> TG messages)
 startNotificationPoller(bot);
