@@ -154,7 +154,20 @@ interface CannedResponse {
   usage_count: number;
 }
 
-type InboxTab = "awaiting_reply" | "mine" | "unassigned" | "open" | "vip" | "archived" | "closed";
+type InboxTab = "awaiting_reply" | "urgent" | "mine" | "unassigned" | "open" | "vip" | "archived" | "closed";
+
+interface ChatUrgency {
+  level: string;
+  category: string | null;
+  summary: string | null;
+  count: number;
+}
+
+const URGENCY_RANK: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
+const URGENCY_COLORS: Record<string, { border: string; dot: string; bg: string; text: string }> = {
+  critical: { border: "border-l-red-500", dot: "bg-red-500 animate-pulse", bg: "bg-red-500/10", text: "text-red-400" },
+  high: { border: "border-l-orange-500", dot: "bg-orange-500", bg: "bg-orange-500/10", text: "text-orange-400" },
+};
 
 // ── Advanced Search Parser ─────────────────────────────────────
 interface SearchFilters {
@@ -227,6 +240,7 @@ function InboxLoadMore({ loading, onVisible }: { loading: boolean; onVisible: ()
 export default function InboxPage() {
   const [conversations, setConversations] = React.useState<Conversation[]>([]);
   const [deals, setDeals] = React.useState<Record<number, Deal[]>>({});
+  const [urgency, setUrgency] = React.useState<Record<number, ChatUrgency>>({});
   const [statuses, setStatuses] = React.useState<Record<number, InboxStatus>>({});
   const [cannedResponses, setCannedResponses] = React.useState<CannedResponse[]>([]);
   const [currentUserId, setCurrentUserId] = React.useState<string | null>(null);
@@ -388,6 +402,7 @@ export default function InboxPage() {
           messages: c.messages.filter((m: ThreadMessage) => !String(m.id).startsWith("optimistic-")),
         })));
         setDeals(data.deals ?? {});
+        setUrgency(data.urgency ?? {});
         setHasMore(data.hasMore ?? false);
         setNextCursor(data.nextCursor ?? null);
       }
@@ -429,6 +444,7 @@ export default function InboxPage() {
         }));
         setConversations((prev) => [...prev, ...newConvs]);
         setDeals((prev) => ({ ...prev, ...(data.deals ?? {}) }));
+        setUrgency((prev) => ({ ...prev, ...(data.urgency ?? {}) }));
         setHasMore(data.hasMore ?? false);
         setNextCursor(data.nextCursor ?? null);
       }
@@ -803,7 +819,12 @@ export default function InboxPage() {
     }
 
     // Tab filtering
-    if (activeTab === "awaiting_reply") {
+    if (activeTab === "urgent") {
+      result = result.filter((c) => {
+        const u = urgency[c.chat_id];
+        return u && (URGENCY_RANK[u.level] ?? 0) >= (URGENCY_RANK["high"] ?? 0);
+      });
+    } else if (activeTab === "awaiting_reply") {
       result = result.filter((c) => {
         const s = statuses[c.chat_id];
         if (s?.status === "closed" || getLabel(c.chat_id)?.is_archived) return false;
@@ -851,11 +872,15 @@ export default function InboxPage() {
       }
     }
 
-    // Sort: pinned first, then unread, then by time
+    // Sort: pinned > urgency (critical > high) > unread > recency
     result = [...result].sort((a, b) => {
       const aPinned = getLabel(a.chat_id)?.is_pinned ? 1 : 0;
       const bPinned = getLabel(b.chat_id)?.is_pinned ? 1 : 0;
       if (aPinned !== bPinned) return bPinned - aPinned;
+      // Urgency sort: critical > high > rest
+      const aUrg = URGENCY_RANK[urgency[a.chat_id]?.level ?? ""] ?? 0;
+      const bUrg = URGENCY_RANK[urgency[b.chat_id]?.level ?? ""] ?? 0;
+      if (aUrg !== bUrg) return bUrg - aUrg;
       const aHasUnread = !lastSeen[a.chat_id] || (a.latest_at ? a.latest_at > lastSeen[a.chat_id] : false);
       const bHasUnread = !lastSeen[b.chat_id] || (b.latest_at ? b.latest_at > lastSeen[b.chat_id] : false);
       if (aHasUnread && !bHasUnread) return -1;
@@ -864,7 +889,7 @@ export default function InboxPage() {
     });
 
     return result;
-  }, [conversations, search, activeTab, statuses, currentUserId, lastSeen, labels, activeGroupId, chatGroups.groups]);
+  }, [conversations, search, activeTab, statuses, currentUserId, lastSeen, labels, activeGroupId, chatGroups.groups, urgency]);
   filteredRef.current = filtered;
 
   const unassignedCount = conversations.filter((c) => {
@@ -884,6 +909,11 @@ export default function InboxPage() {
     return lastMsg && !lastMsg.is_from_bot;
   }).length;
 
+
+  const urgentCount = conversations.filter((c) => {
+    const u = urgency[c.chat_id];
+    return u && (URGENCY_RANK[u.level] ?? 0) >= (URGENCY_RANK["high"] ?? 0);
+  }).length;
 
   const vipCount = conversations.filter((c) => getLabel(c.chat_id)?.is_vip && !getLabel(c.chat_id)?.is_archived).length;
   const archivedCount = conversations.filter((c) => getLabel(c.chat_id)?.is_archived).length;
@@ -1273,6 +1303,7 @@ export default function InboxPage() {
         <div className="flex gap-1">
           {([
             { key: "awaiting_reply" as InboxTab, label: "Awaiting", count: awaitingReplyCount, icon: "hourglass" as const },
+            { key: "urgent" as InboxTab, label: "Urgent", count: urgentCount, icon: "zap" as const },
             { key: "mine" as InboxTab, label: "Mine", count: mineCount },
             { key: "unassigned" as InboxTab, label: "Unassigned", count: unassignedCount },
             { key: "open" as InboxTab, label: "Open" },
@@ -1288,19 +1319,22 @@ export default function InboxPage() {
                 activeTab === tab.key
                   ? tab.key === "vip" ? "bg-amber-500/20 text-amber-400"
                   : tab.key === "awaiting_reply" ? "bg-orange-500/20 text-orange-400"
+                  : tab.key === "urgent" ? "bg-red-500/20 text-red-400"
                   : "bg-white/10 text-foreground"
                   : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
               )}
             >
               {tab.key === "vip" && <Star className="inline h-3 w-3 mr-0.5" />}
               {tab.key === "awaiting_reply" && <Hourglass className="inline h-3 w-3 mr-0.5" />}
+              {tab.key === "urgent" && <Zap className="inline h-3 w-3 mr-0.5" />}
               {tab.label}
               {tab.count !== undefined && tab.count > 0 && (
                 <span className={cn(
                   "ml-1 rounded-full px-1.5 py-0.5 text-[10px]",
                   tab.key === "unassigned" ? "bg-amber-500/20 text-amber-400" :
                   tab.key === "vip" ? "bg-amber-500/20 text-amber-400" :
-                  tab.key === "awaiting_reply" ? "bg-orange-500/20 text-orange-400" : "bg-white/10"
+                  tab.key === "awaiting_reply" ? "bg-orange-500/20 text-orange-400" :
+                  tab.key === "urgent" ? "bg-red-500/20 text-red-400" : "bg-white/10"
                 )}>
                   {tab.count}
                 </span>
@@ -1375,6 +1409,7 @@ export default function InboxPage() {
           <InboxIcon className="mx-auto h-8 w-8 text-muted-foreground/30" />
           <p className="mt-2 text-sm text-muted-foreground">
             {search ? "No conversations match your search." :
+             activeTab === "urgent" ? "No urgent conversations. All clear." :
              activeTab === "awaiting_reply" ? "No conversations awaiting your reply." :
              activeTab === "mine" ? "No conversations assigned to you." :
              activeTab === "unassigned" ? "All conversations are assigned." :
@@ -1411,6 +1446,8 @@ export default function InboxPage() {
                   : null;
                 const colorTag = label?.color_tag ? COLOR_TAGS.find((t) => t.key === label.color_tag) : null;
                 const tagColor = colorTag?.color || label?.color_tag_color || null;
+                const chatUrgency = urgency[conv.chat_id];
+                const urgColors = chatUrgency ? URGENCY_COLORS[chatUrgency.level] : null;
 
                 // SLA: time since last customer (non-bot) message
                 const lastCustomerMsg = conv.messages.find((m) => !m.is_from_bot);
@@ -1443,17 +1480,24 @@ export default function InboxPage() {
                     onClick={() => handleSelectChat(conv.chat_id)}
                     onContextMenu={(e) => handleContextMenu(e, conv.chat_id, conv.group_name)}
                     className={cn(
-                      "w-full text-left px-3 py-2.5 transition-colors cursor-grab active:cursor-grabbing",
+                      "w-full text-left px-3 py-2.5 transition-colors cursor-grab active:cursor-grabbing border-l-2 border-l-transparent",
                       isSelected ? "bg-primary/10" :
                       convIndex === highlightedIndex ? "bg-white/[0.06] ring-1 ring-primary/30" :
+                      urgColors && !isSelected ? urgColors.bg :
                       label?.is_vip ? "bg-amber-500/[0.04] hover:bg-amber-500/[0.08]" :
                       "hover:bg-white/[0.04]",
+                      urgColors && urgColors.border,
                       label?.is_muted && "opacity-50"
                     )}
-                    style={tagColor && !label?.is_vip ? { borderLeftWidth: 3, borderLeftColor: tagColor } : undefined}
+                    style={!urgColors && tagColor && !label?.is_vip ? { borderLeftWidth: 3, borderLeftColor: tagColor } : undefined}
                   >
                     <div className="flex items-center gap-2 mb-0.5">
-                      {hasUnread ? (
+                      {urgColors ? (
+                        <span
+                          className={cn("h-2 w-2 rounded-full shrink-0", urgColors.dot)}
+                          title={chatUrgency ? `${chatUrgency.level}: ${chatUrgency.summary ?? chatUrgency.category ?? ""}` : undefined}
+                        />
+                      ) : hasUnread ? (
                         <span className="h-2 w-2 rounded-full bg-primary shrink-0" title={`${unreadCount} unread`} />
                       ) : (
                         <MessageCircle className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -1504,6 +1548,14 @@ export default function InboxPage() {
                     )}
 
                     <div className="flex items-center gap-2 pl-5 mt-0.5">
+                      {chatUrgency && urgColors && (
+                        <span
+                          className={cn("rounded px-1 py-0 text-[9px] font-medium", urgColors.bg, urgColors.text)}
+                          title={chatUrgency.summary ?? undefined}
+                        >
+                          {chatUrgency.category?.replace("_", " ") ?? chatUrgency.level}
+                        </span>
+                      )}
                       {conv.latest_at && (
                         <span className="text-[10px] text-muted-foreground/50">{timeAgo(conv.latest_at)}</span>
                       )}

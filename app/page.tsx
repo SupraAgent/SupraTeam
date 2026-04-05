@@ -251,18 +251,37 @@ export default function HomePage() {
           <span className="text-xs font-medium text-foreground">Telegram Pulse</span>
         </div>
         <div className="flex items-center gap-4 flex-wrap text-xs text-muted-foreground">
-          {highlights.length > 0 ? (
-            <Link href="/inbox" className="flex items-center gap-1.5 hover:text-foreground transition">
-              <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
-              <span className="font-medium text-amber-400">{highlights.length} unread</span>
-              <span>need{highlights.length === 1 ? "s" : ""} reply</span>
-            </Link>
-          ) : (
-            <span className="flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full bg-green-400" />
-              All caught up
-            </span>
-          )}
+          {(() => {
+            const criticalCount = highlights.filter((h) => h.triage_urgency === "critical").length;
+            const highCount = highlights.filter((h) => h.triage_urgency === "high").length;
+            const urgentTotal = criticalCount + highCount;
+            if (urgentTotal > 0) {
+              return (
+                <Link href="/inbox" className="flex items-center gap-1.5 hover:text-foreground transition">
+                  <span className="h-2 w-2 rounded-full bg-red-400 animate-pulse" />
+                  {criticalCount > 0 && <span className="font-medium text-red-400">{criticalCount} critical</span>}
+                  {criticalCount > 0 && highCount > 0 && <span>,</span>}
+                  {highCount > 0 && <span className="font-medium text-orange-400">{highCount} high</span>}
+                  {highlights.length > urgentTotal && <span className="text-muted-foreground">+ {highlights.length - urgentTotal} more</span>}
+                </Link>
+              );
+            }
+            if (highlights.length > 0) {
+              return (
+                <Link href="/inbox" className="flex items-center gap-1.5 hover:text-foreground transition">
+                  <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
+                  <span className="font-medium text-amber-400">{highlights.length} unread</span>
+                  <span>need{highlights.length === 1 ? "s" : ""} reply</span>
+                </Link>
+              );
+            }
+            return (
+              <span className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-green-400" />
+                All caught up
+              </span>
+            );
+          })()}
           <span className="text-white/10">|</span>
           {s.staleDeals.length > 0 ? (
             <Link href="/pipeline" className="flex items-center gap-1.5 hover:text-foreground transition">
@@ -298,36 +317,76 @@ export default function HomePage() {
       </div>
 
       {/* ========== TELEGRAM INBOX PREVIEW ========== */}
-      {highlights.length > 0 && (
+      {highlights.length > 0 && (() => {
+        const urgencyRank: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
+        const sorted = [...highlights].sort((a, b) => {
+          const aRank = urgencyRank[a.triage_urgency ?? "medium"] ?? 2;
+          const bRank = urgencyRank[b.triage_urgency ?? "medium"] ?? 2;
+          return bRank - aRank;
+        });
+        const criticalCount = highlights.filter((h) => h.triage_urgency === "critical").length;
+        const highCount = highlights.filter((h) => h.triage_urgency === "high").length;
+        const urgentSummary = [
+          criticalCount > 0 ? `${criticalCount} critical` : "",
+          highCount > 0 ? `${highCount} high` : "",
+        ].filter(Boolean).join(", ");
+        return (
         <Widget
-          title="Needs Response"
+          title={urgentSummary ? `Needs Attention — ${urgentSummary}` : "Needs Response"}
           icon={MessageCircle}
-          iconColor="text-amber-400"
+          iconColor={criticalCount > 0 ? "text-red-400" : "text-amber-400"}
           subtitle={`${highlights.length} conversation${highlights.length !== 1 ? "s" : ""} waiting`}
           collapsible
           isCollapsed={collapsed["inbox_preview"]}
           onToggle={() => toggleCollapse("inbox_preview")}
         >
-          {highlights.slice(0, 5).map((h) => (
+          {sorted.slice(0, 5).map((h) => (
             <Link
               key={h.id}
               href={h.tg_deep_link ?? (h.deal_id ? `/pipeline?highlight=${h.deal_id}` : "/inbox")}
-              className="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-white/[0.03] transition group"
+              className={cn(
+                "flex items-center justify-between py-2 px-2 rounded-lg hover:bg-white/[0.03] transition group",
+                h.triage_urgency === "critical" && "border-l-2 border-l-red-500 bg-red-500/[0.04]",
+                h.triage_urgency === "high" && "border-l-2 border-l-orange-500 bg-orange-500/[0.04]",
+              )}
             >
               <div className="flex items-center gap-3 min-w-0">
-                <div className="h-8 w-8 rounded-full bg-amber-500/20 flex items-center justify-center shrink-0">
-                  <MessageCircle className="h-3.5 w-3.5 text-amber-400" />
+                <div className={cn(
+                  "h-8 w-8 rounded-full flex items-center justify-center shrink-0",
+                  h.triage_urgency === "critical" ? "bg-red-500/20" :
+                  h.triage_urgency === "high" ? "bg-orange-500/20" : "bg-amber-500/20"
+                )}>
+                  <MessageCircle className={cn(
+                    "h-3.5 w-3.5",
+                    h.triage_urgency === "critical" ? "text-red-400" :
+                    h.triage_urgency === "high" ? "text-orange-400" : "text-amber-400"
+                  )} />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-sm text-foreground truncate">{h.sender_name ?? "Unknown"}</p>
-                  <p className="text-xs text-muted-foreground truncate">{h.message_preview ?? "New message"}</p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-sm text-foreground truncate">{h.sender_name ?? "Unknown"}</p>
+                    {h.triage_category && (
+                      <span className={cn(
+                        "rounded px-1 py-0 text-[9px] font-medium",
+                        h.triage_urgency === "critical" ? "bg-red-500/20 text-red-400" :
+                        h.triage_urgency === "high" ? "bg-orange-500/20 text-orange-400" :
+                        "bg-white/10 text-muted-foreground"
+                      )}>
+                        {h.triage_category.replace(/_/g, " ")}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {h.triage_summary ? h.triage_summary.split(" | ")[0] : h.message_preview ?? "New message"}
+                  </p>
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0 ml-2">
                 {h.triage_urgency && (
                   <span className={cn(
                     "rounded-full px-1.5 py-0.5 text-[10px] font-medium",
-                    h.triage_urgency === "high" && "bg-red-500/20 text-red-400",
+                    h.triage_urgency === "critical" && "bg-red-500/20 text-red-400",
+                    h.triage_urgency === "high" && "bg-orange-500/20 text-orange-400",
                     h.triage_urgency === "medium" && "bg-yellow-500/20 text-yellow-400",
                     h.triage_urgency === "low" && "bg-white/10 text-muted-foreground",
                   )}>
@@ -345,7 +404,8 @@ export default function HomePage() {
             </Link>
           )}
         </Widget>
-      )}
+        );
+      })()}
 
       {/* ========== HOT CONVERSATIONS (from stats) ========== */}
       {s.hotConversations.length > 0 && (

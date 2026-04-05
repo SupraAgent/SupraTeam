@@ -18,7 +18,7 @@ type DealCardProps = {
   onToggleSelect: () => void;
   highlight?: boolean;
   tgHighlight?: boolean;
-  tgHighlightDetails?: { priority?: string; sentiment?: string; message_count?: number; sender_name?: string };
+  tgHighlightDetails?: { priority?: string; sentiment?: string; message_count?: number; sender_name?: string; triage_urgency?: string; triage_category?: string };
   unreadCount?: number;
   slam?: boolean;
   onHoverPreview?: (deal: Deal, rect: DOMRect) => void;
@@ -91,7 +91,10 @@ export function DealCard({
             "group rounded-lg border bg-white/[0.04] p-3 cursor-pointer transition-all hover:bg-white/[0.07] relative",
             snapshot.isDragging && "shadow-lg border-primary/30 bg-white/[0.08]",
             highlight && "ring-2 ring-primary border-primary/40 bg-primary/10 animate-pulse",
-            tgHighlight && !highlight && "border-amber-400/40 bg-amber-500/5 ring-1 ring-amber-400/30",
+            // Urgency-colored borders: critical = red, high = orange, else amber highlight
+            tgHighlight && !highlight && tgHighlightDetails?.triage_urgency === "critical" && "border-l-2 border-l-red-500 border-red-500/40 bg-red-500/5 ring-1 ring-red-500/30",
+            tgHighlight && !highlight && tgHighlightDetails?.triage_urgency === "high" && "border-l-2 border-l-orange-500 border-orange-400/40 bg-orange-500/5 ring-1 ring-orange-400/30",
+            tgHighlight && !highlight && (!tgHighlightDetails?.triage_urgency || !["critical", "high"].includes(tgHighlightDetails.triage_urgency)) && "border-amber-400/40 bg-amber-500/5 ring-1 ring-amber-400/30",
             !highlight && !tgHighlight && unreadCount && unreadCount > 0 && deal.awaiting_response_since && "border-blue-400/30 bg-blue-500/5 ring-1 ring-blue-400/20",
             selected && "ring-2 ring-primary/60 border-primary/40 bg-primary/5",
             !highlight && !tgHighlight && !selected && !iceClass && "border-white/10",
@@ -193,12 +196,13 @@ export function DealCard({
                 ) : null}
               </div>
               {tgHighlight && (() => {
+                const tu = tgHighlightDetails?.triage_urgency;
                 const p = tgHighlightDetails?.priority;
-                const iconColor = p === "urgent" ? "text-red-400" : p === "high" ? "text-orange-400" : "text-amber-400";
+                const iconColor = tu === "critical" ? "text-red-400" : tu === "high" || p === "urgent" ? "text-orange-400" : p === "high" ? "text-orange-400" : "text-amber-400";
                 const count = tgHighlightDetails?.message_count ?? 1;
                 return (
-                  <span className="flex items-center gap-0.5 shrink-0 mt-0.5">
-                    <MessageCircle className={cn("h-3.5 w-3.5", iconColor)} />
+                  <span className="flex items-center gap-0.5 shrink-0 mt-0.5" title={tgHighlightDetails?.triage_category?.replace(/_/g, " ") ?? undefined}>
+                    <MessageCircle className={cn("h-3.5 w-3.5", iconColor, tu === "critical" && "animate-pulse")} />
                     {count > 1 && (
                       <span className={cn("text-[9px] font-bold", iconColor)}>{count}</span>
                     )}
