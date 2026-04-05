@@ -78,7 +78,7 @@ export function LinkDealModal({
     fetch(`/api/deals/by-chat?chat_id=${chatId}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
-        setAlreadyLinked(data?.deals ?? []);
+        setAlreadyLinked(data?.data ?? []);
       })
       .catch(() => {})
       .finally(() => setLoadingLinked(false));
