@@ -88,7 +88,7 @@ const ENGAGEMENT_COLOR = (score: number) =>
   score >= 25 ? "text-orange-400 bg-orange-400/15" :
   "text-red-400 bg-red-400/15";
 
-export function GroupHealthCard({
+export const GroupHealthCard = React.memo(function GroupHealthCard({
   id,
   name,
   healthStatus,
@@ -153,4 +153,4 @@ export function GroupHealthCard({
       </div>
     </button>
   );
-}
+});

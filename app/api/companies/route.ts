@@ -44,8 +44,17 @@ export async function POST(request: Request) {
   if ("error" in auth) return auth.error;
   const { user, supabase } = auth;
 
-  const body = await request.json();
-  const { name, domain, industry, website, description, logo_url, employee_count, location } = body;
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+  const { name, domain, industry, website, description, logo_url, employee_count, location, tvl, chain_deployments, token_status, funding_stage, protocol_type } = body as {
+    name?: string; domain?: string; industry?: string; website?: string; description?: string;
+    logo_url?: string; employee_count?: number; location?: string; tvl?: number;
+    chain_deployments?: string[]; token_status?: string; funding_stage?: string; protocol_type?: string;
+  };
 
   if (!name) {
     return NextResponse.json({ error: "name is required" }, { status: 400 });
@@ -73,6 +82,11 @@ export async function POST(request: Request) {
       logo_url: logo_url || null,
       employee_count: employee_count ?? null,
       location: location || null,
+      tvl: tvl ?? null,
+      chain_deployments: Array.isArray(chain_deployments) ? chain_deployments : [],
+      token_status: token_status || null,
+      funding_stage: funding_stage || null,
+      protocol_type: protocol_type || null,
       created_by: user.id,
     })
     .select()

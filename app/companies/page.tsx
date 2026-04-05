@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { toast } from "sonner";
 import { Plus, Search, Building2, Users, MessageCircle, Trash2 } from "lucide-react";
-import type { Company } from "@/lib/types";
+import type { Company, TokenStatus, FundingStage, ProtocolType } from "@/lib/types";
 
 interface CompanyWithCounts extends Company {
   contact_count: number;
@@ -26,6 +26,11 @@ export default function CompaniesPage() {
   const [newIndustry, setNewIndustry] = React.useState("");
   const [newWebsite, setNewWebsite] = React.useState("");
   const [newLocation, setNewLocation] = React.useState("");
+  const [newTvl, setNewTvl] = React.useState("");
+  const [newChainDeployments, setNewChainDeployments] = React.useState("");
+  const [newTokenStatus, setNewTokenStatus] = React.useState<TokenStatus | "">("");
+  const [newFundingStage, setNewFundingStage] = React.useState<FundingStage | "">("");
+  const [newProtocolType, setNewProtocolType] = React.useState<ProtocolType | "">("");
   const [creating, setCreating] = React.useState(false);
 
   // Detail view
@@ -36,8 +41,9 @@ export default function CompaniesPage() {
     groups: { id: string; group_name: string; telegram_group_id: string; bot_is_admin: boolean; member_count: number | null }[];
   } | null>(null);
 
-  const fetchCompanies = React.useCallback(async () => {
-    const res = await fetch("/api/companies");
+  const fetchCompanies = React.useCallback(async (query?: string) => {
+    const url = query ? `/api/companies?search=${encodeURIComponent(query)}` : "/api/companies";
+    const res = await fetch(url);
     if (res.ok) {
       const data = await res.json();
       setCompanies(data.companies ?? []);
@@ -46,6 +52,18 @@ export default function CompaniesPage() {
   }, []);
 
   React.useEffect(() => { fetchCompanies(); }, [fetchCompanies]);
+
+  // Debounced server-side search
+  const searchTimerRef = React.useRef<ReturnType<typeof setTimeout>>(null);
+  React.useEffect(() => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    if (!search) {
+      fetchCompanies();
+      return;
+    }
+    searchTimerRef.current = setTimeout(() => fetchCompanies(search), 300);
+    return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
+  }, [search, fetchCompanies]);
 
   React.useEffect(() => {
     if (!selectedId) { setDetail(null); return; }
@@ -71,11 +89,17 @@ export default function CompaniesPage() {
           industry: newIndustry || null,
           website: newWebsite || null,
           location: newLocation || null,
+          tvl: newTvl ? Number(newTvl) : null,
+          chain_deployments: newChainDeployments ? newChainDeployments.split(",").map((s) => s.trim()).filter(Boolean) : [],
+          token_status: newTokenStatus || null,
+          funding_stage: newFundingStage || null,
+          protocol_type: newProtocolType || null,
         }),
       });
       if (res.ok) {
         toast.success("Company created");
         setNewName(""); setNewDomain(""); setNewIndustry(""); setNewWebsite(""); setNewLocation("");
+        setNewTvl(""); setNewChainDeployments(""); setNewTokenStatus(""); setNewFundingStage(""); setNewProtocolType("");
         setShowCreate(false);
         fetchCompanies();
       } else {
@@ -98,11 +122,8 @@ export default function CompaniesPage() {
     }
   }
 
-  const filtered = companies.filter((c) => {
-    if (!search) return true;
-    const q = search.toLowerCase();
-    return c.name.toLowerCase().includes(q) || c.domain?.toLowerCase().includes(q) || c.industry?.toLowerCase().includes(q);
-  });
+  // Filtering is now server-side via API search param
+  const filtered = companies;
 
   if (loading) {
     return (
@@ -207,6 +228,45 @@ export default function CompaniesPage() {
             {detail.company.location && <div><span className="text-muted-foreground">Location:</span> <span className="text-foreground ml-1">{detail.company.location}</span></div>}
           </div>
 
+          {/* Protocol details */}
+          {(detail.company.protocol_type || detail.company.tvl != null || detail.company.token_status || detail.company.funding_stage || (detail.company.chain_deployments?.length ?? 0) > 0) && (
+            <div className="border-t border-white/10 pt-3">
+              <h3 className="text-xs font-medium text-muted-foreground mb-2">Protocol Details</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                {detail.company.protocol_type && (
+                  <div><span className="text-muted-foreground">Type:</span> <span className="text-foreground ml-1 capitalize">{detail.company.protocol_type}</span></div>
+                )}
+                {detail.company.tvl != null && (
+                  <div><span className="text-muted-foreground">TVL:</span> <span className="text-foreground ml-1">${Number(detail.company.tvl).toLocaleString()}</span></div>
+                )}
+                {detail.company.token_status && (
+                  <div>
+                    <span className="text-muted-foreground">Token:</span>
+                    <span className={cn("ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium", {
+                      "bg-amber-500/20 text-amber-400": detail.company.token_status === "pre_tge",
+                      "bg-green-500/20 text-green-400": detail.company.token_status === "post_tge",
+                      "bg-gray-500/20 text-gray-400": detail.company.token_status === "no_token",
+                    })}>
+                      {detail.company.token_status === "pre_tge" ? "Pre-TGE" : detail.company.token_status === "post_tge" ? "Post-TGE" : "No Token"}
+                    </span>
+                  </div>
+                )}
+                {detail.company.funding_stage && (
+                  <div><span className="text-muted-foreground">Funding:</span> <span className="text-foreground ml-1 capitalize">{detail.company.funding_stage.replace("_", " ")}</span></div>
+                )}
+              </div>
+              {(detail.company.chain_deployments?.length ?? 0) > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {detail.company.chain_deployments.map((chain) => (
+                    <span key={chain} className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-400">
+                      {chain}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Linked Contacts */}
           <div>
             <div className="flex items-center gap-2 mb-2">
@@ -276,6 +336,84 @@ export default function CompaniesPage() {
               <Input value={newLocation} onChange={(e) => setNewLocation(e.target.value)} placeholder="City, Country" className="mt-1" />
             </div>
           </div>
+          {/* Crypto / Protocol fields */}
+          <div className="border-t border-white/10 pt-3 mt-1">
+            <p className="text-xs font-medium text-muted-foreground mb-2">Protocol Details</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Protocol Type</label>
+                <select
+                  value={newProtocolType}
+                  onChange={(e) => setNewProtocolType(e.target.value as ProtocolType | "")}
+                  className="mt-1 w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-foreground"
+                >
+                  <option value="">Select type...</option>
+                  <option value="defi">DeFi</option>
+                  <option value="infrastructure">Infrastructure</option>
+                  <option value="gaming">Gaming</option>
+                  <option value="nft">NFT</option>
+                  <option value="dao">DAO</option>
+                  <option value="social">Social</option>
+                  <option value="bridge">Bridge</option>
+                  <option value="oracle">Oracle</option>
+                  <option value="wallet">Wallet</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Token Status</label>
+                <select
+                  value={newTokenStatus}
+                  onChange={(e) => setNewTokenStatus(e.target.value as TokenStatus | "")}
+                  className="mt-1 w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-foreground"
+                >
+                  <option value="">Select...</option>
+                  <option value="pre_tge">Pre-TGE</option>
+                  <option value="post_tge">Post-TGE</option>
+                  <option value="no_token">No Token</option>
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3 mt-3">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">TVL (USD)</label>
+                <Input
+                  type="number"
+                  value={newTvl}
+                  onChange={(e) => setNewTvl(e.target.value)}
+                  placeholder="e.g. 5000000"
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Funding Stage</label>
+                <select
+                  value={newFundingStage}
+                  onChange={(e) => setNewFundingStage(e.target.value as FundingStage | "")}
+                  className="mt-1 w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-foreground"
+                >
+                  <option value="">Select...</option>
+                  <option value="pre_seed">Pre-Seed</option>
+                  <option value="seed">Seed</option>
+                  <option value="series_a">Series A</option>
+                  <option value="series_b">Series B</option>
+                  <option value="series_c">Series C</option>
+                  <option value="public">Public</option>
+                  <option value="bootstrapped">Bootstrapped</option>
+                </select>
+              </div>
+            </div>
+            <div className="mt-3">
+              <label className="text-xs font-medium text-muted-foreground">Chain Deployments</label>
+              <Input
+                value={newChainDeployments}
+                onChange={(e) => setNewChainDeployments(e.target.value)}
+                placeholder="Ethereum, Supra, Arbitrum (comma-separated)"
+                className="mt-1"
+              />
+            </div>
+          </div>
+
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="ghost" onClick={() => setShowCreate(false)}>Cancel</Button>
             <Button type="submit" disabled={creating || !newName.trim()}>

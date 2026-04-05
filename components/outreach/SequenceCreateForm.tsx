@@ -11,6 +11,8 @@ import {
   Timer,
   FlaskConical,
   Sparkles,
+  MessageCircle,
+  Mail,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -253,6 +255,22 @@ export function SequenceCreateForm({
                 <option value="wait">Wait</option>
                 <option value="condition">Condition</option>
               </select>
+              {step.step_type === "message" && (
+                <button
+                  type="button"
+                  onClick={() => updateStep(i, "channel", step.channel === "telegram" ? "email" : "telegram")}
+                  className={cn(
+                    "flex items-center gap-1 rounded border px-1.5 py-0.5 text-[9px] font-medium transition",
+                    step.channel === "email"
+                      ? "border-amber-500/30 bg-amber-500/10 text-amber-400"
+                      : "border-blue-500/30 bg-blue-500/10 text-blue-400"
+                  )}
+                  title={`Channel: ${step.channel}. Click to toggle.`}
+                >
+                  {step.channel === "email" ? <Mail className="h-3 w-3" /> : <MessageCircle className="h-3 w-3" />}
+                  {step.channel === "email" ? "Email" : "TG"}
+                </button>
+              )}
               {i > 0 && (
                 <div className="flex items-center gap-1">
                   <Clock className="h-3 w-3 text-muted-foreground" />
@@ -317,10 +335,27 @@ export function SequenceCreateForm({
                     </button>
                   )}
                 </div>
+                {step.channel === "email" && (
+                  <input
+                    value={step.email_subject}
+                    onChange={(e) => updateStep(i, "email_subject", e.target.value)}
+                    placeholder="Email subject line"
+                    className="w-full rounded-lg border border-white/10 bg-transparent px-2 py-1.5 text-xs"
+                  />
+                )}
                 <textarea
-                  value={step.message_template}
-                  onChange={(e) => updateStep(i, "message_template", e.target.value)}
-                  placeholder={`Step ${i + 1} message. Use {{contact_name}}, {{deal_name}}, {{stage}}. Defaults: {{contact_first_name|there}}`}
+                  value={step.channel === "email" ? step.email_template || step.message_template : step.message_template}
+                  onChange={(e) => {
+                    if (step.channel === "email") {
+                      updateStep(i, "email_template", e.target.value);
+                      updateStep(i, "message_template", e.target.value);
+                    } else {
+                      updateStep(i, "message_template", e.target.value);
+                    }
+                  }}
+                  placeholder={step.channel === "email"
+                    ? `Email body. Use {{contact_name}}, {{deal_name}}, {{calendly_link}}.`
+                    : `Step ${i + 1} message. Use {{contact_name}}, {{deal_name}}, {{stage}}. Defaults: {{contact_first_name|there}}`}
                   rows={2}
                   className="w-full rounded-lg border border-white/10 bg-transparent px-2 py-1.5 text-xs font-mono resize-none"
                 />
@@ -536,12 +571,18 @@ export function SequenceCreateForm({
             )}
           </div>
         ))}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={() => addStep("message")}
-            className="text-xs text-primary hover:underline flex items-center gap-1"
+            className="text-xs text-blue-400 hover:underline flex items-center gap-1"
           >
-            <Plus className="h-3 w-3" /> Message
+            <MessageCircle className="h-3 w-3" /> TG Message
+          </button>
+          <button
+            onClick={() => { addStep("message"); setNewSteps((prev) => { const copy = [...prev]; copy[copy.length - 1] = { ...copy[copy.length - 1], channel: "email" as const }; return copy; }); }}
+            className="text-xs text-amber-400 hover:underline flex items-center gap-1"
+          >
+            <Mail className="h-3 w-3" /> Email Step
           </button>
           <button
             onClick={() => addStep("condition")}

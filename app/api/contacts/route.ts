@@ -57,7 +57,7 @@ export async function POST(request: Request) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
-  const { name, email, phone, telegram_username, telegram_user_id, company, company_id, title, notes, stage_id, lifecycle_stage, source, x_handle, wallet_address, wallet_chain } = body as Record<string, unknown>;
+  const { name, email, phone, telegram_username, telegram_user_id, company, company_id, title, notes, stage_id, lifecycle_stage, source, x_handle, wallet_address, wallet_chain, wallets, decision_maker_level, partnership_type } = body as Record<string, unknown>;
 
   if (!name) {
     return NextResponse.json({ error: "name is required" }, { status: 400 });
@@ -81,7 +81,10 @@ export async function POST(request: Request) {
       source: source || "manual",
       x_handle: x_handle || null,
       wallet_address: wallet_address || null,
-      ...(wallet_chain ? { wallet_chain } : {}),
+      wallet_chain: wallet_chain || null,
+      wallets: Array.isArray(wallets) ? wallets : [],
+      decision_maker_level: decision_maker_level || null,
+      partnership_type: partnership_type || null,
       created_by: user.id,
     })
     .select("*, stage:pipeline_stages(*)")

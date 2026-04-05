@@ -90,6 +90,7 @@ export default function TMAAIChatPage() {
         // Last element may be incomplete — keep it in buffer
         lineBuffer = lines.pop() ?? "";
 
+        let chunkUpdated = false;
         for (const line of lines) {
           if (line.startsWith("data: ")) {
             const data = line.slice(6);
@@ -101,14 +102,18 @@ export default function TMAAIChatPage() {
               const parsed = JSON.parse(data);
               if (parsed.text) {
                 assistantContent += parsed.text;
-                setMessages([...newMessages, { role: "assistant", content: assistantContent }]);
+                chunkUpdated = true;
               }
             } catch {
               // Non-JSON data lines are plain text
               assistantContent += data;
-              setMessages([...newMessages, { role: "assistant", content: assistantContent }]);
+              chunkUpdated = true;
             }
           }
+        }
+        // Batch: one setState per read() chunk instead of per SSE line
+        if (chunkUpdated) {
+          setMessages([...newMessages, { role: "assistant", content: assistantContent }]);
         }
       }
 
@@ -199,7 +204,7 @@ export default function TMAAIChatPage() {
       </div>
 
       {/* Input bar */}
-      <div className="fixed bottom-16 left-0 right-0 px-4 py-3 border-t border-white/5 bg-[hsl(225,35%,5%)] safe-area-bottom">
+      <div className="fixed bottom-16 left-0 right-0 px-4 py-3 border-t border-white/5 bg-[var(--tg-theme-bg-color,hsl(225,35%,5%))] safe-area-bottom">
         <div className="flex gap-2">
           <input
             ref={inputRef}

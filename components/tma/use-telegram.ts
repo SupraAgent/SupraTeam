@@ -22,8 +22,20 @@ interface TelegramWebApp {
     button_color?: string;
     button_text_color?: string;
     secondary_bg_color?: string;
+    header_bg_color?: string;
+    accent_text_color?: string;
+    section_bg_color?: string;
+    section_header_text_color?: string;
+    subtitle_text_color?: string;
+    destructive_text_color?: string;
+    bottom_bar_bg_color?: string;
   };
   colorScheme: "light" | "dark";
+  isVersionAtLeast: (version: string) => boolean;
+  onEvent: (eventType: string, callback: () => void) => void;
+  offEvent: (eventType: string, callback: () => void) => void;
+  showPopup: (params: { title?: string; message: string; buttons?: { id?: string; type?: string; text?: string }[] }, callback?: (id: string) => void) => void;
+  showConfirm: (message: string, callback: (ok: boolean) => void) => void;
   setHeaderColor: (color: string) => void;
   setBottomBarColor: (color: string) => void;
   MainButton: {
@@ -63,6 +75,34 @@ function getWebApp(): TelegramWebApp | null {
   return (window as unknown as { Telegram?: { WebApp?: TelegramWebApp } }).Telegram?.WebApp ?? null;
 }
 
+/** Map all available themeParams to CSS custom properties on :root */
+function syncThemeToCSSVars(tg: TelegramWebApp) {
+  const root = document.documentElement;
+  const params = tg.themeParams;
+  const mapping: [string, string | undefined][] = [
+    ["--tg-theme-bg-color", params.bg_color],
+    ["--tg-theme-text-color", params.text_color],
+    ["--tg-theme-hint-color", params.hint_color],
+    ["--tg-theme-link-color", params.link_color],
+    ["--tg-theme-button-color", params.button_color],
+    ["--tg-theme-button-text-color", params.button_text_color],
+    ["--tg-theme-secondary-bg-color", params.secondary_bg_color],
+    ["--tg-theme-header-bg-color", params.header_bg_color],
+    ["--tg-theme-accent-text-color", params.accent_text_color],
+    ["--tg-theme-section-bg-color", params.section_bg_color],
+    ["--tg-theme-section-header-text-color", params.section_header_text_color],
+    ["--tg-theme-subtitle-text-color", params.subtitle_text_color],
+    ["--tg-theme-destructive-text-color", params.destructive_text_color],
+    ["--tg-theme-bottom-bar-bg-color", params.bottom_bar_bg_color],
+  ];
+  for (const [prop, value] of mapping) {
+    if (value) {
+      root.style.setProperty(prop, value);
+    }
+  }
+  root.dataset.tgColorScheme = tg.colorScheme;
+}
+
 interface UseTelegramOptions {
   /** Show native BackButton and call this on tap. Omit to hide. */
   onBack?: () => void;
@@ -83,6 +123,7 @@ export function useTelegramWebApp(options: UseTelegramOptions = {}) {
   const [tgUser, setTgUser] = React.useState<{ id: number; first_name: string; username?: string } | null>(null);
   const [isValidated, setIsValidated] = React.useState(false);
   const webAppRef = React.useRef<TelegramWebApp | null>(null);
+  const [webApp, setWebApp] = React.useState<TelegramWebApp | null>(null);
 
   // Store callbacks in refs to avoid re-subscription on every render
   const onBackRef = React.useRef(onBack);
@@ -102,17 +143,34 @@ export function useTelegramWebApp(options: UseTelegramOptions = {}) {
     const tg = getWebApp();
     if (!tg) return;
     webAppRef.current = tg;
+    setWebApp(tg);
     tg.ready();
     tg.expand();
 
+    // Sync all theme params to CSS variables
+    syncThemeToCSSVars(tg);
+
     // Sync Telegram theme to header/bottom bar
     try {
-      const bg = tg.themeParams.bg_color || "#0a0c14";
+      const bg = tg.themeParams.header_bg_color || tg.themeParams.bg_color || "#0a0c14";
       tg.setHeaderColor(bg);
-      tg.setBottomBarColor(bg);
+      const bottomBg = tg.themeParams.bottom_bar_bg_color || tg.themeParams.bg_color || "#0a0c14";
+      tg.setBottomBarColor(bottomBg);
     } catch {
       // Some older clients don't support these
     }
+
+    // Listen for real-time theme changes
+    const handleThemeChange = () => {
+      syncThemeToCSSVars(tg);
+      try {
+        const bg = tg.themeParams.header_bg_color || tg.themeParams.bg_color || "#0a0c14";
+        tg.setHeaderColor(bg);
+        const bottomBg = tg.themeParams.bottom_bar_bg_color || tg.themeParams.bg_color || "#0a0c14";
+        tg.setBottomBarColor(bottomBg);
+      } catch { /* older clients */ }
+    };
+    tg.onEvent("themeChanged", handleThemeChange);
 
     // Validate initData server-side before trusting user identity
     if (tg.initData) {
@@ -140,6 +198,10 @@ export function useTelegramWebApp(options: UseTelegramOptions = {}) {
       // No initData available (e.g. dev mode) — use unsigned data
       setTgUser(tg.initDataUnsafe.user);
     }
+
+    return () => {
+      tg.offEvent("themeChanged", handleThemeChange);
+    };
   }, []);
 
   // BackButton — only re-run when presence changes (not callback identity)
@@ -210,5 +272,5 @@ export function useTelegramWebApp(options: UseTelegramOptions = {}) {
     }
   }, [hasSettings]);
 
-  return { tgUser, isValidated, webApp: webAppRef.current };
+  return { tgUser, isValidated, webApp };
 }

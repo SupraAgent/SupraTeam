@@ -39,7 +39,7 @@ export default function TMAHomePage() {
   const [stats, setStats] = React.useState<Stats | null>(null);
   const [groups, setGroups] = React.useState<Group[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [fromCache, setFromCache] = React.useState(false);
+  const [fromCache, setFromCache] = React.useState<false | "cache" | "stale">(false);
 
   const { tgUser } = useTelegramWebApp();
 
@@ -55,7 +55,7 @@ export default function TMAHomePage() {
       if (cachedDeals) setDeals(cachedDeals);
       if (cachedStats) setStats(cachedStats);
       if (cachedGroups) setGroups(cachedGroups);
-      setFromCache(true);
+      setFromCache("cache");
       setLoading(false);
     }
 
@@ -103,7 +103,7 @@ export default function TMAHomePage() {
         if (staleDeals) setDeals(staleDeals);
         if (staleStats) setStats(staleStats);
         if (staleGroups) setGroups(staleGroups);
-        if (staleDeals || staleStats || staleGroups) setFromCache(true);
+        if (staleDeals || staleStats || staleGroups) setFromCache("stale");
       }
     } finally {
       setLoading(false);
@@ -134,8 +134,11 @@ export default function TMAHomePage() {
         <p className="text-xs text-muted-foreground">
           {deals.length} active deals
           {fromCache && (
-            <span className="inline-flex items-center gap-1 ml-2 text-[10px] text-amber-400">
-              <WifiOff className="h-2.5 w-2.5" /> Offline
+            <span className={cn(
+              "inline-flex items-center gap-1 ml-2 text-[10px]",
+              fromCache === "stale" ? "text-red-400" : "text-amber-400"
+            )}>
+              <WifiOff className="h-2.5 w-2.5" /> {fromCache === "stale" ? "Stale data" : "Offline"}
             </span>
           )}
         </p>
@@ -296,6 +299,14 @@ export default function TMAHomePage() {
         </div>
       </div>
       </PullToRefresh>
+
+      {/* Floating Action Button — create deal */}
+      <Link
+        href="/tma/deals?create=1"
+        className="fixed bottom-20 right-4 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-primary shadow-lg shadow-primary/30 text-primary-foreground transition active:scale-95"
+      >
+        <Plus className="h-5 w-5" />
+      </Link>
 
       <BottomTabBar active="home" />
     </div>

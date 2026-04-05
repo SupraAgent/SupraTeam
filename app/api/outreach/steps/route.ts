@@ -47,7 +47,14 @@ export async function PUT(request: Request) {
   if ("error" in auth) return auth.error;
   const { user, supabase } = auth;
 
-  const { sequence_id, steps } = await request.json();
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const { sequence_id, steps } = body as { sequence_id?: string; steps?: unknown[] };
 
   if (!sequence_id || !Array.isArray(steps)) {
     return NextResponse.json({ error: "sequence_id and steps array required" }, { status: 400 });
@@ -67,7 +74,7 @@ export async function PUT(request: Request) {
     (existingSteps ?? []).map((s: { id: string; step_number: number }) => [s.step_number, s.id])
   );
 
-  type StepInput = { message_template: string; variant_b_template?: string; variant_c_template?: string; ab_split_pct?: number; variant_b_delay_hours?: number; delay_hours?: number; step_type?: string; step_label?: string; condition_type?: string; condition_config?: Record<string, unknown>; on_true_step?: number; on_false_step?: number; split_percentage?: number };
+  type StepInput = { message_template: string; variant_b_template?: string; variant_c_template?: string; ab_split_pct?: number; variant_b_delay_hours?: number; delay_hours?: number; step_type?: string; step_label?: string; condition_type?: string; condition_config?: Record<string, unknown>; on_true_step?: number; on_false_step?: number; split_percentage?: number; channel?: string; email_subject?: string; email_template?: string };
 
   const buildStepFields = (s: StepInput) => ({
     delay_hours: s.delay_hours ?? 24,
@@ -83,29 +90,30 @@ export async function PUT(request: Request) {
     on_true_step: s.on_true_step ?? null,
     on_false_step: s.on_false_step ?? null,
     split_percentage: s.split_percentage ?? null,
+    channel: s.channel === "email" ? "email" : "telegram",
+    email_subject: s.email_subject || null,
+    email_template: s.email_template || null,
   });
 
-  // Update existing steps, insert new ones
-  for (let i = 0; i < steps.length; i++) {
+  // Batch upsert: build all rows, then upsert in one call
+  const upsertRows = steps.map((step, i) => {
     const stepNumber = i + 1;
-    const s = steps[i] as StepInput;
+    const s = step as StepInput;
     const existingId = existingByStepNumber.get(stepNumber);
+    return {
+      ...(existingId ? { id: existingId } : {}),
+      sequence_id,
+      step_number: stepNumber,
+      ...buildStepFields(s),
+    };
+  });
 
-    if (existingId) {
-      const { error } = await supabase
-        .from("crm_outreach_steps")
-        .update(buildStepFields(s))
-        .eq("id", existingId);
-      if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
-      }
-    } else {
-      const { error } = await supabase
-        .from("crm_outreach_steps")
-        .insert({ sequence_id, step_number: stepNumber, ...buildStepFields(s) });
-      if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
-      }
+  if (upsertRows.length > 0) {
+    const { error } = await supabase
+      .from("crm_outreach_steps")
+      .upsert(upsertRows, { onConflict: "id" });
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
   }
 

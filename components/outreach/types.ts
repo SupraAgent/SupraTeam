@@ -27,6 +27,8 @@ export interface OutreachAlert {
   sequence_name: string;
 }
 
+export type StepChannel = "telegram" | "email";
+
 export interface Step {
   id: string;
   step_number: number;
@@ -43,6 +45,9 @@ export interface Step {
   on_true_step: number | null;
   on_false_step: number | null;
   split_percentage: number | null;
+  channel: StepChannel;
+  email_subject: string | null;
+  email_template: string | null;
 }
 
 export interface SequenceAnalytics {
@@ -118,6 +123,9 @@ export interface NewStep {
   on_true_step: number | null;
   on_false_step: number | null;
   split_percentage: number | null;
+  channel: StepChannel;
+  email_subject: string;
+  email_template: string;
 }
 
 export function createDefaultStep(overrides?: Partial<NewStep>): NewStep {
@@ -135,6 +143,9 @@ export function createDefaultStep(overrides?: Partial<NewStep>): NewStep {
     on_true_step: null,
     on_false_step: null,
     split_percentage: null,
+    channel: "telegram",
+    email_subject: "",
+    email_template: "",
     ...overrides,
   };
 }

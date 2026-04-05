@@ -34,7 +34,16 @@ export async function POST(request: Request) {
   if ("error" in auth) return auth.error;
   const { user, supabase } = auth;
 
-  const { sequence_id, deal_id, contact_id, tg_chat_id } = await request.json();
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const { sequence_id, deal_id, contact_id, tg_chat_id } = body as {
+    sequence_id?: string; deal_id?: string; contact_id?: string; tg_chat_id?: number;
+  };
 
   if (!sequence_id) {
     return NextResponse.json({ error: "sequence_id required" }, { status: 400 });
@@ -43,15 +52,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "deal_id or contact_id required" }, { status: 400 });
   }
 
-  // Check for duplicate active enrollment
-  const duplicateQuery = supabase
+  // Check for duplicate active enrollment — filter on whichever identifiers are provided
+  let duplicateQuery = supabase
     .from("crm_outreach_enrollments")
     .select("id")
     .eq("sequence_id", sequence_id)
     .in("status", ["active", "paused"]);
 
-  if (deal_id) duplicateQuery.eq("deal_id", deal_id);
-  if (contact_id) duplicateQuery.eq("contact_id", contact_id);
+  if (deal_id) duplicateQuery = duplicateQuery.eq("deal_id", deal_id);
+  if (contact_id) duplicateQuery = duplicateQuery.eq("contact_id", contact_id);
+  // If neither deal_id nor contact_id are provided we already returned 400 above
 
   const { data: existing } = await duplicateQuery.limit(1);
   if (existing?.length) {
@@ -83,6 +93,25 @@ export async function POST(request: Request) {
     chatId = deal?.telegram_chat_id ?? null;
   }
 
+  // Resolve contact email for email-channel steps
+  let contactEmail: string | null = null;
+  if (contact_id) {
+    const { data: contactData } = await supabase
+      .from("crm_contacts")
+      .select("email")
+      .eq("id", contact_id)
+      .single();
+    contactEmail = contactData?.email ?? null;
+  } else if (deal_id) {
+    const { data: dealWithContact } = await supabase
+      .from("crm_deals")
+      .select("contact:crm_contacts(email)")
+      .eq("id", deal_id)
+      .single();
+    const contactArr = dealWithContact?.contact as unknown as { email: string | null }[] | null;
+    contactEmail = contactArr?.[0]?.email ?? null;
+  }
+
   const { data: enrollment, error } = await supabase
     .from("crm_outreach_enrollments")
     .insert({
@@ -90,6 +119,7 @@ export async function POST(request: Request) {
       deal_id: deal_id || null,
       contact_id: contact_id || null,
       tg_chat_id: chatId || null,
+      contact_email: contactEmail,
       current_step: 1,
       next_send_at: nextSendAt,
       enrolled_by: user.id,
@@ -119,9 +149,21 @@ export async function PATCH(request: Request) {
   if ("error" in auth) return auth.error;
   const { supabase } = auth;
 
-  const { id, status } = await request.json();
+  let patchBody: Record<string, unknown>;
+  try {
+    patchBody = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const { id, status } = patchBody as { id?: string; status?: string };
   if (!id || !status) {
     return NextResponse.json({ error: "id and status required" }, { status: 400 });
+  }
+
+  const VALID_STATUSES = new Set(["active", "paused", "completed", "replied", "cancelled"]);
+  if (!VALID_STATUSES.has(status)) {
+    return NextResponse.json({ error: `Invalid status '${status}'. Must be one of: ${[...VALID_STATUSES].join(", ")}` }, { status: 400 });
   }
 
   const updates: Record<string, unknown> = { status };
