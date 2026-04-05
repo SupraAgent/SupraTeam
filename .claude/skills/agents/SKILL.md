@@ -16,27 +16,30 @@ When the user runs `/agents`, read all `.md` files in `.claude/agents/` and disp
 
 ## Output Format
 
-Display the agents grouped by role:
+Display the agents grouped by role. Number each agent sequentially across all groups (1, 2, 3, ...) so users can reference agents by number:
 
 ### Product & Strategy
-| Agent | Description |
-|---|---|
-| (CPO agents listed here) |
+| # | Agent | Description |
+|---|---|---|
+| 1 | (first CPO agent) | ... |
+| 2 | (second CPO agent) | ... |
 
 ### Code Quality
-| Agent | Description |
-|---|---|
-| (Code review agents listed here) |
+| # | Agent | Description |
+|---|---|---|
+| 5 | (first code agent) | ... |
 
 ### Security
-| Agent | Description |
-|---|---|
-| (Security agents listed here) |
+| # | Agent | Description |
+|---|---|---|
+| 7 | (first security agent) | ... |
 
 ### Integration Specialists
-| Agent | Description |
-|---|---|
-| (Integration agents listed here) |
+| # | Agent | Description |
+|---|---|---|
+| 10 | (first integration agent) | ... |
+
+Numbers continue sequentially across all groups.
 
 ## Grouping Rules
 
@@ -45,4 +48,4 @@ Display the agents grouped by role:
 - **Security**: Agents with "security", "auditor", "devil", "cypherpunk" in name (case-insensitive)
 - **Integration Specialists**: Agents with "integration", "specialist" in name or description (case-insensitive)
 
-After the table, show a summary line: `**{count} agents available** — use them by name when asking Claude to review, audit, or evaluate.`
+After the table, show a summary line: `**{count} agents available** — use them by name or number (e.g., #3) when asking Claude to review, audit, or evaluate.`
