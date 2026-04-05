@@ -51,7 +51,7 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: "mappings must be an array" }, { status: 400 });
   }
 
-  const VALID_BOARDS = ["BD", "Marketing", "Admin", "Applications"];
+  const VALID_BOARDS = ["BD", "Marketing", "Admin"];
   for (const m of mappings) {
     if (typeof m.tg_folder_id !== "number" || !m.folder_title) {
       return NextResponse.json(

@@ -23,7 +23,7 @@ interface QrCode {
   stage: PipelineStage | null;
 }
 
-const BOARD_TYPES = ["BD", "Marketing", "Admin", "Applications"] as const;
+const BOARD_TYPES = ["BD", "Marketing", "Admin"] as const;
 
 export default function QrCodesPage() {
   const [qrCodes, setQrCodes] = React.useState<QrCode[]>([]);

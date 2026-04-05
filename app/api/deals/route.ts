@@ -86,8 +86,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "deal_name, board_type, and stage_id are required" }, { status: 400 });
   }
 
-  if (!["BD", "Marketing", "Admin", "Applications"].includes(board_type as string)) {
-    return NextResponse.json({ error: "board_type must be BD, Marketing, Admin, or Applications" }, { status: 400 });
+  if (!["BD", "Marketing", "Admin"].includes(board_type as string)) {
+    return NextResponse.json({ error: "board_type must be BD, Marketing, or Admin" }, { status: 400 });
   }
 
   // Use scoped client — RLS INSERT policy allows any authenticated user

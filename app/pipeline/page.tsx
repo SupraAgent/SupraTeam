@@ -33,7 +33,7 @@ const EMPTY_FILTERS: PipelineFilters = {
   assignedTo: null, staleDays: null, outcome: null,
 };
 
-const BOARDS: BoardType[] = ["All", "BD", "Marketing", "Admin", "Applications"];
+const BOARDS: BoardType[] = ["All", "BD", "Marketing", "Admin"];
 
 const SAMPLE_BASE = {
   contact_id: null, assigned_to: null, telegram_chat_id: null, telegram_chat_name: null,
@@ -424,9 +424,8 @@ export default function PipelinePage() {
     return result;
   }, [deals, search, filters]);
 
-  // Filter stages by active board (Applications has its own stages, others share legacy stages)
+  // Filter stages by active board (standard boards use shared stages with null board_type)
   const activeStages = React.useMemo(() => {
-    if (board === "Applications") return stages.filter((s) => s.board_type === "Applications");
     return stages.filter((s) => !s.board_type);
   }, [stages, board]);
 

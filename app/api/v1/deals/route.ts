@@ -87,12 +87,12 @@ export async function POST(request: Request) {
   }
 
   if (
-    !["BD", "Marketing", "Admin", "Applications"].includes(
+    !["BD", "Marketing", "Admin"].includes(
       board_type as string
     )
   ) {
     return NextResponse.json(
-      { error: "board_type must be BD, Marketing, Admin, or Applications" },
+      { error: "board_type must be BD, Marketing, or Admin" },
       { status: 400 }
     );
   }
