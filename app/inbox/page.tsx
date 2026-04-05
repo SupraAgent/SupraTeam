@@ -4,12 +4,9 @@ import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  MessageCircle,
   Search,
-  Users,
   ExternalLink,
   Reply,
-  Clock,
   ChevronDown,
   ChevronRight,
   Inbox as InboxIcon,
@@ -24,13 +21,8 @@ import {
   User as UserIcon,
   Star,
   Pin,
-  BellOff,
   Archive,
-  Tag,
   StickyNote,
-  ChevronLeft,
-  Flame,
-  UserX,
   Sparkles,
   MessageSquare,
   Keyboard,
@@ -50,143 +42,23 @@ import { DealContextSidebar } from "@/components/inbox/deal-context-sidebar";
 import {
   TgChatGroupPanel,
   useTgChatGroups,
-  TG_CHAT_DRAG_TYPE,
 } from "@/components/inbox/tg-chat-group-panel";
-import type { DragChatData } from "@/components/inbox/tg-chat-group-panel";
 
-// ── Chat Label Types & Constants ────────────────────────────────
+import type {
+  ChatLabel,
+  Conversation,
+  Deal,
+  InboxStatus,
+  CannedResponse,
+  InboxTab,
+  ThreadMessage,
+} from "./_components/inbox-types";
+import { COLOR_TAGS, emptyLabel, parseSearchFilters } from "./_components/inbox-types";
+import { useInboxKeyboardShortcuts } from "./_components/use-inbox-keyboard";
+import { MessageBubble } from "./_components/message-bubble";
+import { ConversationListItem } from "./_components/conversation-list-item";
+import { InboxContextMenu, NoteModal, ShortcutHelpModal } from "./_components/inbox-modals";
 
-interface ChatLabel {
-  id: string;
-  telegram_chat_id: number;
-  is_vip: boolean;
-  is_archived: boolean;
-  is_pinned: boolean;
-  is_muted: boolean;
-  color_tag: string | null;
-  color_tag_color: string | null;
-  note: string | null;
-  snoozed_until: string | null;
-  last_user_message_at: string | null;
-  last_contact_message_at: string | null;
-}
-
-const COLOR_TAGS = [
-  { key: "hot_lead", label: "Hot Lead", color: "#ef4444" },
-  { key: "partner", label: "Partner", color: "#3b82f6" },
-  { key: "investor", label: "Investor", color: "#8b5cf6" },
-  { key: "vip_client", label: "VIP Client", color: "#f59e0b" },
-  { key: "urgent", label: "Urgent", color: "#f97316" },
-  { key: "follow_up", label: "Follow Up", color: "#06b6d4" },
-] as const;
-
-function emptyLabel(chatId: number): ChatLabel {
-  return {
-    id: "", telegram_chat_id: chatId,
-    is_vip: false, is_archived: false, is_pinned: false, is_muted: false,
-    color_tag: null, color_tag_color: null, note: null,
-    snoozed_until: null, last_user_message_at: null, last_contact_message_at: null,
-  };
-}
-
-// ── Types ──────────────────────────────────────────────────────
-
-interface ThreadMessage {
-  id: string;
-  telegram_message_id: number;
-  telegram_chat_id: number;
-  sender_telegram_id: number;
-  sender_name: string;
-  sender_username: string | null;
-  message_text: string;
-  message_type: string;
-  reply_to_message_id: number | null;
-  sent_at: string;
-  is_from_bot: boolean;
-  replies: ThreadMessage[];
-}
-
-interface Conversation {
-  chat_id: number;
-  group_name: string;
-  group_type: string;
-  tg_group_id: string;
-  member_count: number | null;
-  message_count: number;
-  latest_at: string | null;
-  messages: ThreadMessage[];
-}
-
-interface Deal {
-  id: string;
-  deal_name: string;
-  board_type: string;
-  stage_id: string | null;
-  stage: { name: string; color: string } | null;
-  assigned_to: string | null;
-  contact: { id: string; name: string } | null;
-  value?: number | null;
-  probability?: number | null;
-  health_score?: number | null;
-  ai_summary?: string | null;
-}
-
-interface InboxStatus {
-  chat_id: number;
-  status: "open" | "snoozed" | "closed";
-  assigned_to: string | null;
-  snoozed_until: string | null;
-  closed_at: string | null;
-  updated_at: string;
-}
-
-interface CannedResponse {
-  id: string;
-  title: string;
-  body: string;
-  shortcut: string | null;
-  category: string | null;
-  usage_count: number;
-}
-
-type InboxTab = "awaiting_reply" | "mine" | "unassigned" | "open" | "vip" | "archived" | "closed";
-
-// ── Advanced Search Parser ─────────────────────────────────────
-interface SearchFilters {
-  text: string;
-  fromUsername: string | null;
-  hasAttachment: boolean;
-  isUnread: boolean;
-  isVip: boolean;
-}
-
-function parseSearchFilters(raw: string): SearchFilters {
-  let text = raw;
-  let fromUsername: string | null = null;
-  let hasAttachment = false;
-  let isUnread = false;
-  let isVip = false;
-
-  const fromMatch = text.match(/from:(\S+)/i);
-  if (fromMatch) {
-    fromUsername = fromMatch[1].toLowerCase();
-    text = text.replace(fromMatch[0], "");
-  }
-  if (/has:attachment/i.test(text)) {
-    hasAttachment = true;
-    text = text.replace(/has:attachment/gi, "");
-  }
-  if (/is:unread/i.test(text)) {
-    isUnread = true;
-    text = text.replace(/is:unread/gi, "");
-  }
-  if (/is:vip/i.test(text)) {
-    isVip = true;
-    text = text.replace(/is:vip/gi, "");
-  }
-
-  return { text: text.trim(), fromUsername, hasAttachment, isUnread, isVip };
-}
 
 // ── Infinite Scroll Sentinel ──────────────────────────────────
 
@@ -670,13 +542,7 @@ export default function InboxPage() {
     setContextMenu({ x, y, chatId, groupName });
   }
 
-  // Close context menu on click
-  React.useEffect(() => {
-    if (!contextMenu) return;
-    function handleClick() { setContextMenu(null); }
-    window.addEventListener("click", handleClick);
-    return () => window.removeEventListener("click", handleClick);
-  }, [contextMenu]);
+
 
   function insertCannedResponse(response: CannedResponse) {
     // Render merge vars from linked deals
@@ -987,15 +853,7 @@ export default function InboxPage() {
 
   // ── Keyboard Shortcuts ─────────────────────────────────────
 
-  // Refs for keyboard handler to avoid stale closures
-  const handleAssignRef = React.useRef(handleAssign);
-  handleAssignRef.current = handleAssign;
-  const handleStatusChangeRef = React.useRef(handleStatusChange);
-  handleStatusChangeRef.current = handleStatusChange;
-  const toggleLabelRef = React.useRef(toggleLabel);
-  toggleLabelRef.current = toggleLabel;
-  const handleSelectChatRef = React.useRef(handleSelectChat);
-  handleSelectChatRef.current = handleSelectChat;
+  // State refs for keyboard shortcut hook
   const highlightedIndexRef = React.useRef(highlightedIndex);
   highlightedIndexRef.current = highlightedIndex;
   const showShortcutHelpRef = React.useRef(showShortcutHelp);
@@ -1007,135 +865,34 @@ export default function InboxPage() {
   const aiSummaryRef = React.useRef(aiSummary);
   aiSummaryRef.current = aiSummary;
 
-  React.useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      const target = e.target as HTMLElement;
-      const isInput = target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable;
-
-      // ? always toggles help
-      if (e.key === "?" && !e.ctrlKey && !e.metaKey) {
-        if (isInput && target.tagName !== "INPUT") return;
-        // Allow ? in textareas but not plain typing
-        if (target.tagName === "INPUT") return;
-        e.preventDefault();
-        setShowShortcutHelp((p) => !p);
-        return;
-      }
-
-      // Escape works everywhere
-      if (e.key === "Escape") {
-        if (showShortcutHelpRef.current) { setShowShortcutHelp(false); return; }
-        if (showScheduleMenuRef.current) { setShowScheduleMenu(false); return; }
-        if (showCannedRef.current) { setShowCanned(false); return; }
-        if (aiSummaryRef.current) { setAiSummary(null); return; }
-        if (selectedChatRef.current) { setSelectedChat(null); return; }
-        return;
-      }
-
-      // Skip shortcuts when typing in input/textarea
-      if (isInput) return;
-
-      const chat = selectedChatRef.current;
-      const userId = currentUserIdRef.current;
-      const currentFiltered = filteredRef.current;
-      const selectedConv = chat
-        ? conversationsRef.current.find((c) => c.chat_id === chat)
-        : null;
-
-      // Shift+A — assign to me
-      if (e.key === "A" && e.shiftKey && !e.ctrlKey && !e.metaKey) {
-        if (chat && userId) {
-          e.preventDefault();
-          handleAssignRef.current(chat, userId);
-        }
-        return;
-      }
-
-      switch (e.key) {
-        case "j": {
-          // Next conversation
-          e.preventDefault();
-          setHighlightedIndex((prev) => Math.min(prev + 1, currentFiltered.length - 1));
-          break;
-        }
-        case "k": {
-          // Previous conversation
-          e.preventDefault();
-          setHighlightedIndex((prev) => Math.max(prev - 1, 0));
-          break;
-        }
-        case "Enter": {
-          // Open highlighted conversation
-          const idx = highlightedIndexRef.current;
-          if (idx >= 0 && idx < currentFiltered.length) {
-            e.preventDefault();
-            handleSelectChatRef.current(currentFiltered[idx].chat_id);
-          }
-          break;
-        }
-        case "r": {
-          // Focus reply textarea
-          if (chat && replyTextareaRef.current) {
-            e.preventDefault();
-            replyTextareaRef.current.focus();
-          }
-          break;
-        }
-        case "e": {
-          // Archive
-          if (selectedConv) {
-            e.preventDefault();
-            toggleLabelRef.current(selectedConv.chat_id, selectedConv.group_name, "is_archived");
-          }
-          break;
-        }
-        case "s": {
-          // Toggle VIP/star
-          if (selectedConv) {
-            e.preventDefault();
-            toggleLabelRef.current(selectedConv.chat_id, selectedConv.group_name, "is_vip");
-          }
-          break;
-        }
-        case "p": {
-          // Toggle pin
-          if (selectedConv) {
-            e.preventDefault();
-            toggleLabelRef.current(selectedConv.chat_id, selectedConv.group_name, "is_pinned");
-          }
-          break;
-        }
-        case "m": {
-          // Toggle mute
-          if (selectedConv) {
-            e.preventDefault();
-            toggleLabelRef.current(selectedConv.chat_id, selectedConv.group_name, "is_muted");
-          }
-          break;
-        }
-        case "/": {
-          // Focus search when no conversation open
-          if (!chat && searchInputRef.current) {
-            e.preventDefault();
-            searchInputRef.current.focus();
-          }
-          break;
-        }
-        case "n": {
-          // Snooze / mark unread
-          if (chat) {
-            e.preventDefault();
-            const oneHour = new Date(Date.now() + 3600000).toISOString();
-            handleStatusChangeRef.current(chat, "snoozed", oneHour);
-          }
-          break;
-        }
-      }
+  // ── Keyboard Shortcuts (extracted hook) ────────���────────────
+  useInboxKeyboardShortcuts(
+    {
+      conversations: conversationsRef,
+      filtered: filteredRef,
+      selectedChat: selectedChatRef,
+      currentUserId: currentUserIdRef,
+      highlightedIndex: highlightedIndexRef,
+      showShortcutHelp: showShortcutHelpRef,
+      showScheduleMenu: showScheduleMenuRef,
+      showCanned: showCannedRef,
+      aiSummary: aiSummaryRef,
+      replyTextarea: replyTextareaRef,
+      searchInput: searchInputRef,
+    },
+    {
+      setShowShortcutHelp,
+      setShowScheduleMenu,
+      setShowCanned,
+      setAiSummary,
+      setSelectedChat,
+      setHighlightedIndex,
+      handleAssign,
+      handleStatusChange,
+      toggleLabel,
+      handleSelectChat,
     }
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  );
 
   // Sync highlighted index with selected chat
   React.useEffect(() => {
@@ -1303,144 +1060,23 @@ export default function InboxPage() {
           <div className="flex flex-col gap-2 min-h-0">
           <div className="rounded-xl border border-white/10 bg-white/[0.02] overflow-hidden flex-1">
             <div className="divide-y divide-white/5 max-h-[70vh] overflow-y-auto thin-scroll">
-              {filtered.map((conv, convIndex) => {
-                const chatDeals = deals[conv.chat_id] ?? [];
-                const lastMsg = conv.messages[0];
-                const isSelected = selectedChat === conv.chat_id;
-                const status = statuses[conv.chat_id];
-                const label = getLabel(conv.chat_id);
-                const assignee = status?.assigned_to
-                  ? teamMembers.find((m) => m.id === status.assigned_to)
-                  : null;
-                const colorTag = label?.color_tag ? COLOR_TAGS.find((t) => t.key === label.color_tag) : null;
-                const tagColor = colorTag?.color || label?.color_tag_color || null;
-
-                // SLA: time since last customer (non-bot) message
-                const lastCustomerMsg = conv.messages.find((m) => !m.is_from_bot);
-                const slaMs = lastCustomerMsg ? Date.now() - new Date(lastCustomerMsg.sent_at).getTime() : null;
-                const slaHours = slaMs ? slaMs / 3600000 : null;
-                const slaColor = slaHours === null ? null : slaHours < 1 ? "text-emerald-400" : slaHours < 4 ? "text-amber-400" : "text-red-400";
-                const slaLabel = slaHours === null ? null : slaHours < 1 ? `${Math.round(slaHours * 60)}m` : `${Math.round(slaHours)}h`;
-
-                // Unread detection: messages newer than last_seen_at
-                const seenAt = lastSeen[conv.chat_id];
-                const neverSeen = !seenAt;
-                const unreadCount = seenAt
-                  ? conv.messages.filter((m) => m.sent_at > seenAt).length +
-                    conv.messages.reduce((sum, m) => sum + (m.replies?.filter((r: ThreadMessage) => r.sent_at > seenAt).length ?? 0), 0)
-                  : conv.message_count;
-                const hasUnread = (unreadCount > 0 || neverSeen) && !isSelected;
-
-                return (
-                  <button
-                    key={conv.chat_id}
-                    draggable
-                    onDragStart={(e) => {
-                      const dragData: DragChatData = {
-                        chatId: conv.chat_id,
-                        chatTitle: conv.group_name,
-                      };
-                      e.dataTransfer.setData(TG_CHAT_DRAG_TYPE, JSON.stringify(dragData));
-                      e.dataTransfer.effectAllowed = "move";
-                    }}
-                    onClick={() => handleSelectChat(conv.chat_id)}
-                    onContextMenu={(e) => handleContextMenu(e, conv.chat_id, conv.group_name)}
-                    className={cn(
-                      "w-full text-left px-3 py-2.5 transition-colors cursor-grab active:cursor-grabbing",
-                      isSelected ? "bg-primary/10" :
-                      convIndex === highlightedIndex ? "bg-white/[0.06] ring-1 ring-primary/30" :
-                      label?.is_vip ? "bg-amber-500/[0.04] hover:bg-amber-500/[0.08]" :
-                      "hover:bg-white/[0.04]",
-                      label?.is_muted && "opacity-50"
-                    )}
-                    style={tagColor && !label?.is_vip ? { borderLeftWidth: 3, borderLeftColor: tagColor } : undefined}
-                  >
-                    <div className="flex items-center gap-2 mb-0.5">
-                      {hasUnread ? (
-                        <span className="h-2 w-2 rounded-full bg-primary shrink-0" title={`${unreadCount} unread`} />
-                      ) : (
-                        <MessageCircle className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                      )}
-                      {label?.is_vip && <Star className="h-3 w-3 text-amber-400 shrink-0" />}
-                      {label?.is_pinned && <Pin className="h-3 w-3 text-primary shrink-0" />}
-                      <span className={cn(
-                        "text-sm truncate",
-                        hasUnread ? "font-semibold text-foreground" : "font-medium text-foreground",
-                        label?.is_vip && "text-amber-200"
-                      )}>{conv.group_name}</span>
-                      {hasUnread && (
-                        <span className={cn(
-                          "rounded-full text-[10px] font-bold px-1.5 py-0.5 shrink-0",
-                          label?.is_vip ? "bg-amber-500/20 text-amber-400" : "bg-primary/20 text-primary"
-                        )}>
-                          {neverSeen ? "new" : unreadCount > 99 ? "99+" : unreadCount}
-                        </span>
-                      )}
-                      {!status?.assigned_to && status?.status !== "closed" && (
-                        <span className="h-2 w-2 rounded-full bg-amber-400 shrink-0" title="Unassigned" />
-                      )}
-                      {conv.member_count && (
-                        <span className="text-[10px] text-muted-foreground/50 shrink-0 flex items-center gap-0.5 ml-auto">
-                          <Users className="h-2.5 w-2.5" />
-                          {conv.member_count}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Color tag + note indicator */}
-                    {(colorTag || label?.note) && (
-                      <div className="flex items-center gap-1 pl-5 mb-0.5">
-                        {colorTag && (
-                          <span className="rounded px-1 py-0 text-[9px] font-medium" style={{ backgroundColor: `${tagColor}20`, color: tagColor || undefined }}>
-                            {colorTag.label}
-                          </span>
-                        )}
-                        {label?.note && <StickyNote className="h-2.5 w-2.5 text-yellow-500/60 shrink-0" />}
-                      </div>
-                    )}
-
-                    {lastMsg && (
-                      <p className="text-[11px] text-muted-foreground truncate pl-5">
-                        <span className="text-foreground/70">{lastMsg.sender_name.split(" ")[0]}:</span>{" "}
-                        {lastMsg.message_text?.slice(0, 80) ?? "(media)"}
-                      </p>
-                    )}
-
-                    <div className="flex items-center gap-2 pl-5 mt-0.5">
-                      {conv.latest_at && (
-                        <span className="text-[10px] text-muted-foreground/50">{timeAgo(conv.latest_at)}</span>
-                      )}
-                      {slaLabel && status?.status !== "closed" && (
-                        <span
-                          className={cn(
-                            "font-medium",
-                            slaHours && slaHours >= 4
-                              ? "text-[10px] rounded-full px-1.5 py-0.5 bg-red-500/15 text-red-400"
-                              : cn("text-[10px]", slaColor)
-                          )}
-                          title="Time since last customer message"
-                        >
-                          {slaHours && slaHours >= 4 ? `⏱ ${slaLabel}` : slaLabel}
-                        </span>
-                      )}
-                      {activeTab === "awaiting_reply" && lastCustomerMsg && (
-                        <span className="text-[10px] text-orange-400/70 flex items-center gap-0.5" title="Awaiting reply since">
-                          <Hourglass className="h-2.5 w-2.5" />
-                          {timeAgo(lastCustomerMsg.sent_at)}
-                        </span>
-                      )}
-                      {assignee && (
-                        <span className="text-[10px] text-primary/60 truncate max-w-[80px]">{assignee.display_name}</span>
-                      )}
-                      {chatDeals.length > 0 && (
-                        <span className="text-[10px] text-primary/70 ml-auto">
-                          {chatDeals.length} deal{chatDeals.length > 1 ? "s" : ""}
-                        </span>
-                      )}
-                    </div>
-                  </button>
-                );
-              })}
+              {filtered.map((conv, convIndex) => (
+                <ConversationListItem
+                  key={conv.chat_id}
+                  conv={conv}
+                  convIndex={convIndex}
+                  chatDeals={deals[conv.chat_id] ?? []}
+                  isSelected={selectedChat === conv.chat_id}
+                  highlightedIndex={highlightedIndex}
+                  status={statuses[conv.chat_id]}
+                  label={getLabel(conv.chat_id)}
+                  teamMembers={teamMembers}
+                  lastSeen={lastSeen}
+                  activeTab={activeTab}
+                  onSelect={handleSelectChat}
+                  onContextMenu={handleContextMenu}
+                />
+              ))}
               {hasMore && (
                 <InboxLoadMore loading={loadingMore} onVisible={loadMore} />
               )}
@@ -1919,230 +1555,39 @@ export default function InboxPage() {
 
       {/* ── Context Menu ───────────────────────────────────── */}
       {contextMenu && (
-        <div
-          className="fixed z-50 min-w-[180px] rounded-lg border border-white/10 bg-card shadow-xl py-1"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {!contextMenu.submenu && (
-            <>
-              <CtxItem
-                icon={<Star className="h-3.5 w-3.5" />}
-                label={getLabel(contextMenu.chatId)?.is_vip ? "Remove VIP" : "Mark as VIP"}
-                active={getLabel(contextMenu.chatId)?.is_vip} activeColor="text-amber-400"
-                onClick={() => { toggleLabel(contextMenu.chatId, contextMenu.groupName, "is_vip"); setContextMenu(null); }}
-              />
-              <CtxItem
-                icon={<Pin className="h-3.5 w-3.5" />}
-                label={getLabel(contextMenu.chatId)?.is_pinned ? "Unpin" : "Pin to top"}
-                active={getLabel(contextMenu.chatId)?.is_pinned}
-                onClick={() => { toggleLabel(contextMenu.chatId, contextMenu.groupName, "is_pinned"); setContextMenu(null); }}
-              />
-              <CtxItem
-                icon={<BellOff className="h-3.5 w-3.5" />}
-                label={getLabel(contextMenu.chatId)?.is_muted ? "Unmute" : "Mute"}
-                active={getLabel(contextMenu.chatId)?.is_muted}
-                onClick={() => { toggleLabel(contextMenu.chatId, contextMenu.groupName, "is_muted"); setContextMenu(null); }}
-              />
-              <div className="border-t border-white/10 my-1" />
-              <CtxItem
-                icon={<Tag className="h-3.5 w-3.5" />} label="Tag as..."
-                onClick={() => setContextMenu({ ...contextMenu, submenu: "tag" })} hasArrow
-              />
-              <CtxItem
-                icon={<AlarmClock className="h-3.5 w-3.5" />}
-                label={statuses[contextMenu.chatId]?.status === "snoozed" ? "Snoozed — unsnooze" : "Snooze..."}
-                active={statuses[contextMenu.chatId]?.status === "snoozed"} activeColor="text-cyan-400"
-                onClick={() => {
-                  if (statuses[contextMenu.chatId]?.status === "snoozed") {
-                    handleStatusChange(contextMenu.chatId, "open");
-                    setContextMenu(null);
-                  } else {
-                    setContextMenu({ ...contextMenu, submenu: "snooze" });
-                  }
-                }}
-                hasArrow={statuses[contextMenu.chatId]?.status !== "snoozed"}
-              />
-              <CtxItem
-                icon={<StickyNote className="h-3.5 w-3.5" />}
-                label={getLabel(contextMenu.chatId)?.note ? "Edit note" : "Add note"}
-                active={!!getLabel(contextMenu.chatId)?.note} activeColor="text-yellow-400"
-                onClick={() => {
-                  setNoteModal({ chatId: contextMenu.chatId, groupName: contextMenu.groupName });
-                  setNoteText(getLabel(contextMenu.chatId)?.note || "");
-                  setContextMenu(null);
-                }}
-              />
-              <div className="border-t border-white/10 my-1" />
-              <CtxItem
-                icon={<Archive className="h-3.5 w-3.5" />}
-                label={getLabel(contextMenu.chatId)?.is_archived ? "Unarchive" : "Archive"}
-                active={getLabel(contextMenu.chatId)?.is_archived}
-                onClick={() => { toggleLabel(contextMenu.chatId, contextMenu.groupName, "is_archived"); setContextMenu(null); }}
-              />
-              {/* Nuke actions only for private chats (positive chat IDs = user IDs) */}
-              {contextMenu.chatId > 0 && (
-                <>
-                  <div className="border-t border-white/10 my-1" />
-                  <CtxItem
-                    icon={<Flame className="h-3.5 w-3.5 text-orange-400" />}
-                    label="Delete My Messages"
-                    onClick={() => { setNukeTarget({ chatId: contextMenu.chatId, name: contextMenu.groupName, type: "messages" }); setContextMenu(null); }}
-                  />
-                  <CtxItem
-                    icon={<UserX className="h-3.5 w-3.5 text-red-400" />}
-                    label="Kick from My Groups"
-                    onClick={() => { setNukeTarget({ chatId: contextMenu.chatId, name: contextMenu.groupName, type: "groups" }); setContextMenu(null); }}
-                  />
-                </>
-              )}
-            </>
-          )}
-
-          {/* Tag submenu */}
-          {contextMenu.submenu === "tag" && (
-            <>
-              <CtxItem
-                icon={<ChevronLeft className="h-3.5 w-3.5" />} label="Back"
-                onClick={() => setContextMenu({ ...contextMenu, submenu: undefined })}
-              />
-              <div className="border-t border-white/10 my-1" />
-              {COLOR_TAGS.map((t) => (
-                <CtxItem
-                  key={t.key}
-                  icon={<div className="h-3 w-3 rounded-full" style={{ backgroundColor: t.color }} />}
-                  label={t.label}
-                  active={getLabel(contextMenu.chatId)?.color_tag === t.key}
-                  onClick={() => {
-                    const current = getLabel(contextMenu.chatId)?.color_tag;
-                    setColorTag(contextMenu.chatId, contextMenu.groupName, current === t.key ? null : t.key, current === t.key ? null : t.color);
-                    setContextMenu(null);
-                  }}
-                />
-              ))}
-              {getLabel(contextMenu.chatId)?.color_tag && (
-                <>
-                  <div className="border-t border-white/10 my-1" />
-                  <CtxItem
-                    icon={<X className="h-3.5 w-3.5" />} label="Remove tag"
-                    onClick={() => { setColorTag(contextMenu.chatId, contextMenu.groupName, null, null); setContextMenu(null); }}
-                  />
-                </>
-              )}
-            </>
-          )}
-
-          {/* Snooze submenu */}
-          {contextMenu.submenu === "snooze" && (
-            <>
-              <CtxItem
-                icon={<ChevronLeft className="h-3.5 w-3.5" />} label="Back"
-                onClick={() => setContextMenu({ ...contextMenu, submenu: undefined })}
-              />
-              <div className="border-t border-white/10 my-1" />
-              {[
-                { label: "1 hour", hours: 1 },
-                { label: "4 hours", hours: 4 },
-                { label: "Tomorrow 9am", hours: -1 },
-                { label: "1 day", hours: 24 },
-                { label: "3 days", hours: 72 },
-                { label: "1 week", hours: 168 },
-              ].map((opt) => {
-                const until = opt.hours === -1
-                  ? (() => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); return d.toISOString(); })()
-                  : new Date(Date.now() + opt.hours * 3600000).toISOString();
-                return (
-                  <CtxItem
-                    key={opt.label}
-                    icon={<AlarmClock className="h-3.5 w-3.5" />}
-                    label={opt.label}
-                    onClick={() => { handleStatusChange(contextMenu.chatId, "snoozed", until); setContextMenu(null); }}
-                  />
-                );
-              })}
-            </>
-          )}
-        </div>
+        <InboxContextMenu
+          contextMenu={contextMenu}
+          getLabel={getLabel}
+          statuses={statuses}
+          toggleLabel={toggleLabel}
+          setColorTag={setColorTag}
+          handleStatusChange={handleStatusChange}
+          onOpenNote={(chatId, groupName) => {
+            setNoteModal({ chatId, groupName });
+            setNoteText(getLabel(chatId)?.note || "");
+          }}
+          onNuke={(chatId, name, type) => setNukeTarget({ chatId, name, type })}
+          onClose={() => setContextMenu(null)}
+          setContextMenu={setContextMenu}
+        />
       )}
 
       {/* ── Note Modal ─────────────────────────────────────── */}
       {noteModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-          onClick={() => setNoteModal(null)}
-          onKeyDown={(e) => { if (e.key === "Escape") setNoteModal(null); }}
-        >
-          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-card p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-medium text-foreground">Note — {noteModal.groupName}</h3>
-              <button onClick={() => setNoteModal(null)} className="text-muted-foreground hover:text-foreground">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <textarea
-              className="w-full rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-foreground placeholder-muted-foreground resize-none focus:outline-none focus:ring-1 focus:ring-primary"
-              rows={4}
-              value={noteText}
-              onChange={(e) => setNoteText(e.target.value)}
-              placeholder="Add a quick note about this conversation..."
-              autoFocus
-            />
-            <div className="flex items-center justify-end gap-2">
-              {getLabel(noteModal.chatId)?.note && (
-                <Button size="sm" variant="ghost" onClick={() => { saveNote(noteModal.chatId, noteModal.groupName, ""); setNoteModal(null); }}>
-                  Delete note
-                </Button>
-              )}
-              <Button size="sm" onClick={() => { saveNote(noteModal.chatId, noteModal.groupName, noteText); setNoteModal(null); }}>
-                Save
-              </Button>
-            </div>
-          </div>
-        </div>
+        <NoteModal
+          chatId={noteModal.chatId}
+          groupName={noteModal.groupName}
+          noteText={noteText}
+          setNoteText={setNoteText}
+          hasExistingNote={!!getLabel(noteModal.chatId)?.note}
+          onSave={saveNote}
+          onClose={() => setNoteModal(null)}
+        />
       )}
 
       {/* Keyboard Shortcut Help Modal */}
       {showShortcutHelp && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-          onClick={() => setShowShortcutHelp(false)}
-          onKeyDown={(e) => { if (e.key === "Escape") setShowShortcutHelp(false); }}
-        >
-          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-card p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                <Keyboard className="h-4 w-4 text-primary" />
-                Keyboard Shortcuts
-              </h3>
-              <button onClick={() => setShowShortcutHelp(false)} className="text-muted-foreground hover:text-foreground">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs">
-              {([
-                ["j / k", "Next / previous conversation"],
-                ["Enter", "Open selected conversation"],
-                ["Escape", "Close / deselect"],
-                ["r", "Focus reply"],
-                ["e", "Archive conversation"],
-                ["s", "Toggle VIP / star"],
-                ["p", "Toggle pin"],
-                ["m", "Toggle mute"],
-                ["n", "Snooze (1 hour)"],
-                ["/", "Focus search"],
-                ["Shift+A", "Assign to me"],
-                ["?", "Toggle this help"],
-              ] as const).map(([key, desc]) => (
-                <div key={key} className="flex items-center gap-2 py-1">
-                  <kbd className="inline-flex items-center justify-center rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground min-w-[28px]">
-                    {key}
-                  </kbd>
-                  <span className="text-muted-foreground">{desc}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        <ShortcutHelpModal onClose={() => setShowShortcutHelp(false)} />
       )}
 
       {/* Nuke modal */}
@@ -2186,81 +1631,3 @@ export default function InboxPage() {
   );
 }
 
-// ── Context Menu Item ─────────────────────────────────────────
-
-function CtxItem({ icon, label, active, activeColor, onClick, hasArrow }: {
-  icon: React.ReactNode; label: string; active?: boolean; activeColor?: string; onClick: () => void; hasArrow?: boolean;
-}) {
-  return (
-    <button onClick={onClick}
-      className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-white/5 transition-colors ${
-        active ? (activeColor || "text-primary") : "text-foreground"
-      }`}>
-      {icon}
-      <span className="flex-1 text-left">{label}</span>
-      {hasArrow && <ChevronRight className="h-3 w-3 text-muted-foreground" />}
-    </button>
-  );
-}
-
-// ── MessageBubble ────────────────────────────────────────────
-
-function MessageBubble({ msg, compact, onReply }: { msg: ThreadMessage; compact?: boolean; onReply?: () => void }) {
-  const chatIdStr = String(msg.telegram_chat_id);
-  const supergroupId = chatIdStr.startsWith("-100") ? chatIdStr.slice(4) : null;
-  const deepLink = supergroupId
-    ? `https://t.me/c/${supergroupId}/${msg.telegram_message_id}`
-    : null;
-
-  return (
-    <div className={cn("flex gap-2", compact ? "py-0.5" : "py-1")}>
-      <div className={cn(
-        "flex items-center justify-center rounded-full shrink-0 font-bold",
-        msg.is_from_bot ? "bg-primary/20 text-primary" : "bg-white/10 text-muted-foreground",
-        compact ? "h-5 w-5 text-[8px]" : "h-7 w-7 text-[10px]"
-      )}>
-        {msg.sender_name.charAt(0).toUpperCase()}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5">
-          <span className={cn("font-medium text-foreground", compact ? "text-[10px]" : "text-xs")}>
-            {msg.sender_name}
-          </span>
-          {msg.sender_username && (
-            <span className="text-[10px] text-muted-foreground/50">@{msg.sender_username}</span>
-          )}
-          <span className="text-[10px] text-muted-foreground/40 flex items-center gap-0.5">
-            <Clock className="h-2.5 w-2.5" />
-            {timeAgo(msg.sent_at)}
-          </span>
-          {deepLink && (
-            <a
-              href={deepLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-muted-foreground/30 hover:text-primary transition-colors"
-              title="Open in Telegram"
-            >
-              <ExternalLink className="h-2.5 w-2.5" />
-            </a>
-          )}
-          {onReply && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onReply(); }}
-              className="opacity-0 group-hover:opacity-100 text-muted-foreground/30 hover:text-primary transition-all"
-              title="Reply to this message"
-            >
-              <Reply className="h-2.5 w-2.5" />
-            </button>
-          )}
-        </div>
-        <p className={cn(
-          "text-muted-foreground whitespace-pre-wrap break-words",
-          compact ? "text-[10px]" : "text-xs"
-        )}>
-          {msg.message_text ?? `(${msg.message_type})`}
-        </p>
-      </div>
-    </div>
-  );
-}
