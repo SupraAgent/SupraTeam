@@ -152,11 +152,12 @@ export function GlobalMessageSearch({ onSelectChat }: GlobalMessageSearchProps) 
 
     if (words.length === 0) return text;
 
-    const regex = new RegExp(`(${words.join('|')})`, 'gi');
-    const parts = text.split(regex);
+    const splitRegex = new RegExp(`(${words.join('|')})`, 'gi');
+    const testRegex = new RegExp(`^(?:${words.join('|')})$`, 'i');
+    const parts = text.split(splitRegex);
 
     return parts.map((part, i) =>
-      regex.test(part) ? (
+      testRegex.test(part) ? (
         <mark key={i} className="bg-primary/30 text-foreground rounded-sm px-0.5">
           {part}
         </mark>

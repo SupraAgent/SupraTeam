@@ -31,12 +31,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Contact not found" }, { status: 404 });
   }
 
-  const bio = (body.bio as string | null) ?? null;
-  const username = (body.username as string | null) ?? null;
-  const photoUrl = (body.photo_url as string | null) ?? null;
+  const bio = body.bio as string | undefined;
+  const username = body.username as string | undefined;
+  const photoUrl = body.photo_url as string | undefined;
   const now = new Date().toISOString();
 
-  // Build update payload — only include changed fields
+  // Build update payload — only include fields that were explicitly provided
   const updates: Record<string, unknown> = {
     enriched_at: now,
     enrichment_source: "telegram",
@@ -67,7 +67,7 @@ export async function POST(request: Request) {
       contact_id: contactId,
       field_name: "tg_bio",
       old_value: oldBio,
-      new_value: bio,
+      new_value: bio ?? null,
       source: "telegram",
       created_by: user.id,
     });

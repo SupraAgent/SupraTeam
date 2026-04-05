@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireAuth } from "@/lib/auth-guard";
 
 const MESSAGE_SELECT =
@@ -13,8 +14,7 @@ const MESSAGE_SELECT =
  * is actually linked to the deal).
  */
 async function resolveChatIds(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  supabase: ReturnType<any>,
+  supabase: SupabaseClient,
   dealId: string,
   legacyChatId: string | number | null,
   filterChatId: string | null
@@ -122,7 +122,7 @@ export async function GET(
     .select(MESSAGE_SELECT)
     .in("telegram_chat_id", chatIds)
     .order("sent_at", { ascending: false })
-    .range(offset, offset + limit); // Supabase .range() is inclusive, so this fetches limit+1 rows
+    .range(offset, offset + limit); // Inclusive on both ends → fetches limit+1 rows; extra row used to detect hasMore
 
   if (error) {
     console.error("[timeline] query error:", error);
@@ -140,9 +140,6 @@ export async function GET(
     hasMore,
   });
 }
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type SupabaseClient = any;
 
 interface RawMessage {
   sender_telegram_id: number | null;

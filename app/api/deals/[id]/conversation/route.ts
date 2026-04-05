@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireAuth } from "@/lib/auth-guard";
 
 const MESSAGE_SELECT =
@@ -13,8 +14,7 @@ const MESSAGE_SELECT =
  * is actually linked to the deal).
  */
 async function resolveChatIds(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  supabase: ReturnType<any>,
+  supabase: SupabaseClient,
   dealId: string,
   legacyChatId: string | number | null,
   filterChatId: string | null
@@ -241,18 +241,49 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "Message required" }, { status: 400 });
   }
 
-  // Get deal's telegram_chat_id
+  // Resolve target chat — prefer chat_id param, then junction table, then legacy column
+  const targetChatParam = new URL(request.url).searchParams.get("chat_id");
   const { data: deal } = await supabase
     .from("crm_deals")
     .select("telegram_chat_id")
     .eq("id", id)
     .single();
 
-  if (!deal?.telegram_chat_id) {
-    return NextResponse.json({ error: "No Telegram chat linked to this deal" }, { status: 400 });
+  let chatId: number | null = null;
+
+  if (targetChatParam) {
+    chatId = Number(targetChatParam);
+  } else {
+    // Check junction table for primary linked chat
+    const { data: linkedChats } = await supabase
+      .from("crm_deal_linked_chats")
+      .select("telegram_chat_id")
+      .eq("deal_id", id)
+      .eq("is_primary", true)
+      .limit(1);
+
+    if (linkedChats && linkedChats.length > 0) {
+      chatId = Number(linkedChats[0].telegram_chat_id);
+    } else {
+      // Fallback: any linked chat
+      const { data: anyLinked } = await supabase
+        .from("crm_deal_linked_chats")
+        .select("telegram_chat_id")
+        .eq("deal_id", id)
+        .limit(1);
+
+      if (anyLinked && anyLinked.length > 0) {
+        chatId = Number(anyLinked[0].telegram_chat_id);
+      } else if (deal?.telegram_chat_id) {
+        // Legacy fallback
+        chatId = Number(deal.telegram_chat_id);
+      }
+    }
   }
 
-  const chatId = Number(deal.telegram_chat_id);
+  if (!chatId) {
+    return NextResponse.json({ error: "No Telegram chat linked to this deal" }, { status: 400 });
+  }
 
   // Try MTProto user client first (only for server-encrypted sessions)
   const { data: session } = await supabase
@@ -260,7 +291,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     .select("session_encrypted, encryption_method")
     .eq("user_id", user.id)
     .eq("is_active", true)
-    .single();
+    .order("connected_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
   if (session && session.encryption_method !== "client") {
     try {

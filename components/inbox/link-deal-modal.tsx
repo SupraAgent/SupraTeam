@@ -63,7 +63,7 @@ export function LinkDealModal({
 
   // Quick-create state
   const [createName, setCreateName] = React.useState("");
-  const [createBoard, setCreateBoard] = React.useState<"BD" | "Marketing" | "Admin" | "Applications">("BD");
+  const [createBoard, setCreateBoard] = React.useState<"BD" | "Marketing" | "Admin">("BD");
   const [stages, setStages] = React.useState<PipelineStage[]>([]);
   const [createStageId, setCreateStageId] = React.useState("");
   const [creating, setCreating] = React.useState(false);
@@ -356,7 +356,7 @@ export function LinkDealModal({
           <div>
             <label className="text-xs text-muted-foreground block mb-1">Board</label>
             <div className="flex gap-1.5">
-              {(["BD", "Marketing", "Admin", "Applications"] as const).map((b) => (
+              {(["BD", "Marketing", "Admin"] as const).map((b) => (
                 <button
                   key={b}
                   onClick={() => {

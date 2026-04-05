@@ -114,13 +114,19 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
     }
   }, [dealId]);
 
+  // Track latest message timestamp for polling without re-creating the callback
+  const lastSentAtRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (messages.length > 0) {
+      lastSentAtRef.current = messages[messages.length - 1]?.sent_at ?? null;
+    }
+  }, [messages]);
+
   // Poll for new messages
   const pollNewMessages = React.useCallback(async () => {
-    if (!hasAnyChat || messages.length === 0) return;
-    const lastSentAt = messages[messages.length - 1]?.sent_at;
-    if (!lastSentAt) return;
+    if (!hasAnyChat || !lastSentAtRef.current) return;
     try {
-      const url = `/api/deals/${dealId}/conversation?after=${encodeURIComponent(lastSentAt)}`;
+      const url = `/api/deals/${dealId}/conversation?after=${encodeURIComponent(lastSentAtRef.current)}`;
       const res = await fetch(url);
       if (!res.ok) return;
       const data = await res.json();
@@ -149,7 +155,7 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
     } catch {
       // silent fail
     }
-  }, [dealId, hasAnyChat, messages]);
+  }, [dealId, hasAnyChat]);
 
   React.useEffect(() => {
     setLoading(true);

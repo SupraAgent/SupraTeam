@@ -28,13 +28,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if ("error" in auth) return auth.error;
   const { user, supabase } = auth;
 
-  const body = await request.json();
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
   const { telegram_chat_id, chat_type, chat_title, chat_link, is_primary } = body;
 
   if (!telegram_chat_id || typeof telegram_chat_id !== "number") {
     return NextResponse.json({ error: "telegram_chat_id (number) is required" }, { status: 400 });
   }
-  if (!chat_type || !["dm", "group", "channel", "supergroup"].includes(chat_type)) {
+  if (!chat_type || typeof chat_type !== "string" || !["dm", "group", "channel", "supergroup"].includes(chat_type)) {
     return NextResponse.json({ error: "chat_type must be dm, group, channel, or supergroup" }, { status: 400 });
   }
 
@@ -105,7 +110,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if ("error" in auth) return auth.error;
   const { supabase } = auth;
 
-  const body = await request.json();
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
   const { telegram_chat_id, is_primary } = body;
 
   if (!telegram_chat_id || typeof is_primary !== "boolean") {
