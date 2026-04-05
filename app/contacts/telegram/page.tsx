@@ -212,7 +212,7 @@ export default function TelegramContactsPage() {
                     </Button>
                   )}
                   <a
-                    href={`/conversations?open=user_${c.telegram_user_id}`}
+                    href={`/inbox?open=user_${c.telegram_user_id}`}
                     className="inline-flex items-center justify-center rounded-md border border-transparent bg-transparent text-foreground hover:border-white/10 hover:bg-white/5 text-xs font-medium h-7 px-3 transition-all"
                   >
                     Message

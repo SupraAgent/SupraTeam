@@ -32,7 +32,7 @@ Everything else, including but not limited to:
 - Automations visual builder UI (`app/automations/` — engine changes allowed per Feature 4)
 - Contacts list UI (`app/contacts/`)
 - Outreach sequences (`app/outreach/`)
-- Conversations AI page (`app/conversations/`)
+- Conversations AI page (`app/conversations/`) — REMOVED (duplicated by Dashboard widgets)
 
 ## Rules
 
