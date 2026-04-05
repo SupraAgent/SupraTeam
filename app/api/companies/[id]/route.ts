@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuth, requireLeadRole } from "@/lib/auth-guard";
 
-const ALLOWED_FIELDS = ["name", "domain", "industry", "website", "description", "logo_url", "employee_count", "location"];
+const ALLOWED_FIELDS = ["name", "domain", "industry", "website", "description", "logo_url", "employee_count", "location", "tvl", "chain_deployments", "token_status", "funding_stage", "protocol_type"];
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireAuth();
