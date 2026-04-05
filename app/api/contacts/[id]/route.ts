@@ -4,7 +4,7 @@ import { logEnrichment } from "@/lib/enrichment-log";
 import { computeQualityScore } from "@/lib/quality-score";
 
 // on_chain_score excluded — only set via enrichment endpoints, not generic PATCH
-const CONTACT_FIELDS = ["name", "email", "phone", "telegram_username", "telegram_user_id", "company", "company_id", "title", "notes", "stage_id", "tg_group_link", "lifecycle_stage", "source", "quality_score", "x_handle", "wallet_address", "wallet_chain"];
+const CONTACT_FIELDS = ["name", "email", "phone", "telegram_username", "telegram_user_id", "company", "company_id", "title", "notes", "stage_id", "tg_group_link", "lifecycle_stage", "source", "quality_score", "x_handle", "wallet_address", "wallet_chain", "wallets", "decision_maker_level", "partnership_type"];
 
 const QUALITY_SCORE_FIELDS = ["name", "email", "telegram_username", "company", "phone", "title", "x_handle", "wallet_address", "on_chain_score"];
 

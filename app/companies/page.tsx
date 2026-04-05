@@ -7,11 +7,204 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { toast } from "sonner";
-import { Plus, Search, Building2, Users, MessageCircle, Trash2 } from "lucide-react";
+import { Plus, Search, Building2, Users, MessageCircle, Trash2, X } from "lucide-react";
+import { Select } from "@/components/ui/select";
 import type { Company, TokenStatus, FundingStage, ProtocolType } from "@/lib/types";
 
 interface CompanyWithCounts extends Company {
   contact_count: number;
+}
+
+const PROTOCOL_TYPE_OPTIONS: { value: ProtocolType; label: string }[] = [
+  { value: "defi", label: "DeFi" },
+  { value: "infrastructure", label: "Infrastructure" },
+  { value: "gaming", label: "Gaming" },
+  { value: "nft", label: "NFT" },
+  { value: "dao", label: "DAO" },
+  { value: "social", label: "Social" },
+  { value: "bridge", label: "Bridge" },
+  { value: "oracle", label: "Oracle" },
+  { value: "wallet", label: "Wallet" },
+  { value: "other", label: "Other" },
+];
+
+const TOKEN_STATUS_OPTIONS: { value: TokenStatus; label: string }[] = [
+  { value: "pre_tge", label: "Pre-TGE" },
+  { value: "post_tge", label: "Post-TGE" },
+  { value: "no_token", label: "No Token" },
+];
+
+const FUNDING_STAGE_OPTIONS: { value: FundingStage; label: string }[] = [
+  { value: "pre_seed", label: "Pre-Seed" },
+  { value: "seed", label: "Seed" },
+  { value: "series_a", label: "Series A" },
+  { value: "series_b", label: "Series B" },
+  { value: "series_c", label: "Series C" },
+  { value: "public", label: "Public" },
+  { value: "bootstrapped", label: "Bootstrapped" },
+];
+
+function formatTvl(value: number | null): string {
+  if (value == null) return "";
+  if (value >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(1)}B`;
+  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `$${(value / 1_000).toFixed(1)}K`;
+  return `$${value.toLocaleString()}`;
+}
+
+function ProtocolInfoSection({ company, onUpdated }: { company: Company; onUpdated: (c: Company) => void }) {
+  const [protocolType, setProtocolType] = React.useState<ProtocolType | "">(company.protocol_type ?? "");
+  const [tvl, setTvl] = React.useState(company.tvl != null ? String(company.tvl) : "");
+  const [tokenStatus, setTokenStatus] = React.useState<TokenStatus | "">(company.token_status ?? "");
+  const [fundingStage, setFundingStage] = React.useState<FundingStage | "">(company.funding_stage ?? "");
+  const [chains, setChains] = React.useState<string[]>(company.chain_deployments ?? []);
+  const [chainInput, setChainInput] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+
+  // Re-sync when company changes
+  React.useEffect(() => {
+    setProtocolType(company.protocol_type ?? "");
+    setTvl(company.tvl != null ? String(company.tvl) : "");
+    setTokenStatus(company.token_status ?? "");
+    setFundingStage(company.funding_stage ?? "");
+    setChains(company.chain_deployments ?? []);
+  }, [company.id, company.protocol_type, company.tvl, company.token_status, company.funding_stage, company.chain_deployments]);
+
+  async function patchField(updates: Record<string, unknown>) {
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/companies/${company.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        onUpdated(data.company);
+        toast.success("Updated");
+      } else {
+        toast.error("Failed to update");
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function addChain() {
+    const tag = chainInput.trim();
+    if (!tag || chains.includes(tag)) return;
+    const updated = [...chains, tag];
+    setChains(updated);
+    setChainInput("");
+    patchField({ chain_deployments: updated });
+  }
+
+  function removeChain(chain: string) {
+    const updated = chains.filter((c) => c !== chain);
+    setChains(updated);
+    patchField({ chain_deployments: updated });
+  }
+
+  return (
+    <div className="border-t border-white/10 pt-3 space-y-3">
+      <h3 className="text-[10px] text-muted-foreground/50 uppercase tracking-wider">Protocol Info</h3>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div>
+          <label className="text-[11px] font-medium text-muted-foreground">Protocol Type</label>
+          <Select
+            value={protocolType}
+            onChange={(e) => {
+              const val = e.target.value as ProtocolType | "";
+              setProtocolType(val);
+              patchField({ protocol_type: val || null });
+            }}
+            options={PROTOCOL_TYPE_OPTIONS}
+            placeholder="Select type"
+            className="mt-1"
+            disabled={saving}
+          />
+        </div>
+        <div>
+          <label className="text-[11px] font-medium text-muted-foreground">TVL</label>
+          <div className="relative mt-1">
+            <Input
+              type="number"
+              value={tvl}
+              onChange={(e) => setTvl(e.target.value)}
+              onBlur={() => patchField({ tvl: tvl ? Number(tvl) : null })}
+              placeholder="e.g. 5000000"
+              disabled={saving}
+            />
+            {tvl && Number(tvl) > 0 && (
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">
+                {formatTvl(Number(tvl))}
+              </span>
+            )}
+          </div>
+        </div>
+        <div>
+          <label className="text-[11px] font-medium text-muted-foreground">Token Status</label>
+          <Select
+            value={tokenStatus}
+            onChange={(e) => {
+              const val = e.target.value as TokenStatus | "";
+              setTokenStatus(val);
+              patchField({ token_status: val || null });
+            }}
+            options={TOKEN_STATUS_OPTIONS}
+            placeholder="Select..."
+            className="mt-1"
+            disabled={saving}
+          />
+        </div>
+        <div>
+          <label className="text-[11px] font-medium text-muted-foreground">Funding Stage</label>
+          <Select
+            value={fundingStage}
+            onChange={(e) => {
+              const val = e.target.value as FundingStage | "";
+              setFundingStage(val);
+              patchField({ funding_stage: val || null });
+            }}
+            options={FUNDING_STAGE_OPTIONS}
+            placeholder="Select..."
+            className="mt-1"
+            disabled={saving}
+          />
+        </div>
+      </div>
+      <div>
+        <label className="text-[11px] font-medium text-muted-foreground">Chain Deployments</label>
+        <div className="flex flex-wrap gap-1.5 mt-1.5">
+          {chains.map((chain) => (
+            <span
+              key={chain}
+              className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-400"
+            >
+              {chain}
+              <button
+                type="button"
+                onClick={() => removeChain(chain)}
+                className="hover:text-red-400 transition"
+              >
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </span>
+          ))}
+        </div>
+        <div className="flex gap-2 mt-1.5">
+          <Input
+            value={chainInput}
+            onChange={(e) => setChainInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addChain(); } }}
+            placeholder="Add chain (press Enter)"
+            className="flex-1 h-8 text-xs"
+            disabled={saving}
+          />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function CompaniesPage() {
@@ -316,44 +509,14 @@ export default function CompaniesPage() {
             {detail.company.location && <div><span className="text-muted-foreground">Location:</span> <span className="text-foreground ml-1">{detail.company.location}</span></div>}
           </div>
 
-          {/* Protocol details */}
-          {(detail.company.protocol_type || detail.company.tvl != null || detail.company.token_status || detail.company.funding_stage || (detail.company.chain_deployments?.length ?? 0) > 0) && (
-            <div className="border-t border-white/10 pt-3">
-              <h3 className="text-xs font-medium text-muted-foreground mb-2">Protocol Details</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-                {detail.company.protocol_type && (
-                  <div><span className="text-muted-foreground">Type:</span> <span className="text-foreground ml-1 capitalize">{detail.company.protocol_type}</span></div>
-                )}
-                {detail.company.tvl != null && (
-                  <div><span className="text-muted-foreground">TVL:</span> <span className="text-foreground ml-1">${Number(detail.company.tvl).toLocaleString()}</span></div>
-                )}
-                {detail.company.token_status && (
-                  <div>
-                    <span className="text-muted-foreground">Token:</span>
-                    <span className={cn("ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium", {
-                      "bg-amber-500/20 text-amber-400": detail.company.token_status === "pre_tge",
-                      "bg-green-500/20 text-green-400": detail.company.token_status === "post_tge",
-                      "bg-gray-500/20 text-gray-400": detail.company.token_status === "no_token",
-                    })}>
-                      {detail.company.token_status === "pre_tge" ? "Pre-TGE" : detail.company.token_status === "post_tge" ? "Post-TGE" : "No Token"}
-                    </span>
-                  </div>
-                )}
-                {detail.company.funding_stage && (
-                  <div><span className="text-muted-foreground">Funding:</span> <span className="text-foreground ml-1 capitalize">{detail.company.funding_stage.replace("_", " ")}</span></div>
-                )}
-              </div>
-              {(detail.company.chain_deployments?.length ?? 0) > 0 && (
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {detail.company.chain_deployments.map((chain) => (
-                    <span key={chain} className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-400">
-                      {chain}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+          {/* Protocol Info — editable */}
+          <ProtocolInfoSection
+            company={detail.company}
+            onUpdated={(updated) => {
+              setDetail((prev) => prev ? { ...prev, company: updated } : prev);
+              fetchCompanies();
+            }}
+          />
 
           {/* Linked Contacts */}
           <div>
