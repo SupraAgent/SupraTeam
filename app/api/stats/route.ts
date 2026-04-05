@@ -28,6 +28,12 @@ export async function GET() {
     supabase.from("tg_groups").select("telegram_group_id, group_name, last_message_at, updated_at"),
   ]);
 
+  // Check critical queries — degrade gracefully if any fail
+  if (dealsRes.error || stagesRes.error) {
+    console.error("[api/stats] critical query error:", dealsRes.error ?? stagesRes.error);
+    return NextResponse.json({ error: "Failed to fetch dashboard data" }, { status: 500 });
+  }
+
   const deals = dealsRes.data ?? [];
   const totalContacts = contactsRes.count ?? 0;
   const stages = stagesRes.data ?? [];
@@ -92,18 +98,31 @@ export async function GET() {
   const movesLastWeek = historyLastWeek.length;
 
   // Average days in each stage (from history)
+  // Group history by deal_id and sort by changed_at to find enter/exit pairs
   const stageDurations: Record<string, number[]> = {};
+  const historyByDeal = new Map<string, typeof historyThisWeek>();
   for (const h of historyThisWeek) {
-    if (h.from_stage_id && h.changed_at) {
-      // Find deal creation or previous move
-      const deal = deals.find((d) => d.id === h.deal_id);
-      if (deal) {
-        const enterTime = new Date(deal.stage_changed_at ?? deal.created_at).getTime();
-        const exitTime = new Date(h.changed_at).getTime();
-        const days = Math.max(0, (exitTime - enterTime) / 86400000);
-        if (!stageDurations[h.from_stage_id]) stageDurations[h.from_stage_id] = [];
-        stageDurations[h.from_stage_id].push(days);
+    const existing = historyByDeal.get(h.deal_id);
+    if (existing) existing.push(h);
+    else historyByDeal.set(h.deal_id, [h]);
+  }
+  for (const [dealId, entries] of historyByDeal) {
+    entries.sort((a, b) => new Date(a.changed_at).getTime() - new Date(b.changed_at).getTime());
+    for (let i = 0; i < entries.length; i++) {
+      const h = entries[i];
+      if (!h.from_stage_id || !h.changed_at) continue;
+      // Enter time: previous history entry's changed_at, or deal created_at
+      let enterTime: number;
+      if (i > 0 && entries[i - 1].changed_at) {
+        enterTime = new Date(entries[i - 1].changed_at).getTime();
+      } else {
+        const deal = deals.find((d) => d.id === dealId);
+        enterTime = deal ? new Date(deal.created_at).getTime() : new Date(h.changed_at).getTime();
       }
+      const exitTime = new Date(h.changed_at).getTime();
+      const days = Math.max(0, (exitTime - enterTime) / 86400000);
+      if (!stageDurations[h.from_stage_id]) stageDurations[h.from_stage_id] = [];
+      stageDurations[h.from_stage_id].push(days);
     }
   }
 
@@ -220,7 +239,6 @@ export async function GET() {
   }
 
   // Determine group health based on last_message_at
-  const threeDaysAgo = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000).getTime();
   const getGroupHealth = (g: TgGroupRow): string => {
     const lastActive = g.last_message_at ? new Date(g.last_message_at).getTime() : null;
     if (!lastActive) return "dead";

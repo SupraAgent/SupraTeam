@@ -14,7 +14,7 @@ import { MergePreviewModal } from "@/components/contacts/merge-preview-modal";
 import type { Contact, PipelineStage, Deal, LifecycleStage, DecisionMakerLevel, PartnershipType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { enrichContact } from "@/lib/enrichment/pipeline";
+import { runEnrichmentPipeline } from "@/lib/enrichment/pipeline";
 
 type SortKey = "name" | "company" | "created_at" | "deals" | "quality_score";
 type SortDir = "asc" | "desc";
@@ -289,15 +289,17 @@ export default function ContactsPage() {
   async function enrichSingleContact(contact: Contact) {
     setEnrichingIds((prev) => new Set(prev).add(contact.id));
     try {
-      const result = await enrichContact(contact);
-      if (result.errors.length > 0) {
-        toast.error(`Enrichment errors: ${result.errors.join(", ")}`);
+      const result = await runEnrichmentPipeline({ contactId: contact.id, includeAI: true });
+      const sources: string[] = [];
+      if (result.x.ok) sources.push("X");
+      if (result.onChain.ok) sources.push("on-chain");
+      if (result.ai?.ok) sources.push("AI");
+      if (sources.length > 0) {
+        toast.success(`Enriched ${contact.name}: ${sources.join(", ")}`);
       } else {
-        const sources: string[] = [];
-        if (result.xTriggered) sources.push("X");
-        if (result.telegramData) sources.push("Telegram");
-        if (sources.length > 0) {
-          toast.success(`Enriched ${contact.name} via ${sources.join(", ")}`);
+        const errors = [result.x.error, result.onChain.error, result.ai?.error].filter(Boolean);
+        if (errors.length > 0) {
+          toast.error(`Enrichment failed: ${errors[0]}`);
         } else {
           toast.info(`No enrichment sources available for ${contact.name}`);
         }
@@ -327,9 +329,9 @@ export default function ContactsPage() {
     for (const contact of enrichable) {
       setEnrichingIds((prev) => new Set(prev).add(contact.id));
       try {
-        const result = await enrichContact(contact);
-        if (result.xTriggered || result.telegramData) enriched++;
-        if (result.errors.length > 0) errored++;
+        const result = await runEnrichmentPipeline({ contactId: contact.id, includeAI: true });
+        if (result.x.ok || result.onChain.ok || result.ai?.ok) enriched++;
+        if (!result.x.ok && !result.onChain.ok) errored++;
       } catch {
         errored++;
       } finally {
@@ -360,9 +362,9 @@ export default function ContactsPage() {
     for (const contact of targets) {
       setEnrichingIds((prev) => new Set(prev).add(contact.id));
       try {
-        const result = await enrichContact(contact);
-        if (result.xTriggered || result.telegramData) enriched++;
-        if (result.errors.length > 0) errored++;
+        const result = await runEnrichmentPipeline({ contactId: contact.id, includeAI: true });
+        if (result.x.ok || result.onChain.ok || result.ai?.ok) enriched++;
+        if (!result.x.ok && !result.onChain.ok) errored++;
       } catch {
         errored++;
       } finally {

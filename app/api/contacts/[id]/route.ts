@@ -4,7 +4,7 @@ import { logEnrichment } from "@/lib/enrichment-log";
 import { computeQualityScore } from "@/lib/quality-score";
 
 // on_chain_score excluded — only set via enrichment endpoints, not generic PATCH
-const CONTACT_FIELDS = ["name", "email", "phone", "telegram_username", "telegram_user_id", "company", "company_id", "title", "notes", "stage_id", "tg_group_link", "lifecycle_stage", "source", "quality_score", "x_handle", "wallet_address", "wallet_chain"];
+const CONTACT_FIELDS = ["name", "email", "phone", "telegram_username", "telegram_user_id", "company", "company_id", "title", "notes", "stage_id", "tg_group_link", "lifecycle_stage", "source", "quality_score", "x_handle", "wallet_address", "wallet_chain", "wallets", "decision_maker_level", "partnership_type"];
 
 const QUALITY_SCORE_FIELDS = ["name", "email", "telegram_username", "company", "phone", "title", "x_handle", "wallet_address", "on_chain_score"];
 
@@ -42,7 +42,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const { user, supabase } = auth;
   const { id } = await params;
 
-  const raw = await request.json();
+  let raw: Record<string, unknown>;
+  try {
+    raw = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
   const body: Record<string, unknown> = { updated_at: new Date().toISOString() };
   for (const key of CONTACT_FIELDS) {
     if (key in raw) body[key] = raw[key];
@@ -110,10 +115,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   // Trigger enrichment asynchronously when relevant fields change
   if (contact) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+    const cookieHeader = request.headers.get("cookie") ?? "";
     if ("x_handle" in raw && raw.x_handle) {
       fetch(`${appUrl}/api/contacts/enrich-x`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Cookie": cookieHeader },
         body: JSON.stringify({ contact_id: id, x_handle: raw.x_handle }),
       }).catch(() => {});
     }

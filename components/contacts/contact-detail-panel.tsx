@@ -6,11 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
-import type { Contact, Company, PipelineStage, LifecycleStage, ContactSource } from "@/lib/types";
+import type { Contact, Company, PipelineStage, LifecycleStage, ContactSource, DecisionMakerLevel, PartnershipType } from "@/lib/types";
 import { timeAgo, cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { Save, Trash2, MessageCircle, FileText, GitMerge, AlertTriangle, Twitter, Loader2, ChevronDown, ChevronRight, RefreshCw, Wallet } from "lucide-react";
+import { Save, Trash2, MessageCircle, FileText, GitMerge, AlertTriangle, Twitter, Loader2, ChevronDown, ChevronRight, RefreshCw, Wallet, Zap } from "lucide-react";
 import Link from "next/link";
+import { runEnrichmentPipeline } from "@/lib/enrichment/pipeline";
 
 const LIFECYCLE_OPTIONS: { value: LifecycleStage; label: string }[] = [
   { value: "prospect", label: "Prospect" },
@@ -30,6 +31,24 @@ const SOURCE_OPTIONS: { value: ContactSource; label: string }[] = [
   { value: "event", label: "Event" },
   { value: "inbound", label: "Inbound" },
   { value: "outbound", label: "Outbound" },
+];
+
+const DECISION_MAKER_OPTIONS: { value: DecisionMakerLevel; label: string }[] = [
+  { value: "founder", label: "Founder" },
+  { value: "c_level", label: "C-Level" },
+  { value: "vp", label: "VP" },
+  { value: "director", label: "Director" },
+  { value: "manager", label: "Manager" },
+  { value: "ic", label: "IC" },
+];
+
+const PARTNERSHIP_TYPE_OPTIONS: { value: PartnershipType; label: string }[] = [
+  { value: "integration", label: "Integration" },
+  { value: "listing", label: "Listing" },
+  { value: "co_marketing", label: "Co-Marketing" },
+  { value: "investment", label: "Investment" },
+  { value: "advisory", label: "Advisory" },
+  { value: "node_operator", label: "Node Operator" },
 ];
 
 type Duplicate = { id: string; name: string; email: string | null; company: string | null; telegram_username: string | null; phone: string | null; title: string | null; confidence: number; signals: string[] };
@@ -60,6 +79,8 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
   const [xHandle, setXHandle] = React.useState("");
   const [walletAddress, setWalletAddress] = React.useState("");
   const [walletChain, setWalletChain] = React.useState("supra");
+  const [decisionMakerLevel, setDecisionMakerLevel] = React.useState<DecisionMakerLevel | "">("");
+  const [partnershipType, setPartnershipType] = React.useState<PartnershipType | "">("");
   const [stageId, setStageId] = React.useState("");
   const [lifecycle, setLifecycle] = React.useState<LifecycleStage>("prospect");
   const [source, setSource] = React.useState<ContactSource>("manual");
@@ -81,6 +102,7 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
   const [xEnrichData, setXEnrichData] = React.useState<{ x_bio: string | null; x_followers: number | null; enriched_at: string | null } | null>(null);
   const [calculatingScore, setCalculatingScore] = React.useState(false);
   const [displayScore, setDisplayScore] = React.useState<number>(0);
+  const [runningFullEnrich, setRunningFullEnrich] = React.useState(false);
 
   // Enrichment history
   type EnrichmentLogEntry = { id: string; field_name: string; old_value: string | null; new_value: string | null; source: string; created_at: string };
@@ -102,6 +124,8 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
       setXHandle(contact.x_handle ?? "");
       setWalletAddress(contact.wallet_address ?? "");
       setWalletChain(contact.wallet_chain ?? "supra");
+      setDecisionMakerLevel(contact.decision_maker_level ?? "");
+      setPartnershipType(contact.partnership_type ?? "");
       setStageId(contact.stage_id ?? "");
       setLifecycle(contact.lifecycle_stage ?? "prospect");
       setSource(contact.source ?? "manual");
@@ -181,6 +205,8 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
           x_handle: xHandle || null,
           wallet_address: walletAddress || null,
           wallet_chain: walletChain || null,
+          decision_maker_level: decisionMakerLevel || null,
+          partnership_type: partnershipType || null,
           stage_id: stageId || null,
           lifecycle_stage: lifecycle,
           source,
@@ -245,23 +271,34 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
     if (!contact) return;
     setEnrichingX(true);
     try {
-      const res = await fetch("/api/contacts/enrich-x", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contact_id: contact.id }),
+      const result = await runEnrichmentPipeline({
+        contactId: contact.id,
+        includeAI: true,
       });
-      if (res.ok) {
-        const data = await res.json();
+
+      if (result.x.ok && result.x.data) {
         setXEnrichData({
-          x_bio: data.enrichment.x_bio,
-          x_followers: data.enrichment.x_followers,
-          enriched_at: data.enrichment.enriched_at,
+          x_bio: result.x.data.x_bio,
+          x_followers: result.x.data.x_followers,
+          enriched_at: result.x.data.enriched_at,
         });
-        toast.success("X profile enriched");
+      }
+
+      if (result.onChain.ok && result.onChain.data) {
+        setDisplayScore(result.onChain.data.score);
+      }
+
+      // Build a user-friendly toast
+      const successes: string[] = [];
+      if (result.x.ok) successes.push("X");
+      if (result.onChain.ok) successes.push("on-chain");
+      if (result.ai?.ok) successes.push("AI");
+
+      if (successes.length > 0) {
+        toast.success(`Enriched: ${successes.join(", ")}`);
         onUpdated?.();
       } else {
-        const data = await res.json();
-        toast.error(data.error || "Enrichment failed");
+        toast.error(result.x.error || "Enrichment failed");
       }
     } finally {
       setEnrichingX(false);
@@ -497,14 +534,45 @@ export function ContactDetailPanel({ contact, open, onClose, onDeleted, onUpdate
           <Input value={telegram} onChange={(e) => setTelegram(e.target.value)} placeholder="without @" className="mt-1" />
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-[11px] font-medium text-muted-foreground">X / Twitter</label>
-            <Input value={xHandle} onChange={(e) => setXHandle(e.target.value)} placeholder="handle (without @)" className="mt-1" />
+        <div>
+          <label className="text-[11px] font-medium text-muted-foreground">X / Twitter</label>
+          <Input value={xHandle} onChange={(e) => setXHandle(e.target.value)} placeholder="handle (without @)" className="mt-1" />
+        </div>
+
+        {/* Crypto Profile */}
+        <div className="space-y-3 pt-1 border-t border-white/10">
+          <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wider pt-2">Crypto Profile</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-[11px] font-medium text-muted-foreground">Decision Maker Level</label>
+              <Select
+                value={decisionMakerLevel}
+                onChange={(e) => setDecisionMakerLevel(e.target.value as DecisionMakerLevel | "")}
+                options={DECISION_MAKER_OPTIONS}
+                placeholder="Select level"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <label className="text-[11px] font-medium text-muted-foreground">Partnership Type</label>
+              <Select
+                value={partnershipType}
+                onChange={(e) => setPartnershipType(e.target.value as PartnershipType | "")}
+                options={PARTNERSHIP_TYPE_OPTIONS}
+                placeholder="Select type"
+                className="mt-1"
+              />
+            </div>
           </div>
-          <div>
-            <label className="text-[11px] font-medium text-muted-foreground">Wallet Address</label>
-            <Input value={walletAddress} onChange={(e) => setWalletAddress(e.target.value)} placeholder="0x... or supra1..." className="mt-1" />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-[11px] font-medium text-muted-foreground">Wallet Address</label>
+              <Input value={walletAddress} onChange={(e) => setWalletAddress(e.target.value)} placeholder="0x... or supra1..." className="mt-1" />
+            </div>
+            <div>
+              <label className="text-[11px] font-medium text-muted-foreground">Wallet Chain</label>
+              <Input value={walletChain} onChange={(e) => setWalletChain(e.target.value)} placeholder="supra, ethereum..." className="mt-1" />
+            </div>
           </div>
         </div>
 

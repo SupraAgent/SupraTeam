@@ -19,7 +19,7 @@ export async function GET(request: Request) {
 
   const { data, error } = await supabase
     .from("crm_deal_email_threads")
-    .select("*")
+    .select("*, deal:crm_deals(deal_name, board_type)")
     .eq("thread_id", threadId)
     .eq("connection_id", connectionId)
     .order("linked_at", { ascending: false });

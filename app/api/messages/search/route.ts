@@ -56,8 +56,8 @@ export async function GET(request: Request) {
   }
 
   // Use the ranked RPC for relevance-sorted full-text search.
-  // Fetch limit+1 to know if there are more results beyond the current page.
-  const fetchLimit = limit + offset + 1;
+  // Fetch limit+1 to detect hasMore without over-fetching.
+  const fetchLimit = limit + 1;
 
   const { data: rankedMessages, error: rpcError } = await supabase.rpc(
     "crm_search_messages_ranked",
@@ -68,6 +68,7 @@ export async function GET(request: Request) {
       p_after: null,
       p_before: null,
       p_limit: fetchLimit,
+      p_offset: offset,
     }
   );
 
@@ -103,9 +104,9 @@ export async function GET(request: Request) {
     }
   }
 
-  // Apply offset/limit, decrypt, and enrich
-  const paginatedResults = allResults.slice(offset, offset + limit);
-  const hasMore = allResults.length > offset + limit;
+  // The RPC now handles offset; we just trim the extra +1 row for hasMore detection
+  const hasMore = allResults.length > limit;
+  const paginatedResults = hasMore ? allResults.slice(0, limit) : allResults;
 
   const enrichedResults: SearchResult[] = paginatedResults.map(
     (msg: Record<string, unknown>) => {

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuth, requireLeadRole } from "@/lib/auth-guard";
 
-const ALLOWED_FIELDS = ["name", "domain", "industry", "website", "description", "logo_url", "employee_count", "location"];
+const ALLOWED_FIELDS = ["name", "domain", "industry", "website", "description", "logo_url", "employee_count", "location", "tvl", "chain_deployments", "token_status", "funding_stage", "protocol_type"];
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireAuth();
@@ -40,7 +40,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const { supabase } = auth;
   const { id } = await params;
 
-  const body = await request.json();
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
 
   for (const key of ALLOWED_FIELDS) {

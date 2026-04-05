@@ -504,15 +504,15 @@ export default function CalendarPage() {
                       <span className="mr-0.5">{TYPE_ICONS[ev.type]}</span>
                       {ev.title}
                     </button>
-                    {ev.linked_deal_name && (
-                      <a
-                        href={`/pipeline?highlight=${ev.linked_deal_id}`}
+                    {ev.linked_deal_name && ev.linked_deal_id && (
+                      <Link
+                        href={`/pipeline?deal=${ev.linked_deal_id}`}
                         onClick={(e) => e.stopPropagation()}
-                        className="block px-1 text-[8px] text-primary hover:text-primary/80 truncate"
+                        className="block px-1 text-[8px] text-primary hover:text-primary/80 hover:underline truncate"
                         title={ev.linked_deal_name}
                       >
                         {ev.linked_deal_name}
-                      </a>
+                      </Link>
                     )}
                   </div>
                 ))}
@@ -571,14 +571,14 @@ export default function CalendarPage() {
                     >
                       <div className="font-medium truncate" style={{ color: ev.color }}>{ev.title}</div>
                       {ev.subtitle && <div className="text-muted-foreground truncate">{ev.subtitle}</div>}
-                      {ev.linked_deal_name && (
-                        <a
-                          href={`/pipeline?highlight=${ev.linked_deal_id}`}
+                      {ev.linked_deal_name && ev.linked_deal_id && (
+                        <Link
+                          href={`/pipeline?deal=${ev.linked_deal_id}`}
                           onClick={(e) => e.stopPropagation()}
-                          className="mt-0.5 inline-flex items-center gap-0.5 rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] text-primary hover:bg-primary/20 transition-colors"
+                          className="mt-0.5 inline-flex items-center gap-0.5 rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] text-primary hover:bg-primary/20 hover:underline transition-colors"
                         >
                           {ev.linked_deal_name}
-                        </a>
+                        </Link>
                       )}
                     </button>
                   </div>
@@ -1033,13 +1033,13 @@ export default function CalendarPage() {
               </a>
             ) : null}
             {/* Deal link from Google Calendar event links */}
-            {!selectedEvent.meta?.deal_id && selectedEvent.linked_deal_name && (
-              <a
-                href={`/pipeline?highlight=${selectedEvent.linked_deal_id}`}
-                className="mt-3 inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary hover:bg-primary/20 transition-colors"
+            {!selectedEvent.meta?.deal_id && selectedEvent.linked_deal_name && selectedEvent.linked_deal_id && (
+              <Link
+                href={`/pipeline?deal=${selectedEvent.linked_deal_id}`}
+                className="mt-3 inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary hover:bg-primary/20 hover:underline transition-colors"
               >
                 Deal: {selectedEvent.linked_deal_name} &rarr;
-              </a>
+              </Link>
             )}
             {selectedEvent.type === "google" && typeof selectedEvent.meta?.hangout_link === "string" ? (
               <a

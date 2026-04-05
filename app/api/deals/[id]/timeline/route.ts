@@ -122,7 +122,7 @@ export async function GET(
     .select(MESSAGE_SELECT)
     .in("telegram_chat_id", chatIds)
     .order("sent_at", { ascending: false })
-    .range(offset, offset + limit); // Inclusive on both ends → fetches limit+1 rows; extra row used to detect hasMore
+    .range(offset, offset + limit); // Inclusive on both ends → fetches limit+1 rows (limit+1 because range is inclusive)
 
   if (error) {
     console.error("[timeline] query error:", error);
