@@ -12,6 +12,17 @@ import { useEffect, useRef, useCallback } from "react";
  * A minimum interval guard prevents excessive refreshes when the user
  * rapidly switches back and forth.
  */
+interface TgWebAppMinimal {
+  onEvent: (event: string, cb: () => void) => void;
+  offEvent: (event: string, cb: () => void) => void;
+}
+
+function getTgWebApp(): TgWebAppMinimal | undefined {
+  if (typeof window === "undefined") return undefined;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Telegram injects this global at runtime
+  return (window as any).Telegram?.WebApp as TgWebAppMinimal | undefined;
+}
+
 export function useFocusRefresh(
   onRefresh: () => void | Promise<void>,
   minIntervalMs: number = 30_000,
@@ -38,9 +49,7 @@ export function useFocusRefresh(
     document.addEventListener("visibilitychange", handleVisibility);
 
     // Telegram WebApp viewport change (fires when the mini-app becomes visible)
-    const tgWebApp = (
-      window as unknown as { Telegram?: { WebApp?: { onEvent: (event: string, cb: () => void) => void; offEvent: (event: string, cb: () => void) => void } } }
-    ).Telegram?.WebApp;
+    const tgWebApp = getTgWebApp();
 
     if (tgWebApp) {
       tgWebApp.onEvent("viewportChanged", maybeRefresh);

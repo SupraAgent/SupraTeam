@@ -1,67 +1,10 @@
 "use client";
 
 import * as React from "react";
+import type { ChatLabel, Conversation, InboxStatus, ChatUrgency, InboxTab } from "./inbox-types";
+import { URGENCY_RANK } from "./inbox-types";
 
 // ── Types ──────────────────────────────────────────────────────
-
-interface ChatLabel {
-  id: string;
-  telegram_chat_id: number;
-  is_vip: boolean;
-  is_archived: boolean;
-  is_pinned: boolean;
-  is_muted: boolean;
-  color_tag: string | null;
-  color_tag_color: string | null;
-  note: string | null;
-  snoozed_until: string | null;
-  last_user_message_at: string | null;
-  last_contact_message_at: string | null;
-}
-
-interface ThreadMessage {
-  id: string;
-  telegram_message_id: number;
-  telegram_chat_id: number;
-  sender_telegram_id: number;
-  sender_name: string;
-  sender_username: string | null;
-  message_text: string;
-  message_type: string;
-  reply_to_message_id: number | null;
-  sent_at: string;
-  is_from_bot: boolean;
-  replies: ThreadMessage[];
-}
-
-interface Conversation {
-  chat_id: number;
-  group_name: string;
-  group_type: string;
-  tg_group_id: string;
-  member_count: number | null;
-  message_count: number;
-  latest_at: string | null;
-  messages: ThreadMessage[];
-}
-
-interface InboxStatus {
-  chat_id: number;
-  status: "open" | "snoozed" | "closed";
-  assigned_to: string | null;
-  snoozed_until: string | null;
-  closed_at: string | null;
-  updated_at: string;
-}
-
-interface ChatUrgency {
-  level: string;
-  category: string | null;
-  summary: string | null;
-  count: number;
-}
-
-type InboxTab = "awaiting_reply" | "urgent" | "mine" | "unassigned" | "open" | "vip" | "archived" | "closed";
 
 interface SearchFilters {
   text: string;
@@ -79,10 +22,6 @@ interface ChatGroup {
   id: string;
   crm_tg_chat_group_members: ChatGroupMember[];
 }
-
-// ── Constants ──────────────────────────────────────────────────
-
-const URGENCY_RANK: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
 
 // ── Search Parser ──────────────────────────────────────────────
 
@@ -153,9 +92,10 @@ export function useInboxFiltering({
   chatGroups,
   urgency,
 }: InboxFilteringInput): InboxFilteringResult {
-  function getLabel(chatId: number): ChatLabel | undefined {
-    return labels[String(chatId)];
-  }
+  const getLabel = React.useCallback(
+    (chatId: number): ChatLabel | undefined => labels[String(chatId)],
+    [labels]
+  );
 
   const filtered = React.useMemo(() => {
     let result = conversations;
@@ -269,8 +209,7 @@ export function useInboxFiltering({
     });
 
     return result;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversations, search, activeTab, statuses, currentUserId, lastSeen, labels, activeGroupId, chatGroups, urgency]);
+  }, [conversations, search, activeTab, statuses, currentUserId, lastSeen, getLabel, labels, activeGroupId, chatGroups, urgency]);
 
   const unassignedCount = React.useMemo(() => conversations.filter((c) => {
     const s = statuses[c.chat_id];
@@ -287,8 +226,7 @@ export function useInboxFiltering({
     if (s?.status === "closed" || getLabel(c.chat_id)?.is_archived) return false;
     const lastMsg = c.messages[0];
     return lastMsg && !lastMsg.is_from_bot;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }).length, [conversations, statuses, labels]);
+  }).length, [conversations, statuses, getLabel]);
 
   const urgentCount = React.useMemo(() => conversations.filter((c) => {
     const u = urgency[c.chat_id];
@@ -297,14 +235,12 @@ export function useInboxFiltering({
 
   const vipCount = React.useMemo(() =>
     conversations.filter((c) => getLabel(c.chat_id)?.is_vip && !getLabel(c.chat_id)?.is_archived).length,
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [conversations, labels]
+    [conversations, getLabel]
   );
 
   const archivedCount = React.useMemo(() =>
     conversations.filter((c) => getLabel(c.chat_id)?.is_archived).length,
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [conversations, labels]
+    [conversations, getLabel]
   );
 
   return {

@@ -64,23 +64,8 @@ import {
 import type { DragChatData } from "@/components/inbox/tg-chat-group-panel";
 import { useInboxFiltering } from "@/lib/client/use-inbox-filtering";
 import { useInboxKeyboard } from "@/lib/client/use-inbox-keyboard";
-
-// ── Chat Label Types & Constants ────────────────────────────────
-
-interface ChatLabel {
-  id: string;
-  telegram_chat_id: number;
-  is_vip: boolean;
-  is_archived: boolean;
-  is_pinned: boolean;
-  is_muted: boolean;
-  color_tag: string | null;
-  color_tag_color: string | null;
-  note: string | null;
-  snoozed_until: string | null;
-  last_user_message_at: string | null;
-  last_contact_message_at: string | null;
-}
+import type { ChatLabel, ThreadMessage, Conversation, InboxStatus, ChatUrgency, InboxTab } from "@/lib/client/inbox-types";
+import { URGENCY_RANK } from "@/lib/client/inbox-types";
 
 const COLOR_TAGS = [
   { key: "hot_lead", label: "Hot Lead", color: "#ef4444" },
@@ -100,33 +85,7 @@ function emptyLabel(chatId: number): ChatLabel {
   };
 }
 
-// ── Types ──────────────────────────────────────────────────────
-
-interface ThreadMessage {
-  id: string;
-  telegram_message_id: number;
-  telegram_chat_id: number;
-  sender_telegram_id: number;
-  sender_name: string;
-  sender_username: string | null;
-  message_text: string;
-  message_type: string;
-  reply_to_message_id: number | null;
-  sent_at: string;
-  is_from_bot: boolean;
-  replies: ThreadMessage[];
-}
-
-interface Conversation {
-  chat_id: number;
-  group_name: string;
-  group_type: string;
-  tg_group_id: string;
-  member_count: number | null;
-  message_count: number;
-  latest_at: string | null;
-  messages: ThreadMessage[];
-}
+// ── Types (page-local only) ───────────────────────────────────
 
 interface Deal {
   id: string;
@@ -142,15 +101,6 @@ interface Deal {
   ai_summary?: string | null;
 }
 
-interface InboxStatus {
-  chat_id: number;
-  status: "open" | "snoozed" | "closed";
-  assigned_to: string | null;
-  snoozed_until: string | null;
-  closed_at: string | null;
-  updated_at: string;
-}
-
 interface CannedResponse {
   id: string;
   title: string;
@@ -160,16 +110,6 @@ interface CannedResponse {
   usage_count: number;
 }
 
-type InboxTab = "awaiting_reply" | "urgent" | "mine" | "unassigned" | "open" | "vip" | "archived" | "closed";
-
-interface ChatUrgency {
-  level: string;
-  category: string | null;
-  summary: string | null;
-  count: number;
-}
-
-const URGENCY_RANK: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
 const URGENCY_COLORS: Record<string, { border: string; dot: string; bg: string; text: string }> = {
   critical: { border: "border-l-red-500", dot: "bg-red-500 animate-pulse", bg: "bg-red-500/10", text: "text-red-400" },
   high: { border: "border-l-orange-500", dot: "bg-orange-500", bg: "bg-orange-500/10", text: "text-orange-400" },
@@ -270,11 +210,14 @@ export default function InboxPage() {
   labelsRef.current = labels;
 
   // Keyboard shortcut: Shift+M to advance the selected conversation's linked deal
+  const dealsRef = React.useRef(deals);
+  dealsRef.current = deals;
   React.useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.shiftKey && e.key === "M" && selectedChat) {
+      const chat = selectedChatRef.current;
+      if (e.shiftKey && e.key === "M" && chat) {
         e.preventDefault();
-        const chatDeals = deals[selectedChat];
+        const chatDeals = dealsRef.current[chat];
         const linkedDeal = chatDeals?.[0];
         if (linkedDeal) {
           fetch(`/api/deals/${linkedDeal.id}/advance`, { method: "POST" })
@@ -289,10 +232,10 @@ export default function InboxPage() {
                     method: "PATCH",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ stage_id: data.from_stage?.id }),
-                  }).then(() => fetchInbox());
+                  }).then(() => fetchInboxRef.current());
                 }},
               });
-              fetchInbox();
+              fetchInboxRef.current();
             })
             .catch(() => toast.error("Failed to advance deal"));
         }
@@ -300,11 +243,9 @@ export default function InboxPage() {
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedChat, deals]);
+  }, []);
   const selectedChatRef = React.useRef(selectedChat);
   selectedChatRef.current = selectedChat;
-  const currentUserIdRef = React.useRef(currentUserId);
-  currentUserIdRef.current = currentUserId;
 
   // Snooze picker
   const [showSnooze, setShowSnooze] = React.useState<number | null>(null);
@@ -483,7 +424,9 @@ export default function InboxPage() {
                 body: JSON.stringify({ chat_id: chatId, status: "open" }),
               });
             }
-            if (!currentStatus?.assigned_to) {
+            // Only evaluate assignment rules if statuses have been loaded
+            // (statusesRef starts empty; skip to avoid false-positive unassigned triggers)
+            if (Object.keys(statusesRef.current).length > 0 && !currentStatus?.assigned_to) {
               fetch("/api/inbox/assign", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -569,11 +512,14 @@ export default function InboxPage() {
       });
       if (res.ok) {
         toast.success("Deal linked");
-        setDealSuggestions((prev) => {
-          const next = { ...prev };
-          delete next[selectedChat!];
-          return next;
-        });
+        const chatId = selectedChat;
+        if (chatId != null) {
+          setDealSuggestions((prev) => {
+            const next = { ...prev };
+            delete next[chatId];
+            return next;
+          });
+        }
         fetchInbox();
         setShowDealSidebar(true);
       } else {
@@ -599,14 +545,15 @@ export default function InboxPage() {
   }
 
   async function handleSendReply() {
-    if (!replyText.trim() || !selectedChat) return;
+    const chatId = selectedChat;
+    if (!replyText.trim() || !chatId) return;
     setSending(true);
     try {
       const res = await fetch("/api/inbox/reply", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          chat_id: selectedChat,
+          chat_id: chatId,
           message: replyText.trim(),
           reply_to_message_id: replyTo?.telegram_message_id ?? undefined,
           send_as: sendAs,
@@ -624,11 +571,11 @@ export default function InboxPage() {
         // Optimistic: inject sent message into local state immediately
         setConversations((prev) =>
           prev.map((c) => {
-            if (c.chat_id !== selectedChat) return c;
+            if (c.chat_id !== chatId) return c;
             const optimisticMsg: ThreadMessage = {
               id: `optimistic-${Date.now()}`,
               telegram_message_id: -Date.now(),
-              telegram_chat_id: selectedChat,
+              telegram_chat_id: chatId,
               sender_telegram_id: 0,
               sender_name: "You",
               sender_username: null,
@@ -648,9 +595,9 @@ export default function InboxPage() {
           })
         );
         // Track last user message time for response-time analytics
-        if (selectedChat) {
-          const conv = conversationsRef.current.find((c) => c.chat_id === selectedChat);
-          if (conv) updateLabel(selectedChat, conv.group_name, { last_user_message_at: new Date().toISOString() });
+        {
+          const conv = conversationsRef.current.find((c) => c.chat_id === chatId);
+          if (conv) updateLabel(chatId, conv.group_name, { last_user_message_at: new Date().toISOString() });
         }
         // Still refresh after delay to get the real message with proper IDs
         setTimeout(() => fetchInbox(), 3000);
@@ -827,6 +774,38 @@ export default function InboxPage() {
         (r.shortcut && r.shortcut.toLowerCase().includes(cannedSearch.toLowerCase()))
       )
     : cannedResponses;
+
+  // Pre-compute per-conversation data so virtual row renders don't scan messages
+  const convRowData = React.useMemo(() => {
+    const map = new Map<number, {
+      slaHours: number | null;
+      slaLabel: string | null;
+      slaColor: string | null;
+      unreadCount: number;
+      hasUnread: boolean;
+      neverSeen: boolean;
+      lastCustomerSentAt: string | null;
+    }>();
+    for (const conv of filtered) {
+      const lastCustomerMsg = conv.messages.find((m) => !m.is_from_bot);
+      const slaMs = lastCustomerMsg ? Date.now() - new Date(lastCustomerMsg.sent_at).getTime() : null;
+      const slaHours = slaMs ? slaMs / 3600000 : null;
+      const slaColor = slaHours === null ? null : slaHours < 1 ? "text-emerald-400" : slaHours < 4 ? "text-amber-400" : "text-red-400";
+      const slaLabel = slaHours === null ? null : slaHours < 1 ? `${Math.round(slaHours * 60)}m` : `${Math.round(slaHours)}h`;
+      const seenAt = lastSeen[conv.chat_id];
+      const neverSeen = !seenAt;
+      const unreadCount = seenAt
+        ? conv.messages.filter((m) => m.sent_at > seenAt).length +
+          conv.messages.reduce((sum, m) => sum + (m.replies?.filter((r: ThreadMessage) => r.sent_at > seenAt).length ?? 0), 0)
+        : conv.message_count;
+      map.set(conv.chat_id, {
+        slaHours, slaLabel, slaColor, unreadCount, neverSeen,
+        hasUnread: (unreadCount > 0 || neverSeen),
+        lastCustomerSentAt: lastCustomerMsg?.sent_at ?? null,
+      });
+    }
+    return map;
+  }, [filtered, lastSeen]);
 
   // Virtual scroll for conversation list
   const convListRef = React.useRef<HTMLDivElement>(null);
@@ -1039,26 +1018,17 @@ export default function InboxPage() {
             variant="ghost"
             onClick={async () => {
               const now = new Date().toISOString();
-              const updates: Record<number, string> = {};
-              for (const c of filtered) {
-                updates[c.chat_id] = now;
-              }
-              setLastSeen((prev) => ({ ...prev, ...updates }));
-              // Batch requests in chunks of 10 to avoid unbounded parallel fetches
               const chatIds = filtered.map((c) => c.chat_id);
-              const CHUNK_SIZE = 10;
-              for (let i = 0; i < chatIds.length; i += CHUNK_SIZE) {
-                const chunk = chatIds.slice(i, i + CHUNK_SIZE);
-                await Promise.all(
-                  chunk.map((chatId) =>
-                    fetch("/api/inbox/seen", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ chat_id: chatId }),
-                    }).catch(() => {})
-                  )
-                );
-              }
+              const updates: Record<number, string> = {};
+              for (const id of chatIds) updates[id] = now;
+              setLastSeen((prev) => ({ ...prev, ...updates }));
+              try {
+                await fetch("/api/inbox/seen", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ chat_ids: chatIds }),
+                });
+              } catch { /* best-effort */ }
               toast.success("All marked as read");
             }}
             title="Mark all as read"
@@ -1247,18 +1217,8 @@ export default function InboxPage() {
                   const chatUrgency = urgency[conv.chat_id];
                   const urgColors = chatUrgency ? URGENCY_COLORS[chatUrgency.level] : null;
 
-                  const lastCustomerMsg = conv.messages.find((m) => !m.is_from_bot);
-                  const slaMs = lastCustomerMsg ? Date.now() - new Date(lastCustomerMsg.sent_at).getTime() : null;
-                  const slaHours = slaMs ? slaMs / 3600000 : null;
-                  const slaColor = slaHours === null ? null : slaHours < 1 ? "text-emerald-400" : slaHours < 4 ? "text-amber-400" : "text-red-400";
-                  const slaLabel = slaHours === null ? null : slaHours < 1 ? `${Math.round(slaHours * 60)}m` : `${Math.round(slaHours)}h`;
-
-                  const seenAt = lastSeen[conv.chat_id];
-                  const neverSeen = !seenAt;
-                  const unreadCount = seenAt
-                    ? conv.messages.filter((m) => m.sent_at > seenAt).length +
-                      conv.messages.reduce((sum, m) => sum + (m.replies?.filter((r: ThreadMessage) => r.sent_at > seenAt).length ?? 0), 0)
-                    : conv.message_count;
+                  const rowData = convRowData.get(conv.chat_id);
+                  const { slaHours, slaLabel, slaColor, unreadCount, neverSeen, lastCustomerSentAt } = rowData ?? { slaHours: null, slaLabel: null, slaColor: null, unreadCount: 0, neverSeen: false, lastCustomerSentAt: null };
                   const hasUnread = (unreadCount > 0 || neverSeen) && !isSelected;
 
                   return (
@@ -1373,10 +1333,10 @@ export default function InboxPage() {
                               {slaHours && slaHours >= 4 ? `⏱ ${slaLabel}` : slaLabel}
                             </span>
                           )}
-                          {activeTab === "awaiting_reply" && lastCustomerMsg && (
+                          {activeTab === "awaiting_reply" && lastCustomerSentAt && (
                             <span className="text-[10px] text-orange-400/70 flex items-center gap-0.5" title="Awaiting reply since">
                               <Hourglass className="h-2.5 w-2.5" />
-                              {timeAgo(lastCustomerMsg.sent_at)}
+                              {timeAgo(lastCustomerSentAt)}
                             </span>
                           )}
                           {assignee && (

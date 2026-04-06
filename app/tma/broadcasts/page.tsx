@@ -94,7 +94,7 @@ export default function TMABroadcastsPage() {
 
   React.useEffect(() => {
     Promise.all([
-      fetch("/api/groups").then((r) => r.json()).catch(() => ({ groups: [] })),
+      fetch("/api/groups").then((r) => r.ok ? r.json() : { groups: [] }).catch(() => ({ groups: [] })),
       fetch("/api/broadcasts?limit=5").then((r) => r.ok ? r.json() : { broadcasts: [] }).catch(() => ({ broadcasts: [] })),
     ]).then(([groupsData, historyData]) => {
       setGroups(groupsData.groups ?? []);
@@ -147,7 +147,16 @@ export default function TMABroadcastsPage() {
         localStorage.removeItem(DRAFT_KEY);
         if (sentTimerRef.current) clearTimeout(sentTimerRef.current);
         sentTimerRef.current = setTimeout(() => setSent(false), 3000);
+      } else {
+        const err = await res.json().catch(() => ({ error: "Broadcast failed" }));
+        // Use Telegram popup if available, otherwise alert
+        const tg = (window as unknown as { Telegram?: { WebApp?: { showPopup: (p: { message: string }) => void } } }).Telegram?.WebApp;
+        if (tg) {
+          tg.showPopup({ message: err.error || "Failed to send broadcast" });
+        }
       }
+    } catch {
+      // Network error — swallowed by finally
     } finally {
       setSending(false);
     }

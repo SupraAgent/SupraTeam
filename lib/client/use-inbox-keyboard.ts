@@ -1,34 +1,7 @@
 "use client";
 
 import * as React from "react";
-
-// ── Types ──────────────────────────────────────────────────────
-
-interface ThreadMessage {
-  id: string;
-  telegram_message_id: number;
-  telegram_chat_id: number;
-  sender_telegram_id: number;
-  sender_name: string;
-  sender_username: string | null;
-  message_text: string;
-  message_type: string;
-  reply_to_message_id: number | null;
-  sent_at: string;
-  is_from_bot: boolean;
-  replies: ThreadMessage[];
-}
-
-interface Conversation {
-  chat_id: number;
-  group_name: string;
-  group_type: string;
-  tg_group_id: string;
-  member_count: number | null;
-  message_count: number;
-  latest_at: string | null;
-  messages: ThreadMessage[];
-}
+import type { Conversation } from "./inbox-types";
 
 // ── Hook Input ─────────────────────────────────────────────────
 

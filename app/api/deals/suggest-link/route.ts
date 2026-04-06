@@ -9,6 +9,11 @@ interface DealSuggestion {
   match_reason: string;
 }
 
+/** Escape ILIKE metacharacters to prevent wildcard injection */
+function escapeIlike(input: string): string {
+  return input.replace(/[%_\\]/g, (ch) => `\\${ch}`);
+}
+
 export async function GET(request: Request) {
   const auth = await requireAuth();
   if ("error" in auth) return auth.error;
@@ -33,7 +38,7 @@ export async function GET(request: Request) {
     );
   }
 
-  // Check if deals are already linked to this chat_id
+  // Check if deals are already linked to this chat_id (junction table)
   const { data: existingLinks, error: linkError } = await supabase
     .from("crm_deal_linked_chats")
     .select("id")
@@ -53,11 +58,15 @@ export async function GET(request: Request) {
   }
 
   // Also check legacy telegram_chat_id on crm_deals
-  const { data: legacyLinks } = await supabase
+  const { data: legacyLinks, error: legacyError } = await supabase
     .from("crm_deals")
     .select("id")
     .eq("telegram_chat_id", chatId)
     .limit(1);
+
+  if (legacyError) {
+    console.error("[api/deals/suggest-link] legacy link check error:", legacyError);
+  }
 
   if (legacyLinks && legacyLinks.length > 0) {
     return NextResponse.json({ suggestions: [] });
@@ -69,25 +78,23 @@ export async function GET(request: Request) {
   }
 
   const title = chatTitle.trim();
+  const escapedTitle = escapeIlike(title);
   const suggestions: DealSuggestion[] = [];
   const seenIds = new Set<string>();
 
   // Supabase returns joined relations as arrays or objects depending on cardinality.
-  // We normalise to a single object (or null) for safety.
   function firstOrObj<T>(val: T | T[] | null | undefined): T | null {
     if (val == null) return null;
     if (Array.isArray(val)) return val[0] ?? null;
     return val;
   }
 
-  // Helper to add a suggestion (deduplicating)
   function addSuggestion(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw supabase row
     deal: Record<string, unknown>,
     reason: string
   ) {
     const id = deal.id as string;
-    if (seenIds.has(id) || suggestions.length >= 3) return;
+    if (!id || seenIds.has(id) || suggestions.length >= 3) return;
     seenIds.add(id);
     const stage = firstOrObj(deal.stage as { name: string } | { name: string }[] | null);
     const contact = firstOrObj(deal.contact as { name: string } | { name: string }[] | null);
@@ -100,52 +107,66 @@ export async function GET(request: Request) {
     });
   }
 
-  // a. Match by telegram_chat_name ILIKE chat_title
+  const selectFields = "id, deal_name, stage:pipeline_stages(name), contact:crm_contacts(name)";
+
+  // a. Match by telegram_chat_name ILIKE chat_title (escaped)
   const { data: chatNameMatches } = await supabase
     .from("crm_deals")
-    .select("id, deal_name, stage:pipeline_stages(name), contact:crm_contacts(name)")
-    .ilike("telegram_chat_name", `%${title}%`)
+    .select(selectFields)
+    .ilike("telegram_chat_name", `%${escapedTitle}%`)
     .limit(3);
 
   for (const deal of chatNameMatches ?? []) {
-    addSuggestion(deal as Record<string, unknown>, "Chat name matches group");
+    addSuggestion(deal as unknown as Record<string, unknown>, "Chat name matches group");
   }
 
-  // b. Match by deal_name ILIKE chat_title
+  // b. Match by deal_name ILIKE chat_title (escaped)
   if (suggestions.length < 3) {
     const { data: dealNameMatches } = await supabase
       .from("crm_deals")
-      .select("id, deal_name, stage:pipeline_stages(name), contact:crm_contacts(name)")
-      .ilike("deal_name", `%${title}%`)
+      .select(selectFields)
+      .ilike("deal_name", `%${escapedTitle}%`)
       .limit(3);
 
     for (const deal of dealNameMatches ?? []) {
-      addSuggestion(deal as Record<string, unknown>, "Deal name matches group");
+      addSuggestion(deal as unknown as Record<string, unknown>, "Deal name matches group");
     }
   }
 
   // c. Match by contact's telegram_username appearing in the chat_title
+  //    Single query: find contacts whose username is in the title, then
+  //    batch-fetch their deals in one query (avoids N+1).
   if (suggestions.length < 3) {
     const { data: contactMatches } = await supabase
       .from("crm_contacts")
       .select("id, telegram_username")
       .not("telegram_username", "is", null)
-      .neq("telegram_username", "");
+      .neq("telegram_username", "")
+      .limit(100);
+
+    const matchingContactIds: string[] = [];
+    const contactUsernameMap = new Map<string, string>();
+    const titleLower = title.toLowerCase();
 
     for (const contact of contactMatches ?? []) {
-      if (suggestions.length >= 3) break;
       const username = contact.telegram_username?.toLowerCase();
-      if (!username || !title.toLowerCase().includes(username)) continue;
+      if (username && titleLower.includes(username)) {
+        matchingContactIds.push(contact.id);
+        contactUsernameMap.set(contact.id, contact.telegram_username ?? "");
+      }
+    }
 
-      // Find deals linked to this contact
+    if (matchingContactIds.length > 0) {
       const { data: contactDeals } = await supabase
         .from("crm_deals")
-        .select("id, deal_name, stage:pipeline_stages(name), contact:crm_contacts(name)")
-        .eq("contact_id", contact.id)
+        .select(`contact_id, ${selectFields}`)
+        .in("contact_id", matchingContactIds)
         .limit(3);
 
       for (const deal of contactDeals ?? []) {
-        addSuggestion(deal as unknown as Record<string, unknown>, `Contact @${contact.telegram_username} in group name`);
+        const contactId = (deal as unknown as Record<string, unknown>).contact_id as string;
+        const username = contactUsernameMap.get(contactId) ?? "";
+        addSuggestion(deal as unknown as Record<string, unknown>, `Contact @${username} in group name`);
       }
     }
   }

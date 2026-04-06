@@ -34,28 +34,43 @@ export async function POST(request: Request) {
   if ("error" in auth) return auth.error;
   const { user, supabase } = auth;
 
-  let body: { chat_id?: number };
+  let body: { chat_id?: number; chat_ids?: number[] };
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const chatId = Number(body.chat_id);
-  if (!chatId || Number.isNaN(chatId)) {
-    return NextResponse.json({ error: "Valid chat_id required" }, { status: 400 });
+  // Support both single chat_id and batch chat_ids
+  const ids: number[] = [];
+  if (Array.isArray(body.chat_ids)) {
+    for (const id of body.chat_ids) {
+      const n = Number(id);
+      if (Number.isFinite(n) && n !== 0) ids.push(n);
+    }
+  } else {
+    const n = Number(body.chat_id);
+    if (Number.isFinite(n) && n !== 0) ids.push(n);
   }
+
+  if (ids.length === 0) {
+    return NextResponse.json({ error: "Valid chat_id or chat_ids required" }, { status: 400 });
+  }
+
+  const now = new Date().toISOString();
+  const rows = ids.map((chatId) => ({
+    user_id: user.id,
+    chat_id: chatId,
+    last_seen_at: now,
+  }));
 
   const { error } = await supabase
     .from("crm_inbox_last_seen")
-    .upsert(
-      { user_id: user.id, chat_id: chatId, last_seen_at: new Date().toISOString() },
-      { onConflict: "user_id,chat_id" }
-    );
+    .upsert(rows, { onConflict: "user_id,chat_id" });
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, count: ids.length });
 }
