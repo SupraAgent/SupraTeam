@@ -7,6 +7,7 @@ const nextConfig: NextConfig = {
   // GramJS uses Node.js modules that don't exist in browser.
   // Stub them out — GramJS auto-detects browser and uses WebSocket instead.
   turbopack: {
+    root: ".",
     resolveAlias: {
       net: { browser: "./lib/client/empty-module.ts" },
       tls: { browser: "./lib/client/empty-module.ts" },
