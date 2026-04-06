@@ -18,7 +18,7 @@ type KanbanColumnProps = {
   onToggleSelect: (dealId: string) => void;
   highlightDealId?: string | null;
   highlightedDealIds?: Set<string>;
-  highlightDetails?: Record<string, { priority?: string; sentiment?: string; message_count?: number; sender_name?: string; triage_urgency?: string; triage_category?: string }>;
+  highlightDetails?: Record<string, { priority?: string; sentiment?: string; message_count?: number; sender_name?: string; message_preview?: string; triage_urgency?: string; triage_category?: string }>;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
   unreadCounts?: Record<string, number>;

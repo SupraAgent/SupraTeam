@@ -18,7 +18,7 @@ type DealCardProps = {
   onToggleSelect: () => void;
   highlight?: boolean;
   tgHighlight?: boolean;
-  tgHighlightDetails?: { priority?: string; sentiment?: string; message_count?: number; sender_name?: string; triage_urgency?: string; triage_category?: string };
+  tgHighlightDetails?: { priority?: string; sentiment?: string; message_count?: number; sender_name?: string; message_preview?: string; triage_urgency?: string; triage_category?: string };
   unreadCount?: number;
   slam?: boolean;
   onHoverPreview?: (deal: Deal, rect: DOMRect) => void;
@@ -215,6 +215,16 @@ export function DealCard({
               <p className="mt-1 text-xs text-muted-foreground truncate">
                 {deal.contact.name}
                 {deal.contact.company && ` - ${deal.contact.company}`}
+              </p>
+            )}
+
+            {/* Last TG message preview */}
+            {tgHighlightDetails?.message_preview && (
+              <p className="mt-0.5 text-[10px] text-muted-foreground/60 truncate">
+                {tgHighlightDetails.sender_name && (
+                  <span className="text-foreground/50">{tgHighlightDetails.sender_name.split(" ")[0]}: </span>
+                )}
+                {tgHighlightDetails.message_preview.slice(0, 60)}
               </p>
             )}
           </div>

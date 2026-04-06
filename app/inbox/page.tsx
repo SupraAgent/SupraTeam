@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -61,6 +62,8 @@ import {
   TG_CHAT_DRAG_TYPE,
 } from "@/components/inbox/tg-chat-group-panel";
 import type { DragChatData } from "@/components/inbox/tg-chat-group-panel";
+import { useInboxFiltering } from "@/lib/client/use-inbox-filtering";
+import { useInboxKeyboard } from "@/lib/client/use-inbox-keyboard";
 
 // ── Chat Label Types & Constants ────────────────────────────────
 
@@ -172,43 +175,6 @@ const URGENCY_COLORS: Record<string, { border: string; dot: string; bg: string; 
   high: { border: "border-l-orange-500", dot: "bg-orange-500", bg: "bg-orange-500/10", text: "text-orange-400" },
 };
 
-// ── Advanced Search Parser ─────────────────────────────────────
-interface SearchFilters {
-  text: string;
-  fromUsername: string | null;
-  hasAttachment: boolean;
-  isUnread: boolean;
-  isVip: boolean;
-}
-
-function parseSearchFilters(raw: string): SearchFilters {
-  let text = raw;
-  let fromUsername: string | null = null;
-  let hasAttachment = false;
-  let isUnread = false;
-  let isVip = false;
-
-  const fromMatch = text.match(/from:(\S+)/i);
-  if (fromMatch) {
-    fromUsername = fromMatch[1].toLowerCase();
-    text = text.replace(fromMatch[0], "");
-  }
-  if (/has:attachment/i.test(text)) {
-    hasAttachment = true;
-    text = text.replace(/has:attachment/gi, "");
-  }
-  if (/is:unread/i.test(text)) {
-    isUnread = true;
-    text = text.replace(/is:unread/gi, "");
-  }
-  if (/is:vip/i.test(text)) {
-    isVip = true;
-    text = text.replace(/is:vip/gi, "");
-  }
-
-  return { text: text.trim(), fromUsername, hasAttachment, isUnread, isVip };
-}
-
 // ── Infinite Scroll Sentinel ──────────────────────────────────
 
 function InboxLoadMore({ loading, onVisible }: { loading: boolean; onVisible: () => void }) {
@@ -269,6 +235,7 @@ export default function InboxPage() {
   const [noteModal, setNoteModal] = React.useState<{ chatId: number; groupName: string } | null>(null);
   const [noteText, setNoteText] = React.useState("");
   const [linkDealModal, setLinkDealModal] = React.useState(false);
+  const [dealSuggestions, setDealSuggestions] = React.useState<Record<number, Array<{ id: string; deal_name: string; stage_name?: string; contact_name?: string; match_reason: string }>>>({});
 
   // Chat groups (drag-to-group + filtering)
   const chatGroups = useTgChatGroups();
@@ -338,7 +305,6 @@ export default function InboxPage() {
   selectedChatRef.current = selectedChat;
   const currentUserIdRef = React.useRef(currentUserId);
   currentUserIdRef.current = currentUserId;
-  const filteredRef = React.useRef<Conversation[]>([]);
 
   // Snooze picker
   const [showSnooze, setShowSnooze] = React.useState<number | null>(null);
@@ -568,6 +534,54 @@ export default function InboxPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chat_id: chatId }),
     });
+    // Fetch deal suggestions if no deals linked yet
+    if (!(deals[chatId] && deals[chatId].length > 0) && !dealSuggestions[chatId]) {
+      const conv = conversations.find((c) => c.chat_id === chatId);
+      if (conv) {
+        fetch(`/api/deals/suggest-link?chat_id=${chatId}&chat_title=${encodeURIComponent(conv.group_name)}`)
+          .then((r) => r.ok ? r.json() : null)
+          .then((data) => {
+            if (data?.suggestions) {
+              setDealSuggestions((prev) => ({ ...prev, [chatId]: data.suggestions }));
+            }
+          })
+          .catch(() => { /* ignore suggestion fetch errors */ });
+      }
+    }
+  }
+
+  async function quickLinkDeal(dealId: string) {
+    if (!selectedChat) return;
+    const conv = conversations.find((c) => c.chat_id === selectedChat);
+    if (!conv) return;
+    const chatType = (conv.group_type === "supergroup" || conv.group_type === "group" || conv.group_type === "channel" || conv.group_type === "dm") ? conv.group_type : "group";
+    try {
+      const res = await fetch(`/api/deals/${dealId}/linked-chats`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          telegram_chat_id: selectedChat,
+          chat_type: chatType,
+          chat_title: conv.group_name,
+          chat_link: `https://t.me/c/${String(selectedChat).replace(/^-100/, "")}`,
+          is_primary: true,
+        }),
+      });
+      if (res.ok) {
+        toast.success("Deal linked");
+        setDealSuggestions((prev) => {
+          const next = { ...prev };
+          delete next[selectedChat!];
+          return next;
+        });
+        fetchInbox();
+        setShowDealSidebar(true);
+      } else {
+        toast.error("Failed to link deal");
+      }
+    } catch {
+      toast.error("Failed to link deal");
+    }
   }
 
   function toggleThread(messageId: number) {
@@ -780,148 +794,28 @@ export default function InboxPage() {
     });
   }
 
-  // ── Filtering ──────────────────────────────────────────────
+  // ── Filtering (extracted hook) ──────────────────────────────
 
-  const filtered = React.useMemo(() => {
-    let result = conversations;
-
-    // Advanced search — parse filter tokens then apply text search
-    const filters = parseSearchFilters(search);
-    if (filters.text) {
-      const q = filters.text.toLowerCase();
-      result = result.filter((c) => {
-        const l = getLabel(c.chat_id);
-        return (
-          c.group_name.toLowerCase().includes(q) ||
-          l?.note?.toLowerCase().includes(q) ||
-          l?.color_tag?.toLowerCase().includes(q) ||
-          c.messages.some((m) =>
-            m.message_text?.toLowerCase().includes(q) ||
-            m.sender_name.toLowerCase().includes(q)
-          )
-        );
-      });
-    }
-    if (filters.fromUsername) {
-      const uname = filters.fromUsername;
-      result = result.filter((c) =>
-        c.messages.some((m) => m.sender_username?.toLowerCase() === uname || m.sender_name.toLowerCase().includes(uname))
-      );
-    }
-    if (filters.hasAttachment) {
-      result = result.filter((c) =>
-        c.messages.some((m) => m.message_type !== "text")
-      );
-    }
-    if (filters.isUnread) {
-      result = result.filter((c) => {
-        const seenAt = lastSeen[c.chat_id];
-        return !seenAt || c.messages.some((m) => m.sent_at > seenAt);
-      });
-    }
-    if (filters.isVip) {
-      result = result.filter((c) => getLabel(c.chat_id)?.is_vip);
-    }
-
-    // Tab filtering
-    if (activeTab === "urgent") {
-      result = result.filter((c) => {
-        const u = urgency[c.chat_id];
-        return u && (URGENCY_RANK[u.level] ?? 0) >= (URGENCY_RANK["high"] ?? 0);
-      });
-    } else if (activeTab === "awaiting_reply") {
-      result = result.filter((c) => {
-        const s = statuses[c.chat_id];
-        if (s?.status === "closed" || getLabel(c.chat_id)?.is_archived) return false;
-        const lastMsg = c.messages[0];
-        return lastMsg && !lastMsg.is_from_bot;
-      });
-    } else if (activeTab === "mine") {
-      result = result.filter((c) => {
-        const s = statuses[c.chat_id];
-        return s?.assigned_to === currentUserId && s?.status !== "closed" && !getLabel(c.chat_id)?.is_archived;
-      });
-    } else if (activeTab === "unassigned") {
-      result = result.filter((c) => {
-        const s = statuses[c.chat_id];
-        return (!s || !s.assigned_to) && (!s || s.status !== "closed") && !getLabel(c.chat_id)?.is_archived;
-      });
-    } else if (activeTab === "vip") {
-      result = result.filter((c) => getLabel(c.chat_id)?.is_vip && !getLabel(c.chat_id)?.is_archived);
-    } else if (activeTab === "archived") {
-      result = result.filter((c) => getLabel(c.chat_id)?.is_archived);
-    } else if (activeTab === "closed") {
-      result = result.filter((c) => statuses[c.chat_id]?.status === "closed");
-    } else {
-      // "open" — exclude closed and archived unless searching
-      if (!search.trim()) {
-        result = result.filter((c) => statuses[c.chat_id]?.status !== "closed" && !getLabel(c.chat_id)?.is_archived);
-      }
-    }
-
-    // Un-snooze: filter out snoozed conversations that haven't expired
-    if (activeTab !== "closed" && activeTab !== "archived") {
-      result = result.filter((c) => {
-        const s = statuses[c.chat_id];
-        if (s?.status !== "snoozed") return true;
-        return s.snoozed_until ? new Date(s.snoozed_until).getTime() <= Date.now() : true;
-      });
-    }
-
-    // Group filter: only show chats in the active group
-    if (activeGroupId) {
-      const activeGroup = chatGroups.groups.find((g) => g.id === activeGroupId);
-      if (activeGroup) {
-        const memberChatIds = new Set(activeGroup.crm_tg_chat_group_members.map((m) => m.telegram_chat_id));
-        result = result.filter((c) => memberChatIds.has(c.chat_id));
-      }
-    }
-
-    // Sort: pinned > urgency (critical > high) > unread > recency
-    result = [...result].sort((a, b) => {
-      const aPinned = getLabel(a.chat_id)?.is_pinned ? 1 : 0;
-      const bPinned = getLabel(b.chat_id)?.is_pinned ? 1 : 0;
-      if (aPinned !== bPinned) return bPinned - aPinned;
-      // Urgency sort: critical > high > rest
-      const aUrg = URGENCY_RANK[urgency[a.chat_id]?.level ?? ""] ?? 0;
-      const bUrg = URGENCY_RANK[urgency[b.chat_id]?.level ?? ""] ?? 0;
-      if (aUrg !== bUrg) return bUrg - aUrg;
-      const aHasUnread = !lastSeen[a.chat_id] || (a.latest_at ? a.latest_at > lastSeen[a.chat_id] : false);
-      const bHasUnread = !lastSeen[b.chat_id] || (b.latest_at ? b.latest_at > lastSeen[b.chat_id] : false);
-      if (aHasUnread && !bHasUnread) return -1;
-      if (!aHasUnread && bHasUnread) return 1;
-      return (b.latest_at ?? "").localeCompare(a.latest_at ?? "");
-    });
-
-    return result;
-  }, [conversations, search, activeTab, statuses, currentUserId, lastSeen, labels, activeGroupId, chatGroups.groups, urgency]);
-  filteredRef.current = filtered;
-
-  const unassignedCount = conversations.filter((c) => {
-    const s = statuses[c.chat_id];
-    return (!s || !s.assigned_to) && (!s || s.status !== "closed");
-  }).length;
-
-  const mineCount = conversations.filter((c) => {
-    const s = statuses[c.chat_id];
-    return s?.assigned_to === currentUserId && s?.status !== "closed";
-  }).length;
-
-  const awaitingReplyCount = conversations.filter((c) => {
-    const s = statuses[c.chat_id];
-    if (s?.status === "closed" || getLabel(c.chat_id)?.is_archived) return false;
-    const lastMsg = c.messages[0];
-    return lastMsg && !lastMsg.is_from_bot;
-  }).length;
-
-
-  const urgentCount = conversations.filter((c) => {
-    const u = urgency[c.chat_id];
-    return u && (URGENCY_RANK[u.level] ?? 0) >= (URGENCY_RANK["high"] ?? 0);
-  }).length;
-
-  const vipCount = conversations.filter((c) => getLabel(c.chat_id)?.is_vip && !getLabel(c.chat_id)?.is_archived).length;
-  const archivedCount = conversations.filter((c) => getLabel(c.chat_id)?.is_archived).length;
+  const {
+    filtered,
+    unassignedCount,
+    mineCount,
+    awaitingReplyCount,
+    urgentCount,
+    vipCount,
+    archivedCount,
+  } = useInboxFiltering({
+    conversations,
+    search,
+    activeTab,
+    statuses,
+    currentUserId,
+    lastSeen,
+    labels,
+    activeGroupId,
+    chatGroups: chatGroups.groups,
+    urgency,
+  });
 
   const selectedConversation = selectedChat
     ? conversations.find((c) => c.chat_id === selectedChat)
@@ -933,6 +827,15 @@ export default function InboxPage() {
         (r.shortcut && r.shortcut.toLowerCase().includes(cannedSearch.toLowerCase()))
       )
     : cannedResponses;
+
+  // Virtual scroll for conversation list
+  const convListRef = React.useRef<HTMLDivElement>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: filtered.length + (hasMore ? 1 : 0),
+    getScrollElement: () => convListRef.current,
+    estimateSize: () => 76,
+    overscan: 5,
+  });
 
   // Close snooze picker on outside click
   React.useEffect(() => {
@@ -1074,157 +977,31 @@ export default function InboxPage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showScheduleMenu]);
 
-  // ── Keyboard Shortcuts ─────────────────────────────────────
+  // ── Keyboard Shortcuts (extracted hook) ─────────────────────
 
-  // Refs for keyboard handler to avoid stale closures
-  const handleAssignRef = React.useRef(handleAssign);
-  handleAssignRef.current = handleAssign;
-  const handleStatusChangeRef = React.useRef(handleStatusChange);
-  handleStatusChangeRef.current = handleStatusChange;
-  const toggleLabelRef = React.useRef(toggleLabel);
-  toggleLabelRef.current = toggleLabel;
-  const handleSelectChatRef = React.useRef(handleSelectChat);
-  handleSelectChatRef.current = handleSelectChat;
-  const highlightedIndexRef = React.useRef(highlightedIndex);
-  highlightedIndexRef.current = highlightedIndex;
-  const showShortcutHelpRef = React.useRef(showShortcutHelp);
-  showShortcutHelpRef.current = showShortcutHelp;
-  const showScheduleMenuRef = React.useRef(showScheduleMenu);
-  showScheduleMenuRef.current = showScheduleMenu;
-  const showCannedRef = React.useRef(showCanned);
-  showCannedRef.current = showCanned;
-  const aiSummaryRef = React.useRef(aiSummary);
-  aiSummaryRef.current = aiSummary;
-
-  React.useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      const target = e.target as HTMLElement;
-      const isInput = target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable;
-
-      // ? always toggles help
-      if (e.key === "?" && !e.ctrlKey && !e.metaKey) {
-        if (isInput && target.tagName !== "INPUT") return;
-        // Allow ? in textareas but not plain typing
-        if (target.tagName === "INPUT") return;
-        e.preventDefault();
-        setShowShortcutHelp((p) => !p);
-        return;
-      }
-
-      // Escape works everywhere
-      if (e.key === "Escape") {
-        if (showShortcutHelpRef.current) { setShowShortcutHelp(false); return; }
-        if (showScheduleMenuRef.current) { setShowScheduleMenu(false); return; }
-        if (showCannedRef.current) { setShowCanned(false); return; }
-        if (aiSummaryRef.current) { setAiSummary(null); return; }
-        if (selectedChatRef.current) { setSelectedChat(null); return; }
-        return;
-      }
-
-      // Skip shortcuts when typing in input/textarea
-      if (isInput) return;
-
-      const chat = selectedChatRef.current;
-      const userId = currentUserIdRef.current;
-      const currentFiltered = filteredRef.current;
-      const selectedConv = chat
-        ? conversationsRef.current.find((c) => c.chat_id === chat)
-        : null;
-
-      // Shift+A — assign to me
-      if (e.key === "A" && e.shiftKey && !e.ctrlKey && !e.metaKey) {
-        if (chat && userId) {
-          e.preventDefault();
-          handleAssignRef.current(chat, userId);
-        }
-        return;
-      }
-
-      switch (e.key) {
-        case "j": {
-          // Next conversation
-          e.preventDefault();
-          setHighlightedIndex((prev) => Math.min(prev + 1, currentFiltered.length - 1));
-          break;
-        }
-        case "k": {
-          // Previous conversation
-          e.preventDefault();
-          setHighlightedIndex((prev) => Math.max(prev - 1, 0));
-          break;
-        }
-        case "Enter": {
-          // Open highlighted conversation
-          const idx = highlightedIndexRef.current;
-          if (idx >= 0 && idx < currentFiltered.length) {
-            e.preventDefault();
-            handleSelectChatRef.current(currentFiltered[idx].chat_id);
-          }
-          break;
-        }
-        case "r": {
-          // Focus reply textarea
-          if (chat && replyTextareaRef.current) {
-            e.preventDefault();
-            replyTextareaRef.current.focus();
-          }
-          break;
-        }
-        case "e": {
-          // Archive
-          if (selectedConv) {
-            e.preventDefault();
-            toggleLabelRef.current(selectedConv.chat_id, selectedConv.group_name, "is_archived");
-          }
-          break;
-        }
-        case "s": {
-          // Toggle VIP/star
-          if (selectedConv) {
-            e.preventDefault();
-            toggleLabelRef.current(selectedConv.chat_id, selectedConv.group_name, "is_vip");
-          }
-          break;
-        }
-        case "p": {
-          // Toggle pin
-          if (selectedConv) {
-            e.preventDefault();
-            toggleLabelRef.current(selectedConv.chat_id, selectedConv.group_name, "is_pinned");
-          }
-          break;
-        }
-        case "m": {
-          // Toggle mute
-          if (selectedConv) {
-            e.preventDefault();
-            toggleLabelRef.current(selectedConv.chat_id, selectedConv.group_name, "is_muted");
-          }
-          break;
-        }
-        case "/": {
-          // Focus search when no conversation open
-          if (!chat && searchInputRef.current) {
-            e.preventDefault();
-            searchInputRef.current.focus();
-          }
-          break;
-        }
-        case "n": {
-          // Snooze / mark unread
-          if (chat) {
-            e.preventDefault();
-            const oneHour = new Date(Date.now() + 3600000).toISOString();
-            handleStatusChangeRef.current(chat, "snoozed", oneHour);
-          }
-          break;
-        }
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  useInboxKeyboard({
+    selectedChat,
+    currentUserId,
+    conversations,
+    filtered,
+    highlightedIndex,
+    setHighlightedIndex,
+    setSelectedChat,
+    setShowShortcutHelp,
+    setShowScheduleMenu,
+    setShowCanned,
+    setAiSummary,
+    handleAssign,
+    handleStatusChange,
+    toggleLabel,
+    handleSelectChat,
+    showShortcutHelp,
+    showScheduleMenu,
+    showCanned,
+    aiSummary,
+    replyTextareaRef,
+    searchInputRef,
+  });
 
   // Sync highlighted index with selected chat
   React.useEffect(() => {
@@ -1440,183 +1217,220 @@ export default function InboxPage() {
                 />
               </div>
             ) : (
-            <div className="divide-y divide-white/5 max-h-[70vh] overflow-y-auto thin-scroll">
-              {filtered.map((conv, convIndex) => {
-                const chatDeals = deals[conv.chat_id] ?? [];
-                const lastMsg = conv.messages[0];
-                const isSelected = selectedChat === conv.chat_id;
-                const status = statuses[conv.chat_id];
-                const label = getLabel(conv.chat_id);
-                const assignee = status?.assigned_to
-                  ? teamMembers.find((m) => m.id === status.assigned_to)
-                  : null;
-                const colorTag = label?.color_tag ? COLOR_TAGS.find((t) => t.key === label.color_tag) : null;
-                const tagColor = colorTag?.color || label?.color_tag_color || null;
-                const chatUrgency = urgency[conv.chat_id];
-                const urgColors = chatUrgency ? URGENCY_COLORS[chatUrgency.level] : null;
-
-                // SLA: time since last customer (non-bot) message
-                const lastCustomerMsg = conv.messages.find((m) => !m.is_from_bot);
-                const slaMs = lastCustomerMsg ? Date.now() - new Date(lastCustomerMsg.sent_at).getTime() : null;
-                const slaHours = slaMs ? slaMs / 3600000 : null;
-                const slaColor = slaHours === null ? null : slaHours < 1 ? "text-emerald-400" : slaHours < 4 ? "text-amber-400" : "text-red-400";
-                const slaLabel = slaHours === null ? null : slaHours < 1 ? `${Math.round(slaHours * 60)}m` : `${Math.round(slaHours)}h`;
-
-                // Unread detection: messages newer than last_seen_at
-                const seenAt = lastSeen[conv.chat_id];
-                const neverSeen = !seenAt;
-                const unreadCount = seenAt
-                  ? conv.messages.filter((m) => m.sent_at > seenAt).length +
-                    conv.messages.reduce((sum, m) => sum + (m.replies?.filter((r: ThreadMessage) => r.sent_at > seenAt).length ?? 0), 0)
-                  : conv.message_count;
-                const hasUnread = (unreadCount > 0 || neverSeen) && !isSelected;
-
-                return (
-                  <button
-                    key={conv.chat_id}
-                    draggable
-                    onDragStart={(e) => {
-                      const dragData: DragChatData = {
-                        chatId: conv.chat_id,
-                        chatTitle: conv.group_name,
-                      };
-                      e.dataTransfer.setData(TG_CHAT_DRAG_TYPE, JSON.stringify(dragData));
-                      e.dataTransfer.effectAllowed = "move";
-                    }}
-                    onClick={() => handleSelectChat(conv.chat_id)}
-                    onContextMenu={(e) => handleContextMenu(e, conv.chat_id, conv.group_name)}
-                    className={cn(
-                      "w-full text-left px-3 py-2.5 transition-colors cursor-grab active:cursor-grabbing border-l-2 border-l-transparent",
-                      isSelected ? "bg-primary/10" :
-                      convIndex === highlightedIndex ? "bg-white/[0.06] ring-1 ring-primary/30" :
-                      urgColors && !isSelected ? urgColors.bg :
-                      label?.is_vip ? "bg-amber-500/[0.04] hover:bg-amber-500/[0.08]" :
-                      "hover:bg-white/[0.04]",
-                      urgColors && urgColors.border,
-                      label?.is_muted && "opacity-50"
-                    )}
-                    style={!urgColors && tagColor && !label?.is_vip ? { borderLeftWidth: 3, borderLeftColor: tagColor } : undefined}
-                  >
-                    <div className="flex items-center gap-2 mb-0.5">
-                      {urgColors ? (
-                        <span
-                          className={cn("h-2 w-2 rounded-full shrink-0", urgColors.dot)}
-                          title={chatUrgency ? `${chatUrgency.level}: ${chatUrgency.summary ?? chatUrgency.category ?? ""}` : undefined}
-                        />
-                      ) : hasUnread ? (
-                        <span className="h-2 w-2 rounded-full bg-primary shrink-0" title={`${unreadCount} unread`} />
-                      ) : (
-                        <MessageCircle className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                      )}
-                      {label?.is_vip && <Star className="h-3 w-3 text-amber-400 shrink-0" />}
-                      {label?.is_pinned && <Pin className="h-3 w-3 text-primary shrink-0" />}
-                      <span className={cn(
-                        "text-sm truncate",
-                        hasUnread ? "font-semibold text-foreground" : "font-medium text-foreground",
-                        label?.is_vip && "text-amber-200"
-                      )}>{conv.group_name}</span>
-                      {hasUnread && (
-                        <span className={cn(
-                          "rounded-full text-[10px] font-bold px-1.5 py-0.5 shrink-0",
-                          label?.is_vip ? "bg-amber-500/20 text-amber-400" : "bg-primary/20 text-primary"
-                        )}>
-                          {neverSeen ? "new" : unreadCount > 99 ? "99+" : unreadCount}
-                        </span>
-                      )}
-                      {!status?.assigned_to && status?.status !== "closed" && (
-                        <span className="h-2 w-2 rounded-full bg-amber-400 shrink-0" title="Unassigned" />
-                      )}
-                      {conv.member_count && (
-                        <span className="text-[10px] text-muted-foreground/50 shrink-0 flex items-center gap-0.5 ml-auto">
-                          <Users className="h-2.5 w-2.5" />
-                          {conv.member_count}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Color tag + note indicator */}
-                    {(colorTag || label?.note) && (
-                      <div className="flex items-center gap-1 pl-5 mb-0.5">
-                        {colorTag && (
-                          <span className="rounded px-1 py-0 text-[9px] font-medium" style={{ backgroundColor: `${tagColor}20`, color: tagColor || undefined }}>
-                            {colorTag.label}
-                          </span>
-                        )}
-                        {label?.note && <StickyNote className="h-2.5 w-2.5 text-yellow-500/60 shrink-0" />}
+            <div ref={convListRef} className="max-h-[70vh] overflow-y-auto thin-scroll">
+              <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, width: "100%", position: "relative" }}>
+                {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                  // Load-more sentinel at the end
+                  if (virtualRow.index >= filtered.length) {
+                    return (
+                      <div
+                        key="load-more"
+                        style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${virtualRow.start}px)` }}
+                      >
+                        <InboxLoadMore loading={loadingMore} onVisible={loadMore} />
                       </div>
-                    )}
+                    );
+                  }
 
-                    {lastMsg && (
-                      <p className="text-[11px] text-muted-foreground truncate pl-5">
-                        <span className="text-foreground/70">{lastMsg.sender_name.split(" ")[0]}:</span>{" "}
-                        {lastMsg.message_text?.slice(0, 80) ?? "(media)"}
-                      </p>
-                    )}
+                  const convIndex = virtualRow.index;
+                  const conv = filtered[convIndex];
+                  const chatDeals = deals[conv.chat_id] ?? [];
+                  const lastMsg = conv.messages[0];
+                  const isSelected = selectedChat === conv.chat_id;
+                  const status = statuses[conv.chat_id];
+                  const label = getLabel(conv.chat_id);
+                  const assignee = status?.assigned_to
+                    ? teamMembers.find((m) => m.id === status.assigned_to)
+                    : null;
+                  const colorTag = label?.color_tag ? COLOR_TAGS.find((t) => t.key === label.color_tag) : null;
+                  const tagColor = colorTag?.color || label?.color_tag_color || null;
+                  const chatUrgency = urgency[conv.chat_id];
+                  const urgColors = chatUrgency ? URGENCY_COLORS[chatUrgency.level] : null;
 
-                    <div className="flex items-center gap-2 pl-5 mt-0.5">
-                      {chatUrgency && urgColors && (
-                        <span
-                          className={cn("rounded px-1 py-0 text-[9px] font-medium", urgColors.bg, urgColors.text)}
-                          title={chatUrgency.summary ?? undefined}
-                        >
-                          {chatUrgency.category?.replace("_", " ") ?? chatUrgency.level}
-                        </span>
-                      )}
-                      {conv.latest_at && (
-                        <span className="text-[10px] text-muted-foreground/50">{timeAgo(conv.latest_at)}</span>
-                      )}
-                      {slaLabel && status?.status !== "closed" && (
-                        <span
-                          className={cn(
-                            "font-medium",
-                            slaHours && slaHours >= 4
-                              ? "text-[10px] rounded-full px-1.5 py-0.5 bg-red-500/15 text-red-400"
-                              : cn("text-[10px]", slaColor)
+                  const lastCustomerMsg = conv.messages.find((m) => !m.is_from_bot);
+                  const slaMs = lastCustomerMsg ? Date.now() - new Date(lastCustomerMsg.sent_at).getTime() : null;
+                  const slaHours = slaMs ? slaMs / 3600000 : null;
+                  const slaColor = slaHours === null ? null : slaHours < 1 ? "text-emerald-400" : slaHours < 4 ? "text-amber-400" : "text-red-400";
+                  const slaLabel = slaHours === null ? null : slaHours < 1 ? `${Math.round(slaHours * 60)}m` : `${Math.round(slaHours)}h`;
+
+                  const seenAt = lastSeen[conv.chat_id];
+                  const neverSeen = !seenAt;
+                  const unreadCount = seenAt
+                    ? conv.messages.filter((m) => m.sent_at > seenAt).length +
+                      conv.messages.reduce((sum, m) => sum + (m.replies?.filter((r: ThreadMessage) => r.sent_at > seenAt).length ?? 0), 0)
+                    : conv.message_count;
+                  const hasUnread = (unreadCount > 0 || neverSeen) && !isSelected;
+
+                  return (
+                    <div
+                      key={conv.chat_id}
+                      data-index={virtualRow.index}
+                      ref={rowVirtualizer.measureElement}
+                      style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${virtualRow.start}px)` }}
+                      className="border-b border-white/5"
+                    >
+                      <button
+                        draggable
+                        onDragStart={(e) => {
+                          const dragData: DragChatData = {
+                            chatId: conv.chat_id,
+                            chatTitle: conv.group_name,
+                          };
+                          e.dataTransfer.setData(TG_CHAT_DRAG_TYPE, JSON.stringify(dragData));
+                          e.dataTransfer.effectAllowed = "move";
+                        }}
+                        onClick={() => handleSelectChat(conv.chat_id)}
+                        onContextMenu={(e) => handleContextMenu(e, conv.chat_id, conv.group_name)}
+                        className={cn(
+                          "w-full text-left px-3 py-2.5 transition-colors cursor-grab active:cursor-grabbing border-l-2 border-l-transparent",
+                          isSelected ? "bg-primary/10" :
+                          convIndex === highlightedIndex ? "bg-white/[0.06] ring-1 ring-primary/30" :
+                          urgColors && !isSelected ? urgColors.bg :
+                          label?.is_vip ? "bg-amber-500/[0.04] hover:bg-amber-500/[0.08]" :
+                          "hover:bg-white/[0.04]",
+                          urgColors && urgColors.border,
+                          label?.is_muted && "opacity-50"
+                        )}
+                        style={!urgColors && tagColor && !label?.is_vip ? { borderLeftWidth: 3, borderLeftColor: tagColor } : undefined}
+                      >
+                        <div className="flex items-center gap-2 mb-0.5">
+                          {urgColors ? (
+                            <span
+                              className={cn("h-2 w-2 rounded-full shrink-0", urgColors.dot)}
+                              title={chatUrgency ? `${chatUrgency.level}: ${chatUrgency.summary ?? chatUrgency.category ?? ""}` : undefined}
+                            />
+                          ) : hasUnread ? (
+                            <span className="h-2 w-2 rounded-full bg-primary shrink-0" title={`${unreadCount} unread`} />
+                          ) : (
+                            <MessageCircle className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                           )}
-                          title="Time since last customer message"
-                        >
-                          {slaHours && slaHours >= 4 ? `⏱ ${slaLabel}` : slaLabel}
-                        </span>
-                      )}
-                      {activeTab === "awaiting_reply" && lastCustomerMsg && (
-                        <span className="text-[10px] text-orange-400/70 flex items-center gap-0.5" title="Awaiting reply since">
-                          <Hourglass className="h-2.5 w-2.5" />
-                          {timeAgo(lastCustomerMsg.sent_at)}
-                        </span>
-                      )}
-                      {assignee && (
-                        <span className="text-[10px] text-primary/60 truncate max-w-[80px]">{assignee.display_name}</span>
-                      )}
-                      {teamSessions.length > 1 && (() => {
-                        // Show which TG account is associated via matching telegram_user_id
-                        // to the first sender in the conversation that matches a session
-                        const senderIds = new Set(conv.messages.map((m) => m.sender_telegram_id));
-                        const matchedSession = teamSessions.find((s) =>
-                          s.telegram_user_id && senderIds.has(s.telegram_user_id)
-                        );
-                        if (!matchedSession) return null;
-                        const label2 = matchedSession.display_name || matchedSession.owner_name || `***${matchedSession.phone_last4 ?? ""}`;
-                        return (
-                          <span
-                            className="text-[9px] rounded px-1 py-0 bg-indigo-500/15 text-indigo-400 truncate max-w-[70px]"
-                            title={`TG Account: ${label2}`}
-                          >
-                            <UserIcon className="inline h-2 w-2 mr-0.5" />{label2}
-                          </span>
-                        );
-                      })()}
-                      {chatDeals.length > 0 && (
-                        <span className="text-[10px] text-primary/70 ml-auto">
-                          {chatDeals.length} deal{chatDeals.length > 1 ? "s" : ""}
-                        </span>
-                      )}
+                          {label?.is_vip && <Star className="h-3 w-3 text-amber-400 shrink-0" />}
+                          {label?.is_pinned && <Pin className="h-3 w-3 text-primary shrink-0" />}
+                          <span className={cn(
+                            "text-sm truncate",
+                            hasUnread ? "font-semibold text-foreground" : "font-medium text-foreground",
+                            label?.is_vip && "text-amber-200"
+                          )}>{conv.group_name}</span>
+                          {hasUnread && (
+                            <span className={cn(
+                              "rounded-full text-[10px] font-bold px-1.5 py-0.5 shrink-0",
+                              label?.is_vip ? "bg-amber-500/20 text-amber-400" : "bg-primary/20 text-primary"
+                            )}>
+                              {neverSeen ? "new" : unreadCount > 99 ? "99+" : unreadCount}
+                            </span>
+                          )}
+                          {!status?.assigned_to && status?.status !== "closed" && (
+                            <span className="h-2 w-2 rounded-full bg-amber-400 shrink-0" title="Unassigned" />
+                          )}
+                          {conv.member_count && (
+                            <span className="text-[10px] text-muted-foreground/50 shrink-0 flex items-center gap-0.5 ml-auto">
+                              <Users className="h-2.5 w-2.5" />
+                              {conv.member_count}
+                            </span>
+                          )}
+                        </div>
+
+                        {(colorTag || label?.note) && (
+                          <div className="flex items-center gap-1 pl-5 mb-0.5">
+                            {colorTag && (
+                              <span className="rounded px-1 py-0 text-[9px] font-medium" style={{ backgroundColor: `${tagColor}20`, color: tagColor || undefined }}>
+                                {colorTag.label}
+                              </span>
+                            )}
+                            {label?.note && <StickyNote className="h-2.5 w-2.5 text-yellow-500/60 shrink-0" />}
+                          </div>
+                        )}
+
+                        {lastMsg && (
+                          <p className="text-[11px] text-muted-foreground truncate pl-5">
+                            <span className="text-foreground/70">{lastMsg.sender_name.split(" ")[0]}:</span>{" "}
+                            {lastMsg.message_text?.slice(0, 80) ?? "(media)"}
+                          </p>
+                        )}
+
+                        <div className="flex items-center gap-2 pl-5 mt-0.5">
+                          {chatUrgency && urgColors && (
+                            <span
+                              className={cn("rounded px-1 py-0 text-[9px] font-medium", urgColors.bg, urgColors.text)}
+                              title={chatUrgency.summary ?? undefined}
+                            >
+                              {chatUrgency.category?.replace("_", " ") ?? chatUrgency.level}
+                            </span>
+                          )}
+                          {conv.latest_at && (
+                            <span className="text-[10px] text-muted-foreground/50">{timeAgo(conv.latest_at)}</span>
+                          )}
+                          {slaLabel && status?.status !== "closed" && (
+                            <span
+                              className={cn(
+                                "font-medium",
+                                slaHours && slaHours >= 4
+                                  ? "text-[10px] rounded-full px-1.5 py-0.5 bg-red-500/15 text-red-400"
+                                  : cn("text-[10px]", slaColor)
+                              )}
+                              title="Time since last customer message"
+                            >
+                              {slaHours && slaHours >= 4 ? `⏱ ${slaLabel}` : slaLabel}
+                            </span>
+                          )}
+                          {activeTab === "awaiting_reply" && lastCustomerMsg && (
+                            <span className="text-[10px] text-orange-400/70 flex items-center gap-0.5" title="Awaiting reply since">
+                              <Hourglass className="h-2.5 w-2.5" />
+                              {timeAgo(lastCustomerMsg.sent_at)}
+                            </span>
+                          )}
+                          {assignee && (
+                            <span className="text-[10px] text-primary/60 truncate max-w-[80px]">{assignee.display_name}</span>
+                          )}
+                          {teamSessions.length > 1 && (() => {
+                            const senderIds = new Set(conv.messages.map((m) => m.sender_telegram_id));
+                            const matchedSession = teamSessions.find((s) =>
+                              s.telegram_user_id && senderIds.has(s.telegram_user_id)
+                            );
+                            if (!matchedSession) return null;
+                            const label2 = matchedSession.display_name || matchedSession.owner_name || `***${matchedSession.phone_last4 ?? ""}`;
+                            return (
+                              <span
+                                className="text-[9px] rounded px-1 py-0 bg-indigo-500/15 text-indigo-400 truncate max-w-[70px]"
+                                title={`TG Account: ${label2}`}
+                              >
+                                <UserIcon className="inline h-2 w-2 mr-0.5" />{label2}
+                              </span>
+                            );
+                          })()}
+                          {chatDeals.length > 0 && (() => {
+                            const primaryDeal = chatDeals[0];
+                            return (
+                              <span className="flex items-center gap-1 ml-auto shrink-0 max-w-[45%] min-w-0">
+                                {primaryDeal.stage && (
+                                  <span
+                                    className="rounded px-1 py-0 text-[9px] font-medium truncate"
+                                    style={{
+                                      backgroundColor: primaryDeal.stage.color ? `${primaryDeal.stage.color}20` : "rgba(139,92,246,0.12)",
+                                      color: primaryDeal.stage.color || "#8b5cf6",
+                                    }}
+                                    title={`Stage: ${primaryDeal.stage.name}`}
+                                  >
+                                    {primaryDeal.stage.name}
+                                  </span>
+                                )}
+                                {primaryDeal.contact && (
+                                  <span className="text-[9px] text-muted-foreground/70 truncate" title={primaryDeal.contact.name}>
+                                    {primaryDeal.contact.name}
+                                  </span>
+                                )}
+                                {chatDeals.length > 1 && (
+                                  <span className="text-[9px] text-primary/50">+{chatDeals.length - 1}</span>
+                                )}
+                              </span>
+                            );
+                          })()}
+                        </div>
+                      </button>
                     </div>
-                  </button>
-                );
-              })}
-              {hasMore && (
-                <InboxLoadMore loading={loadingMore} onVisible={loadMore} />
-              )}
+                  );
+                })}
+              </div>
             </div>
             )}
           </div>
@@ -1826,6 +1640,27 @@ export default function InboxPage() {
                   >
                     <StickyNote className="h-3 w-3 text-yellow-500/60 shrink-0" />
                     <p className="text-[11px] text-yellow-200/80 truncate">{selLabel.note}</p>
+                  </div>
+                )}
+
+                {/* Deal suggestion banner */}
+                {(deals[selChatId] ?? []).length === 0 && (dealSuggestions[selChatId] ?? []).length > 0 && (
+                  <div className="mx-3 mt-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2">
+                    <p className="text-[11px] text-primary/80 mb-1">Link to a deal?</p>
+                    <div className="flex flex-wrap gap-1">
+                      {dealSuggestions[selChatId].map((s) => (
+                        <button
+                          key={s.id}
+                          onClick={() => quickLinkDeal(s.id)}
+                          className="inline-flex items-center gap-1 rounded-md border border-primary/20 bg-primary/10 px-2 py-1 text-[11px] text-primary hover:bg-primary/20 transition-colors"
+                          title={s.match_reason}
+                        >
+                          <Zap className="h-3 w-3 shrink-0" />
+                          {s.deal_name}
+                          {s.stage_name && <span className="text-primary/60">· {s.stage_name}</span>}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
 

@@ -12,6 +12,7 @@ import { hapticImpact, hapticNotification } from "@/components/tma/haptic";
 import { useTelegramWebApp } from "@/components/tma/use-telegram";
 import { toast } from "sonner";
 import { useOfflineCache } from "@/lib/client/tma-offline";
+import { useFocusRefresh } from "@/components/tma/use-focus-refresh";
 
 interface Deal {
   id: string;
@@ -71,6 +72,7 @@ export default function TMADealsPage() {
   stagesRef.current = stages;
 
   useTelegramWebApp();
+  useFocusRefresh(() => fetchData());
 
   // Open create modal if navigated with ?create=1
   React.useEffect(() => {

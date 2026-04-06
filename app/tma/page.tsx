@@ -8,6 +8,7 @@ import { BottomTabBar } from "@/components/tma/bottom-tab-bar";
 import { PullToRefresh } from "@/components/tma/pull-to-refresh";
 import { useTelegramWebApp } from "@/components/tma/use-telegram";
 import { cacheGet, cacheSet } from "@/components/tma/offline-cache";
+import { useFocusRefresh } from "@/components/tma/use-focus-refresh";
 
 type Deal = {
   id: string;
@@ -55,6 +56,7 @@ export default function TMAHomePage() {
   const [fromCache, setFromCache] = React.useState<false | "cache" | "stale">(false);
 
   const { tgUser } = useTelegramWebApp();
+  useFocusRefresh(() => fetchData());
 
   const fetchData = React.useCallback(async () => {
     // Try loading from cache first

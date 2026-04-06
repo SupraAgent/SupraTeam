@@ -9,6 +9,7 @@ import { PullToRefresh } from "@/components/tma/pull-to-refresh";
 import { GroupHealthCard } from "@/components/tma/group-health-card";
 import { useTelegramWebApp } from "@/components/tma/use-telegram";
 import { useOfflineCache } from "@/lib/client/tma-offline";
+import { useFocusRefresh } from "@/components/tma/use-focus-refresh";
 
 type HealthStatus = "active" | "quiet" | "stale" | "dead" | "unknown";
 
@@ -47,6 +48,7 @@ export default function TMAGroupsPage() {
   const [engagementScores, setEngagementScores] = React.useState<Map<string, number>>(new Map());
 
   useTelegramWebApp();
+  useFocusRefresh(() => fetchData());
 
   // Offline cache for groups
   const groupsCache = useOfflineCache<{ groups: TgGroup[] }>("/api/groups?per_page=200", { maxAgeMs: 10 * 60_000 });
