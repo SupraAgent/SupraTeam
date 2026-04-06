@@ -1,5 +1,6 @@
 mod cache;
 mod keystore;
+mod notifications;
 
 use cache::DbState;
 use std::sync::Mutex;
@@ -11,6 +12,7 @@ pub fn run() {
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
             // Keystore
             keystore::keystore_set,
@@ -37,6 +39,10 @@ pub fn run() {
             cache::cache_store_email_threads,
             cache::cache_get_email_threads,
             cache::cache_clear_all,
+            // Notifications
+            notifications::send_notification,
+            notifications::check_notification_permission,
+            notifications::request_notification_permission,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -20,6 +20,8 @@ import Link from "next/link";
 import { toast } from "sonner";
 import type { Deal, PipelineStage, Contact, BoardType } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { isDesktop } from "@/lib/platform";
+import { getCacheStore } from "@/lib/cache";
 
 export type PipelineFilters = {
   minValue: number | null;
@@ -228,6 +230,33 @@ export default function PipelinePage() {
     }
   }, [searchParams, router]);
 
+  // ── Desktop cache: instant load from SQLite, then sync from network ──
+  React.useEffect(() => {
+    if (!isDesktop) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const store = await getCacheStore();
+        const [cachedDeals, cachedContacts] = await Promise.all([
+          store.getAllDeals(),
+          store.getAllContacts(),
+        ]);
+        if (cancelled) return;
+        if (cachedDeals.length > 0) {
+          setDeals(cachedDeals as unknown as Deal[]);
+          setLoading(false);
+        }
+        if (cachedContacts.length > 0) {
+          setContacts(cachedContacts as unknown as Contact[]);
+          contactsFetched.current = true;
+        }
+      } catch {
+        // Cache read failed — network fetch will handle it
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   const fetchData = React.useCallback(async () => {
     try {
       const [stagesRes, dealsRes, highlightsRes, unreadRes, teamRes] = await Promise.all([
@@ -250,6 +279,12 @@ export default function PipelinePage() {
         const data = await dealsRes.json();
         fetchedDeals = data.deals ?? [];
         setDeals(fetchedDeals);
+        // Write to desktop cache for next instant load
+        if (isDesktop) {
+          getCacheStore()
+            .then((store) => store.storeDeals(fetchedDeals as unknown as import("@/lib/cache").DealRecord[]))
+            .catch(() => {});
+        }
       }
       if (highlightsRes.ok) {
         const { highlighted_deal_ids, highlights: hlList } = await highlightsRes.json();

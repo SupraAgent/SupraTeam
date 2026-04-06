@@ -3,6 +3,8 @@
 import * as React from "react";
 import { useTelegram } from "./telegram-context";
 import { useAuth } from "@/lib/auth";
+import { isDesktop } from "@/lib/platform";
+import { getCacheStore } from "@/lib/cache";
 import type { TgDialog, TgMessage } from "./telegram-service";
 
 interface SyncWatermark {
@@ -47,9 +49,31 @@ const BATCH_SIZE = 100;
 const SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const WATERMARK_STORAGE_KEY = "suprateam-msg-sync-watermarks";
 
-function loadWatermarks(userId: string): Map<number, number> {
+/**
+ * Load watermarks from the best available storage:
+ * - Desktop: SQLite cache (durable, survives browser clears)
+ * - Web: localStorage (can be evicted)
+ */
+async function loadWatermarks(userId: string): Promise<Map<number, number>> {
+  const storageKey = `${WATERMARK_STORAGE_KEY}-${userId}`;
+
+  // Try desktop cache first
+  if (isDesktop) {
+    try {
+      const store = await getCacheStore();
+      const cached = await store.getCached(storageKey, Infinity);
+      if (cached?.data) {
+        const parsed = cached.data as SyncWatermark[];
+        return new Map(parsed.map((w) => [w.chatId, w.lastMessageId]));
+      }
+    } catch {
+      // Fall through to localStorage
+    }
+  }
+
+  // Fallback: localStorage
   try {
-    const raw = localStorage.getItem(`${WATERMARK_STORAGE_KEY}-${userId}`);
+    const raw = localStorage.getItem(storageKey);
     if (!raw) return new Map();
     const parsed: SyncWatermark[] = JSON.parse(raw);
     return new Map(parsed.map((w) => [w.chatId, w.lastMessageId]));
@@ -58,12 +82,28 @@ function loadWatermarks(userId: string): Map<number, number> {
   }
 }
 
-function saveWatermarks(userId: string, watermarks: Map<number, number>): void {
+/**
+ * Save watermarks to the best available storage.
+ */
+async function saveWatermarks(userId: string, watermarks: Map<number, number>): Promise<void> {
   const arr: SyncWatermark[] = Array.from(watermarks.entries()).map(([chatId, lastMessageId]) => ({
     chatId,
     lastMessageId,
   }));
-  localStorage.setItem(`${WATERMARK_STORAGE_KEY}-${userId}`, JSON.stringify(arr));
+  const storageKey = `${WATERMARK_STORAGE_KEY}-${userId}`;
+
+  // Always save to localStorage as fallback
+  localStorage.setItem(storageKey, JSON.stringify(arr));
+
+  // Also persist to desktop cache if available
+  if (isDesktop) {
+    try {
+      const store = await getCacheStore();
+      await store.setCached(storageKey, arr);
+    } catch {
+      // localStorage already has the data
+    }
+  }
 }
 
 /**
@@ -149,7 +189,7 @@ export function useMessageIndexSync(): MessageIndexSyncResult {
 
     setProgress((p) => ({ ...p, isSyncing: true, syncedCount: 0, error: null }));
 
-    const watermarks = loadWatermarks(user.id);
+    const watermarks = await loadWatermarks(user.id);
     let totalSynced = 0;
 
     try {
@@ -215,7 +255,7 @@ export function useMessageIndexSync(): MessageIndexSyncResult {
             // Update watermark to highest message_id in this batch
             const maxId = Math.max(...messages.map((m: TgMessage) => m.id));
             watermarks.set(chatId, Math.max(lastSyncedId, maxId));
-            saveWatermarks(user.id, watermarks);
+            await saveWatermarks(user.id, watermarks);
           }
         } catch {
           // Individual chat sync failure — continue with other chats
