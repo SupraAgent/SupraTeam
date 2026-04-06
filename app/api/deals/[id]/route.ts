@@ -54,7 +54,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if ("error" in auth) return auth.error;
   const { supabase } = auth;
 
-  const DEAL_FIELDS = ["deal_name", "contact_id", "assigned_to", "board_type", "stage_id", "value", "probability", "telegram_chat_id", "telegram_chat_name", "telegram_chat_link", "tg_group_id", "expected_close_date", "outcome"];
+  const DEAL_FIELDS = ["deal_name", "contact_id", "assigned_to", "assigned_at", "board_type", "stage_id", "value", "probability", "telegram_chat_id", "telegram_chat_name", "telegram_chat_link", "tg_group_id", "expected_close_date", "outcome"];
   const raw = await request.json();
   const body: Record<string, unknown> = {};
   for (const key of DEAL_FIELDS) {
@@ -77,6 +77,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
 
   body.updated_at = new Date().toISOString();
+
+  // Track when assignment changes
+  if ("assigned_to" in body && body.assigned_to) {
+    body.assigned_at = new Date().toISOString();
+  }
 
   // Update remaining fields (value already set atomically by RPC if present)
   const { data: deal, error } = await supabase

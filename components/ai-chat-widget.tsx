@@ -50,7 +50,7 @@ const PAGE_CONFIG: Record<string, { label: string; suggestions: string[] }> = {
   "/groups": {
     label: "TG Groups assistant",
     suggestions: [
-      "How do I organize groups with slugs?",
+      "How do I organize groups with tags?",
       "What does the engagement score mean?",
       "How do I add the bot as admin to a group?",
     ],
@@ -60,7 +60,7 @@ const PAGE_CONFIG: Record<string, { label: string; suggestions: string[] }> = {
     suggestions: [
       "Help me write a broadcast message for ecosystem partners",
       "What's the best time to send broadcasts?",
-      "How do I target specific groups with slugs?",
+      "How do I target specific groups with tags?",
     ],
   },
   "/outreach": {
@@ -90,9 +90,9 @@ const PAGE_CONFIG: Record<string, { label: string; suggestions: string[] }> = {
   "/access": {
     label: "Access control assistant",
     suggestions: [
-      "How does slug-based access control work?",
+      "How does tag-based access control work?",
       "Help me audit who has access to what",
-      "How do I bulk add users to a slug group?",
+      "How do I bulk add users to a tag group?",
     ],
   },
   "/settings": {

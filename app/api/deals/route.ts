@@ -166,7 +166,7 @@ export async function POST(request: Request) {
       if (result) {
         await supabase
           .from("crm_deals")
-          .update({ assigned_to: result.userId, assignment_reason: result.reason })
+          .update({ assigned_to: result.userId, assignment_reason: result.reason, assigned_at: new Date().toISOString() })
           .eq("id", deal.id);
         deal.assigned_to = result.userId;
         deal.assignment_reason = result.reason;

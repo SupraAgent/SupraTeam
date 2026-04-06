@@ -96,7 +96,7 @@ export const CRM_ACTIONS: NodePaletteItem[] = [
   // New actions
   { type: "action", subType: "delay", label: "Delay / Wait", description: "Pause before next step", icon: "Clock", defaultConfig: { duration: 1, unit: "hours" } },
   { type: "action", subType: "condition", label: "If / Else", description: "Branch on a condition", icon: "GitBranch", defaultConfig: { field: "stage", operator: "equals", value: "" } },
-  { type: "action", subType: "send_broadcast", label: "Send Broadcast", description: "Broadcast to TG groups by slug", icon: "Radio", defaultConfig: { slug: "", message: "" } },
+  { type: "action", subType: "send_broadcast", label: "Send Broadcast", description: "Broadcast to TG groups by tag", icon: "Radio", defaultConfig: { slug: "", message: "" } },
   { type: "action", subType: "add_tag", label: "Add Tag", description: "Tag a deal or contact", icon: "Tag", defaultConfig: { target: "deal", tag: "" } },
   { type: "action", subType: "remove_tag", label: "Remove Tag", description: "Remove a tag", icon: "Minus", defaultConfig: { target: "deal", tag: "" } },
   { type: "action", subType: "http_request", label: "HTTP Request", description: "Call an external API", icon: "Globe", defaultConfig: { method: "POST", url: "", body: "" } },
@@ -330,12 +330,12 @@ export const CRM_REGISTRY: NodeRegistry = {
     send_broadcast: {
       subType: "send_broadcast",
       configFields: [
-        { key: "chat_id", label: "Telegram Group (optional)", type: "async_select", placeholder: "All groups with slug", optionsUrl: "/api/groups", mapOption: groupMapOption },
-        { key: "slug", label: "Slug filter", type: "text", placeholder: "e.g. partners, ecosystem" },
+        { key: "chat_id", label: "Telegram Group (optional)", type: "async_select", placeholder: "All groups with tag", optionsUrl: "/api/groups", mapOption: groupMapOption },
+        { key: "slug", label: "Tag filter", type: "text", placeholder: "e.g. partners, ecosystem" },
         { key: "message", label: "Message", type: "textarea", placeholder: "Broadcast message…" },
         { key: "pin", label: "Pin message", type: "select", options: [{ value: "false", label: "No" }, { value: "true", label: "Yes" }] },
       ],
-      infoText: "Sends to all TG groups tagged with the specified slug, or a specific group.",
+      infoText: "Sends to all TG groups tagged with the specified tag, or a specific group.",
     },
     add_tag: {
       subType: "add_tag",
@@ -396,11 +396,11 @@ export const CRM_REGISTRY: NodeRegistry = {
       subType: "tg_manage_access",
       configFields: [
         { key: "action", label: "Action", type: "select", options: [{ value: "add", label: "Add to groups" }, { value: "remove", label: "Remove from groups" }] },
-        { key: "chat_id", label: "Specific group (optional)", type: "async_select", placeholder: "Or use slug below", optionsUrl: "/api/groups", mapOption: groupMapOption },
-        { key: "slug", label: "Slug (optional)", type: "text", placeholder: "e.g. partners" },
+        { key: "chat_id", label: "Specific group (optional)", type: "async_select", placeholder: "Or use tag below", optionsUrl: "/api/groups", mapOption: groupMapOption },
+        { key: "slug", label: "Tag (optional)", type: "text", placeholder: "e.g. partners" },
         { key: "telegram_user_id", label: "Telegram User ID (optional)", type: "text", placeholder: "Default: contact's TG ID. Or use {{contact_tg_id}}" },
       ],
-      infoText: "Adds or removes a user from all Telegram groups tagged with the specified slug, or a specific group.",
+      infoText: "Adds or removes a user from all Telegram groups tagged with the specified tag, or a specific group.",
     },
     create_deal: {
       subType: "create_deal",

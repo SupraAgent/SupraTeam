@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import type { OnboardingState } from "./nav-config";
 
 export type ViewDensity = "compact" | "comfortable" | "spacious";
 
@@ -15,6 +16,10 @@ type ShellContextValue = {
   setCrmRole: (v: string | null) => void;
   crmRoleLoaded: boolean;
   setCrmRoleLoaded: (v: boolean) => void;
+  onboardingState: OnboardingState | null;
+  setOnboardingState: (v: OnboardingState) => void;
+  showAllNav: boolean;
+  setShowAllNav: (v: boolean) => void;
 };
 
 const ShellContext = React.createContext<ShellContextValue | null>(null);
@@ -25,6 +30,8 @@ export function ShellProvider({ children }: { children: React.ReactNode }) {
   const [viewDensity, setViewDensityState] = React.useState<ViewDensity>("comfortable");
   const [crmRole, setCrmRole] = React.useState<string | null>(null);
   const [crmRoleLoaded, setCrmRoleLoaded] = React.useState(false);
+  const [onboardingState, setOnboardingState] = React.useState<OnboardingState | null>(null);
+  const [showAllNav, setShowAllNavState] = React.useState(false);
 
   // Hydrate from localStorage
   React.useEffect(() => {
@@ -34,6 +41,8 @@ export function ShellProvider({ children }: { children: React.ReactNode }) {
     }
     const savedCollapsed = localStorage.getItem("supracrm:sidebar-collapsed");
     if (savedCollapsed === "true") setSidebarCollapsedState(true);
+    const savedShowAll = localStorage.getItem("supracrm:show-all-nav");
+    if (savedShowAll === "true") setShowAllNavState(true);
   }, []);
 
   const setSidebarCollapsed = React.useCallback((v: boolean) => {
@@ -46,9 +55,14 @@ export function ShellProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem("supracrm:density", v);
   }, []);
 
+  const setShowAllNav = React.useCallback((v: boolean) => {
+    setShowAllNavState(v);
+    localStorage.setItem("supracrm:show-all-nav", String(v));
+  }, []);
+
   const value = React.useMemo(
-    () => ({ mobileNavOpen, setMobileNavOpen, sidebarCollapsed, setSidebarCollapsed, viewDensity, setViewDensity, crmRole, setCrmRole, crmRoleLoaded, setCrmRoleLoaded }),
-    [mobileNavOpen, sidebarCollapsed, viewDensity, setViewDensity, crmRole, crmRoleLoaded]
+    () => ({ mobileNavOpen, setMobileNavOpen, sidebarCollapsed, setSidebarCollapsed, viewDensity, setViewDensity, crmRole, setCrmRole, crmRoleLoaded, setCrmRoleLoaded, onboardingState, setOnboardingState, showAllNav, setShowAllNav }),
+    [mobileNavOpen, sidebarCollapsed, viewDensity, setViewDensity, crmRole, crmRoleLoaded, onboardingState, showAllNav, setShowAllNav]
   );
   return (
     <ShellContext.Provider value={value}>{children}</ShellContext.Provider>

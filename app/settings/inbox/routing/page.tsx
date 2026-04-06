@@ -36,7 +36,7 @@ interface TeamMember {
 }
 
 const MATCH_TYPES = [
-  { value: "group_slug", label: "Group Slug", desc: "Match conversations by group tag" },
+  { value: "group_slug", label: "Group Tag", desc: "Match conversations by group tag" },
   { value: "keyword", label: "Keyword", desc: "Match messages containing a keyword" },
   { value: "contact_tag", label: "Contact Tag", desc: "Match by sender's contact tag" },
   { value: "round_robin", label: "Round Robin", desc: "Distribute evenly across team" },
@@ -236,7 +236,7 @@ export default function RoutingPage() {
             <p className="text-[11px] font-medium text-foreground/80">Examples</p>
             <div className="grid gap-2 text-[11px] text-muted-foreground">
               <div className="flex gap-2 items-start">
-                <span className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-muted-foreground">Group Slug</span>
+                <span className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-muted-foreground">Group Tag</span>
                 <span>&quot;DeFi leads to Alice&quot; — any conversation from a group tagged <span className="text-primary/70">defi</span> gets assigned to Alice automatically.</span>
               </div>
               <div className="flex gap-2 items-start">
@@ -254,7 +254,7 @@ export default function RoutingPage() {
             </div>
           </div>
           <p className="text-[10px] text-muted-foreground/50">
-            Tip: Put specific rules (Group Slug, Keyword) above catch-all rules (Round Robin).
+            Tip: Put specific rules (Group Tag, Keyword) above catch-all rules (Round Robin).
           </p>
         </div>
       </details>
@@ -288,7 +288,7 @@ export default function RoutingPage() {
           {formType !== "round_robin" && (
             <div>
               <label className="text-[11px] text-muted-foreground mb-1 block">
-                Match Value {formType === "group_slug" ? "(slug name)" : formType === "keyword" ? "(keyword)" : "(tag)"}
+                Match Value {formType === "group_slug" ? "(tag name)" : formType === "keyword" ? "(keyword)" : "(tag)"}
               </label>
               <Input value={formValue} onChange={(e) => setFormValue(e.target.value)} placeholder={formType === "group_slug" ? "defi" : formType === "keyword" ? "pricing" : "vip"} className="h-8 text-sm" />
             </div>

@@ -424,7 +424,7 @@ export function GroupDetailPanel({ group, open, onClose }: GroupDetailPanelProps
         {/* Slugs */}
         {group.slugs.length > 0 && (
           <div>
-            <p className="text-[11px] font-medium text-muted-foreground mb-1.5">Slugs</p>
+            <p className="text-[11px] font-medium text-muted-foreground mb-1.5">Tags</p>
             <div className="flex items-center gap-1.5 flex-wrap">
               {group.slugs.map((slug) => (
                 <span key={slug} className="inline-flex items-center gap-1 rounded-md bg-primary/10 border border-primary/20 px-2 py-0.5 text-[10px] font-medium text-primary">

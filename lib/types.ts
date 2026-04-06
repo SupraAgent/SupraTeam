@@ -91,6 +91,7 @@ export type Deal = {
   deal_name: string;
   contact_id: string | null;
   assigned_to: string | null;
+  assigned_at: string | null;
   board_type: "BD" | "Marketing" | "Admin";
   stage_id: string | null;
   value: number | null;

@@ -737,12 +737,12 @@ const CrmActionEditor: CustomNodeEditor = ({ data, onChange }) => {
           )}
           {crmAction === "send_broadcast" && (
             <Combobox
-              label="Slug Filter"
+              label="Tag Filter"
               options={slugOptions}
               loading={slugsLoading}
               value={config.slug || ""}
               onChange={(v) => updateConfig("slug", v)}
-              placeholder="Select slug"
+              placeholder="Select tag"
             />
           )}
         </>
@@ -1012,12 +1012,12 @@ const CrmActionEditor: CustomNodeEditor = ({ data, onChange }) => {
       {crmAction === "tg_manage_access" && (
         <>
           <Combobox
-            label="Slug"
+            label="Tag"
             options={slugOptions}
             loading={slugsLoading}
             value={config.slug || ""}
             onChange={(v) => updateConfig("slug", v)}
-            placeholder="Select slug"
+            placeholder="Select tag"
           />
           <div>
             <label className={labelClass}>Operation</label>

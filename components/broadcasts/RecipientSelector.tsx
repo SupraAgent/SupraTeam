@@ -43,7 +43,7 @@ export function RecipientSelector({
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-medium text-foreground flex items-center gap-2">
             <Tag className="h-4 w-4 text-purple-400" />
-            Target by Slug
+            Target by Tag
           </h2>
           {selectedSlugs.size > 1 && (
             <div className="flex gap-1 rounded-lg border border-white/10 p-0.5">
