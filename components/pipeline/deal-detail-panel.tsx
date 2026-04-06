@@ -49,7 +49,7 @@ type LinkedDoc = {
   updated_at: string;
 };
 
-type Tab = "details" | "conversation" | "activity" | "email" | "docs";
+type Tab = "details" | "conversation" | "activity" | "email" | "meetings" | "docs";
 
 export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cachedStages, cachedTeamMembers }: DealDetailPanelProps) {
   const [tab, setTab] = React.useState<Tab>("details");
@@ -83,6 +83,12 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
   // Linked email threads
   const [linkedEmails, setLinkedEmails] = React.useState<DealEmailThread[]>([]);
   const [unlinkingEmail, setUnlinkingEmail] = React.useState<string | null>(null);
+
+  // Linked calendar meetings
+  type CalendarEvent = { id: string; summary: string; start_at: string | null; end_at: string | null; html_link: string | null; attendees: { email: string; displayName?: string }[] | null };
+  const [linkedMeetings, setLinkedMeetings] = React.useState<CalendarEvent[]>([]);
+  const [loadingMeetings, setLoadingMeetings] = React.useState(false);
+  const [unlinkingMeeting, setUnlinkingMeeting] = React.useState<string | null>(null);
 
   // Company data for protocol snapshot
   const [company, setCompany] = React.useState<Company | null>(null);
@@ -170,6 +176,8 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
       setSentiment(null);
       setAiSummary(null);
       setCompany(null);
+      setMeetingsLoaded(false);
+      setLinkedMeetings([]);
 
       // Use cached stages/team if provided by parent
       if (cachedStages) setStages(cachedStages);
@@ -208,6 +216,20 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
       loadAI();
     }
   }, [tab, open, loadingContent, loadAI]);
+
+  // Lazy-load meetings when meetings tab is viewed
+  const [meetingsLoaded, setMeetingsLoaded] = React.useState(false);
+  React.useEffect(() => {
+    if (tab === "meetings" && open && deal && !meetingsLoaded) {
+      setMeetingsLoaded(true);
+      setLoadingMeetings(true);
+      fetch(`/api/calendar/link-deal?deal_id=${deal.id}`)
+        .then((r) => r.ok ? r.json() : { events: [] })
+        .then((d) => setLinkedMeetings(d.events ?? []))
+        .catch(() => setLinkedMeetings([]))
+        .finally(() => setLoadingMeetings(false));
+    }
+  }, [tab, open, deal, meetingsLoaded]);
 
   const refreshLinkedChats = React.useCallback(async () => {
     if (!deal) return;
@@ -438,6 +460,7 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
     { key: "conversation", label: "Chat", badge: chatUnread },
     { key: "email", label: `Email${linkedEmails.length > 0 ? ` (${linkedEmails.length})` : ""}` },
     { key: "activity", label: "Activity" },
+    { key: "meetings", label: `Meetings${linkedMeetings.length > 0 ? ` (${linkedMeetings.length})` : ""}` },
     { key: "docs", label: `Docs${linkedDocs.length > 0 ? ` (${linkedDocs.length})` : ""}` },
   ];
 
@@ -1206,6 +1229,166 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
                   </div>
                 </div>
               ))
+            )}
+          </div>
+        )}
+
+        {/* Meetings tab */}
+        {!loadingContent && tab === "meetings" && (
+          <div className="space-y-3">
+            {loadingMeetings ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : linkedMeetings.length === 0 ? (
+              <div className="text-center py-8">
+                <Calendar className="mx-auto h-6 w-6 text-muted-foreground/20" />
+                <p className="mt-2 text-xs text-muted-foreground">No meetings linked to this deal</p>
+                <button
+                  onClick={async () => {
+                    setLoadingMeetings(true);
+                    try {
+                      const res = await fetch("/api/calendar/link-deal", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ auto_match: true }),
+                      });
+                      if (res.ok) {
+                        const data = await res.json();
+                        const suggestions = (data.suggestions ?? []).filter((s: { deal_id: string }) => s.deal_id === deal.id);
+                        if (suggestions.length > 0) {
+                          for (const s of suggestions) {
+                            await fetch("/api/calendar/link-deal", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ deal_id: deal.id, calendar_event_id: s.event_id }),
+                            });
+                          }
+                          // Refresh
+                          const refreshRes = await fetch(`/api/calendar/link-deal?deal_id=${deal.id}`);
+                          if (refreshRes.ok) {
+                            const d = await refreshRes.json();
+                            setLinkedMeetings(d.events ?? []);
+                          }
+                          toast.success(`Linked ${suggestions.length} meeting${suggestions.length !== 1 ? "s" : ""}`);
+                        } else {
+                          toast("No matching meetings found. Try scheduling a call first.");
+                        }
+                      }
+                    } catch {
+                      toast.error("Failed to auto-match meetings");
+                    } finally {
+                      setLoadingMeetings(false);
+                    }
+                  }}
+                  className="mt-3 inline-flex items-center gap-1.5 text-xs text-primary hover:text-primary/80"
+                >
+                  <Link2 className="h-3 w-3" />
+                  Auto-match from calendar
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {linkedMeetings.map((ev) => (
+                  <div key={ev.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-start gap-2 min-w-0">
+                        <Calendar className="h-3.5 w-3.5 text-blue-400 mt-0.5 shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-foreground truncate">{ev.summary || "Untitled meeting"}</p>
+                          {ev.start_at && (
+                            <p className="text-[11px] text-muted-foreground mt-0.5">
+                              {new Date(ev.start_at).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
+                              {" at "}
+                              {new Date(ev.start_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                              {ev.end_at && (
+                                <> — {new Date(ev.end_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</>
+                              )}
+                            </p>
+                          )}
+                          {ev.attendees && ev.attendees.length > 0 && (
+                            <p className="text-[10px] text-muted-foreground/60 mt-0.5 truncate">
+                              {ev.attendees.map((a) => a.displayName || a.email).join(", ")}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {ev.html_link && (
+                          <a href={ev.html_link} target="_blank" rel="noopener noreferrer" className="h-7 w-7 flex items-center justify-center rounded-md hover:bg-white/5 text-muted-foreground hover:text-foreground transition-colors" title="Open in Google Calendar">
+                            <ExternalLink className="h-3.5 w-3.5" />
+                          </a>
+                        )}
+                        <button
+                          onClick={async () => {
+                            setUnlinkingMeeting(ev.id);
+                            try {
+                              const res = await fetch(`/api/calendar/link-deal?deal_id=${deal.id}&calendar_event_id=${ev.id}`, { method: "DELETE" });
+                              if (res.ok) {
+                                setLinkedMeetings((prev) => prev.filter((m) => m.id !== ev.id));
+                                toast.success("Meeting unlinked");
+                              } else {
+                                toast.error("Failed to unlink");
+                              }
+                            } catch {
+                              toast.error("Network error");
+                            } finally {
+                              setUnlinkingMeeting(null);
+                            }
+                          }}
+                          disabled={unlinkingMeeting === ev.id}
+                          className="h-7 w-7 flex items-center justify-center rounded-md hover:bg-white/5 text-muted-foreground hover:text-red-400 transition-colors"
+                          title="Unlink meeting"
+                        >
+                          {unlinkingMeeting === ev.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Unlink className="h-3.5 w-3.5" />}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                <button
+                  onClick={async () => {
+                    setLoadingMeetings(true);
+                    try {
+                      const res = await fetch("/api/calendar/link-deal", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ auto_match: true }),
+                      });
+                      if (res.ok) {
+                        const data = await res.json();
+                        const existingIds = new Set(linkedMeetings.map((m) => m.id));
+                        const suggestions = (data.suggestions ?? []).filter((s: { deal_id: string; event_id: string }) => s.deal_id === deal.id && !existingIds.has(s.event_id));
+                        if (suggestions.length > 0) {
+                          for (const s of suggestions) {
+                            await fetch("/api/calendar/link-deal", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ deal_id: deal.id, calendar_event_id: s.event_id }),
+                            });
+                          }
+                          const refreshRes = await fetch(`/api/calendar/link-deal?deal_id=${deal.id}`);
+                          if (refreshRes.ok) {
+                            const d = await refreshRes.json();
+                            setLinkedMeetings(d.events ?? []);
+                          }
+                          toast.success(`Linked ${suggestions.length} new meeting${suggestions.length !== 1 ? "s" : ""}`);
+                        } else {
+                          toast("No new meetings to link");
+                        }
+                      }
+                    } catch {
+                      toast.error("Failed to auto-match");
+                    } finally {
+                      setLoadingMeetings(false);
+                    }
+                  }}
+                  className="w-full text-center text-[11px] text-primary hover:text-primary/80 py-2"
+                >
+                  <Link2 className="inline h-3 w-3 mr-1" />
+                  Auto-match more meetings
+                </button>
+              </div>
             )}
           </div>
         )}
