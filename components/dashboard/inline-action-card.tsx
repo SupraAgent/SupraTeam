@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import {
-  ArrowRight, ChevronDown, ChevronRight, Send, X, Check, ExternalLink,
+  ChevronDown, ChevronRight, Send, X, Check, ExternalLink,
 } from "lucide-react";
 
 type ActionType = "followup" | "tg_urgent" | "stale" | "reminders";

@@ -309,7 +309,8 @@ export async function GET() {
       hasGroups: (groupsRes.count ?? 0) > 0,
       hasDeals: deals.length > 0,
       hasContacts: totalContacts > 0,
-      hasEmail: (emailRes.count ?? 0) > 0
+      hasEmail: (emailRes.count ?? 0) > 0,
+      hasLinkedChats: (linkedChatsRes.data ?? []).length > 0,
     },
   });
 }

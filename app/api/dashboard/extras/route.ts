@@ -175,13 +175,14 @@ export async function GET() {
   if (calEventRows.length > 0) {
     const eventIds = calEventRows.map((e) => e.id);
 
-    // Query both junction tables for deal links
+    // Query both junction tables for deal links (use admin client to bypass RLS on link tables)
+    const admin = auth.admin;
     const [dealCalLinks, eventLinks] = await Promise.all([
-      supabase
+      admin
         .from("crm_deal_calendar_links")
         .select("calendar_event_id, deal:crm_deals(id, deal_name)")
         .in("calendar_event_id", eventIds),
-      supabase
+      admin
         .from("crm_calendar_event_links")
         .select("event_id, deal_id, deal:crm_deals(id, deal_name)")
         .in("event_id", eventIds)

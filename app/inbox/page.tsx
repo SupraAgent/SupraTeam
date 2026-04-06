@@ -53,6 +53,7 @@ import type { TgAvailableSession } from "@/lib/client/telegram-service";
 import { EmojiPicker } from "@/components/ui/emoji-picker";
 import { DealContextSidebar } from "@/components/inbox/deal-context-sidebar";
 import { LinkDealModal } from "@/components/inbox/link-deal-modal";
+import { BulkActionBar } from "@/components/inbox/bulk-action-bar";
 import { GlobalMessageSearch } from "@/components/inbox/global-message-search";
 import { InlineCannedForm } from "@/components/inbox/inline-canned-form";
 import { AssignmentRulesPanel } from "@/components/inbox/assignment-rules-panel";
@@ -209,6 +210,10 @@ export default function InboxPage() {
   const [linkDealModal, setLinkDealModal] = React.useState(false);
   const [dealSuggestions, setDealSuggestions] = React.useState<Record<number, Array<{ id: string; deal_name: string; stage_name?: string; contact_name?: string; match_reason: string }>>>({});
   const [dismissedSuggestions, setDismissedSuggestions] = React.useState<Set<number>>(new Set());
+
+  // Multi-select state for bulk actions
+  const [selectedChats, setSelectedChats] = React.useState<Set<number>>(new Set());
+  const lastClickedIndexRef = React.useRef<number>(-1);
 
   // Chat groups (drag-to-group + filtering)
   const chatGroups = useTgChatGroups();

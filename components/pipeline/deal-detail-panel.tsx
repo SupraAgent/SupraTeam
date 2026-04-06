@@ -921,6 +921,43 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
                 )
                 .map((a) => ({ id: a.id, type: a.type, title: a.title, body: a.body, created_at: a.created_at }))
               }
+              onCreateTask={async (text) => {
+                const tomorrow = new Date();
+                tomorrow.setDate(tomorrow.getDate() + 1);
+                try {
+                  const res = await fetch("/api/reminders", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      message: text,
+                      deal_id: deal.id,
+                      due_at: tomorrow.toISOString(),
+                    }),
+                  });
+                  if (res.ok) {
+                    toast.success("Task created from message");
+                  }
+                } catch {
+                  toast.error("Failed to create task");
+                }
+              }}
+              onQuoteInNote={async (text, sender) => {
+                const noteContent = `> ${sender}: ${text}`;
+                try {
+                  const res = await fetch(`/api/deals/${deal.id}/notes`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ text: noteContent }),
+                  });
+                  if (res.ok) {
+                    const data = await res.json();
+                    setNotes((prev) => [data.note, ...prev]);
+                    toast.success("Quote added as note");
+                  }
+                } catch {
+                  toast.error("Failed to create note");
+                }
+              }}
             />
 
             {/* Link conversation modal */}

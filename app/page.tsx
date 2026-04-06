@@ -10,6 +10,7 @@ import {
   Globe, ArrowRight, Video, Calendar, Users,
 } from "lucide-react";
 import { SetupChecklist } from "@/components/onboarding/setup-checklist";
+import { LinkConversationWizard } from "@/components/onboarding/link-conversation-wizard";
 import { ActionableNotificationWidget } from "@/components/notifications/actionable-notification-widget";
 import { InlineActionCard } from "@/components/dashboard/inline-action-card";
 
@@ -43,7 +44,7 @@ type Stats = {
   hotConversations: { name: string; count: number; deal_name: string; deal_id: string }[];
   crossSignals: { deal_name: string; deal_id: string; group_name: string; health: string; days_stale: number; stage_name: string }[];
   pinnedDeals: { id: string; deal_name: string; board_type: string; value: number | null; stage_name: string; stage_color: string | null }[];
-  onboarding: { hasBotToken: boolean; hasGroups: boolean; hasDeals: boolean; hasContacts: boolean; hasEmail: boolean };
+  onboarding: { hasBotToken: boolean; hasGroups: boolean; hasDeals: boolean; hasContacts: boolean; hasEmail: boolean; hasLinkedChats: boolean };
 };
 
 type Analytics = {
@@ -112,6 +113,7 @@ export default function HomePage() {
   const [timeRange, setTimeRange] = React.useState<"7d" | "30d" | "90d" | "all">("30d");
   const [lastUpdated, setLastUpdated] = React.useState<Date | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [showLinkWizard, setShowLinkWizard] = React.useState(false);
 
   const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>({});
   React.useEffect(() => {
@@ -193,7 +195,7 @@ export default function HomePage() {
     valueByBoard: { BD: 0, Marketing: 0, Admin: 0 }, staleDeals: [], followUps: [],
     velocity: { movesThisWeek: 0, movesLastWeek: 0, avgDaysPerStage: [] },
     conversionRates: [], hotConversations: [], crossSignals: [], pinnedDeals: [],
-    onboarding: { hasBotToken: false, hasGroups: false, hasDeals: false, hasContacts: false, hasEmail: false },
+    onboarding: { hasBotToken: false, hasGroups: false, hasDeals: false, hasContacts: false, hasEmail: false, hasLinkedChats: false },
   };
 
   const velocityDelta = s.velocity.movesLastWeek > 0
@@ -376,6 +378,138 @@ export default function HomePage() {
                   }}
                 />
               ))}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ========== NEXT 3 CALLS WIDGET ========== */}
+      {(() => {
+        const nextCalls = extras?.nextCalls ?? [];
+        const hasCalConn = extras?.hasCalendarConnection ?? false;
+
+        // No calendar connection — show connect prompt
+        if (!hasCalConn) {
+          return (
+            <div className="rounded-xl border border-white/10 bg-white/[0.025] px-4 py-3 flex items-center gap-3">
+              <div className="h-8 w-8 rounded-full bg-blue-500/10 flex items-center justify-center shrink-0">
+                <Calendar className="h-4 w-4 text-blue-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-muted-foreground">
+                  Connect Google Calendar to see upcoming calls here.
+                </p>
+              </div>
+              <Link
+                href="/settings"
+                className="text-xs text-primary hover:text-primary/80 transition shrink-0"
+              >
+                Connect
+              </Link>
+            </div>
+          );
+        }
+
+        // Calendar connected but no upcoming calls
+        if (nextCalls.length === 0) return null;
+
+        return (
+          <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Video className="h-4 w-4 text-blue-400" />
+              <h2 className="text-sm font-semibold text-foreground">Next Calls</h2>
+              <span className="text-[11px] text-muted-foreground">{nextCalls.length} upcoming</span>
+            </div>
+            <div className="space-y-2">
+              {nextCalls.map((call) => {
+                const startMs = call.start_at ? new Date(call.start_at).getTime() : null;
+                const nowMs = Date.now();
+                let relativeTime = "";
+                if (startMs) {
+                  const diffMin = Math.round((startMs - nowMs) / 60000);
+                  if (diffMin <= 0) {
+                    relativeTime = "now";
+                  } else if (diffMin < 60) {
+                    relativeTime = `in ${diffMin}m`;
+                  } else if (diffMin < 1440) {
+                    const hrs = Math.floor(diffMin / 60);
+                    const mins = diffMin % 60;
+                    relativeTime = mins > 0 ? `in ${hrs}h ${mins}m` : `in ${hrs}h`;
+                  } else {
+                    const days = Math.floor(diffMin / 1440);
+                    relativeTime = `in ${days}d`;
+                  }
+                }
+
+                const attendeeNames = (call.attendees ?? [])
+                  .slice(0, 3)
+                  .map((a) => a.displayName ?? a.email.split("@")[0]);
+                const moreAttendees = (call.attendees ?? []).length > 3
+                  ? (call.attendees ?? []).length - 3
+                  : 0;
+
+                return (
+                  <div
+                    key={call.id}
+                    className="flex items-center gap-3 rounded-lg bg-white/[0.03] px-3 py-2.5"
+                  >
+                    {/* Relative time badge */}
+                    <div className={cn(
+                      "rounded-lg px-2 py-1 text-xs font-medium shrink-0 min-w-[56px] text-center",
+                      relativeTime === "now"
+                        ? "bg-green-500/20 text-green-400"
+                        : "bg-blue-500/10 text-blue-400",
+                    )}>
+                      {relativeTime || "--"}
+                    </div>
+
+                    {/* Call info */}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-foreground truncate">
+                        {call.summary}
+                      </p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {call.deal_name && (
+                          <Link
+                            href={`/pipeline?highlight=${call.deal_id}`}
+                            className="text-xs text-primary hover:underline truncate"
+                          >
+                            {call.deal_name}
+                          </Link>
+                        )}
+                        {attendeeNames.length > 0 && (
+                          <span className="flex items-center gap-1 text-xs text-muted-foreground truncate">
+                            <Users className="h-3 w-3 shrink-0" />
+                            {attendeeNames.join(", ")}
+                            {moreAttendees > 0 && ` +${moreAttendees}`}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Join button */}
+                    {call.hangout_link ? (
+                      <a
+                        href={call.hangout_link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-lg bg-green-500/15 text-green-400 hover:bg-green-500/25 px-3 py-1.5 text-xs font-medium transition shrink-0"
+                      >
+                        Join
+                      </a>
+                    ) : call.html_link ? (
+                      <a
+                        href={call.html_link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-lg bg-white/5 text-muted-foreground hover:text-foreground hover:bg-white/10 px-3 py-1.5 text-xs font-medium transition shrink-0"
+                      >
+                        View
+                      </a>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           </div>
         );

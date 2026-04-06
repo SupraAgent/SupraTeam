@@ -3,7 +3,7 @@
 import * as React from "react";
 import { cn, timeAgo } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
-import { Send, Loader2, ExternalLink, Search, ChevronUp, ChevronDown, ChevronDownIcon, MessageCircle, Bot, User, Image, FileText, Sparkles, GitBranch, StickyNote, Brain, Users, Megaphone, ChevronUpIcon } from "lucide-react";
+import { Send, Loader2, ExternalLink, Search, ChevronUp, ChevronDown, ChevronDownIcon, MessageCircle, Bot, User, Image, FileText, Sparkles, GitBranch, StickyNote, Brain, Users, Megaphone, ChevronUpIcon, CheckSquare, Flag, Quote } from "lucide-react";
 import type { DealLinkedChat } from "@/lib/types";
 
 type Message = {
@@ -41,6 +41,12 @@ type TimelineItem =
   | { kind: "message"; data: Message }
   | { kind: "activity"; data: ActivityCard };
 
+type ContextMenuState = {
+  msg: Message;
+  x: number;
+  y: number;
+} | null;
+
 type ConversationTimelineProps = {
   dealId: string;
   telegramChatId: number | null;
@@ -49,6 +55,8 @@ type ConversationTimelineProps = {
   onUnreadChange?: (count: number) => void;
   onStageAdvanced?: () => void;
   activities?: ActivityCard[];
+  onCreateTask?: (text: string) => void;
+  onQuoteInNote?: (text: string, sender: string) => void;
 };
 
 const POLL_INTERVAL = 60_000; // 60s — Supabase Realtime is the primary update channel
@@ -62,7 +70,7 @@ const CHAT_COLORS = [
   { bg: "bg-rose-500/8", border: "border-rose-500/15", text: "text-rose-300" },
 ];
 
-export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink, onUnreadChange, onStageAdvanced, activities = [], linkedChats = [] }: ConversationTimelineProps) {
+export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink, onUnreadChange, onStageAdvanced, activities = [], linkedChats = [], onCreateTask, onQuoteInNote }: ConversationTimelineProps) {
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [hasMore, setHasMore] = React.useState(false);
@@ -76,7 +84,9 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
   const [loadingSuggestions, setLoadingSuggestions] = React.useState(false);
   const [advancing, setAdvancing] = React.useState(false);
   const [showSendMenu, setShowSendMenu] = React.useState(false);
+  const [contextMenuMsg, setContextMenuMsg] = React.useState<ContextMenuState>(null);
   const sendMenuRef = React.useRef<HTMLDivElement>(null);
+  const contextMenuRef = React.useRef<HTMLDivElement>(null);
 
   // Close send menu on outside click
   React.useEffect(() => {
@@ -90,6 +100,53 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
       return () => document.removeEventListener("mousedown", handleClickOutside);
     }
   }, [showSendMenu]);
+
+  // Close context menu on outside click or Escape
+  React.useEffect(() => {
+    if (!contextMenuMsg) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
+        setContextMenuMsg(null);
+      }
+    }
+    function handleEscape(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setContextMenuMsg(null);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [contextMenuMsg]);
+
+  function handleMessageContextMenu(e: React.MouseEvent, msg: Message) {
+    e.preventDefault();
+    setContextMenuMsg({ msg, x: e.clientX, y: e.clientY });
+  }
+
+  function handleContextAction(action: "create_task" | "flag_action" | "quote_note") {
+    if (!contextMenuMsg) return;
+    const msg = contextMenuMsg.msg;
+    const text = msg.text || "";
+    const sender = msg.contact_name || msg.sender_name || "Unknown";
+
+    switch (action) {
+      case "create_task":
+        onCreateTask?.(text);
+        break;
+      case "flag_action":
+        onCreateTask?.(`[Action Item] ${text}`);
+        break;
+      case "quote_note":
+        onQuoteInNote?.(text, sender);
+        break;
+    }
+    setContextMenuMsg(null);
+  }
+
   const [selectedChatId, setSelectedChatId] = React.useState<number | null>(null);
   const [showChatSelector, setShowChatSelector] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
@@ -522,7 +579,10 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
                 </div>
               )}
 
-              <div className={cn("group", showHeader ? "mt-2" : "mt-0.5")}>
+              <div
+                className={cn("group", showHeader ? "mt-2" : "mt-0.5")}
+                onContextMenu={(e) => handleMessageContextMenu(e, msg)}
+              >
                 {/* Sender header */}
                 {showHeader && (
                   <div className="flex items-center gap-1.5 mb-0.5 px-1">
@@ -607,6 +667,37 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
             </React.Fragment>
           );
         })}
+
+        {/* Message context menu */}
+        {contextMenuMsg && (
+          <div
+            ref={contextMenuRef}
+            className="fixed z-50 min-w-[180px] rounded-lg border border-white/10 bg-[#1a1a2e] shadow-xl py-1"
+            style={{ top: contextMenuMsg.y, left: contextMenuMsg.x }}
+          >
+            <button
+              onClick={() => handleContextAction("create_task")}
+              className="flex items-center gap-2 w-full px-3 py-2 text-[11px] text-foreground/80 hover:bg-white/[0.06] transition-colors"
+            >
+              <CheckSquare className="h-3.5 w-3.5 text-blue-400" />
+              Create task
+            </button>
+            <button
+              onClick={() => handleContextAction("flag_action")}
+              className="flex items-center gap-2 w-full px-3 py-2 text-[11px] text-foreground/80 hover:bg-white/[0.06] transition-colors"
+            >
+              <Flag className="h-3.5 w-3.5 text-amber-400" />
+              Flag as action item
+            </button>
+            <button
+              onClick={() => handleContextAction("quote_note")}
+              className="flex items-center gap-2 w-full px-3 py-2 text-[11px] text-foreground/80 hover:bg-white/[0.06] transition-colors"
+            >
+              <Quote className="h-3.5 w-3.5 text-emerald-400" />
+              Quote in note
+            </button>
+          </div>
+        )}
       </div>
 
       {/* New messages pill */}
