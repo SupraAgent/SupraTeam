@@ -3,7 +3,7 @@
 import * as React from "react";
 import { cn, timeAgo } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
-import { Send, Loader2, ExternalLink, Search, ChevronUp, ChevronDown, MessageCircle, Bot, User, Image, FileText, Sparkles, GitBranch, StickyNote, Brain, Users, Megaphone, ChevronUpIcon } from "lucide-react";
+import { Send, Loader2, ExternalLink, Search, ChevronUp, ChevronDown, ChevronDownIcon, MessageCircle, Bot, User, Image, FileText, Sparkles, GitBranch, StickyNote, Brain, Users, Megaphone, ChevronUpIcon } from "lucide-react";
 import type { DealLinkedChat } from "@/lib/types";
 
 type Message = {
@@ -47,6 +47,7 @@ type ConversationTimelineProps = {
   telegramChatLink?: string | null;
   linkedChats?: DealLinkedChat[];
   onUnreadChange?: (count: number) => void;
+  onStageAdvanced?: () => void;
   activities?: ActivityCard[];
 };
 
@@ -61,7 +62,7 @@ const CHAT_COLORS = [
   { bg: "bg-rose-500/8", border: "border-rose-500/15", text: "text-rose-300" },
 ];
 
-export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink, onUnreadChange, activities = [], linkedChats = [] }: ConversationTimelineProps) {
+export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink, onUnreadChange, onStageAdvanced, activities = [], linkedChats = [] }: ConversationTimelineProps) {
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [hasMore, setHasMore] = React.useState(false);
@@ -73,6 +74,22 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
   const [newMessageCount, setNewMessageCount] = React.useState(0);
   const [suggestions, setSuggestions] = React.useState<Array<{ label: string; text: string }>>([]);
   const [loadingSuggestions, setLoadingSuggestions] = React.useState(false);
+  const [advancing, setAdvancing] = React.useState(false);
+  const [showSendMenu, setShowSendMenu] = React.useState(false);
+  const sendMenuRef = React.useRef<HTMLDivElement>(null);
+
+  // Close send menu on outside click
+  React.useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (sendMenuRef.current && !sendMenuRef.current.contains(e.target as Node)) {
+        setShowSendMenu(false);
+      }
+    }
+    if (showSendMenu) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [showSendMenu]);
   const [selectedChatId, setSelectedChatId] = React.useState<number | null>(null);
   const [showChatSelector, setShowChatSelector] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);

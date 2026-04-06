@@ -40,6 +40,7 @@ import {
   Plus,
 } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
+import { Link2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import { NukeProgressModal } from "@/components/telegram/nuke-progress-modal";
@@ -115,6 +116,35 @@ const URGENCY_COLORS: Record<string, { border: string; dot: string; bg: string; 
   high: { border: "border-l-orange-500", dot: "bg-orange-500", bg: "bg-orange-500/10", text: "text-orange-400" },
 };
 
+// Response time threshold (hours) — consistent with deal-card.tsx SLA config
+const RESPONSE_OVERDUE_HOURS = 4;
+
+/** Compute a human-readable elapsed time label and color class for response SLA */
+function getResponseTimeSla(awaitingSince: string): {
+  label: string;
+  colorClass: string;
+  isOverdue: boolean;
+} {
+  const waitMs = Date.now() - new Date(awaitingSince).getTime();
+  const waitHours = waitMs / 3600000;
+  const fullHours = Math.floor(waitHours);
+  const fullMins = Math.floor((waitMs % 3600000) / 60000);
+  const label = fullHours > 0 ? `${fullHours}h ${fullMins}m` : `${fullMins}m`;
+
+  let colorClass: string;
+  if (waitHours < 1) {
+    colorClass = "text-emerald-400 bg-emerald-500/10";
+  } else if (waitHours < 2) {
+    colorClass = "text-yellow-400 bg-yellow-500/10";
+  } else if (waitHours < RESPONSE_OVERDUE_HOURS) {
+    colorClass = "text-orange-400 bg-orange-500/10";
+  } else {
+    colorClass = "text-red-400 bg-red-500/10 animate-pulse";
+  }
+
+  return { label, colorClass, isOverdue: waitHours >= RESPONSE_OVERDUE_HOURS };
+}
+
 // ── Infinite Scroll Sentinel ──────────────────────────────────
 
 function InboxLoadMore({ loading, onVisible }: { loading: boolean; onVisible: () => void }) {
@@ -176,6 +206,7 @@ export default function InboxPage() {
   const [noteText, setNoteText] = React.useState("");
   const [linkDealModal, setLinkDealModal] = React.useState(false);
   const [dealSuggestions, setDealSuggestions] = React.useState<Record<number, Array<{ id: string; deal_name: string; stage_name?: string; contact_name?: string; match_reason: string }>>>({});
+  const [dismissedSuggestions, setDismissedSuggestions] = React.useState<Set<number>>(new Set());
 
   // Chat groups (drag-to-group + filtering)
   const chatGroups = useTgChatGroups();
@@ -477,8 +508,9 @@ export default function InboxPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chat_id: chatId }),
     });
-    // Fetch deal suggestions if no deals linked yet
-    if (!(deals[chatId] && deals[chatId].length > 0) && !dealSuggestions[chatId]) {
+    // Aggressively fetch deal suggestions whenever a conversation is selected
+    // and it has no linked deals — always re-fetch to catch new matches
+    if (!(deals[chatId] && deals[chatId].length > 0)) {
       const conv = conversations.find((c) => c.chat_id === chatId);
       if (conv) {
         fetch(`/api/deals/suggest-link?chat_id=${chatId}&chat_title=${encodeURIComponent(conv.group_name)}`)
@@ -1339,6 +1371,26 @@ export default function InboxPage() {
                               {timeAgo(lastCustomerSentAt)}
                             </span>
                           )}
+                          {/* Response time SLA indicator from linked deal */}
+                          {(() => {
+                            const linkedDeal = chatDeals.find(
+                              (d) => d.awaiting_response_since && (!("outcome" in d) || !(d as Record<string, unknown>).outcome || (d as Record<string, unknown>).outcome === "open")
+                            );
+                            if (!linkedDeal?.awaiting_response_since) return null;
+                            const sla = getResponseTimeSla(linkedDeal.awaiting_response_since);
+                            return (
+                              <span
+                                className={cn(
+                                  "flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-medium shrink-0",
+                                  sla.colorClass
+                                )}
+                                title={`Awaiting reply: ${sla.label}${sla.isOverdue ? " (SLA breached)" : ""}`}
+                              >
+                                <Clock className="h-2.5 w-2.5" />
+                                {sla.label}
+                              </span>
+                            );
+                          })()}
                           {assignee && (
                             <span className="text-[10px] text-primary/60 truncate max-w-[80px]">{assignee.display_name}</span>
                           )}

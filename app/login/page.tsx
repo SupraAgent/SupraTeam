@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Github, ArrowLeft } from "lucide-react";
+import { Github, ArrowLeft, ShieldCheck, ChevronDown, ChevronUp } from "lucide-react";
 
 // Lazy-load GramJS service — only when user picks Telegram login
 const getTgService = () =>
@@ -29,6 +29,7 @@ export default function LoginPage() {
 
   // QR login state
   const [qrUrl, setQrUrl] = React.useState("");
+  const [privacyExpanded, setPrivacyExpanded] = React.useState(false);
 
   // Store the authenticated TG user for session creation
   const tgUserRef = React.useRef<{
