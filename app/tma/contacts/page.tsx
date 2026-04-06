@@ -8,6 +8,7 @@ import { BottomTabBar } from "@/components/tma/bottom-tab-bar";
 import { PullToRefresh } from "@/components/tma/pull-to-refresh";
 import { useTelegramWebApp } from "@/components/tma/use-telegram";
 import { hapticImpact, hapticNotification } from "@/components/tma/haptic";
+import { useFocusRefresh } from "@/components/tma/use-focus-refresh";
 import { toast } from "sonner";
 
 interface Contact {
@@ -55,17 +56,6 @@ export default function TMAContactsPage() {
   // Detail view
   const [selectedContact, setSelectedContact] = React.useState<Contact | null>(null);
 
-  useTelegramWebApp();
-
-  // Open create modal if navigated with ?create=1
-  React.useEffect(() => {
-    if (searchParams.get("create") === "1") {
-      setFormData({ ...emptyForm });
-      setEditingContact(null);
-      setShowForm(true);
-    }
-  }, [searchParams]);
-
   const fetchContacts = React.useCallback(async () => {
     try {
       const res = await fetch("/api/contacts");
@@ -77,6 +67,18 @@ export default function TMAContactsPage() {
       toast.error("Failed to load contacts");
     }
   }, []);
+
+  useTelegramWebApp();
+  useFocusRefresh(() => fetchContacts());
+
+  // Open create modal if navigated with ?create=1
+  React.useEffect(() => {
+    if (searchParams.get("create") === "1") {
+      setFormData({ ...emptyForm });
+      setEditingContact(null);
+      setShowForm(true);
+    }
+  }, [searchParams]);
 
   React.useEffect(() => {
     fetchContacts().finally(() => setLoading(false));

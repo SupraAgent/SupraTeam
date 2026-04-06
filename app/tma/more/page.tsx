@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Users, Radio, Settings, ChevronRight, Bell } from "lucide-react";
+import { Users, Radio, ChevronRight, Bell } from "lucide-react";
 import { BottomTabBar } from "@/components/tma/bottom-tab-bar";
 import { hapticImpact } from "@/components/tma/haptic";
 import { useTelegramWebApp } from "@/components/tma/use-telegram";
@@ -10,7 +10,6 @@ import { useTelegramWebApp } from "@/components/tma/use-telegram";
 const ITEMS = [
   { href: "/tma/contacts", label: "Contacts", description: "View and manage CRM contacts", icon: Users },
   { href: "/tma/broadcasts", label: "Broadcasts", description: "Send messages to TG groups", icon: Radio },
-  { href: "/tma/more", label: "Settings", description: "Notification preferences below", icon: Settings },
 ];
 
 interface PushPrefs {

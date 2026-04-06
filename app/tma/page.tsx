@@ -292,7 +292,7 @@ export default function TMAHomePage() {
         <div className="px-4 mb-4">
           <div className="flex items-center justify-between mb-2">
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Group Health</p>
-            <span className="text-[10px] text-muted-foreground">{groups.length} groups</span>
+            <Link href="/tma/groups" className="text-[10px] text-primary">View all ({groups.length})</Link>
           </div>
           <div className="space-y-1.5">
             {groups.slice(0, 5).map((group) => {
