@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Check, ArrowRight, Bot, Users, Kanban, Shield, Mail, X, Sparkles, Rocket } from "lucide-react";
+import { Check, ArrowRight, Bot, Users, Kanban, Shield, Mail, X, Sparkles, Rocket, Link2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type ChecklistItem = {
@@ -20,9 +20,11 @@ type SetupChecklistProps = {
   hasDeals: boolean;
   hasContacts: boolean;
   hasEmail?: boolean;
+  hasLinkedChats?: boolean;
+  onLinkConversationClick?: () => void;
 };
 
-export function SetupChecklist({ hasBotToken, hasGroups, hasDeals, hasContacts, hasEmail }: SetupChecklistProps) {
+export function SetupChecklist({ hasBotToken, hasGroups, hasDeals, hasContacts, hasEmail, hasLinkedChats, onLinkConversationClick }: SetupChecklistProps) {
   const [dismissed, setDismissed] = React.useState(false);
   const [showWelcome, setShowWelcome] = React.useState(false);
   const dialogRef = React.useRef<HTMLDivElement>(null);
@@ -102,6 +104,14 @@ export function SetupChecklist({ hasBotToken, hasGroups, hasDeals, hasContacts, 
       href: "/pipeline",
       icon: Kanban,
       done: hasDeals,
+    },
+    {
+      key: "link_conversation",
+      label: "Link a Conversation to a Deal",
+      description: "Connect a Telegram conversation to track messages in your pipeline.",
+      href: "#",
+      icon: Link2,
+      done: hasLinkedChats ?? false,
     },
     {
       key: "contacts",

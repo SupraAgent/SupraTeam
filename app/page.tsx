@@ -7,10 +7,11 @@ import {
   MessageCircle, GitBranch, ExternalLink, UserPlus, Bell,
   AlertTriangle, Clock, TrendingUp, Zap, DollarSign, BarChart3, Pin,
   ChevronDown, ChevronRight, Radio, Send, Activity, Shield, Workflow,
-  Globe, ArrowRight,
+  Globe, ArrowRight, Video, Calendar, Users,
 } from "lucide-react";
 import { SetupChecklist } from "@/components/onboarding/setup-checklist";
 import { ActionableNotificationWidget } from "@/components/notifications/actionable-notification-widget";
+import { InlineActionCard } from "@/components/dashboard/inline-action-card";
 
 const ACTIVITY_ICON_MAP: Record<string, { icon: React.ElementType; color: string }> = {
   stage_change: { icon: GitBranch, color: "text-purple-400" },
@@ -61,12 +62,27 @@ type Analytics = {
   totalOpen: number;
 };
 
+interface NextCallEvent {
+  id: string;
+  summary: string;
+  start_at: string | null;
+  end_at: string | null;
+  hangout_link: string | null;
+  html_link: string | null;
+  location: string | null;
+  attendees: { email: string; displayName?: string }[];
+  deal_id: string | null;
+  deal_name: string | null;
+}
+
 interface DashboardExtras {
   responseTime: { avg_ms: number | null; median_ms: number | null; sample_count: number; daily_trend: { date: string; avg_ms: number }[] };
   groups: { id: string; name: string; member_count: number; messages_7d: number; health: string; bot_admin: boolean; last_active: string | null }[];
   groupHealthSummary: { total: number; active: number; quiet: number; stale: number; dead: number; total_members: number; total_messages_7d: number; bot_admin_count: number };
   workflowStats: { active_count: number; runs_7d: number; completed: number; failed: number; running: number };
   suggestions: { id: string; title: string; score: number | null; upvotes: number; status: string; category: string }[];
+  nextCalls?: NextCallEvent[];
+  hasCalendarConnection?: boolean;
 }
 
 interface ActivityEvent {
@@ -83,6 +99,7 @@ type Highlight = {
   id: string; deal_id: string | null; sender_name: string | null; message_preview: string | null;
   tg_deep_link: string | null; highlight_type: string; created_at: string;
   triage_category?: string | null; triage_urgency?: string | null; triage_summary?: string | null; triaged_at?: string | null;
+  chat_id?: string | null;
 };
 
 export default function HomePage() {
@@ -244,33 +261,54 @@ export default function HomePage() {
         />
       )}
 
-      {/* ========== DO THESE NOW — Top 3 Urgency Actions ========== */}
+      {/* ========== DO THESE NOW — Expandable Inline Action Cards ========== */}
       {(() => {
-        const actions: { key: string; icon: React.ElementType; color: string; label: string; detail: string; href: string }[] = [];
+        type ActionItem = {
+          key: string;
+          actionType: "followup" | "tg_urgent" | "stale" | "reminders";
+          icon: React.ElementType;
+          color: string;
+          label: string;
+          detail: string;
+          href: string;
+          messagePreview: string | null;
+          senderName: string | null;
+          chatId: string | null;
+        };
+        const actions: ActionItem[] = [];
 
         // 1. Overdue follow-ups
         if (s.followUps.length > 0) {
           const worst = s.followUps[0];
           actions.push({
             key: "followup",
+            actionType: "followup",
             icon: Clock,
             color: "text-yellow-400",
             label: `${s.followUps.length} follow-up${s.followUps.length !== 1 ? "s" : ""} overdue`,
             detail: worst.deal_name + (worst.hours_since > 24 ? ` (${Math.floor(worst.hours_since / 24)}d ago)` : ` (${Math.round(worst.hours_since)}h ago)`),
             href: "/pipeline",
+            messagePreview: null,
+            senderName: null,
+            chatId: null,
           });
         }
 
         // 2. Critical/high TG messages needing reply
         const criticalHighlights = highlights.filter((h) => h.triage_urgency === "critical" || h.triage_urgency === "high");
         if (criticalHighlights.length > 0) {
+          const first = criticalHighlights[0];
           actions.push({
             key: "tg_urgent",
+            actionType: "tg_urgent",
             icon: MessageCircle,
             color: "text-red-400",
             label: `${criticalHighlights.length} urgent message${criticalHighlights.length !== 1 ? "s" : ""} awaiting reply`,
-            detail: criticalHighlights[0].sender_name ? `From ${criticalHighlights[0].sender_name}` : "In Telegram",
+            detail: first.sender_name ? `From ${first.sender_name}` : "In Telegram",
             href: "/inbox",
+            messagePreview: first.message_preview ?? null,
+            senderName: first.sender_name ?? null,
+            chatId: first.chat_id ?? null,
           });
         }
 
@@ -279,11 +317,15 @@ export default function HomePage() {
           const worst = s.staleDeals[0];
           actions.push({
             key: "stale",
+            actionType: "stale",
             icon: AlertTriangle,
             color: "text-red-400",
             label: `${s.staleDeals.length} deal${s.staleDeals.length !== 1 ? "s" : ""} going cold`,
             detail: `${worst.deal_name} — ${worst.days_stale}d stale`,
             href: "/pipeline",
+            messagePreview: null,
+            senderName: null,
+            chatId: null,
           });
         }
 
@@ -293,11 +335,15 @@ export default function HomePage() {
         if (dueReminders.length > 0 && actions.length < 3) {
           actions.push({
             key: "reminders",
+            actionType: "reminders",
             icon: Bell,
             color: "text-amber-400",
             label: `${dueReminders.length} reminder${dueReminders.length !== 1 ? "s" : ""} due now`,
             detail: dueReminders[0].message,
             href: "/calendar",
+            messagePreview: null,
+            senderName: null,
+            chatId: null,
           });
         }
 
@@ -311,20 +357,24 @@ export default function HomePage() {
             </div>
             <div className="space-y-2">
               {actions.slice(0, 3).map((action) => (
-                <Link
+                <InlineActionCard
                   key={action.key}
+                  actionType={action.actionType}
+                  icon={action.icon}
+                  iconColor={action.color}
+                  label={action.label}
+                  detail={action.detail}
                   href={action.href}
-                  className="flex items-center gap-3 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] px-3 py-2.5 transition group"
-                >
-                  <div className={cn("h-8 w-8 rounded-full flex items-center justify-center shrink-0", action.color.replace("text-", "bg-").replace("-400", "-500/15"))}>
-                    <action.icon className={cn("h-4 w-4", action.color)} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-foreground">{action.label}</p>
-                    <p className="text-xs text-muted-foreground truncate">{action.detail}</p>
-                  </div>
-                  <ArrowRight className="h-4 w-4 text-muted-foreground/30 group-hover:text-foreground/50 transition shrink-0" />
-                </Link>
+                  messagePreview={action.messagePreview}
+                  senderName={action.senderName}
+                  chatId={action.chatId}
+                  onReply={() => {
+                    // Optimistically remove the highlight that was replied to
+                    if (action.actionType === "tg_urgent") {
+                      setHighlights((prev) => prev.filter((h) => h.triage_urgency !== "critical" && h.triage_urgency !== "high"));
+                    }
+                  }}
+                />
               ))}
             </div>
           </div>
