@@ -6,7 +6,7 @@ export async function GET() {
   if ("error" in auth) return auth.error;
   const { supabase } = auth;
 
-  const [responseTimeRes, groupsRes, workflowsRes, workflowRunsRes, suggestionsRes] = await Promise.all([
+  const [responseTimeRes, groupsRes, workflowsRes, workflowRunsRes, suggestionsRes, nextEventsRes, calConnectionRes] = await Promise.all([
     // Avg response time from resolved highlights (last 30 days)
     supabase
       .from("crm_highlights")
@@ -42,6 +42,22 @@ export async function GET() {
       .select("id, title, cpo_score, upvotes, status, category")
       .order("cpo_score", { ascending: false, nullsFirst: false })
       .limit(5),
+
+    // Next 3 upcoming Google Calendar events (timed, not all-day, in the future)
+    supabase
+      .from("crm_calendar_events")
+      .select("id, summary, start_at, end_at, start_date, end_date, is_all_day, html_link, hangout_link, location, attendees")
+      .eq("is_all_day", false)
+      .neq("status", "cancelled")
+      .gte("start_at", new Date().toISOString())
+      .order("start_at", { ascending: true })
+      .limit(3),
+
+    // Check if user has a calendar connection
+    supabase
+      .from("crm_calendar_connections")
+      .select("id")
+      .limit(1),
   ]);
 
   // --- Response Time ---
@@ -125,6 +141,81 @@ export async function GET() {
     category: s.category,
   }));
 
+  // --- Next Calls ---
+  interface CalEventRow {
+    id: string;
+    summary: string | null;
+    start_at: string | null;
+    end_at: string | null;
+    start_date: string | null;
+    end_date: string | null;
+    is_all_day: boolean;
+    html_link: string | null;
+    hangout_link: string | null;
+    location: string | null;
+    attendees: { email: string; displayName?: string }[] | null;
+  }
+  const calEventRows = (nextEventsRes.data ?? []) as CalEventRow[];
+  const hasCalendarConnection = (calConnectionRes.data ?? []).length > 0;
+
+  // Enrich with deal links if events exist
+  let nextCalls: {
+    id: string;
+    summary: string;
+    start_at: string | null;
+    end_at: string | null;
+    hangout_link: string | null;
+    html_link: string | null;
+    location: string | null;
+    attendees: { email: string; displayName?: string }[];
+    deal_id: string | null;
+    deal_name: string | null;
+  }[] = [];
+
+  if (calEventRows.length > 0) {
+    const eventIds = calEventRows.map((e) => e.id);
+
+    // Query both junction tables for deal links
+    const [dealCalLinks, eventLinks] = await Promise.all([
+      supabase
+        .from("crm_deal_calendar_links")
+        .select("calendar_event_id, deal:crm_deals(id, deal_name)")
+        .in("calendar_event_id", eventIds),
+      supabase
+        .from("crm_calendar_event_links")
+        .select("event_id, deal_id, deal:crm_deals(id, deal_name)")
+        .in("event_id", eventIds)
+        .not("deal_id", "is", null),
+    ]);
+
+    interface DealRef { id: string; deal_name: string }
+    const dealMap = new Map<string, DealRef>();
+    for (const link of dealCalLinks.data ?? []) {
+      const deal = link.deal as unknown as DealRef | null;
+      if (deal) dealMap.set(link.calendar_event_id, deal);
+    }
+    for (const link of eventLinks.data ?? []) {
+      const deal = link.deal as unknown as DealRef | null;
+      if (deal && !dealMap.has(link.event_id)) dealMap.set(link.event_id, deal);
+    }
+
+    nextCalls = calEventRows.map((e) => {
+      const deal = dealMap.get(e.id);
+      return {
+        id: e.id,
+        summary: e.summary ?? "Untitled event",
+        start_at: e.start_at,
+        end_at: e.end_at,
+        hangout_link: e.hangout_link,
+        html_link: e.html_link,
+        location: e.location,
+        attendees: e.attendees ?? [],
+        deal_id: deal?.id ?? null,
+        deal_name: deal?.deal_name ?? null,
+      };
+    });
+  }
+
   return NextResponse.json({
     responseTime: {
       avg_ms: avgResponseMs,
@@ -136,5 +227,7 @@ export async function GET() {
     groupHealthSummary,
     workflowStats,
     suggestions,
+    nextCalls,
+    hasCalendarConnection,
   });
 }

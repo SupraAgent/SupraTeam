@@ -304,6 +304,37 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
     }
   }
 
+  async function handleSendAndAdvance() {
+    if (!reply.trim() || sending || advancing) return;
+    setAdvancing(true);
+    setShowSendMenu(false);
+    try {
+      // 1. Send the message
+      const chatIdParam = effectiveSelectedChatId ? `?chat_id=${effectiveSelectedChatId}` : "";
+      const sendRes = await fetch(`/api/deals/${dealId}/conversation${chatIdParam}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: reply.trim() }),
+      });
+      if (!sendRes.ok) return;
+      setReply("");
+
+      // 2. Advance the deal stage
+      const advanceRes = await fetch(`/api/deals/${dealId}/advance`, { method: "POST" });
+      if (advanceRes.ok) {
+        onStageAdvanced?.();
+      }
+
+      // 3. Refresh messages
+      await fetchMessages();
+      if (scrollRef.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      }
+    } finally {
+      setAdvancing(false);
+    }
+  }
+
   const filtered = React.useMemo(() => {
     if (!searchQuery) return messages;
     const q = searchQuery.toLowerCase();
@@ -694,18 +725,51 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
             placeholder={hasMultipleChats && selectedChat ? `Reply in ${selectedChat.chat_title}...` : "Type a reply..."}
             className="flex-1 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-xs outline-none focus:border-primary/30"
           />
-          <button
-            onClick={handleSend}
-            disabled={sending || !reply.trim()}
-            className={cn(
-              "shrink-0 rounded-lg px-3 py-2 transition-colors",
-              reply.trim()
-                ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                : "bg-white/5 text-muted-foreground/30"
+          {/* Split button: Send | Send + Advance */}
+          <div className="relative shrink-0" ref={sendMenuRef}>
+            <div className="flex">
+              <button
+                onClick={handleSend}
+                disabled={sending || advancing || !reply.trim()}
+                className={cn(
+                  "rounded-l-lg px-3 py-2 transition-colors",
+                  reply.trim()
+                    ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                    : "bg-white/5 text-muted-foreground/30"
+                )}
+              >
+                {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+              </button>
+              <button
+                onClick={() => setShowSendMenu(!showSendMenu)}
+                disabled={sending || advancing || !reply.trim()}
+                className={cn(
+                  "rounded-r-lg px-1.5 py-2 border-l transition-colors",
+                  reply.trim()
+                    ? "bg-primary text-primary-foreground hover:bg-primary/90 border-primary-foreground/20"
+                    : "bg-white/5 text-muted-foreground/30 border-white/10"
+                )}
+              >
+                <ChevronDownIcon className="h-3 w-3" />
+              </button>
+            </div>
+            {showSendMenu && (
+              <div className="absolute bottom-full right-0 mb-1 rounded-lg border border-white/10 bg-zinc-900 shadow-xl z-20 py-1 min-w-[180px]">
+                <button
+                  onClick={handleSendAndAdvance}
+                  disabled={advancing}
+                  className="flex items-center gap-2 w-full px-3 py-2 text-[11px] text-foreground/80 hover:bg-white/[0.06] transition-colors"
+                >
+                  {advancing ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-purple-400" />
+                  ) : (
+                    <GitBranch className="h-3.5 w-3.5 text-purple-400" />
+                  )}
+                  Send + Advance Stage
+                </button>
+              </div>
             )}
-          >
-            {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-          </button>
+          </div>
         </div>
       </div>
     </div>
