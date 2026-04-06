@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Check, ArrowRight, Bot, Users, Kanban, Shield, Mail, X, Sparkles, Rocket } from "lucide-react";
+import { Check, ArrowRight, Bot, Users, Kanban, Shield, Mail, X, Sparkles, Rocket, Link2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type ChecklistItem = {
@@ -20,9 +20,11 @@ type SetupChecklistProps = {
   hasDeals: boolean;
   hasContacts: boolean;
   hasEmail?: boolean;
+  hasLinkedChats?: boolean;
+  onLinkConversationClick?: () => void;
 };
 
-export function SetupChecklist({ hasBotToken, hasGroups, hasDeals, hasContacts, hasEmail }: SetupChecklistProps) {
+export function SetupChecklist({ hasBotToken, hasGroups, hasDeals, hasContacts, hasEmail, hasLinkedChats, onLinkConversationClick }: SetupChecklistProps) {
   const [dismissed, setDismissed] = React.useState(false);
   const [showWelcome, setShowWelcome] = React.useState(false);
   const dialogRef = React.useRef<HTMLDivElement>(null);
@@ -102,6 +104,14 @@ export function SetupChecklist({ hasBotToken, hasGroups, hasDeals, hasContacts, 
       href: "/pipeline",
       icon: Kanban,
       done: hasDeals,
+    },
+    {
+      key: "link_conversation",
+      label: "Link a Conversation to a Deal",
+      description: "Connect a Telegram conversation to track messages in your pipeline.",
+      href: "#",
+      icon: Link2,
+      done: hasLinkedChats ?? false,
     },
     {
       key: "contacts",
@@ -231,15 +241,14 @@ export function SetupChecklist({ hasBotToken, hasGroups, hasDeals, hasContacts, 
       <div className="divide-y divide-white/5">
         {items.map((item) => {
           const Icon = item.icon;
-          return (
-            <Link
-              key={item.key}
-              href={item.href}
-              className={cn(
-                "flex items-center gap-3 px-4 py-3 min-h-[52px] motion-safe:transition-colors hover:bg-white/[0.03] active:bg-white/[0.06]",
-                item.done && "opacity-60"
-              )}
-            >
+          const isLinkConversation = item.key === "link_conversation";
+          const sharedClassName = cn(
+            "flex items-center gap-3 px-4 py-3 min-h-[52px] motion-safe:transition-colors hover:bg-white/[0.03] active:bg-white/[0.06] w-full text-left",
+            item.done && "opacity-60"
+          );
+
+          const content = (
+            <>
               <div
                 className={cn(
                   "h-8 w-8 rounded-lg flex items-center justify-center shrink-0",
@@ -259,6 +268,28 @@ export function SetupChecklist({ hasBotToken, hasGroups, hasDeals, hasContacts, 
                 <p className="text-xs text-muted-foreground/60 truncate">{item.description}</p>
               </div>
               {!item.done && <ArrowRight className="h-4 w-4 text-muted-foreground/30 shrink-0" />}
+            </>
+          );
+
+          if (isLinkConversation && !item.done && onLinkConversationClick) {
+            return (
+              <button
+                key={item.key}
+                onClick={onLinkConversationClick}
+                className={sharedClassName}
+              >
+                {content}
+              </button>
+            );
+          }
+
+          return (
+            <Link
+              key={item.key}
+              href={item.href}
+              className={sharedClassName}
+            >
+              {content}
             </Link>
           );
         })}

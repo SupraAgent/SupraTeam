@@ -40,6 +40,7 @@ import {
   Plus,
 } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
+import { Link2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import { NukeProgressModal } from "@/components/telegram/nuke-progress-modal";
@@ -52,6 +53,7 @@ import type { TgAvailableSession } from "@/lib/client/telegram-service";
 import { EmojiPicker } from "@/components/ui/emoji-picker";
 import { DealContextSidebar } from "@/components/inbox/deal-context-sidebar";
 import { LinkDealModal } from "@/components/inbox/link-deal-modal";
+import { BulkActionBar } from "@/components/inbox/bulk-action-bar";
 import { GlobalMessageSearch } from "@/components/inbox/global-message-search";
 import { InlineCannedForm } from "@/components/inbox/inline-canned-form";
 import { AssignmentRulesPanel } from "@/components/inbox/assignment-rules-panel";
@@ -99,6 +101,8 @@ interface Deal {
   probability?: number | null;
   health_score?: number | null;
   ai_summary?: string | null;
+  awaiting_response_since?: string | null;
+  outcome?: string | null;
 }
 
 interface CannedResponse {
@@ -114,6 +118,35 @@ const URGENCY_COLORS: Record<string, { border: string; dot: string; bg: string; 
   critical: { border: "border-l-red-500", dot: "bg-red-500 animate-pulse", bg: "bg-red-500/10", text: "text-red-400" },
   high: { border: "border-l-orange-500", dot: "bg-orange-500", bg: "bg-orange-500/10", text: "text-orange-400" },
 };
+
+// Response time threshold (hours) — consistent with deal-card.tsx SLA config
+const RESPONSE_OVERDUE_HOURS = 4;
+
+/** Compute a human-readable elapsed time label and color class for response SLA */
+function getResponseTimeSla(awaitingSince: string): {
+  label: string;
+  colorClass: string;
+  isOverdue: boolean;
+} {
+  const waitMs = Date.now() - new Date(awaitingSince).getTime();
+  const waitHours = waitMs / 3600000;
+  const fullHours = Math.floor(waitHours);
+  const fullMins = Math.floor((waitMs % 3600000) / 60000);
+  const label = fullHours > 0 ? `${fullHours}h ${fullMins}m` : `${fullMins}m`;
+
+  let colorClass: string;
+  if (waitHours < 1) {
+    colorClass = "text-emerald-400 bg-emerald-500/10";
+  } else if (waitHours < 2) {
+    colorClass = "text-yellow-400 bg-yellow-500/10";
+  } else if (waitHours < RESPONSE_OVERDUE_HOURS) {
+    colorClass = "text-orange-400 bg-orange-500/10";
+  } else {
+    colorClass = "text-red-400 bg-red-500/10 animate-pulse";
+  }
+
+  return { label, colorClass, isOverdue: waitHours >= RESPONSE_OVERDUE_HOURS };
+}
 
 // ── Infinite Scroll Sentinel ──────────────────────────────────
 
@@ -176,6 +209,11 @@ export default function InboxPage() {
   const [noteText, setNoteText] = React.useState("");
   const [linkDealModal, setLinkDealModal] = React.useState(false);
   const [dealSuggestions, setDealSuggestions] = React.useState<Record<number, Array<{ id: string; deal_name: string; stage_name?: string; contact_name?: string; match_reason: string }>>>({});
+  const [dismissedSuggestions, setDismissedSuggestions] = React.useState<Set<number>>(new Set());
+
+  // Multi-select state for bulk actions
+  const [selectedChats, setSelectedChats] = React.useState<Set<number>>(new Set());
+  const lastClickedIndexRef = React.useRef<number>(-1);
 
   // Chat groups (drag-to-group + filtering)
   const chatGroups = useTgChatGroups();
@@ -477,8 +515,9 @@ export default function InboxPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chat_id: chatId }),
     });
-    // Fetch deal suggestions if no deals linked yet
-    if (!(deals[chatId] && deals[chatId].length > 0) && !dealSuggestions[chatId]) {
+    // Aggressively fetch deal suggestions whenever a conversation is selected
+    // and it has no linked deals — always re-fetch to catch new matches
+    if (!(deals[chatId] && deals[chatId].length > 0)) {
       const conv = conversations.find((c) => c.chat_id === chatId);
       if (conv) {
         fetch(`/api/deals/suggest-link?chat_id=${chatId}&chat_title=${encodeURIComponent(conv.group_name)}`)
@@ -695,6 +734,78 @@ export default function InboxPage() {
 
   function saveNote(chatId: number, groupName: string, text: string) {
     updateLabel(chatId, groupName, { note: text || null });
+  }
+
+  // ── Multi-select helpers ──────────────────────────────────────
+
+  function handleCheckboxToggle(chatId: number, index: number, shiftKey: boolean) {
+    setSelectedChats((prev) => {
+      const next = new Set(prev);
+      if (shiftKey && lastClickedIndexRef.current >= 0) {
+        const start = Math.min(lastClickedIndexRef.current, index);
+        const end = Math.max(lastClickedIndexRef.current, index);
+        for (let i = start; i <= end; i++) {
+          if (i < filtered.length) {
+            next.add(filtered[i].chat_id);
+          }
+        }
+      } else {
+        if (next.has(chatId)) {
+          next.delete(chatId);
+        } else {
+          next.add(chatId);
+        }
+      }
+      lastClickedIndexRef.current = index;
+      return next;
+    });
+  }
+
+  async function bulkTag(tag: string | null, color: string | null) {
+    const chatIds = Array.from(selectedChats);
+    const promises = chatIds.map((chatId) => {
+      const conv = conversations.find((c) => c.chat_id === chatId);
+      if (conv) return updateLabel(chatId, conv.group_name, { color_tag: tag, color_tag_color: color });
+      return Promise.resolve();
+    });
+    await Promise.allSettled(promises);
+    toast.success(`Tagged ${chatIds.length} conversation${chatIds.length !== 1 ? "s" : ""}`);
+    setSelectedChats(new Set());
+  }
+
+  async function bulkPin() {
+    const chatIds = Array.from(selectedChats);
+    const promises = chatIds.map((chatId) => {
+      const conv = conversations.find((c) => c.chat_id === chatId);
+      if (conv) {
+        toggleLabel(chatId, conv.group_name, "is_pinned");
+      }
+      return Promise.resolve();
+    });
+    await Promise.allSettled(promises);
+    toast.success(`Toggled pin on ${chatIds.length} conversation${chatIds.length !== 1 ? "s" : ""}`);
+    setSelectedChats(new Set());
+  }
+
+  async function bulkSnooze(until: string) {
+    const chatIds = Array.from(selectedChats);
+    await Promise.allSettled(
+      chatIds.map((chatId) => handleStatusChange(chatId, "snoozed", until))
+    );
+    toast.success(`Snoozed ${chatIds.length} conversation${chatIds.length !== 1 ? "s" : ""}`);
+    setSelectedChats(new Set());
+  }
+
+  async function bulkArchive() {
+    const chatIds = Array.from(selectedChats);
+    const promises = chatIds.map((chatId) => {
+      const conv = conversations.find((c) => c.chat_id === chatId);
+      if (conv) return updateLabel(chatId, conv.group_name, { is_archived: true });
+      return Promise.resolve();
+    });
+    await Promise.allSettled(promises);
+    toast.success(`Archived ${chatIds.length} conversation${chatIds.length !== 1 ? "s" : ""}`);
+    setSelectedChats(new Set());
   }
 
   function handleContextMenu(e: React.MouseEvent, chatId: number, groupName: string) {
@@ -1229,6 +1340,21 @@ export default function InboxPage() {
                       style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${virtualRow.start}px)` }}
                       className="border-b border-white/5"
                     >
+                      <div className="flex items-stretch">
+                        <div
+                          className="flex items-center justify-center w-7 shrink-0 cursor-pointer hover:bg-white/5 transition-colors"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCheckboxToggle(conv.chat_id, convIndex, e.shiftKey);
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedChats.has(conv.chat_id)}
+                            readOnly
+                            className="h-3 w-3 rounded border-white/20 bg-transparent accent-primary pointer-events-none"
+                          />
+                        </div>
                       <button
                         draggable
                         onDragStart={(e) => {
@@ -1244,6 +1370,7 @@ export default function InboxPage() {
                         className={cn(
                           "w-full text-left px-3 py-2.5 transition-colors cursor-grab active:cursor-grabbing border-l-2 border-l-transparent",
                           isSelected ? "bg-primary/10" :
+                          selectedChats.has(conv.chat_id) ? "bg-primary/[0.06]" :
                           convIndex === highlightedIndex ? "bg-white/[0.06] ring-1 ring-primary/30" :
                           urgColors && !isSelected ? urgColors.bg :
                           label?.is_vip ? "bg-amber-500/[0.04] hover:bg-amber-500/[0.08]" :
@@ -1339,6 +1466,26 @@ export default function InboxPage() {
                               {timeAgo(lastCustomerSentAt)}
                             </span>
                           )}
+                          {/* Response time SLA indicator from linked deal */}
+                          {(() => {
+                            const linkedDeal = chatDeals.find(
+                              (d) => d.awaiting_response_since && (!d.outcome || d.outcome === "open")
+                            );
+                            if (!linkedDeal?.awaiting_response_since) return null;
+                            const sla = getResponseTimeSla(linkedDeal.awaiting_response_since);
+                            return (
+                              <span
+                                className={cn(
+                                  "flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-medium shrink-0",
+                                  sla.colorClass
+                                )}
+                                title={`Awaiting reply: ${sla.label}${sla.isOverdue ? " (SLA breached)" : ""}`}
+                              >
+                                <Clock className="h-2.5 w-2.5" />
+                                {sla.label}
+                              </span>
+                            );
+                          })()}
                           {assignee && (
                             <span className="text-[10px] text-primary/60 truncate max-w-[80px]">{assignee.display_name}</span>
                           )}
@@ -1387,6 +1534,7 @@ export default function InboxPage() {
                           })()}
                         </div>
                       </button>
+                      </div>
                     </div>
                   );
                 })}
@@ -1603,23 +1751,59 @@ export default function InboxPage() {
                   </div>
                 )}
 
-                {/* Deal suggestion banner */}
-                {(deals[selChatId] ?? []).length === 0 && (dealSuggestions[selChatId] ?? []).length > 0 && (
-                  <div className="mx-3 mt-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2">
-                    <p className="text-[11px] text-primary/80 mb-1">Link to a deal?</p>
-                    <div className="flex flex-wrap gap-1">
-                      {dealSuggestions[selChatId].map((s) => (
+                {/* Deal suggestion banner — prominent sticky banner */}
+                {(deals[selChatId] ?? []).length === 0
+                  && (dealSuggestions[selChatId] ?? []).length > 0
+                  && !dismissedSuggestions.has(selChatId) && (
+                  <div className="sticky top-0 z-10 border-b border-amber-500/20 bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-amber-500/10 px-4 py-2.5 backdrop-blur-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <div className="flex items-center justify-center h-6 w-6 rounded-full bg-amber-500/20 shrink-0">
+                          <Link2 className="h-3.5 w-3.5 text-amber-400" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {dealSuggestions[selChatId].slice(0, 1).map((s) => (
+                              <span key={s.id} className="flex items-center gap-1.5 text-sm font-medium text-foreground truncate">
+                                Link to: <span className="text-amber-300">{s.deal_name}</span>
+                                {s.stage_name && (
+                                  <span className="text-[10px] rounded px-1.5 py-0.5 bg-white/10 text-muted-foreground font-normal">{s.stage_name}</span>
+                                )}
+                              </span>
+                            ))}
+                          </div>
+                          <p className="text-[10px] text-muted-foreground/70 mt-0.5 truncate">
+                            {dealSuggestions[selChatId][0].match_reason}
+                            {dealSuggestions[selChatId].length > 1 && (
+                              <span className="text-primary/60 ml-1">+{dealSuggestions[selChatId].length - 1} more</span>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
                         <button
-                          key={s.id}
-                          onClick={() => quickLinkDeal(s.id)}
-                          className="inline-flex items-center gap-1 rounded-md border border-primary/20 bg-primary/10 px-2 py-1 text-[11px] text-primary hover:bg-primary/20 transition-colors"
-                          title={s.match_reason}
+                          onClick={() => quickLinkDeal(dealSuggestions[selChatId][0].id)}
+                          className="inline-flex items-center gap-1.5 rounded-md bg-amber-500/20 border border-amber-500/30 px-3 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-500/30 hover:border-amber-500/40 transition-colors"
                         >
-                          <Zap className="h-3 w-3 shrink-0" />
-                          {s.deal_name}
-                          {s.stage_name && <span className="text-primary/60">· {s.stage_name}</span>}
+                          <Zap className="h-3 w-3" />
+                          Link
                         </button>
-                      ))}
+                        {dealSuggestions[selChatId].length > 1 && (
+                          <button
+                            onClick={() => setLinkDealModal(true)}
+                            className="inline-flex items-center gap-1 rounded-md bg-white/5 border border-white/10 px-2 py-1.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-white/10 transition-colors"
+                          >
+                            See all
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setDismissedSuggestions((prev) => new Set(prev).add(selChatId))}
+                          className="h-6 w-6 flex items-center justify-center rounded-md text-muted-foreground/50 hover:text-muted-foreground hover:bg-white/5 transition-colors"
+                          title="Dismiss suggestion"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -2199,6 +2383,23 @@ export default function InboxPage() {
       >
         <AssignmentRulesPanel />
       </SlideOver>
+
+      {/* Bulk action bar for multi-select */}
+      {selectedChats.size > 0 && (
+        <BulkActionBar
+          count={selectedChats.size}
+          totalCount={filtered.length}
+          onTag={(tag, color) => bulkTag(tag, color)}
+          onPin={() => bulkPin()}
+          onSnooze={(until) => bulkSnooze(until)}
+          onArchive={() => bulkArchive()}
+          onSelectAll={() => {
+            setSelectedChats(new Set(filtered.map((c) => c.chat_id)));
+          }}
+          onDeselectAll={() => setSelectedChats(new Set())}
+          onClear={() => setSelectedChats(new Set())}
+        />
+      )}
     </div>
   );
 }

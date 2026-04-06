@@ -7,10 +7,12 @@ import {
   MessageCircle, GitBranch, ExternalLink, UserPlus, Bell,
   AlertTriangle, Clock, TrendingUp, Zap, DollarSign, BarChart3, Pin,
   ChevronDown, ChevronRight, Radio, Send, Activity, Shield, Workflow,
-  Globe, ArrowRight,
+  Globe, ArrowRight, Video, Calendar, Users, Link2,
 } from "lucide-react";
 import { SetupChecklist } from "@/components/onboarding/setup-checklist";
+import { LinkConversationWizard } from "@/components/onboarding/link-conversation-wizard";
 import { ActionableNotificationWidget } from "@/components/notifications/actionable-notification-widget";
+import { InlineActionCard } from "@/components/dashboard/inline-action-card";
 
 const ACTIVITY_ICON_MAP: Record<string, { icon: React.ElementType; color: string }> = {
   stage_change: { icon: GitBranch, color: "text-purple-400" },
@@ -42,7 +44,7 @@ type Stats = {
   hotConversations: { name: string; count: number; deal_name: string; deal_id: string }[];
   crossSignals: { deal_name: string; deal_id: string; group_name: string; health: string; days_stale: number; stage_name: string }[];
   pinnedDeals: { id: string; deal_name: string; board_type: string; value: number | null; stage_name: string; stage_color: string | null }[];
-  onboarding: { hasBotToken: boolean; hasGroups: boolean; hasDeals: boolean; hasContacts: boolean; hasEmail: boolean };
+  onboarding: { hasBotToken: boolean; hasGroups: boolean; hasDeals: boolean; hasContacts: boolean; hasEmail: boolean; hasLinkedChats: boolean };
 };
 
 type Analytics = {
@@ -61,12 +63,27 @@ type Analytics = {
   totalOpen: number;
 };
 
+interface NextCallEvent {
+  id: string;
+  summary: string;
+  start_at: string | null;
+  end_at: string | null;
+  hangout_link: string | null;
+  html_link: string | null;
+  location: string | null;
+  attendees: { email: string; displayName?: string }[];
+  deal_id: string | null;
+  deal_name: string | null;
+}
+
 interface DashboardExtras {
   responseTime: { avg_ms: number | null; median_ms: number | null; sample_count: number; daily_trend: { date: string; avg_ms: number }[] };
   groups: { id: string; name: string; member_count: number; messages_7d: number; health: string; bot_admin: boolean; last_active: string | null }[];
   groupHealthSummary: { total: number; active: number; quiet: number; stale: number; dead: number; total_members: number; total_messages_7d: number; bot_admin_count: number };
   workflowStats: { active_count: number; runs_7d: number; completed: number; failed: number; running: number };
   suggestions: { id: string; title: string; score: number | null; upvotes: number; status: string; category: string }[];
+  nextCalls?: NextCallEvent[];
+  hasCalendarConnection?: boolean;
 }
 
 interface ActivityEvent {
@@ -83,6 +100,7 @@ type Highlight = {
   id: string; deal_id: string | null; sender_name: string | null; message_preview: string | null;
   tg_deep_link: string | null; highlight_type: string; created_at: string;
   triage_category?: string | null; triage_urgency?: string | null; triage_summary?: string | null; triaged_at?: string | null;
+  chat_id?: string | null;
 };
 
 export default function HomePage() {
@@ -95,6 +113,7 @@ export default function HomePage() {
   const [timeRange, setTimeRange] = React.useState<"7d" | "30d" | "90d" | "all">("30d");
   const [lastUpdated, setLastUpdated] = React.useState<Date | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [showLinkWizard, setShowLinkWizard] = React.useState(false);
 
   const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>({});
   React.useEffect(() => {
@@ -176,7 +195,7 @@ export default function HomePage() {
     valueByBoard: { BD: 0, Marketing: 0, Admin: 0 }, staleDeals: [], followUps: [],
     velocity: { movesThisWeek: 0, movesLastWeek: 0, avgDaysPerStage: [] },
     conversionRates: [], hotConversations: [], crossSignals: [], pinnedDeals: [],
-    onboarding: { hasBotToken: false, hasGroups: false, hasDeals: false, hasContacts: false, hasEmail: false },
+    onboarding: { hasBotToken: false, hasGroups: false, hasDeals: false, hasContacts: false, hasEmail: false, hasLinkedChats: false },
   };
 
   const velocityDelta = s.velocity.movesLastWeek > 0
@@ -193,9 +212,12 @@ export default function HomePage() {
   const totalClosed = analytics ? analytics.totalWon + analytics.totalLost : 0;
 
   // Determine onboarding completion
-  const onboardingSteps = [s.onboarding.hasBotToken, s.onboarding.hasGroups, s.onboarding.hasDeals, s.onboarding.hasContacts, s.onboarding.hasEmail];
+  const onboardingSteps = [s.onboarding.hasBotToken, s.onboarding.hasGroups, s.onboarding.hasDeals, s.onboarding.hasContacts, s.onboarding.hasEmail, s.onboarding.hasLinkedChats];
   const onboardingDone = onboardingSteps.filter(Boolean).length;
-  const allOnboardingDone = onboardingDone === 5;
+  const allOnboardingDone = onboardingDone === onboardingSteps.length;
+
+  // Show link conversation prompt when deals exist but no linked chats
+  const showLinkConversationPrompt = s.onboarding.hasDeals && !s.onboarding.hasLinkedChats;
 
   // Groups needing attention (stale, dead, or quiet with low activity)
   const groupsNeedingAttention = (extras?.groups ?? [])
@@ -233,7 +255,7 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* Onboarding — auto-collapses at 4/5, hidden at 5/5 */}
+      {/* Onboarding — auto-collapses when near-complete, hidden when all done */}
       {!allOnboardingDone && (
         <SetupChecklist
           hasBotToken={s.onboarding.hasBotToken}
@@ -241,36 +263,72 @@ export default function HomePage() {
           hasDeals={s.onboarding.hasDeals}
           hasContacts={s.onboarding.hasContacts}
           hasEmail={s.onboarding.hasEmail}
+          hasLinkedChats={s.onboarding.hasLinkedChats}
+          onLinkConversationClick={() => setShowLinkWizard(true)}
         />
       )}
 
-      {/* ========== DO THESE NOW — Top 3 Urgency Actions ========== */}
+      {/* Link Conversation Wizard */}
+      <LinkConversationWizard
+        open={showLinkWizard}
+        onClose={() => setShowLinkWizard(false)}
+        onComplete={() => {
+          // Refresh stats to update onboarding state
+          fetch("/api/stats")
+            .then((r) => (r.ok ? r.json() : null))
+            .then((data) => { if (data) setStats(data); })
+            .catch(() => { /* silent */ });
+        }}
+      />
+
+      {/* ========== DO THESE NOW — Expandable Inline Action Cards ========== */}
       {(() => {
-        const actions: { key: string; icon: React.ElementType; color: string; label: string; detail: string; href: string }[] = [];
+        type ActionItem = {
+          key: string;
+          actionType: "followup" | "tg_urgent" | "stale" | "reminders";
+          icon: React.ElementType;
+          color: string;
+          label: string;
+          detail: string;
+          href: string;
+          messagePreview: string | null;
+          senderName: string | null;
+          chatId: string | null;
+        };
+        const actions: ActionItem[] = [];
 
         // 1. Overdue follow-ups
         if (s.followUps.length > 0) {
           const worst = s.followUps[0];
           actions.push({
             key: "followup",
+            actionType: "followup",
             icon: Clock,
             color: "text-yellow-400",
             label: `${s.followUps.length} follow-up${s.followUps.length !== 1 ? "s" : ""} overdue`,
             detail: worst.deal_name + (worst.hours_since > 24 ? ` (${Math.floor(worst.hours_since / 24)}d ago)` : ` (${Math.round(worst.hours_since)}h ago)`),
             href: "/pipeline",
+            messagePreview: null,
+            senderName: null,
+            chatId: null,
           });
         }
 
         // 2. Critical/high TG messages needing reply
         const criticalHighlights = highlights.filter((h) => h.triage_urgency === "critical" || h.triage_urgency === "high");
         if (criticalHighlights.length > 0) {
+          const first = criticalHighlights[0];
           actions.push({
             key: "tg_urgent",
+            actionType: "tg_urgent",
             icon: MessageCircle,
             color: "text-red-400",
             label: `${criticalHighlights.length} urgent message${criticalHighlights.length !== 1 ? "s" : ""} awaiting reply`,
-            detail: criticalHighlights[0].sender_name ? `From ${criticalHighlights[0].sender_name}` : "In Telegram",
+            detail: first.sender_name ? `From ${first.sender_name}` : "In Telegram",
             href: "/inbox",
+            messagePreview: first.message_preview ?? null,
+            senderName: first.sender_name ?? null,
+            chatId: first.chat_id ?? null,
           });
         }
 
@@ -279,11 +337,15 @@ export default function HomePage() {
           const worst = s.staleDeals[0];
           actions.push({
             key: "stale",
+            actionType: "stale",
             icon: AlertTriangle,
             color: "text-red-400",
             label: `${s.staleDeals.length} deal${s.staleDeals.length !== 1 ? "s" : ""} going cold`,
             detail: `${worst.deal_name} — ${worst.days_stale}d stale`,
             href: "/pipeline",
+            messagePreview: null,
+            senderName: null,
+            chatId: null,
           });
         }
 
@@ -293,11 +355,15 @@ export default function HomePage() {
         if (dueReminders.length > 0 && actions.length < 3) {
           actions.push({
             key: "reminders",
+            actionType: "reminders",
             icon: Bell,
             color: "text-amber-400",
             label: `${dueReminders.length} reminder${dueReminders.length !== 1 ? "s" : ""} due now`,
             detail: dueReminders[0].message,
             href: "/calendar",
+            messagePreview: null,
+            senderName: null,
+            chatId: null,
           });
         }
 
@@ -311,25 +377,180 @@ export default function HomePage() {
             </div>
             <div className="space-y-2">
               {actions.slice(0, 3).map((action) => (
-                <Link
+                <InlineActionCard
                   key={action.key}
+                  actionType={action.actionType}
+                  icon={action.icon}
+                  iconColor={action.color}
+                  label={action.label}
+                  detail={action.detail}
                   href={action.href}
-                  className="flex items-center gap-3 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] px-3 py-2.5 transition group"
-                >
-                  <div className={cn("h-8 w-8 rounded-full flex items-center justify-center shrink-0", action.color.replace("text-", "bg-").replace("-400", "-500/15"))}>
-                    <action.icon className={cn("h-4 w-4", action.color)} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-foreground">{action.label}</p>
-                    <p className="text-xs text-muted-foreground truncate">{action.detail}</p>
-                  </div>
-                  <ArrowRight className="h-4 w-4 text-muted-foreground/30 group-hover:text-foreground/50 transition shrink-0" />
-                </Link>
+                  messagePreview={action.messagePreview}
+                  senderName={action.senderName}
+                  chatId={action.chatId}
+                  onReply={() => {
+                    // Optimistically remove the highlight that was replied to
+                    if (action.actionType === "tg_urgent") {
+                      setHighlights((prev) => prev.filter((h) => h.triage_urgency !== "critical" && h.triage_urgency !== "high"));
+                    }
+                  }}
+                />
               ))}
             </div>
           </div>
         );
       })()}
+
+      {/* ========== NEXT 3 CALLS WIDGET ========== */}
+      {(() => {
+        const nextCalls = extras?.nextCalls ?? [];
+        const hasCalConn = extras?.hasCalendarConnection ?? false;
+
+        // No calendar connection — show connect prompt
+        if (!hasCalConn) {
+          return (
+            <div className="rounded-xl border border-white/10 bg-white/[0.025] px-4 py-3 flex items-center gap-3">
+              <div className="h-8 w-8 rounded-full bg-blue-500/10 flex items-center justify-center shrink-0">
+                <Calendar className="h-4 w-4 text-blue-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-muted-foreground">
+                  Connect Google Calendar to see upcoming calls here.
+                </p>
+              </div>
+              <Link
+                href="/settings"
+                className="text-xs text-primary hover:text-primary/80 transition shrink-0"
+              >
+                Connect
+              </Link>
+            </div>
+          );
+        }
+
+        // Calendar connected but no upcoming calls
+        if (nextCalls.length === 0) return null;
+
+        return (
+          <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Video className="h-4 w-4 text-blue-400" />
+              <h2 className="text-sm font-semibold text-foreground">Next Calls</h2>
+              <span className="text-[11px] text-muted-foreground">{nextCalls.length} upcoming</span>
+            </div>
+            <div className="space-y-2">
+              {nextCalls.map((call) => {
+                const startMs = call.start_at ? new Date(call.start_at).getTime() : null;
+                const nowMs = Date.now();
+                let relativeTime = "";
+                if (startMs) {
+                  const diffMin = Math.round((startMs - nowMs) / 60000);
+                  if (diffMin <= 0) {
+                    relativeTime = "now";
+                  } else if (diffMin < 60) {
+                    relativeTime = `in ${diffMin}m`;
+                  } else if (diffMin < 1440) {
+                    const hrs = Math.floor(diffMin / 60);
+                    const mins = diffMin % 60;
+                    relativeTime = mins > 0 ? `in ${hrs}h ${mins}m` : `in ${hrs}h`;
+                  } else {
+                    const days = Math.floor(diffMin / 1440);
+                    relativeTime = `in ${days}d`;
+                  }
+                }
+
+                const attendeeNames = (call.attendees ?? [])
+                  .slice(0, 3)
+                  .map((a) => a.displayName ?? a.email.split("@")[0]);
+                const moreAttendees = (call.attendees ?? []).length > 3
+                  ? (call.attendees ?? []).length - 3
+                  : 0;
+
+                return (
+                  <div
+                    key={call.id}
+                    className="flex items-center gap-3 rounded-lg bg-white/[0.03] px-3 py-2.5"
+                  >
+                    {/* Relative time badge */}
+                    <div className={cn(
+                      "rounded-lg px-2 py-1 text-xs font-medium shrink-0 min-w-[56px] text-center",
+                      relativeTime === "now"
+                        ? "bg-green-500/20 text-green-400"
+                        : "bg-blue-500/10 text-blue-400",
+                    )}>
+                      {relativeTime || "--"}
+                    </div>
+
+                    {/* Call info */}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-foreground truncate">
+                        {call.summary}
+                      </p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {call.deal_name && (
+                          <Link
+                            href={`/pipeline?highlight=${call.deal_id}`}
+                            className="text-xs text-primary hover:underline truncate"
+                          >
+                            {call.deal_name}
+                          </Link>
+                        )}
+                        {attendeeNames.length > 0 && (
+                          <span className="flex items-center gap-1 text-xs text-muted-foreground truncate">
+                            <Users className="h-3 w-3 shrink-0" />
+                            {attendeeNames.join(", ")}
+                            {moreAttendees > 0 && ` +${moreAttendees}`}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Join button */}
+                    {call.hangout_link ? (
+                      <a
+                        href={call.hangout_link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-lg bg-green-500/15 text-green-400 hover:bg-green-500/25 px-3 py-1.5 text-xs font-medium transition shrink-0"
+                      >
+                        Join
+                      </a>
+                    ) : call.html_link ? (
+                      <a
+                        href={call.html_link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-lg bg-white/5 text-muted-foreground hover:text-foreground hover:bg-white/10 px-3 py-1.5 text-xs font-medium transition shrink-0"
+                      >
+                        View
+                      </a>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ========== LINK CONVERSATION PROMPT ========== */}
+      {showLinkConversationPrompt && (
+        <button
+          onClick={() => setShowLinkWizard(true)}
+          className="w-full rounded-xl border border-primary/15 bg-primary/[0.04] p-4 flex items-center gap-3 hover:bg-primary/[0.07] transition-colors text-left group"
+        >
+          <div className="h-9 w-9 rounded-lg bg-primary/15 flex items-center justify-center shrink-0">
+            <Link2 className="h-4.5 w-4.5 text-primary" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-foreground">Link a conversation to a deal</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Connect Telegram conversations to your pipeline to track messages and activity in deal timelines.
+            </p>
+          </div>
+          <ArrowRight className="h-4 w-4 text-primary/50 group-hover:text-primary transition-colors shrink-0" />
+        </button>
+      )}
 
       {/* ========== TELEGRAM PULSE STATUS BAR ========== */}
       <div className="rounded-xl border border-white/10 bg-white/[0.035] px-4 py-3 flex items-center gap-4 flex-wrap">

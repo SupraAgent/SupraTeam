@@ -15,10 +15,10 @@ export async function GET() {
     .eq("created_by", user.id)
     .lt("created_at", twentyFourHoursAgo);
 
-  // Fetch active highlights
+  // Fetch active highlights (include tg_group_id for inline reply support)
   const { data: highlights, error } = await supabase
     .from("crm_highlights")
-    .select("id, deal_id, contact_id, sender_name, message_preview, tg_deep_link, highlight_type, priority, sentiment, message_count, created_at, triage_category, triage_urgency, triage_summary, triaged_at")
+    .select("id, deal_id, contact_id, sender_name, message_preview, tg_deep_link, highlight_type, priority, sentiment, message_count, created_at, triage_category, triage_urgency, triage_summary, triaged_at, tg_group_id")
     .eq("is_active", true)
     .order("created_at", { ascending: false });
 
@@ -30,13 +30,35 @@ export async function GET() {
   // Build lookup maps
   const dealIds = new Set<string>();
   const contactIds = new Set<string>();
+  const tgGroupIds = new Set<string>();
   for (const h of highlights ?? []) {
     if (h.deal_id) dealIds.add(h.deal_id);
     if (h.contact_id) contactIds.add(h.contact_id);
+    if (h.tg_group_id) tgGroupIds.add(h.tg_group_id);
   }
 
+  // Resolve tg_group_id -> telegram_group_id (actual Telegram chat_id) for inline replies
+  let tgChatIdMap: Record<string, string> = {};
+  if (tgGroupIds.size > 0) {
+    const { data: groups } = await supabase
+      .from("tg_groups")
+      .select("id, telegram_group_id")
+      .in("id", [...tgGroupIds]);
+    if (groups) {
+      tgChatIdMap = Object.fromEntries(
+        groups.map((g: { id: string; telegram_group_id: string }) => [g.id, String(g.telegram_group_id)])
+      );
+    }
+  }
+
+  // Enrich highlights with chat_id for inline reply
+  const enriched = (highlights ?? []).map((h: Record<string, string | null>) => ({
+    ...h,
+    chat_id: h.tg_group_id ? tgChatIdMap[h.tg_group_id] ?? null : null,
+  }));
+
   return NextResponse.json({
-    highlights: highlights ?? [],
+    highlights: enriched,
     highlighted_deal_ids: [...dealIds],
     highlighted_contact_ids: [...contactIds],
   });

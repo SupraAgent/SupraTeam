@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Github, ArrowLeft } from "lucide-react";
+import { Github, ArrowLeft, ShieldCheck, Shield, ChevronDown, ChevronUp } from "lucide-react";
 
 // Lazy-load GramJS service — only when user picks Telegram login
 const getTgService = () =>
@@ -29,6 +29,7 @@ export default function LoginPage() {
 
   // QR login state
   const [qrUrl, setQrUrl] = React.useState("");
+  const [privacyExpanded, setPrivacyExpanded] = React.useState(false);
 
   // Store the authenticated TG user for session creation
   const tgUserRef = React.useRef<{
@@ -266,13 +267,16 @@ export default function LoginPage() {
             {/* Telegram Phone */}
             <Button
               onClick={() => setMethod("phone")}
-              className="w-full gap-2 bg-[#2AABEE] text-white hover:bg-[#2AABEE]/90 font-medium"
+              className="w-full gap-2 bg-[#2AABEE] text-white hover:bg-[#2AABEE]/90 font-medium relative"
               size="lg"
             >
               <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
               </svg>
               Sign in with Telegram
+              <span className="ml-1.5 rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-medium text-white/90">
+                Recommended
+              </span>
             </Button>
 
             {/* Telegram QR */}
@@ -297,19 +301,19 @@ export default function LoginPage() {
             {/* Divider */}
             <div className="flex items-center gap-3 py-1">
               <div className="h-px flex-1 bg-white/10" />
-              <span className="text-xs text-muted-foreground">or</span>
+              <span className="text-xs text-muted-foreground/60">or</span>
               <div className="h-px flex-1 bg-white/10" />
             </div>
 
-            {/* GitHub */}
+            {/* GitHub — visually subdued */}
             <Button
               onClick={handleGitHubLogin}
               disabled={loading}
               variant="outline"
-              className="w-full gap-2 font-medium"
-              size="lg"
+              className="w-full gap-2 font-normal text-muted-foreground border-white/5 hover:text-foreground hover:border-white/10"
+              size="sm"
             >
-              <Github className="h-5 w-5" />
+              <Github className="h-4 w-4" />
               {loading ? "Redirecting..." : "Continue with GitHub"}
             </Button>
           </div>
@@ -323,6 +327,42 @@ export default function LoginPage() {
             </button>
 
             {phoneStep === "input" && (
+              <>
+              {/* Privacy/Security trust card */}
+              <div className="rounded-2xl border border-primary/10 bg-primary/[0.03] overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setPrivacyExpanded((prev) => !prev)}
+                  className="w-full flex items-center gap-2.5 px-4 py-3 text-left transition-colors hover:bg-primary/[0.05]"
+                >
+                  <Shield className="h-4 w-4 text-primary shrink-0" />
+                  <span className="flex-1 text-xs text-muted-foreground">
+                    Your session is encrypted end-to-end on your device
+                  </span>
+                  {privacyExpanded ? (
+                    <ChevronUp className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
+                  ) : (
+                    <ChevronDown className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
+                  )}
+                </button>
+                {privacyExpanded && (
+                  <div className="px-4 pb-3 space-y-2.5 border-t border-primary/10 pt-3">
+                    <p className="text-[11px] leading-relaxed text-muted-foreground/80 flex items-start gap-2">
+                      <ShieldCheck className="h-3.5 w-3.5 text-primary/70 mt-0.5 shrink-0" />
+                      Your Telegram session is encrypted end-to-end on your device. The server never sees your credentials.
+                    </p>
+                    <p className="text-[11px] leading-relaxed text-muted-foreground/80 flex items-start gap-2">
+                      <ShieldCheck className="h-3.5 w-3.5 text-primary/70 mt-0.5 shrink-0" />
+                      Messages are only accessible in groups where the bot is admin.
+                    </p>
+                    <p className="text-[11px] leading-relaxed text-muted-foreground/80 flex items-start gap-2">
+                      <ShieldCheck className="h-3.5 w-3.5 text-primary/70 mt-0.5 shrink-0" />
+                      Your personal messages are never stored on our servers.
+                    </p>
+                  </div>
+                )}
+              </div>
+
               <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5 space-y-4">
                 <div>
                   <h2 className="text-sm font-medium text-foreground">Phone Number</h2>
@@ -345,6 +385,7 @@ export default function LoginPage() {
                   </Button>
                 </div>
               </div>
+              </>
             )}
 
             {phoneStep === "code" && (

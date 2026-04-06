@@ -3,7 +3,7 @@
 import * as React from "react";
 import { cn, timeAgo } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
-import { Send, Loader2, ExternalLink, Search, ChevronUp, ChevronDown, MessageCircle, Bot, User, Image, FileText, Sparkles, GitBranch, StickyNote, Brain, Users, Megaphone, ChevronUpIcon } from "lucide-react";
+import { Send, Loader2, ExternalLink, Search, ChevronUp, ChevronDown, ChevronDownIcon, MessageCircle, Bot, User, Image, FileText, Sparkles, GitBranch, StickyNote, Brain, Users, Megaphone, ChevronUpIcon, CheckSquare, Flag, Quote } from "lucide-react";
 import type { DealLinkedChat } from "@/lib/types";
 
 type Message = {
@@ -41,13 +41,22 @@ type TimelineItem =
   | { kind: "message"; data: Message }
   | { kind: "activity"; data: ActivityCard };
 
+type ContextMenuState = {
+  msg: Message;
+  x: number;
+  y: number;
+} | null;
+
 type ConversationTimelineProps = {
   dealId: string;
   telegramChatId: number | null;
   telegramChatLink?: string | null;
   linkedChats?: DealLinkedChat[];
   onUnreadChange?: (count: number) => void;
+  onStageAdvanced?: () => void;
   activities?: ActivityCard[];
+  onCreateTask?: (text: string) => void;
+  onQuoteInNote?: (text: string, sender: string) => void;
 };
 
 const POLL_INTERVAL = 60_000; // 60s — Supabase Realtime is the primary update channel
@@ -61,7 +70,7 @@ const CHAT_COLORS = [
   { bg: "bg-rose-500/8", border: "border-rose-500/15", text: "text-rose-300" },
 ];
 
-export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink, onUnreadChange, activities = [], linkedChats = [] }: ConversationTimelineProps) {
+export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink, onUnreadChange, onStageAdvanced, activities = [], linkedChats = [], onCreateTask, onQuoteInNote }: ConversationTimelineProps) {
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [hasMore, setHasMore] = React.useState(false);
@@ -73,6 +82,71 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
   const [newMessageCount, setNewMessageCount] = React.useState(0);
   const [suggestions, setSuggestions] = React.useState<Array<{ label: string; text: string }>>([]);
   const [loadingSuggestions, setLoadingSuggestions] = React.useState(false);
+  const [advancing, setAdvancing] = React.useState(false);
+  const [showSendMenu, setShowSendMenu] = React.useState(false);
+  const [contextMenuMsg, setContextMenuMsg] = React.useState<ContextMenuState>(null);
+  const sendMenuRef = React.useRef<HTMLDivElement>(null);
+  const contextMenuRef = React.useRef<HTMLDivElement>(null);
+
+  // Close send menu on outside click
+  React.useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (sendMenuRef.current && !sendMenuRef.current.contains(e.target as Node)) {
+        setShowSendMenu(false);
+      }
+    }
+    if (showSendMenu) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [showSendMenu]);
+
+  // Close context menu on outside click or Escape
+  React.useEffect(() => {
+    if (!contextMenuMsg) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
+        setContextMenuMsg(null);
+      }
+    }
+    function handleEscape(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setContextMenuMsg(null);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [contextMenuMsg]);
+
+  function handleMessageContextMenu(e: React.MouseEvent, msg: Message) {
+    e.preventDefault();
+    setContextMenuMsg({ msg, x: e.clientX, y: e.clientY });
+  }
+
+  function handleContextAction(action: "create_task" | "flag_action" | "quote_note") {
+    if (!contextMenuMsg) return;
+    const msg = contextMenuMsg.msg;
+    const text = msg.text || "";
+    const sender = msg.contact_name || msg.sender_name || "Unknown";
+
+    switch (action) {
+      case "create_task":
+        onCreateTask?.(text);
+        break;
+      case "flag_action":
+        onCreateTask?.(`[Action Item] ${text}`);
+        break;
+      case "quote_note":
+        onQuoteInNote?.(text, sender);
+        break;
+    }
+    setContextMenuMsg(null);
+  }
+
   const [selectedChatId, setSelectedChatId] = React.useState<number | null>(null);
   const [showChatSelector, setShowChatSelector] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
@@ -287,6 +361,37 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
     }
   }
 
+  async function handleSendAndAdvance() {
+    if (!reply.trim() || sending || advancing) return;
+    setAdvancing(true);
+    setShowSendMenu(false);
+    try {
+      // 1. Send the message
+      const chatIdParam = effectiveSelectedChatId ? `?chat_id=${effectiveSelectedChatId}` : "";
+      const sendRes = await fetch(`/api/deals/${dealId}/conversation${chatIdParam}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: reply.trim() }),
+      });
+      if (!sendRes.ok) return;
+      setReply("");
+
+      // 2. Advance the deal stage
+      const advanceRes = await fetch(`/api/deals/${dealId}/advance`, { method: "POST" });
+      if (advanceRes.ok) {
+        onStageAdvanced?.();
+      }
+
+      // 3. Refresh messages
+      await fetchMessages();
+      if (scrollRef.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      }
+    } finally {
+      setAdvancing(false);
+    }
+  }
+
   const filtered = React.useMemo(() => {
     if (!searchQuery) return messages;
     const q = searchQuery.toLowerCase();
@@ -474,7 +579,10 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
                 </div>
               )}
 
-              <div className={cn("group", showHeader ? "mt-2" : "mt-0.5")}>
+              <div
+                className={cn("group", showHeader ? "mt-2" : "mt-0.5")}
+                onContextMenu={(e) => handleMessageContextMenu(e, msg)}
+              >
                 {/* Sender header */}
                 {showHeader && (
                   <div className="flex items-center gap-1.5 mb-0.5 px-1">
@@ -559,6 +667,37 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
             </React.Fragment>
           );
         })}
+
+        {/* Message context menu */}
+        {contextMenuMsg && (
+          <div
+            ref={contextMenuRef}
+            className="fixed z-50 min-w-[180px] rounded-lg border border-white/10 bg-[#1a1a2e] shadow-xl py-1"
+            style={{ top: contextMenuMsg.y, left: contextMenuMsg.x }}
+          >
+            <button
+              onClick={() => handleContextAction("create_task")}
+              className="flex items-center gap-2 w-full px-3 py-2 text-[11px] text-foreground/80 hover:bg-white/[0.06] transition-colors"
+            >
+              <CheckSquare className="h-3.5 w-3.5 text-blue-400" />
+              Create task
+            </button>
+            <button
+              onClick={() => handleContextAction("flag_action")}
+              className="flex items-center gap-2 w-full px-3 py-2 text-[11px] text-foreground/80 hover:bg-white/[0.06] transition-colors"
+            >
+              <Flag className="h-3.5 w-3.5 text-amber-400" />
+              Flag as action item
+            </button>
+            <button
+              onClick={() => handleContextAction("quote_note")}
+              className="flex items-center gap-2 w-full px-3 py-2 text-[11px] text-foreground/80 hover:bg-white/[0.06] transition-colors"
+            >
+              <Quote className="h-3.5 w-3.5 text-emerald-400" />
+              Quote in note
+            </button>
+          </div>
+        )}
       </div>
 
       {/* New messages pill */}
@@ -677,18 +816,51 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
             placeholder={hasMultipleChats && selectedChat ? `Reply in ${selectedChat.chat_title}...` : "Type a reply..."}
             className="flex-1 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-xs outline-none focus:border-primary/30"
           />
-          <button
-            onClick={handleSend}
-            disabled={sending || !reply.trim()}
-            className={cn(
-              "shrink-0 rounded-lg px-3 py-2 transition-colors",
-              reply.trim()
-                ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                : "bg-white/5 text-muted-foreground/30"
+          {/* Split button: Send | Send + Advance */}
+          <div className="relative shrink-0" ref={sendMenuRef}>
+            <div className="flex">
+              <button
+                onClick={handleSend}
+                disabled={sending || advancing || !reply.trim()}
+                className={cn(
+                  "rounded-l-lg px-3 py-2 transition-colors",
+                  reply.trim()
+                    ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                    : "bg-white/5 text-muted-foreground/30"
+                )}
+              >
+                {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+              </button>
+              <button
+                onClick={() => setShowSendMenu(!showSendMenu)}
+                disabled={sending || advancing || !reply.trim()}
+                className={cn(
+                  "rounded-r-lg px-1.5 py-2 border-l transition-colors",
+                  reply.trim()
+                    ? "bg-primary text-primary-foreground hover:bg-primary/90 border-primary-foreground/20"
+                    : "bg-white/5 text-muted-foreground/30 border-white/10"
+                )}
+              >
+                <ChevronDownIcon className="h-3 w-3" />
+              </button>
+            </div>
+            {showSendMenu && (
+              <div className="absolute bottom-full right-0 mb-1 rounded-lg border border-white/10 bg-zinc-900 shadow-xl z-20 py-1 min-w-[180px]">
+                <button
+                  onClick={handleSendAndAdvance}
+                  disabled={advancing}
+                  className="flex items-center gap-2 w-full px-3 py-2 text-[11px] text-foreground/80 hover:bg-white/[0.06] transition-colors"
+                >
+                  {advancing ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-purple-400" />
+                  ) : (
+                    <GitBranch className="h-3.5 w-3.5 text-purple-400" />
+                  )}
+                  Send + Advance Stage
+                </button>
+              </div>
             )}
-          >
-            {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-          </button>
+          </div>
         </div>
       </div>
     </div>

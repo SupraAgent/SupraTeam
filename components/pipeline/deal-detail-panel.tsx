@@ -5,7 +5,7 @@ import { SlideOver } from "@/components/ui/slide-over";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import type { Deal, PipelineStage, Contact, DealLinkedChat, DealEmailThread } from "@/lib/types";
+import type { Deal, PipelineStage, Contact, Company, DealLinkedChat, DealEmailThread } from "@/lib/types";
 import { timeAgo, cn } from "@/lib/utils";
 import { toast } from "sonner";
 import {
@@ -16,6 +16,7 @@ import { ScheduleCallModal } from "./schedule-call-modal";
 import Link from "next/link";
 import { ConversationTimeline } from "./conversation-timeline";
 import { LinkConversationModal } from "./link-conversation-modal";
+import { ProtocolSnapshotCard } from "./protocol-snapshot-card";
 
 type Note = {
   id: string;
@@ -82,6 +83,9 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
   // Linked email threads
   const [linkedEmails, setLinkedEmails] = React.useState<DealEmailThread[]>([]);
   const [unlinkingEmail, setUnlinkingEmail] = React.useState<string | null>(null);
+
+  // Company data for protocol snapshot
+  const [company, setCompany] = React.useState<Company | null>(null);
 
   // Task creation
   const [showTaskForm, setShowTaskForm] = React.useState(false);
@@ -165,6 +169,7 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
       setAiLoaded(false);
       setSentiment(null);
       setAiSummary(null);
+      setCompany(null);
 
       // Use cached stages/team if provided by parent
       if (cachedStages) setStages(cachedStages);
@@ -189,6 +194,10 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
         fetch("/api/groups").then((r) => r.json()).then((d) => setTgGroups(d.groups ?? [])).catch(() => {}),
         fetch(`/api/deals/${deal.id}/linked-chats`).then((r) => r.json()).then((d) => setLinkedChats(d.data ?? [])).catch(() => setLinkedChats([])),
         fetch(`/api/deals/${deal.id}/email-threads`).then((r) => r.json()).then((d) => setLinkedEmails(d.data ?? [])).catch(() => setLinkedEmails([])),
+        // Fetch company data via contact's company_id
+        deal.contact?.company_id
+          ? fetch(`/api/companies/${deal.contact.company_id}`).then((r) => r.ok ? r.json() : null).then((d) => setCompany(d?.company ?? null)).catch(() => setCompany(null))
+          : Promise.resolve(),
       ]).finally(() => setLoadingContent(false));
     }
   }, [deal, open, cachedStages, cachedTeamMembers]);
@@ -889,6 +898,11 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
               </button>
             </div>
 
+            {/* Protocol snapshot card */}
+            {company && (company.tvl !== null || company.chain_deployments?.length > 0 || company.token_status || company.funding_stage || company.protocol_type) && (
+              <ProtocolSnapshotCard company={company} />
+            )}
+
             {/* Conversation timeline */}
             <ConversationTimeline
               dealId={deal.id}
@@ -896,12 +910,54 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
               telegramChatLink={deal.telegram_chat_link || tgLink || null}
               linkedChats={linkedChats}
               onUnreadChange={setChatUnread}
+              onStageAdvanced={() => {
+                onUpdated?.();
+                // Refresh activities to show the stage change
+                fetch(`/api/deals/${deal.id}/activity`).then((r) => r.json()).then((d) => setActivities(d.activities ?? [])).catch(() => {});
+              }}
               activities={activities
                 .filter((a): a is Activity & { type: "stage_change" | "note" | "created" } =>
                   a.type === "stage_change" || a.type === "note" || a.type === "created"
                 )
                 .map((a) => ({ id: a.id, type: a.type, title: a.title, body: a.body, created_at: a.created_at }))
               }
+              onCreateTask={async (text) => {
+                const tomorrow = new Date();
+                tomorrow.setDate(tomorrow.getDate() + 1);
+                try {
+                  const res = await fetch("/api/reminders", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      message: text,
+                      deal_id: deal.id,
+                      due_at: tomorrow.toISOString(),
+                    }),
+                  });
+                  if (res.ok) {
+                    toast.success("Task created from message");
+                  }
+                } catch {
+                  toast.error("Failed to create task");
+                }
+              }}
+              onQuoteInNote={async (text, sender) => {
+                const noteContent = `> ${sender}: ${text}`;
+                try {
+                  const res = await fetch(`/api/deals/${deal.id}/notes`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ text: noteContent }),
+                  });
+                  if (res.ok) {
+                    const data = await res.json();
+                    setNotes((prev) => [data.note, ...prev]);
+                    toast.success("Quote added as note");
+                  }
+                } catch {
+                  toast.error("Failed to create note");
+                }
+              }}
             />
 
             {/* Link conversation modal */}
