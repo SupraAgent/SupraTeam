@@ -50,7 +50,7 @@ type ConversationTimelineProps = {
   activities?: ActivityCard[];
 };
 
-const POLL_INTERVAL = 15_000; // 15 seconds
+const POLL_INTERVAL = 60_000; // 60s — Supabase Realtime is the primary update channel
 
 /** Stable color palette for multi-chat labels */
 const CHAT_COLORS = [

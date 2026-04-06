@@ -12,6 +12,7 @@ import { TelegramProvider } from "@/lib/client/telegram-context";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { useShell } from "./shell-context";
+import { useAppWarmup } from "@/lib/cache/use-app-warmup";
 
 function TelegramLoginButton({ size = "sm" }: { size?: "sm" | "md" }) {
   return (
@@ -55,6 +56,9 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     document.documentElement.setAttribute("data-density", viewDensity);
   }, [viewDensity]);
+
+  // Preload frequently-used data on startup (non-blocking)
+  useAppWarmup();
 
   return (
     <>

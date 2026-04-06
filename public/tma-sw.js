@@ -20,9 +20,10 @@ function isStaticAsset(url) {
 const API_CACHE_CONFIG = [
   { pattern: /\/api\/deals/, ttlMs: 5 * 60_000 },
   { pattern: /\/api\/contacts/, ttlMs: 10 * 60_000 },
-  { pattern: /\/api\/pipeline/, ttlMs: 60 * 60_000 },
+  { pattern: /\/api\/pipeline/, ttlMs: 24 * 60 * 60_000 }, // stages rarely change
   { pattern: /\/api\/groups/, ttlMs: 10 * 60_000 },
   { pattern: /\/api\/stats/, ttlMs: 5 * 60_000 },
+  { pattern: /\/api\/team/, ttlMs: 24 * 60 * 60_000 },     // team roster rarely changes
 ];
 
 function getApiCacheConfig(pathname) {

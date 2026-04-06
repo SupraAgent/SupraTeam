@@ -17,10 +17,10 @@ const MAX_CACHE_ENTRIES = 200;
 
 // Cache TTLs (ms) — stale cache is better than blank screen on flaky connections
 const CACHE_TTLS = {
-  "/api/email/threads": 60_000,      // 1 min for thread lists
-  "/api/email/groups": 300_000,      // 5 min for groups
-  "/api/email/labels": 600_000,      // 10 min for labels
-  "/api/email/connections": 600_000, // 10 min for connections
+  "/api/email/threads": 60_000,          // 1 min for thread lists
+  "/api/email/groups": 300_000,          // 5 min for groups
+  "/api/email/labels": 24 * 60 * 60_000, // 24h — labels rarely change
+  "/api/email/connections": 600_000,     // 10 min for connections
 };
 
 function getCacheTTL(url) {
