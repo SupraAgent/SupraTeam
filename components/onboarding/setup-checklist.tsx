@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Check, ArrowRight, Bot, Users, Kanban, Shield, Mail, X, Sparkles, Rocket, Link2 } from "lucide-react";
+import { Check, ArrowRight, Bot, Users, Kanban, Shield, Mail, X, Sparkles, Rocket, Link2, Smartphone } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type ChecklistItem = {
@@ -106,6 +106,14 @@ export function SetupChecklist({ hasBotToken, hasGroups, hasDeals, hasContacts, 
       done: hasDeals,
     },
     {
+      key: "tma",
+      label: "Try the Mobile Mini App",
+      description: "Open SupraTeam inside Telegram for on-the-go deal tracking.",
+      href: "/tma",
+      icon: Smartphone,
+      done: false, // always shown as a suggestion
+    },
+    {
       key: "link_conversation",
       label: "Link a Conversation to a Deal",
       description: "Connect a Telegram conversation to track messages in your pipeline.",
@@ -189,6 +197,13 @@ export function SetupChecklist({ hasBotToken, hasGroups, hasDeals, hasContacts, 
                 <div>
                   <p className="text-xs font-medium text-foreground">Telegram Bot Automation</p>
                   <p className="text-xs text-muted-foreground">Stage changes auto-notify linked groups. Daily digests, broadcasts, and more.</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3 rounded-xl bg-primary/[0.08] border border-primary/20 p-3">
+                <Smartphone className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-xs font-medium text-foreground">Mobile CRM in Telegram</p>
+                  <p className="text-xs text-muted-foreground">Open the Mini App inside Telegram to check deals, tasks, and conversations on the go.</p>
                 </div>
               </div>
             </div>

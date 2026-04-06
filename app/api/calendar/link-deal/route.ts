@@ -141,3 +141,29 @@ export async function GET(request: Request) {
 
   return NextResponse.json({ events: (links ?? []).map((l: { event: unknown }) => l.event) });
 }
+
+export async function DELETE(request: Request) {
+  const auth = await requireAuth();
+  if ("error" in auth) return auth.error;
+  const { supabase } = auth;
+
+  const { searchParams } = new URL(request.url);
+  const dealId = searchParams.get("deal_id");
+  const calendarEventId = searchParams.get("calendar_event_id");
+
+  if (!dealId || !calendarEventId) {
+    return NextResponse.json({ error: "deal_id and calendar_event_id required" }, { status: 400 });
+  }
+
+  const { error } = await supabase
+    .from("crm_deal_calendar_links")
+    .delete()
+    .eq("deal_id", dealId)
+    .eq("calendar_event_id", calendarEventId);
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true });
+}

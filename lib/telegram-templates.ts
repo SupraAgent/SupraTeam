@@ -202,7 +202,7 @@ export const MERGE_VARIABLES = {
   group: [
     { key: "group_name", label: "Group Name", hint: "Telegram group name" },
     { key: "group_member_count", label: "Member Count", hint: "Group member count" },
-    { key: "group_slugs", label: "Group Slugs", hint: "Comma-separated slug tags" },
+    { key: "group_slugs", label: "Group Tags", hint: "Comma-separated tags" },
   ],
   system: [
     { key: "today", label: "Today's Date", hint: "YYYY-MM-DD" },

@@ -6,9 +6,9 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { useShell } from "./shell-context";
-import { TOP_ITEMS, NAV_SECTIONS, SETTINGS_ITEM, ADMIN_ITEM, filterByRole, type NavItem } from "./nav-config";
+import { TOP_ITEMS, NAV_SECTIONS, SETTINGS_ITEM, ADMIN_ITEM, filterNav, type NavItem } from "./nav-config";
 import { useCollapsedSections } from "./use-collapsed-sections";
-import { ChevronsLeft, ChevronsRight, LogOut, ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronsLeft, ChevronsRight, LogOut, ChevronDown, ChevronRight, Eye, EyeOff } from "lucide-react";
 
 const TelegramIcon = ({ className }: { className?: string }) => (
   <svg className={className} viewBox="0 0 24 24" fill="currentColor">
@@ -52,7 +52,7 @@ function isActive(href: string, pathname: string) {
 export function DesktopSidebar() {
   const pathname = usePathname();
   const { user, signOut } = useAuth();
-  const { sidebarCollapsed, setSidebarCollapsed, crmRole } = useShell();
+  const { sidebarCollapsed, setSidebarCollapsed, crmRole, onboardingState, showAllNav, setShowAllNav } = useShell();
   const { collapsed: collapsedSections, toggle: toggleSection } = useCollapsedSections();
 
   return (
@@ -89,7 +89,7 @@ export function DesktopSidebar() {
 
         {/* Collapsible sections */}
         {NAV_SECTIONS.map((section) => {
-          const visibleItems = filterByRole(section.items, crmRole);
+          const visibleItems = filterNav(section.items, crmRole, onboardingState, showAllNav);
           if (visibleItems.length === 0) return null;
           const isCollapsed = collapsedSections.has(section.key);
           return (
@@ -111,6 +111,30 @@ export function DesktopSidebar() {
             </div>
           );
         })}
+
+        {/* Show all nav toggle — only visible when some items are hidden by onboarding */}
+        {!showAllNav && onboardingState && !sidebarCollapsed && (
+          <div className="pt-2 px-2.5">
+            <button
+              onClick={() => setShowAllNav(true)}
+              className="flex items-center gap-1.5 text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+            >
+              <Eye className="h-3 w-3" />
+              Show all features
+            </button>
+          </div>
+        )}
+        {showAllNav && !sidebarCollapsed && (
+          <div className="pt-2 px-2.5">
+            <button
+              onClick={() => setShowAllNav(false)}
+              className="flex items-center gap-1.5 text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+            >
+              <EyeOff className="h-3 w-3" />
+              Simplify sidebar
+            </button>
+          </div>
+        )}
 
         {/* Settings */}
         <div className="pt-3">

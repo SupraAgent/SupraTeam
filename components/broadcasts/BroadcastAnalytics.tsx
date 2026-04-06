@@ -58,7 +58,7 @@ export function BroadcastAnalytics({ analytics, loading }: BroadcastAnalyticsPro
       {/* Slug performance */}
       {analytics.slugStats.length > 0 && (
         <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4 space-y-3">
-          <h3 className="text-sm font-medium text-foreground">Performance by Slug</h3>
+          <h3 className="text-sm font-medium text-foreground">Performance by Tag</h3>
           <div className="space-y-2">
             {analytics.slugStats.map((s) => (
               <div key={s.slug} className="flex items-center gap-3">

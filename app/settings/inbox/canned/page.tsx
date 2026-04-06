@@ -3,7 +3,7 @@
 import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Pencil, Trash2, Save, X, Zap } from "lucide-react";
+import { Plus, Pencil, Trash2, Save, X, Zap, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 interface CannedResponse {
@@ -15,6 +15,45 @@ interface CannedResponse {
   usage_count: number;
   created_at: string;
 }
+
+const BD_STARTER_TEMPLATES = [
+  {
+    title: "Intro — Partnership Interest",
+    body: "Hey {{contact_name}}! I'm with Supra — we're exploring potential partnerships and I think there could be a great fit between our teams. Would love to set up a quick call to discuss. When works for you?",
+    shortcut: "intro",
+    category: "BD",
+  },
+  {
+    title: "Follow-Up — No Reply",
+    body: "Hey {{contact_name}}, just bumping this up! Wanted to check if you had a chance to think about the partnership we discussed. Happy to answer any questions or jump on a quick call this week.",
+    shortcut: "bump",
+    category: "BD",
+  },
+  {
+    title: "Meeting Confirm",
+    body: "Hey {{contact_name}}, confirming our call for the scheduled time. Looking forward to diving into how we can work together on {{deal_name}}. Talk soon!",
+    shortcut: "confirm",
+    category: "BD",
+  },
+  {
+    title: "Post-Call Follow-Up",
+    body: "Great chatting with you {{contact_name}}! To recap what we discussed:\n\n1. [key point 1]\n2. [key point 2]\n3. Next steps: [action items]\n\nLet me know if I missed anything. Excited to move {{deal_name}} forward!",
+    shortcut: "postcall",
+    category: "BD",
+  },
+  {
+    title: "Integration Grant Question",
+    body: "Hey {{contact_name}}, thanks for your interest in building on Supra! Could you share more about your integration plans? Specifically:\n\n- What chain(s) are you currently deployed on?\n- Expected integration timeline?\n- Any technical requirements?\n\nThis will help me put together the right grant proposal for your team.",
+    shortcut: "grant",
+    category: "BD",
+  },
+  {
+    title: "Deal Update for Manager",
+    body: "Update on {{deal_name}} ({{stage}}):\n\n- Status: [on track / needs attention / blocked]\n- Last touchpoint: [date + what happened]\n- Next step: [planned action]\n- ETA to next stage: [timeline]",
+    shortcut: "update",
+    category: "Internal",
+  },
+];
 
 export default function CannedResponsesPage() {
   const [responses, setResponses] = React.useState<CannedResponse[]>([]);
@@ -186,9 +225,40 @@ export default function CannedResponsesPage() {
 
       {/* Response list */}
       {responses.length === 0 && !creating ? (
-        <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-8 text-center">
+        <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-8 text-center space-y-4">
           <Zap className="mx-auto h-8 w-8 text-muted-foreground/30" />
-          <p className="mt-2 text-sm text-muted-foreground">No canned responses yet. Create one to get started.</p>
+          <p className="text-sm text-muted-foreground">No canned responses yet.</p>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-2">
+            <Button size="sm" onClick={startCreate}>
+              <Plus className="mr-1 h-3.5 w-3.5" />
+              Create from Scratch
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={async () => {
+                try {
+                  for (const tpl of BD_STARTER_TEMPLATES) {
+                    await fetch("/api/inbox/canned", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify(tpl),
+                    });
+                  }
+                  toast.success(`Added ${BD_STARTER_TEMPLATES.length} BD starter templates`);
+                  fetchResponses();
+                } catch {
+                  toast.error("Failed to load templates");
+                }
+              }}
+            >
+              <Sparkles className="mr-1 h-3.5 w-3.5" />
+              Load BD Starter Templates
+            </Button>
+          </div>
+          <p className="text-[10px] text-muted-foreground/50">
+            BD templates include intro messages, follow-ups, meeting confirms, and more — with merge variables already set up.
+          </p>
         </div>
       ) : (
         <div className="rounded-xl border border-white/10 bg-white/[0.02] divide-y divide-white/5">

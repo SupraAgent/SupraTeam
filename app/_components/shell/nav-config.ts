@@ -21,12 +21,16 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+export type OnboardingStep = "hasBotToken" | "hasGroups" | "hasDeals" | "hasContacts" | "hasEmail" | "hasLinkedChats";
+
 export interface NavItem {
   href: string;
   label: string;
   icon: LucideIcon;
   /** If set, only users with one of these crm_role values see this item */
   requiredRole?: string[];
+  /** If set, item is hidden until ALL listed onboarding steps are complete (unless user opts out) */
+  onboardingRequired?: OnboardingStep[];
 }
 
 export interface NavSection {
@@ -48,11 +52,11 @@ export const NAV_SECTIONS: NavSection[] = [
     label: "Team & Groups",
     items: [
       { href: "/inbox", label: "Team Inbox", icon: Inbox },
-      { href: "/groups", label: "TG Groups", icon: MessageCircle },
-      { href: "/telegram/admin", label: "My Groups", icon: Crown },
-      { href: "/telegram/folders", label: "Folder Sync", icon: FolderSync },
+      { href: "/groups", label: "TG Groups", icon: MessageCircle, onboardingRequired: ["hasBotToken", "hasGroups"] },
+      { href: "/telegram/admin", label: "My Groups", icon: Crown, onboardingRequired: ["hasBotToken"] },
+      { href: "/telegram/folders", label: "Folder Sync", icon: FolderSync, onboardingRequired: ["hasBotToken"] },
       { href: "/contacts", label: "Contacts", icon: Users },
-      { href: "/companies", label: "Companies", icon: Building2 },
+      { href: "/companies", label: "Companies", icon: Building2, onboardingRequired: ["hasContacts"] },
     ],
   },
   {
@@ -67,8 +71,8 @@ export const NAV_SECTIONS: NavSection[] = [
     key: "automation",
     label: "Automation",
     items: [
-      { href: "/automations", label: "Automations", icon: Workflow },
-      { href: "/automations/runs", label: "Runs", icon: Clock },
+      { href: "/automations", label: "Automations", icon: Workflow, onboardingRequired: ["hasDeals"] },
+      { href: "/automations/runs", label: "Runs", icon: Clock, onboardingRequired: ["hasDeals"] },
     ],
   },
   {
@@ -94,4 +98,22 @@ export const ALL_NAV_ITEMS: NavItem[] = [
 
 export function filterByRole(items: NavItem[], role: string | null): NavItem[] {
   return items.filter((item) => !item.requiredRole || (role && item.requiredRole.includes(role)));
+}
+
+export type OnboardingState = Record<OnboardingStep, boolean>;
+
+/** Filters by role AND onboarding state. When showAll is true, onboarding gating is skipped. */
+export function filterNav(
+  items: NavItem[],
+  role: string | null,
+  onboarding: OnboardingState | null,
+  showAll: boolean,
+): NavItem[] {
+  return items.filter((item) => {
+    if (item.requiredRole && (!role || !item.requiredRole.includes(role))) return false;
+    if (!showAll && item.onboardingRequired && onboarding) {
+      if (!item.onboardingRequired.every((step) => onboarding[step])) return false;
+    }
+    return true;
+  });
 }

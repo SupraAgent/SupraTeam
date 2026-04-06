@@ -4,7 +4,8 @@ import * as React from "react";
 import { Draggable } from "@hello-pangea/dnd";
 import type { Deal, PipelineStage } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { MessageCircle, Snowflake, MoreHorizontal, ArrowRight, Trophy, XCircle, Check, X, TrendingUp, TrendingDown, Minus, Clock } from "lucide-react";
+import { MessageCircle, Snowflake, MoreHorizontal, ArrowRight, Trophy, XCircle, Check, X, TrendingUp, TrendingDown, Minus, Clock, UserPlus } from "lucide-react";
+import { useAuth } from "@/lib/auth";
 
 type DealCardProps = {
   deal: Deal;
@@ -41,8 +42,17 @@ export function DealCard({
   highlight, tgHighlight, tgHighlightDetails, unreadCount,
   slam, onHoverPreview, onHoverEnd,
 }: DealCardProps) {
+  const { user } = useAuth();
   const coldWeeks = getColdWeeks(deal.updated_at);
   const iceClass = coldWeeks >= 1 ? `ice-stage-${coldWeeks}` : null;
+
+  // "New Assignment" badge: show when assigned to current user within the last 24 hours
+  const isNewAssignment = React.useMemo(() => {
+    if (!deal.assigned_to || !deal.assigned_at || !user) return false;
+    if (deal.assigned_to !== user.id) return false;
+    const assignedMs = Date.now() - new Date(deal.assigned_at).getTime();
+    return assignedMs < 24 * 60 * 60 * 1000;
+  }, [deal.assigned_to, deal.assigned_at, user]);
   const [showMenu, setShowMenu] = React.useState(false);
   const [editingField, setEditingField] = React.useState<"value" | "probability" | null>(null);
   const [editValue, setEditValue] = React.useState("");
@@ -345,12 +355,19 @@ export function DealCard({
               />
             )}
 
+            {isNewAssignment && (
+              <span className="ml-auto inline-flex items-center gap-0.5 rounded-full bg-primary/20 border border-primary/30 px-1.5 py-0.5 text-[8px] font-bold uppercase text-primary animate-pulse">
+                <UserPlus className="h-2.5 w-2.5" />
+                New
+              </span>
+            )}
+
             {deal.assigned_profile && (
               <img
                 src={deal.assigned_profile.avatar_url}
                 alt={deal.assigned_profile.display_name}
                 title={deal.assigned_profile.display_name}
-                className="ml-auto h-5 w-5 rounded-full"
+                className={cn("h-5 w-5 rounded-full", !isNewAssignment && "ml-auto")}
               />
             )}
           </div>

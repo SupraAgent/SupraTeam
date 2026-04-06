@@ -118,7 +118,7 @@ export function BroadcastComposerPanel() {
               onChange={(e) => setSelectedSlug(e.target.value)}
               className="flex-1 rounded-lg px-3 py-1.5 text-xs bg-white/5 border border-white/10 text-foreground focus:outline-none focus:border-primary/50 appearance-none"
             >
-              <option value="">Select slug...</option>
+              <option value="">Select tag...</option>
               {slugs.map((slug) => (
                 <option key={slug} value={slug}>{slug}</option>
               ))}

@@ -35,7 +35,7 @@ interface TeamMember {
 }
 
 const MATCH_TYPES = [
-  { value: "group_slug", label: "Group Slug", desc: "Match conversations by group tag" },
+  { value: "group_slug", label: "Group Tag", desc: "Match conversations by group tag" },
   { value: "keyword", label: "Keyword", desc: "Match messages containing a keyword" },
   { value: "contact_tag", label: "Contact Tag", desc: "Match by sender's contact tag" },
   { value: "round_robin", label: "Round Robin", desc: "Distribute evenly across team" },
@@ -236,7 +236,7 @@ export function AssignmentRulesPanel() {
             <Input
               value={formValue}
               onChange={(e) => setFormValue(e.target.value)}
-              placeholder={formType === "group_slug" ? "Slug name" : formType === "keyword" ? "Keyword" : "Tag"}
+              placeholder={formType === "group_slug" ? "Tag name" : formType === "keyword" ? "Keyword" : "Tag"}
               className="h-7 text-xs"
             />
           )}

@@ -32,7 +32,7 @@ function TelegramLoginButton({ size = "sm" }: { size?: "sm" | "md" }) {
 
 function AppShellInner({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  const { sidebarCollapsed, viewDensity, setCrmRole, setCrmRoleLoaded } = useShell();
+  const { sidebarCollapsed, viewDensity, setCrmRole, setCrmRoleLoaded, setOnboardingState } = useShell();
   const pathname = usePathname();
 
   // TMA and public routes render without the CRM shell (sidebar, topbar, etc.)
@@ -50,6 +50,18 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
       .catch(() => {})
       .finally(() => setCrmRoleLoaded(true));
   // eslint-disable-next-line react-hooks/exhaustive-deps -- setCrmRole/setCrmRoleLoaded are stable state setters
+  }, [user]);
+
+  // Fetch onboarding state for progressive sidebar disclosure
+  React.useEffect(() => {
+    if (!user) return;
+    fetch("/api/stats?range=7d")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((res) => {
+        if (res?.onboarding) setOnboardingState(res.onboarding);
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- setOnboardingState is a stable state setter
   }, [user]);
 
   // Apply density data attribute to html element
