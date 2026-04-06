@@ -57,9 +57,11 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-// Fetch — network-first with cache fallback for GET email API requests
+// Fetch — network-first with cache fallback for GET email API requests.
+// On desktop (Tauri), skip API caching — SQLite cache handles it.
 self.addEventListener("fetch", (event) => {
   if (!isCacheable(event.request)) return;
+  if (self.__TAURI_INTERNALS__) return; // Desktop — let SQLite handle API caching
 
   event.respondWith(
     (async () => {

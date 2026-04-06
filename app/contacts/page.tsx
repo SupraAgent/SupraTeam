@@ -17,6 +17,7 @@ import { toast } from "sonner";
 import { runEnrichmentPipeline } from "@/lib/enrichment/pipeline";
 import { isDesktop } from "@/lib/platform";
 import { getCacheStore } from "@/lib/cache";
+import { useCrmRealtime } from "@/lib/realtime/use-crm-realtime";
 
 type SortKey = "name" | "company" | "created_at" | "deals" | "quality_score";
 type SortDir = "asc" | "desc";
@@ -172,6 +173,46 @@ export default function ContactsPage() {
       .then((data) => setDupeGroups(data.groups ?? []))
       .catch(() => {});
   }, [fetchData]);
+
+  // ── Realtime: update contacts/deals in-place when changes arrive via Supabase ──
+  useCrmRealtime({
+    onContactChange: React.useCallback(({ eventType, new: newContact, old: oldContact }: { eventType: string; new: Partial<Contact>; old: { id: string } }) => {
+      if (eventType === "DELETE") {
+        setContacts((prev) => prev.filter((c) => c.id !== oldContact.id));
+      } else {
+        setContacts((prev) => {
+          const idx = prev.findIndex((c) => c.id === (newContact.id ?? oldContact.id));
+          if (idx >= 0) {
+            const updated = [...prev];
+            updated[idx] = { ...updated[idx], ...newContact };
+            return updated;
+          }
+          if (eventType === "INSERT" && newContact.id) {
+            return [...prev, newContact as Contact];
+          }
+          return prev;
+        });
+      }
+    }, []),
+    onDealChange: React.useCallback(({ eventType, new: newDeal, old: oldDeal }: { eventType: string; new: Partial<Deal>; old: { id: string } }) => {
+      if (eventType === "DELETE") {
+        setDeals((prev) => prev.filter((d) => d.id !== oldDeal.id));
+      } else {
+        setDeals((prev) => {
+          const idx = prev.findIndex((d) => d.id === (newDeal.id ?? oldDeal.id));
+          if (idx >= 0) {
+            const updated = [...prev];
+            updated[idx] = { ...updated[idx], ...newDeal };
+            return updated;
+          }
+          if (eventType === "INSERT" && newDeal.id) {
+            return [...prev, newDeal as Deal];
+          }
+          return prev;
+        });
+      }
+    }, []),
+  });
 
   // Deal counts per contact
   const dealCountMap = React.useMemo(() => {

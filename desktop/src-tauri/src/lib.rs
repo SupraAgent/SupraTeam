@@ -39,6 +39,9 @@ pub fn run() {
             cache::cache_store_email_threads,
             cache::cache_get_email_threads,
             cache::cache_clear_all,
+            cache::cache_search_messages,
+            cache::cache_search_contacts,
+            cache::cache_search_deals,
             // Notifications
             notifications::send_notification,
             notifications::check_notification_permission,

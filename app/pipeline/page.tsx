@@ -22,6 +22,7 @@ import type { Deal, PipelineStage, Contact, BoardType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { isDesktop } from "@/lib/platform";
 import { getCacheStore } from "@/lib/cache";
+import { useCrmRealtime } from "@/lib/realtime/use-crm-realtime";
 
 export type PipelineFilters = {
   minValue: number | null;
@@ -354,6 +355,47 @@ export default function PipelinePage() {
   React.useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // ── Realtime: update deals/contacts in-place when changes arrive via Supabase ──
+  useCrmRealtime({
+    onDealChange: React.useCallback(({ eventType, new: newDeal, old: oldDeal }: { eventType: string; new: Partial<Deal>; old: { id: string } }) => {
+      if (eventType === "DELETE") {
+        setDeals((prev) => prev.filter((d) => d.id !== oldDeal.id));
+      } else {
+        setDeals((prev) => {
+          const idx = prev.findIndex((d) => d.id === (newDeal.id ?? oldDeal.id));
+          if (idx >= 0) {
+            const updated = [...prev];
+            updated[idx] = { ...updated[idx], ...newDeal };
+            return updated;
+          }
+          // INSERT — append (it will be placed into the correct stage column by the Kanban)
+          if (eventType === "INSERT" && newDeal.id) {
+            return [...prev, newDeal as Deal];
+          }
+          return prev;
+        });
+      }
+    }, []),
+    onContactChange: React.useCallback(({ eventType, new: newContact, old: oldContact }: { eventType: string; new: Partial<Contact>; old: { id: string } }) => {
+      if (eventType === "DELETE") {
+        setContacts((prev) => prev.filter((c) => c.id !== oldContact.id));
+      } else {
+        setContacts((prev) => {
+          const idx = prev.findIndex((c) => c.id === (newContact.id ?? oldContact.id));
+          if (idx >= 0) {
+            const updated = [...prev];
+            updated[idx] = { ...updated[idx], ...newContact };
+            return updated;
+          }
+          if (eventType === "INSERT" && newContact.id) {
+            return [...prev, newContact as Contact];
+          }
+          return prev;
+        });
+      }
+    }, []),
+  });
 
   // Track active undo toasts and in-flight move requests per deal
   const undoToastIds = React.useRef<Map<string, string | number>>(new Map());

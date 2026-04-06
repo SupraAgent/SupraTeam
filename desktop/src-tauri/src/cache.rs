@@ -94,6 +94,28 @@ pub fn cache_init(state: State<DbState>, app: tauri::AppHandle) -> Result<(), St
             PRIMARY KEY (folder, id)
         );
         CREATE INDEX IF NOT EXISTS idx_email_folder_date ON email_threads(folder, date DESC);
+
+        -- FTS5 virtual tables for full-text search
+        CREATE VIRTUAL TABLE IF NOT EXISTS fts_messages USING fts5(
+            id UNINDEXED, chat_id UNINDEXED, text, content=messages, content_rowid=rowid
+        );
+
+        CREATE VIRTUAL TABLE IF NOT EXISTS fts_contacts USING fts5(
+            id UNINDEXED, name, company, email, content=contacts
+        );
+
+        CREATE VIRTUAL TABLE IF NOT EXISTS fts_deals USING fts5(
+            id UNINDEXED, deal_name, contact_name, company, content=deals
+        );
+
+        -- Triggers to keep FTS in sync with base tables
+        CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
+            INSERT INTO fts_messages(id, chat_id, text) VALUES (new.id, new.chat_id, new.text);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
+            INSERT INTO fts_messages(fts_messages, id, chat_id, text) VALUES('delete', old.id, old.chat_id, old.text);
+        END;
         ",
     )
     .map_err(|e| e.to_string())?;
@@ -473,4 +495,115 @@ pub fn cache_clear_all(state: State<DbState>) -> Result<(), String> {
     )
     .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+// ── Full-Text Search ──────────────────────────────────────
+
+#[derive(Serialize)]
+pub struct SearchResult {
+    id: String,
+    snippet: String,
+    data: String,
+}
+
+/// Search messages using FTS5.
+#[command]
+pub fn cache_search_messages(
+    state: State<DbState>,
+    query: String,
+    limit: i64,
+) -> Result<Vec<SearchResult>, String> {
+    let guard = get_conn(&state)?;
+    let conn = conn_ref(&guard)?;
+    let fts_query = format!("\"{}\"*", query.replace('"', ""));
+    let mut stmt = conn
+        .prepare(
+            "SELECT m.id, snippet(fts_messages, 2, '<b>', '</b>', '...', 32), m.data
+             FROM fts_messages f
+             JOIN messages m ON m.id = f.id AND m.chat_id = f.chat_id
+             WHERE fts_messages MATCH ?1
+             ORDER BY rank
+             LIMIT ?2",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map(params![fts_query, limit], |row| {
+            Ok(SearchResult {
+                id: row.get(0)?,
+                snippet: row.get(1)?,
+                data: row.get(2)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    Ok(rows)
+}
+
+/// Search contacts using FTS5.
+#[command]
+pub fn cache_search_contacts(
+    state: State<DbState>,
+    query: String,
+    limit: i64,
+) -> Result<Vec<SearchResult>, String> {
+    let guard = get_conn(&state)?;
+    let conn = conn_ref(&guard)?;
+    let fts_query = format!("\"{}\"*", query.replace('"', ""));
+    let mut stmt = conn
+        .prepare(
+            "SELECT c.id, snippet(fts_contacts, 1, '<b>', '</b>', '...', 32), c.data
+             FROM fts_contacts f
+             JOIN contacts c ON c.id = f.id
+             WHERE fts_contacts MATCH ?1
+             ORDER BY rank
+             LIMIT ?2",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map(params![fts_query, limit], |row| {
+            Ok(SearchResult {
+                id: row.get(0)?,
+                snippet: row.get(1)?,
+                data: row.get(2)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    Ok(rows)
+}
+
+/// Search deals using FTS5.
+#[command]
+pub fn cache_search_deals(
+    state: State<DbState>,
+    query: String,
+    limit: i64,
+) -> Result<Vec<SearchResult>, String> {
+    let guard = get_conn(&state)?;
+    let conn = conn_ref(&guard)?;
+    let fts_query = format!("\"{}\"*", query.replace('"', ""));
+    let mut stmt = conn
+        .prepare(
+            "SELECT d.id, snippet(fts_deals, 1, '<b>', '</b>', '...', 32), d.data
+             FROM fts_deals f
+             JOIN deals d ON d.id = f.id
+             WHERE fts_deals MATCH ?1
+             ORDER BY rank
+             LIMIT ?2",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map(params![fts_query, limit], |row| {
+            Ok(SearchResult {
+                id: row.get(0)?,
+                snippet: row.get(1)?,
+                data: row.get(2)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    Ok(rows)
 }

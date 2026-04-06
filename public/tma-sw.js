@@ -81,9 +81,11 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // API routes: network-first with cache fallback
+  // API routes: on desktop (Tauri), skip SW caching — SQLite cache handles it.
+  // On web: network-first with cache fallback.
   const apiConfig = getApiCacheConfig(url.pathname);
   if (apiConfig) {
+    if (self.__TAURI_INTERNALS__) return; // Desktop — let SQLite handle API caching
     event.respondWith(networkFirstWithFallback(event.request, apiConfig.ttlMs));
     return;
   }
