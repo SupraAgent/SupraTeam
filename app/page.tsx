@@ -255,7 +255,7 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* Onboarding — auto-collapses at 4/5, hidden at 5/5 */}
+      {/* Onboarding — auto-collapses when near-complete, hidden when all done */}
       {!allOnboardingDone && (
         <SetupChecklist
           hasBotToken={s.onboarding.hasBotToken}
@@ -263,8 +263,23 @@ export default function HomePage() {
           hasDeals={s.onboarding.hasDeals}
           hasContacts={s.onboarding.hasContacts}
           hasEmail={s.onboarding.hasEmail}
+          hasLinkedChats={s.onboarding.hasLinkedChats}
+          onLinkConversationClick={() => setShowLinkWizard(true)}
         />
       )}
+
+      {/* Link Conversation Wizard */}
+      <LinkConversationWizard
+        open={showLinkWizard}
+        onClose={() => setShowLinkWizard(false)}
+        onComplete={() => {
+          // Refresh stats to update onboarding state
+          fetch("/api/stats")
+            .then((r) => (r.ok ? r.json() : null))
+            .then((data) => { if (data) setStats(data); })
+            .catch(() => { /* silent */ });
+        }}
+      />
 
       {/* ========== DO THESE NOW — Expandable Inline Action Cards ========== */}
       {(() => {

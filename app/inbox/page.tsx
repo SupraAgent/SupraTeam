@@ -1334,6 +1334,22 @@ export default function InboxPage() {
                       style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${virtualRow.start}px)` }}
                       className="border-b border-white/5"
                     >
+                      <div className="flex items-stretch">
+                        <label
+                          className="flex items-center justify-center w-7 shrink-0 cursor-pointer hover:bg-white/5 transition-colors"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedChats.has(conv.chat_id)}
+                            onChange={() => {/* handled by onClick */}}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCheckboxToggle(conv.chat_id, convIndex, e.shiftKey);
+                            }}
+                            className="h-3 w-3 rounded border-white/20 bg-transparent accent-primary cursor-pointer"
+                          />
+                        </label>
                       <button
                         draggable
                         onDragStart={(e) => {
@@ -1349,6 +1365,7 @@ export default function InboxPage() {
                         className={cn(
                           "w-full text-left px-3 py-2.5 transition-colors cursor-grab active:cursor-grabbing border-l-2 border-l-transparent",
                           isSelected ? "bg-primary/10" :
+                          selectedChats.has(conv.chat_id) ? "bg-primary/[0.06]" :
                           convIndex === highlightedIndex ? "bg-white/[0.06] ring-1 ring-primary/30" :
                           urgColors && !isSelected ? urgColors.bg :
                           label?.is_vip ? "bg-amber-500/[0.04] hover:bg-amber-500/[0.08]" :
@@ -1512,6 +1529,7 @@ export default function InboxPage() {
                           })()}
                         </div>
                       </button>
+                      </div>
                     </div>
                   );
                 })}
@@ -2360,6 +2378,23 @@ export default function InboxPage() {
       >
         <AssignmentRulesPanel />
       </SlideOver>
+
+      {/* Bulk action bar for multi-select */}
+      {selectedChats.size > 0 && (
+        <BulkActionBar
+          count={selectedChats.size}
+          totalCount={filtered.length}
+          onTag={(tag, color) => bulkTag(tag, color)}
+          onPin={() => bulkPin()}
+          onSnooze={(until) => bulkSnooze(until)}
+          onArchive={() => bulkArchive()}
+          onSelectAll={() => {
+            setSelectedChats(new Set(filtered.map((c) => c.chat_id)));
+          }}
+          onDeselectAll={() => setSelectedChats(new Set())}
+          onClear={() => setSelectedChats(new Set())}
+        />
+      )}
     </div>
   );
 }
