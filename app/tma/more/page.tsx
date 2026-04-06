@@ -10,7 +10,6 @@ import { useTelegramWebApp } from "@/components/tma/use-telegram";
 const ITEMS = [
   { href: "/tma/contacts", label: "Contacts", description: "View and manage CRM contacts", icon: Users },
   { href: "/tma/broadcasts", label: "Broadcasts", description: "Send messages to TG groups", icon: Radio },
-  { href: "/tma/more", label: "Settings", description: "Notification preferences below", icon: Settings },
 ];
 
 interface PushPrefs {

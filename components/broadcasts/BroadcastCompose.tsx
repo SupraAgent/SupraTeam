@@ -73,7 +73,7 @@ export function BroadcastCompose({
   const [inlineButtons, setInlineButtons] = React.useState<Array<{ text: string; url: string }>>([]);
 
   // Formatting
-  const [, setCursorPos] = React.useState(0);
+  // Cursor position (no state needed — tracked via textarea ref)
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
 
   // Draft auto-save
@@ -363,9 +363,6 @@ export function BroadcastCompose({
               ref={textareaRef}
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              onSelect={(e) =>
-                setCursorPos((e.target as HTMLTextAreaElement).selectionStart)
-              }
               placeholder="Type your broadcast message...&#10;&#10;Formatting: <b>bold</b>, <i>italic</i>, <u>underline</u>, <code>code</code>"
               className="min-h-[160px] font-mono text-sm"
             />

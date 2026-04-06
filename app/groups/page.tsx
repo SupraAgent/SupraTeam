@@ -25,8 +25,7 @@ import {
   FolderX,
   Loader2,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { timeAgo } from "@/lib/utils";
+import { cn, timeAgo } from "@/lib/utils";
 import { GroupDetailPanel } from "@/components/groups/group-detail-panel";
 import { toast } from "sonner";
 import { useTelegram } from "@/lib/client/telegram-context";
