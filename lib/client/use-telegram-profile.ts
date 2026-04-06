@@ -24,10 +24,14 @@ export function useTelegramProfile(
       activeDialog.type !== "private"
     )
       return;
+    let cancelled = false;
     service
       .getUserProfile(activeDialog.telegramId, activeDialog.accessHash)
-      .then((profile) => setOnlineStatus(profile.status))
+      .then((profile) => {
+        if (!cancelled) setOnlineStatus(profile.status);
+      })
       .catch(() => {});
+    return () => { cancelled = true; };
   }, [
     activeDialog?.id,
     activeDialog?.telegramId,

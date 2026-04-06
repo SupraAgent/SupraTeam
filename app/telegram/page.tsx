@@ -256,8 +256,6 @@ export default function TelegramPage() {
     lastReadMaxIdRef.current = 0;
   }, [activeDialog?.id]);
 
-  // Folders and online status now in extracted hooks
-
   // Fetch chat members when entering a group/supergroup
   React.useEffect(() => {
     if (!activeDialog || tg.status !== "connected") { setChatMembers([]); return; }
@@ -420,9 +418,6 @@ export default function TelegramPage() {
     setMsgContextMenu(null);
   }
 
-  // handleMediaDownload, handleVoicePlay, handleFileSelect, handleFileSend,
-  // cancelFileUpload are now in useTelegramMedia hook
-
   function selectDialog(dialog: TgDialog) {
     // Save current draft before switching
     if (activeDialog && replyText.trim()) {
@@ -441,8 +436,6 @@ export default function TelegramPage() {
     setSearchResults([]);
   }
 
-  // openProfile, profile cleanup, and blob cleanup are now in extracted hooks
-
   function togglePin(dialogId: string) {
     setPinnedChats((prev) => {
       const next = new Set(prev);
@@ -460,8 +453,6 @@ export default function TelegramPage() {
     });
     setContextMenu(null);
   }
-
-  // createFolder and addDialogToFolder are now in useTelegramFolders hook
 
   // @mention detection
   function handleReplyTextChange(value: string) {
@@ -1123,8 +1114,9 @@ export default function TelegramPage() {
                     </div>
                     {/* Deal link badge */}
                     {(() => {
-                      const linked = linkedChats.get(dialog.telegramId);
-                      if (!linked) return null;
+                      const deals = linkedChats.get(String(dialog.telegramId));
+                      if (!deals?.length) return null;
+                      const linked = deals[0];
                       return (
                         <div className="flex items-center gap-1.5 mt-0.5">
                           {linked.stage_color && (
@@ -1133,6 +1125,9 @@ export default function TelegramPage() {
                           <span className="text-[10px] text-primary/80 truncate">{linked.deal_name}</span>
                           {linked.stage_name && (
                             <span className="text-[10px] text-muted-foreground/60">{linked.stage_name}</span>
+                          )}
+                          {deals.length > 1 && (
+                            <span className="text-[10px] text-muted-foreground/50">+{deals.length - 1}</span>
                           )}
                         </div>
                       );

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Users, Radio, Settings, ChevronRight, Bell } from "lucide-react";
+import { Users, Radio, ChevronRight, Bell } from "lucide-react";
 import { BottomTabBar } from "@/components/tma/bottom-tab-bar";
 import { hapticImpact } from "@/components/tma/haptic";
 import { useTelegramWebApp } from "@/components/tma/use-telegram";

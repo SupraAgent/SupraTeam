@@ -19,6 +19,7 @@ export function useTelegramMedia(
 
   // Voice playback
   const [playingVoice, setPlayingVoice] = React.useState<number | null>(null);
+  const playingVoiceRef = React.useRef<number | null>(null);
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
   const voiceBlobRef = React.useRef<string | null>(null);
 
@@ -29,13 +30,20 @@ export function useTelegramMedia(
   const [pendingFilePreview, setPendingFilePreview] = React.useState<
     string | null
   >(null);
+  const pendingFilePreviewRef = React.useRef<string | null>(null);
   const [fileCaption, setFileCaption] = React.useState("");
+
+  // Keep ref in sync for stable cleanup callback
+  React.useEffect(() => {
+    pendingFilePreviewRef.current = pendingFilePreview;
+  }, [pendingFilePreview]);
 
   // Clean up blob URLs on unmount
   React.useEffect(() => {
     return () => {
       if (mediaBlobUrlRef.current) URL.revokeObjectURL(mediaBlobUrlRef.current);
       if (voiceBlobRef.current) URL.revokeObjectURL(voiceBlobRef.current);
+      if (pendingFilePreviewRef.current) URL.revokeObjectURL(pendingFilePreviewRef.current);
       if (audioRef.current) audioRef.current.pause();
     };
   }, []);
@@ -80,10 +88,15 @@ export function useTelegramMedia(
     [activeDialog, peerType, service]
   );
 
+  // Keep ref in sync so handleVoicePlay doesn't need playingVoice in deps
+  React.useEffect(() => {
+    playingVoiceRef.current = playingVoice;
+  }, [playingVoice]);
+
   const handleVoicePlay = React.useCallback(
     async (msg: TgMessage) => {
       if (!activeDialog || !peerType) return;
-      if (playingVoice === msg.id && audioRef.current) {
+      if (playingVoiceRef.current === msg.id && audioRef.current) {
         audioRef.current.pause();
         setPlayingVoice(null);
         return;
@@ -127,7 +140,7 @@ export function useTelegramMedia(
         setMediaLoading(null);
       }
     },
-    [activeDialog, peerType, service, playingVoice]
+    [activeDialog, peerType, service]
   );
 
   const handleFileSelect = React.useCallback(
@@ -196,13 +209,32 @@ export function useTelegramMedia(
     setMediaPreview(null);
   }, [mediaPreview]);
 
-  // Clean up media blob when switching dialogs
+  // Clean up all media state when switching dialogs
   const cleanupOnDialogSwitch = React.useCallback(() => {
+    // Media preview
     if (mediaBlobUrlRef.current) {
       URL.revokeObjectURL(mediaBlobUrlRef.current);
       mediaBlobUrlRef.current = null;
     }
     setMediaPreview(null);
+    // Pending file upload
+    if (pendingFilePreviewRef.current) {
+      URL.revokeObjectURL(pendingFilePreviewRef.current);
+      pendingFilePreviewRef.current = null;
+    }
+    setPendingFile(null);
+    setPendingFilePreview(null);
+    setFileCaption("");
+    // Voice playback
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    if (voiceBlobRef.current) {
+      URL.revokeObjectURL(voiceBlobRef.current);
+      voiceBlobRef.current = null;
+    }
+    setPlayingVoice(null);
   }, []);
 
   return {

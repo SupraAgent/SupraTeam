@@ -17,6 +17,8 @@ export function useTelegramFolders() {
   const [showNewFolder, setShowNewFolder] = React.useState(false);
   const [newFolderName, setNewFolderName] = React.useState("");
 
+  const [folderError, setFolderError] = React.useState(false);
+
   // Fetch folders on mount
   React.useEffect(() => {
     fetch("/api/telegram/groups")
@@ -27,17 +29,36 @@ export function useTelegramFolders() {
       .then((d) => {
         if (d.data) setFolders(d.data);
       })
-      .catch(() => {});
+      .catch(() => {
+        setFolderError(true);
+      });
+  }, []);
+
+  const retryLoadFolders = React.useCallback(async () => {
+    setFolderError(false);
+    try {
+      const r = await fetch("/api/telegram/groups");
+      if (!r.ok) throw new Error("Failed");
+      const d = await r.json();
+      if (d.data) setFolders(d.data);
+    } catch {
+      setFolderError(true);
+      toast.error("Failed to load folders");
+    }
   }, []);
 
   const createFolder = React.useCallback(async () => {
     if (!newFolderName.trim()) return;
     try {
-      await fetch("/api/telegram/groups", {
+      const createRes = await fetch("/api/telegram/groups", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: newFolderName.trim() }),
       });
+      if (!createRes.ok) {
+        const body = await createRes.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to create folder");
+      }
       const res = await fetch("/api/telegram/groups");
       const d = await res.json();
       if (d.data) setFolders(d.data);
@@ -50,9 +71,15 @@ export function useTelegramFolders() {
     }
   }, [newFolderName]);
 
+  // Use ref for folders to avoid re-creating addDialogToFolder on every folder change
+  const foldersRef = React.useRef(folders);
+  React.useEffect(() => {
+    foldersRef.current = folders;
+  }, [folders]);
+
   const addDialogToFolder = React.useCallback(
     async (folderId: string, chatId: number, chatTitle: string) => {
-      const folder = folders.find((f) => f.id === folderId);
+      const folder = foldersRef.current.find((f) => f.id === folderId);
       if (!folder) return;
       if (folder.members.some((m) => m.telegram_chat_id === chatId)) {
         toast("Chat is already in this folder");
@@ -116,11 +143,13 @@ export function useTelegramFolders() {
         );
       }
     },
-    [folders]
+    []
   );
 
   return {
     folders,
+    folderError,
+    retryLoadFolders,
     activeFolder,
     setActiveFolder,
     showNewFolder,
