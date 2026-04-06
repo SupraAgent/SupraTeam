@@ -8,11 +8,15 @@ import { Input } from "@/components/ui/input";
 import { useTelegram } from "@/lib/client/telegram-context";
 import { useTelegramDialogs } from "@/lib/client/use-telegram-dialogs";
 import { useTelegramMessages } from "@/lib/client/use-telegram-messages";
-import type { TgDialog, TgMessage, TgUserProfile, TgChatProfile } from "@/lib/client/telegram-service";
+import type { TgDialog, TgMessage } from "@/lib/client/telegram-service";
 import { useNukeMessages } from "@/lib/client/use-nuke-messages";
 import { useNukeGroups } from "@/lib/client/use-nuke-groups";
 import { useTelegramAdminGroups } from "@/lib/client/use-telegram-admin-groups";
 import { NukeProgressModal } from "@/components/telegram/nuke-progress-modal";
+import { useTelegramFolders } from "@/lib/client/use-telegram-folders";
+import { useTelegramProfile } from "@/lib/client/use-telegram-profile";
+import { useTelegramMedia } from "@/lib/client/use-telegram-media";
+import { useDealLinkedChats } from "@/lib/client/use-deal-linked-chats";
 import {
   MessageCircle,
   Search,
@@ -69,15 +73,7 @@ import type { DragChatData } from "@/components/inbox/tg-chat-group-panel";
 
 type FilterType = "all" | "unread" | "private" | "group" | "channel";
 
-interface ChatFolder {
-  id: string;
-  name: string;
-  color: string | null;
-  icon: string | null;
-  is_collapsed: boolean;
-  position: number;
-  members: { telegram_chat_id: number; chat_title: string | null }[];
-}
+import type { ChatFolder } from "@/lib/client/use-telegram-folders";
 
 interface ChatContextMenu {
   x: number;
@@ -156,41 +152,39 @@ export default function TelegramPage() {
   // Message context menu
   const [msgContextMenu, setMsgContextMenu] = React.useState<{ x: number; y: number; msg: TgMessage } | null>(null);
 
-  // Media preview — track blob URLs for cleanup
-  const [mediaPreview, setMediaPreview] = React.useState<{ url: string; type: string } | null>(null);
-  const [mediaLoading, setMediaLoading] = React.useState<number | null>(null);
-  const mediaBlobUrlRef = React.useRef<string | null>(null);
+  // ── Extracted hooks ──────────────────────────────────────────
 
-  // File upload with preview
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
-  const [uploadingFile, setUploadingFile] = React.useState(false);
-  const [pendingFile, setPendingFile] = React.useState<File | null>(null);
-  const [pendingFilePreview, setPendingFilePreview] = React.useState<string | null>(null);
-  const [fileCaption, setFileCaption] = React.useState("");
+  // Telegram API: supergroups are channels with megagroup=true, NOT chats
+  const peerType = activeDialog
+    ? activeDialog.type === "private"
+      ? "user" as const
+      : activeDialog.type === "group"
+        ? "chat" as const
+        : "channel" as const  // supergroup + channel both use InputPeerChannel
+    : null;
 
-  // Folders
-  const [folders, setFolders] = React.useState<ChatFolder[]>([]);
-  const [activeFolder, setActiveFolder] = React.useState<string | null>(null);
-  const [showNewFolder, setShowNewFolder] = React.useState(false);
-  const [newFolderName, setNewFolderName] = React.useState("");
+  const {
+    mediaPreview, mediaLoading, playingVoice,
+    fileInputRef, uploadingFile, pendingFile, pendingFilePreview, fileCaption, setFileCaption,
+    handleMediaDownload, handleVoicePlay, handleFileSelect, handleFileSend, cancelFileUpload,
+    closeMediaPreview, cleanupOnDialogSwitch,
+  } = useTelegramMedia(tg.service, activeDialog, peerType);
 
-  // Online status (fetched for private chats)
-  const [onlineStatus, setOnlineStatus] = React.useState<string | null>(null);
+  const {
+    folders, activeFolder, setActiveFolder,
+    showNewFolder, setShowNewFolder, newFolderName, setNewFolderName,
+    createFolder, addDialogToFolder,
+  } = useTelegramFolders();
 
-  // Contact profile sidebar
-  const [showProfile, setShowProfile] = React.useState(false);
-  const [profileData, setProfileData] = React.useState<TgUserProfile | TgChatProfile | null>(null);
-  const [profileLoading, setProfileLoading] = React.useState(false);
-  const profilePhotoUrlRef = React.useRef<string | null>(null);
+  const {
+    showProfile, setShowProfile, profileData, profileLoading, onlineStatus, openProfile,
+  } = useTelegramProfile(tg.service, tg.status, activeDialog);
+
+  const { linkedChats } = useDealLinkedChats();
 
   // Command palette
   const [showPalette, setShowPalette] = React.useState(false);
   const [paletteQuery, setPaletteQuery] = React.useState("");
-
-  // Voice message playback
-  const [playingVoice, setPlayingVoice] = React.useState<number | null>(null);
-  const audioRef = React.useRef<HTMLAudioElement | null>(null);
-  const voiceBlobRef = React.useRef<string | null>(null);
 
   // @mention
   const [mentionActive, setMentionActive] = React.useState(false);
@@ -218,15 +212,6 @@ export default function TelegramPage() {
   }, [mutedChats]);
 
   // Messages hook
-  // Telegram API: supergroups are channels with megagroup=true, NOT chats
-  const peerType = activeDialog
-    ? activeDialog.type === "private"
-      ? "user" as const
-      : activeDialog.type === "group"
-        ? "chat" as const
-        : "channel" as const  // supergroup + channel both use InputPeerChannel
-    : null;
-
   const {
     messages,
     loading: messagesLoading,
@@ -271,24 +256,7 @@ export default function TelegramPage() {
     lastReadMaxIdRef.current = 0;
   }, [activeDialog?.id]);
 
-  // Fetch folders
-  React.useEffect(() => {
-    fetch("/api/telegram/groups")
-      .then((r) => { if (!r.ok) throw new Error("Failed"); return r.json(); })
-      .then((d) => { if (d.data) setFolders(d.data); })
-      .catch(() => {});
-  }, []);
-
-  // Fetch online status for private chats
-  React.useEffect(() => {
-    setOnlineStatus(null);
-    if (!activeDialog || tg.status !== "connected" || activeDialog.type !== "private") return;
-    tg.service.getUserProfile(activeDialog.telegramId, activeDialog.accessHash)
-      .then((profile) => {
-        setOnlineStatus(profile.status);
-      })
-      .catch(() => {});
-  }, [activeDialog?.id, activeDialog?.telegramId, activeDialog?.accessHash, activeDialog?.type, tg.status, tg.service]);
+  // Folders and online status now in extracted hooks
 
   // Fetch chat members when entering a group/supergroup
   React.useEffect(() => {
@@ -322,7 +290,7 @@ export default function TelegramPage() {
         else if (replyToMsg) setReplyToMsg(null);
         else if (contextMenu) setContextMenu(null);
         else if (msgContextMenu) setMsgContextMenu(null);
-        else if (mediaPreview) setMediaPreview(null);
+        else if (mediaPreview) closeMediaPreview();
       }
     }
     document.addEventListener("keydown", handleKeyDown);
@@ -452,119 +420,15 @@ export default function TelegramPage() {
     setMsgContextMenu(null);
   }
 
-  async function handleMediaDownload(msg: TgMessage) {
-    if (!activeDialog || !peerType || !msg.mediaType) return;
-    // Stop any active voice playback
-    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
-    if (voiceBlobRef.current) { URL.revokeObjectURL(voiceBlobRef.current); voiceBlobRef.current = null; }
-    setPlayingVoice(null);
-    setMediaLoading(msg.id);
-    try {
-      const url = await tg.service.downloadMedia(peerType, activeDialog.telegramId, activeDialog.accessHash, msg.id);
-      if (url) {
-        // Revoke previous blob URL before setting new one
-        if (mediaBlobUrlRef.current) URL.revokeObjectURL(mediaBlobUrlRef.current);
-        mediaBlobUrlRef.current = url;
-        setMediaPreview({ url, type: msg.mediaType });
-      } else {
-        toast.error("Media not available");
-      }
-    } catch (err) {
-      toast.error("Failed to download media", { description: err instanceof Error ? err.message : undefined });
-    } finally {
-      setMediaLoading(null);
-    }
-  }
-
-  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file || !activeDialog) return;
-    if (file.size > 50 * 1024 * 1024) {
-      toast.error("File too large", { description: "Maximum file size is 50 MB" });
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      return;
-    }
-    setPendingFile(file);
-    setFileCaption("");
-    // Create preview URL for images
-    if (file.type.startsWith("image/")) {
-      setPendingFilePreview(URL.createObjectURL(file));
-    } else {
-      setPendingFilePreview(null);
-    }
-    if (fileInputRef.current) fileInputRef.current.value = "";
-  }
-
-  async function handleFileSend() {
-    if (!pendingFile || !activeDialog || !peerType) return;
-    setUploadingFile(true);
-    try {
-      await tg.service.sendFileSimple(peerType, activeDialog.telegramId, activeDialog.accessHash, pendingFile, fileCaption.trim() || undefined);
-    } catch (err) {
-      toast.error("Failed to upload file", { description: err instanceof Error ? err.message : undefined });
-    } finally {
-      setUploadingFile(false);
-      if (pendingFilePreview) URL.revokeObjectURL(pendingFilePreview);
-      setPendingFile(null);
-      setPendingFilePreview(null);
-      setFileCaption("");
-    }
-  }
-
-  async function handleVoicePlay(msg: TgMessage) {
-    if (!activeDialog || !peerType) return;
-    // If same voice is playing, pause it
-    if (playingVoice === msg.id && audioRef.current) {
-      audioRef.current.pause();
-      setPlayingVoice(null);
-      return;
-    }
-    // Stop any existing playback
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current = null;
-    }
-    if (voiceBlobRef.current) {
-      URL.revokeObjectURL(voiceBlobRef.current);
-      voiceBlobRef.current = null;
-    }
-    setMediaLoading(msg.id);
-    try {
-      const url = await tg.service.downloadMedia(peerType, activeDialog.telegramId, activeDialog.accessHash, msg.id);
-      if (!url) { toast.error("Voice message not available"); return; }
-      voiceBlobRef.current = url;
-      const audio = new Audio(url);
-      audioRef.current = audio;
-      setPlayingVoice(msg.id);
-      audio.onended = () => setPlayingVoice(null);
-      audio.onerror = () => { setPlayingVoice(null); toast.error("Failed to play voice message"); };
-      await audio.play();
-    } catch (err) {
-      toast.error("Failed to play voice message", { description: err instanceof Error ? err.message : undefined });
-      setPlayingVoice(null);
-    } finally {
-      setMediaLoading(null);
-    }
-  }
-
-  function cancelFileUpload() {
-    if (pendingFilePreview) URL.revokeObjectURL(pendingFilePreview);
-    setPendingFile(null);
-    setPendingFilePreview(null);
-    setFileCaption("");
-  }
+  // handleMediaDownload, handleVoicePlay, handleFileSelect, handleFileSend,
+  // cancelFileUpload are now in useTelegramMedia hook
 
   function selectDialog(dialog: TgDialog) {
     // Save current draft before switching
     if (activeDialog && replyText.trim()) {
       saveDraft(activeDialog.id, replyText);
     }
-    // Clean up any open media blob
-    if (mediaBlobUrlRef.current) {
-      URL.revokeObjectURL(mediaBlobUrlRef.current);
-      mediaBlobUrlRef.current = null;
-    }
-    setMediaPreview(null);
+    cleanupOnDialogSwitch();
     setActiveDialog(dialog);
     // Restore draft for new dialog
     const drafts = loadDrafts();
@@ -577,54 +441,7 @@ export default function TelegramPage() {
     setSearchResults([]);
   }
 
-  async function openProfile() {
-    if (!activeDialog || tg.status !== "connected") return;
-    setShowProfile(true);
-    setProfileLoading(true);
-    try {
-      // Clean up previous profile photo
-      if (profilePhotoUrlRef.current) {
-        URL.revokeObjectURL(profilePhotoUrlRef.current);
-        profilePhotoUrlRef.current = null;
-      }
-
-      if (activeDialog.type === "private") {
-        const profile = await tg.service.getUserProfile(activeDialog.telegramId, activeDialog.accessHash);
-        if (profile.photoUrl) profilePhotoUrlRef.current = profile.photoUrl;
-        setProfileData(profile);
-      } else {
-        const pt = activeDialog.type === "group" ? "chat" as const : "channel" as const;
-        const profile = await tg.service.getChatProfile(pt, activeDialog.telegramId, activeDialog.accessHash);
-        if (profile.photoUrl) profilePhotoUrlRef.current = profile.photoUrl;
-        setProfileData(profile);
-      }
-    } catch (err) {
-      toast.error("Failed to load profile", { description: err instanceof Error ? err.message : undefined });
-      setShowProfile(false);
-    } finally {
-      setProfileLoading(false);
-    }
-  }
-
-  // Clean up profile photo on dialog switch
-  React.useEffect(() => {
-    setShowProfile(false);
-    setProfileData(null);
-    if (profilePhotoUrlRef.current) {
-      URL.revokeObjectURL(profilePhotoUrlRef.current);
-      profilePhotoUrlRef.current = null;
-    }
-  }, [activeDialog?.id]);
-
-  // Clean up blob URLs on component unmount
-  React.useEffect(() => {
-    return () => {
-      if (profilePhotoUrlRef.current) URL.revokeObjectURL(profilePhotoUrlRef.current);
-      if (mediaBlobUrlRef.current) URL.revokeObjectURL(mediaBlobUrlRef.current);
-      if (voiceBlobRef.current) URL.revokeObjectURL(voiceBlobRef.current);
-      if (audioRef.current) audioRef.current.pause();
-    };
-  }, []);
+  // openProfile, profile cleanup, and blob cleanup are now in extracted hooks
 
   function togglePin(dialogId: string) {
     setPinnedChats((prev) => {
@@ -644,71 +461,7 @@ export default function TelegramPage() {
     setContextMenu(null);
   }
 
-  async function createFolder() {
-    if (!newFolderName.trim()) return;
-    try {
-      await fetch("/api/telegram/groups", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newFolderName.trim() }),
-      });
-      const res = await fetch("/api/telegram/groups");
-      const d = await res.json();
-      if (d.data) setFolders(d.data);
-      setNewFolderName("");
-      setShowNewFolder(false);
-    } catch (err) {
-      toast.error("Failed to create folder", { description: err instanceof Error ? err.message : undefined });
-    }
-  }
-
-  async function addDialogToFolder(folderId: string, chatId: number, chatTitle: string) {
-    const folder = folders.find((f) => f.id === folderId);
-    if (!folder) return;
-    // Skip if already in folder
-    if (folder.members.some((m) => m.telegram_chat_id === chatId)) {
-      toast("Chat is already in this folder");
-      return;
-    }
-    // Optimistic update
-    setFolders((prev) =>
-      prev.map((f) =>
-        f.id === folderId
-          ? { ...f, members: [...f.members, { telegram_chat_id: chatId, chat_title: chatTitle }] }
-          : f
-      )
-    );
-    try {
-      const res = await fetch("/api/telegram/groups/members", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ group_id: folderId, chat_ids: [chatId], chat_titles: { [chatId]: chatTitle } }),
-      });
-      if (!res.ok) {
-        const json = await res.json();
-        toast.error(json.error || "Failed to add to folder");
-        // Rollback
-        setFolders((prev) =>
-          prev.map((f) =>
-            f.id === folderId
-              ? { ...f, members: f.members.filter((m) => m.telegram_chat_id !== chatId) }
-              : f
-          )
-        );
-      } else {
-        toast.success(`Added to "${folder.name}"`);
-      }
-    } catch {
-      toast.error("Failed to add to folder");
-      setFolders((prev) =>
-        prev.map((f) =>
-          f.id === folderId
-            ? { ...f, members: f.members.filter((m) => m.telegram_chat_id !== chatId) }
-            : f
-        )
-      );
-    }
-  }
+  // createFolder and addDialogToFolder are now in useTelegramFolders hook
 
   // @mention detection
   function handleReplyTextChange(value: string) {
@@ -1368,6 +1121,22 @@ export default function TelegramPage() {
                         </span>
                       )}
                     </div>
+                    {/* Deal link badge */}
+                    {(() => {
+                      const linked = linkedChats.get(dialog.telegramId);
+                      if (!linked) return null;
+                      return (
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          {linked.stage_color && (
+                            <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ backgroundColor: linked.stage_color }} />
+                          )}
+                          <span className="text-[10px] text-primary/80 truncate">{linked.deal_name}</span>
+                          {linked.stage_name && (
+                            <span className="text-[10px] text-muted-foreground/60">{linked.stage_name}</span>
+                          )}
+                        </div>
+                      );
+                    })()}
                     <div className="flex items-center gap-1.5 mt-0.5">
                       {/* Show draft indicator */}
                       {drafts[dialog.id] && activeDialog?.id !== dialog.id ? (
@@ -2128,10 +1897,10 @@ export default function TelegramPage() {
 
       {/* ── Media Preview Modal ────────────────────────────────── */}
       {mediaPreview && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={() => { URL.revokeObjectURL(mediaPreview.url); setMediaPreview(null); }}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={() => { closeMediaPreview(); }}>
           <div className="max-w-[90vw] max-h-[90vh] relative" onClick={(e) => e.stopPropagation()}>
             <button
-              onClick={() => { URL.revokeObjectURL(mediaPreview.url); setMediaPreview(null); }}
+              onClick={() => { closeMediaPreview(); }}
               className="absolute -top-10 right-0 text-white/60 hover:text-white"
             >
               <X className="h-6 w-6" />

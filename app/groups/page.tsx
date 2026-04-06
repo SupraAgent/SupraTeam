@@ -698,10 +698,21 @@ export default function GroupsPage() {
           <p className="text-[10px] text-muted-foreground">Slugs</p>
         </div>
         {staleDeadCount > 0 ? (
-          <div className="rounded-xl border border-orange-500/10 bg-orange-500/5 p-3 text-center">
+          <button
+            onClick={() => {
+              const staleDeadIds = activeGroups
+                .filter((g) => g.health_status === "stale" || g.health_status === "dead")
+                .map((g) => g.id);
+              setSelected(new Set(staleDeadIds));
+              toast(`Selected ${staleDeadIds.length} stale/dead groups — use Archive in the toolbar`);
+            }}
+            className="rounded-xl border border-orange-500/10 bg-orange-500/5 p-3 text-center hover:border-orange-500/30 transition-colors group"
+          >
             <p className="text-lg font-semibold text-orange-400">{staleDeadCount}</p>
-            <p className="text-[10px] text-muted-foreground">Stale / Dead</p>
-          </div>
+            <p className="text-[10px] text-muted-foreground group-hover:text-orange-400 transition-colors">
+              Stale / Dead — click to select
+            </p>
+          </button>
         ) : (
           <div className="rounded-xl border border-white/10 bg-white/[0.035] p-3 text-center">
             <p className="text-lg font-semibold text-foreground">0</p>
