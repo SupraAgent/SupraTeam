@@ -1,20 +1,23 @@
 /**
  * Zero-knowledge encryption for Telegram sessions.
  *
- * Generates a device-bound AES-256-GCM key stored in IndexedDB (extractable: false).
+ * Generates a device-bound AES-256-GCM key stored via the keystore adapter:
+ *   - Browser: IndexedDB (non-extractable CryptoKey)
+ *   - Desktop: OS Keychain via Tauri (macOS Keychain, Windows Credential Manager)
+ *
  * The server never sees this key — it only stores encrypted blobs it cannot decrypt.
  *
  * Flow:
- *   1. On first connect → generateEncryptionKey() → stored in IndexedDB
+ *   1. On first connect → generateEncryptionKey() → stored via keystore adapter
  *   2. After TG auth → encryptSession(sessionString) → base64 blob sent to server
  *   3. On page load → server returns blob → decryptSession(blob) → plaintext session
  *   4. On disconnect → deleteEncryptionKey() → key destroyed
  */
 
-import { getKey, setKey, deleteKey } from "./indexed-db";
+import { getKeyStore } from "../keystore";
+import type { KeyHandle } from "../keystore";
 
 const KEY_PREFIX = "tg-session-key";
-const IV_LENGTH = 12;
 
 /** Current user ID — must be set before any crypto operations. */
 let currentUserId: string | null = null;
@@ -41,32 +44,22 @@ function aad(): Uint8Array {
   return new TextEncoder().encode(`tg-session:${currentUserId}`);
 }
 
-/** Type guard: validates that a value from IndexedDB is a CryptoKey. */
-function isCryptoKey(v: unknown): v is CryptoKey {
-  return v instanceof CryptoKey;
-}
-
 // ── Key Management ──────────────────────────────────────────────
 
-/** Generate a new AES-256-GCM key and store in IndexedDB. Non-extractable. */
-export async function generateEncryptionKey(): Promise<CryptoKey> {
-  const key = await crypto.subtle.generateKey(
-    { name: "AES-GCM", length: 256 },
-    false, // extractable: false — key can never leave this device
-    ["encrypt", "decrypt"]
-  );
-  await setKey(keyId(), key);
-  return key;
+/** Generate a new AES-256-GCM key and store via the platform keystore. */
+export async function generateEncryptionKey(): Promise<KeyHandle> {
+  const store = await getKeyStore();
+  return store.generateKey(keyId());
 }
 
 /** Retrieve the stored encryption key, or null if none exists. */
-export async function getEncryptionKey(): Promise<CryptoKey | null> {
-  const key = await getKey<CryptoKey>(keyId(), isCryptoKey);
-  return key ?? null;
+export async function getEncryptionKey(): Promise<KeyHandle | null> {
+  const store = await getKeyStore();
+  return store.getKey(keyId());
 }
 
 /** Get existing key or generate a new one. */
-export async function getOrCreateEncryptionKey(): Promise<CryptoKey> {
+export async function getOrCreateEncryptionKey(): Promise<KeyHandle> {
   const existing = await getEncryptionKey();
   if (existing) return existing;
   return generateEncryptionKey();
@@ -74,46 +67,26 @@ export async function getOrCreateEncryptionKey(): Promise<CryptoKey> {
 
 /** Check if an encryption key exists on this device. */
 export async function hasEncryptionKey(): Promise<boolean> {
-  const key = await getKey<CryptoKey>(keyId(), isCryptoKey);
-  return key !== undefined;
+  const key = await getEncryptionKey();
+  return key !== null;
 }
 
 /** Delete the encryption key (on disconnect/logout). Irreversible. */
 export async function deleteEncryptionKey(): Promise<void> {
-  await deleteKey(keyId());
+  const store = await getKeyStore();
+  await store.deleteKey(keyId());
 }
 
 // ── Encrypt / Decrypt ───────────────────────────────────────────
-
-function toBase64(bytes: Uint8Array): string {
-  let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary);
-}
-
-function fromBase64(str: string): Uint8Array {
-  const binary = atob(str);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
 
 /**
  * Encrypt a Telegram session string with the device-bound key.
  * Returns: "iv.ciphertext" as base64 (safe for JSON/DB storage).
  */
 export async function encryptSession(plaintext: string): Promise<string> {
-  const key = await getOrCreateEncryptionKey();
-  const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
-  const encoded = new TextEncoder().encode(plaintext);
-
-  const ciphertext = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv, additionalData: aad() as BufferSource },
-    key,
-    encoded
-  );
-
-  return `${toBase64(iv)}.${toBase64(new Uint8Array(ciphertext))}`;
+  await getOrCreateEncryptionKey(); // ensure key exists
+  const store = await getKeyStore();
+  return store.encrypt(keyId(), plaintext, aad());
 }
 
 /**
@@ -123,25 +96,10 @@ export async function encryptSession(plaintext: string): Promise<string> {
  * Throws if key is missing or decryption fails.
  */
 export async function decryptSession(blob: string): Promise<string> {
-  const key = await getEncryptionKey();
+  const store = await getKeyStore();
+  const key = await store.getKey(keyId());
   if (!key) {
     throw new Error("No encryption key found. Re-authenticate with Telegram.");
   }
-
-  const parts = blob.split(".");
-  if (parts.length !== 2) {
-    throw new Error("Invalid encrypted session format.");
-  }
-
-  const [ivB64, ciphertextB64] = parts;
-  const iv = fromBase64(ivB64);
-  const ciphertext = fromBase64(ciphertextB64);
-
-  const plaintext = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: iv as BufferSource, additionalData: aad() as BufferSource },
-    key,
-    ciphertext as BufferSource
-  );
-
-  return new TextDecoder().decode(plaintext);
+  return store.decrypt(keyId(), blob, aad());
 }

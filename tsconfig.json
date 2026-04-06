@@ -34,5 +34,5 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules", "packages/automation-builder/src", "packages/*/tsup.config.ts", "SupraLoop"]
+  "exclude": ["node_modules", "packages/automation-builder/src", "packages/*/tsup.config.ts", "SupraLoop", "desktop"]
 }

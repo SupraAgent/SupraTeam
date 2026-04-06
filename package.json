@@ -16,7 +16,12 @@
     "cron:poll": "tsx cron/poll-notifications.ts",
     "cron:digest": "tsx cron/daily-digest.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "dev:desktop": "cd desktop && npm run tauri:dev",
+    "desktop:build": "cd desktop && npm run tauri:build",
+    "desktop:build:mac": "cd desktop && npm run tauri:build -- --target universal-apple-darwin",
+    "desktop:build:win": "cd desktop && npm run tauri:build -- --target x86_64-pc-windows-msvc",
+    "desktop:build:linux": "cd desktop && npm run tauri:build -- --target x86_64-unknown-linux-gnu"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",

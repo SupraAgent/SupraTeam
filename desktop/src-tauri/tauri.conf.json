@@ -1,0 +1,50 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicedoc/tauri-v2-schema/main/tauri.conf.schema.json",
+  "productName": "SupraCRM",
+  "version": "0.1.0",
+  "identifier": "com.supracrm.desktop",
+  "build": {
+    "devUrl": "http://localhost:3002",
+    "frontendDist": "../out"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "SupraCRM",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true,
+        "transparent": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://avatars.githubusercontent.com https://github.com https://t.me; font-src 'self' data:; connect-src 'self' https://btpwumlhjphmoznsejxm.supabase.co wss://btpwumlhjphmoznsejxm.supabase.co https://api.anthropic.com wss://venus.web.telegram.org wss://flora.web.telegram.org wss://pluto.web.telegram.org wss://vesta.web.telegram.org wss://aurora.web.telegram.org ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    }
+  },
+  "plugins": {
+    "os": {},
+    "shell": {
+      "open": true
+    },
+    "process": {}
+  }
+}
