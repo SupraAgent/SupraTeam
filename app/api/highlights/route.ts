@@ -52,7 +52,7 @@ export async function GET() {
   }
 
   // Enrich highlights with chat_id for inline reply
-  const enriched = (highlights ?? []).map((h) => ({
+  const enriched = (highlights ?? []).map((h: Record<string, string | null>) => ({
     ...h,
     chat_id: h.tg_group_id ? tgChatIdMap[h.tg_group_id] ?? null : null,
   }));

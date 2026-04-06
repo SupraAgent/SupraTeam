@@ -100,7 +100,7 @@ export function InlineActionCard({
       {/* Collapsed row — click to expand */}
       <button
         type="button"
-        onClick={() => setExpanded((prev) => !prev)}
+        onClick={() => setExpanded((prev: boolean) => !prev)}
         className="flex items-center gap-3 w-full px-3 py-2.5 hover:bg-white/[0.06] transition text-left group"
       >
         <div className={cn("h-8 w-8 rounded-full flex items-center justify-center shrink-0", iconBgClass)}>

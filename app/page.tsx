@@ -7,7 +7,7 @@ import {
   MessageCircle, GitBranch, ExternalLink, UserPlus, Bell,
   AlertTriangle, Clock, TrendingUp, Zap, DollarSign, BarChart3, Pin,
   ChevronDown, ChevronRight, Radio, Send, Activity, Shield, Workflow,
-  Globe, ArrowRight, Video, Calendar, Users,
+  Globe, ArrowRight, Video, Calendar, Users, Link2,
 } from "lucide-react";
 import { SetupChecklist } from "@/components/onboarding/setup-checklist";
 import { LinkConversationWizard } from "@/components/onboarding/link-conversation-wizard";
