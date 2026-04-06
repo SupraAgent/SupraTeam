@@ -736,6 +736,72 @@ export default function InboxPage() {
     updateLabel(chatId, groupName, { note: text || null });
   }
 
+  // ── Multi-select helpers ──────────────────────────────────────
+
+  function handleCheckboxToggle(chatId: number, index: number, shiftKey: boolean) {
+    setSelectedChats((prev) => {
+      const next = new Set(prev);
+      if (shiftKey && lastClickedIndexRef.current >= 0) {
+        const start = Math.min(lastClickedIndexRef.current, index);
+        const end = Math.max(lastClickedIndexRef.current, index);
+        for (let i = start; i <= end; i++) {
+          if (i < filtered.length) {
+            next.add(filtered[i].chat_id);
+          }
+        }
+      } else {
+        if (next.has(chatId)) {
+          next.delete(chatId);
+        } else {
+          next.add(chatId);
+        }
+      }
+      lastClickedIndexRef.current = index;
+      return next;
+    });
+  }
+
+  async function bulkTag(tag: string | null, color: string | null) {
+    const chatIds = Array.from(selectedChats);
+    const updates = chatIds.map((chatId) => {
+      const conv = conversations.find((c) => c.chat_id === chatId);
+      if (conv) updateLabel(chatId, conv.group_name, { color_tag: tag, color_tag_color: color });
+      return conv;
+    });
+    await Promise.allSettled(updates.filter(Boolean));
+    setSelectedChats(new Set());
+  }
+
+  async function bulkPin() {
+    const chatIds = Array.from(selectedChats);
+    const updates = chatIds.map((chatId) => {
+      const conv = conversations.find((c) => c.chat_id === chatId);
+      if (conv) toggleLabel(chatId, conv.group_name, "is_pinned");
+      return conv;
+    });
+    await Promise.allSettled(updates.filter(Boolean));
+    setSelectedChats(new Set());
+  }
+
+  async function bulkSnooze(until: string) {
+    const chatIds = Array.from(selectedChats);
+    await Promise.allSettled(
+      chatIds.map((chatId) => handleStatusChange(chatId, "snoozed", until))
+    );
+    setSelectedChats(new Set());
+  }
+
+  async function bulkArchive() {
+    const chatIds = Array.from(selectedChats);
+    const updates = chatIds.map((chatId) => {
+      const conv = conversations.find((c) => c.chat_id === chatId);
+      if (conv) updateLabel(chatId, conv.group_name, { is_archived: true });
+      return conv;
+    });
+    await Promise.allSettled(updates.filter(Boolean));
+    setSelectedChats(new Set());
+  }
+
   function handleContextMenu(e: React.MouseEvent, chatId: number, groupName: string) {
     e.preventDefault();
     const menuW = 200;

@@ -212,9 +212,12 @@ export default function HomePage() {
   const totalClosed = analytics ? analytics.totalWon + analytics.totalLost : 0;
 
   // Determine onboarding completion
-  const onboardingSteps = [s.onboarding.hasBotToken, s.onboarding.hasGroups, s.onboarding.hasDeals, s.onboarding.hasContacts, s.onboarding.hasEmail];
+  const onboardingSteps = [s.onboarding.hasBotToken, s.onboarding.hasGroups, s.onboarding.hasDeals, s.onboarding.hasContacts, s.onboarding.hasEmail, s.onboarding.hasLinkedChats];
   const onboardingDone = onboardingSteps.filter(Boolean).length;
-  const allOnboardingDone = onboardingDone === 5;
+  const allOnboardingDone = onboardingDone === onboardingSteps.length;
+
+  // Show link conversation prompt when deals exist but no linked chats
+  const showLinkConversationPrompt = s.onboarding.hasDeals && !s.onboarding.hasLinkedChats;
 
   // Groups needing attention (stale, dead, or quiet with low activity)
   const groupsNeedingAttention = (extras?.groups ?? [])
