@@ -10,6 +10,7 @@ import { useTelegramWebApp } from "@/components/tma/use-telegram";
 import { hapticImpact, hapticNotification } from "@/components/tma/haptic";
 import { useOfflineCache } from "@/lib/client/tma-offline";
 import { toast } from "sonner";
+import { useFocusRefresh } from "@/components/tma/use-focus-refresh";
 
 type Conversation = {
   chat_id: number;
@@ -57,6 +58,7 @@ export default function TMAInboxPage() {
   const [advancingDeal, setAdvancingDeal] = React.useState<string | null>(null);
 
   useTelegramWebApp();
+  useFocusRefresh(() => fetchData());
 
   // Check if user has an active TG client session for reply-as-user
   React.useEffect(() => {

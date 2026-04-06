@@ -95,7 +95,7 @@ export default function PipelinePage() {
   const [usingSamples, setUsingSamples] = React.useState(false);
   const [highlightDealId, setHighlightDealId] = React.useState<string | null>(null);
   const [highlightedDealIds, setHighlightedDealIds] = React.useState<Set<string>>(new Set());
-  const [highlightDetails, setHighlightDetails] = React.useState<Record<string, { priority?: string; sentiment?: string; message_count?: number; sender_name?: string; triage_urgency?: string; triage_category?: string }>>({});
+  const [highlightDetails, setHighlightDetails] = React.useState<Record<string, { priority?: string; sentiment?: string; message_count?: number; sender_name?: string; message_preview?: string; triage_urgency?: string; triage_category?: string }>>({});
   const [filters, setFilters] = React.useState<PipelineFilters>(EMPTY_FILTERS);
   const [showFilters, setShowFilters] = React.useState(false);
   const [selectedDealIds, setSelectedDealIds] = React.useState<Set<string>>(new Set());
@@ -255,7 +255,7 @@ export default function PipelinePage() {
         const { highlighted_deal_ids, highlights: hlList } = await highlightsRes.json();
         setHighlightedDealIds(new Set(highlighted_deal_ids ?? []));
         // Build a details map keyed by deal_id (use highest priority highlight per deal)
-        const detailsMap: Record<string, { priority?: string; sentiment?: string; message_count?: number; sender_name?: string; triage_urgency?: string; triage_category?: string }> = {};
+        const detailsMap: Record<string, { priority?: string; sentiment?: string; message_count?: number; sender_name?: string; message_preview?: string; triage_urgency?: string; triage_category?: string }> = {};
         const priorityRank: Record<string, number> = { urgent: 4, high: 3, medium: 2, low: 1 };
         const triageRank: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
         for (const h of hlList ?? []) {
@@ -270,6 +270,7 @@ export default function PipelinePage() {
               sentiment: h.sentiment,
               message_count: h.message_count,
               sender_name: h.sender_name,
+              message_preview: h.message_preview ?? undefined,
               triage_urgency: h.triage_urgency ?? undefined,
               triage_category: h.triage_category ?? undefined,
             };

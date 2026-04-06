@@ -23,6 +23,8 @@ type BroadcastHistory = {
   created_at: string;
 };
 
+const DRAFT_KEY = "tma_broadcast_draft";
+
 export default function TMABroadcastsPage() {
   const [groups, setGroups] = React.useState<TgGroup[]>([]);
   const [history, setHistory] = React.useState<BroadcastHistory[]>([]);
@@ -32,7 +34,51 @@ export default function TMABroadcastsPage() {
   const [message, setMessage] = React.useState("");
   const [sending, setSending] = React.useState(false);
   const [sent, setSent] = React.useState(false);
+  const [draftRestored, setDraftRestored] = React.useState(false);
   const sentTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Restore draft from localStorage on mount
+  React.useEffect(() => {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (raw) {
+        const draft = JSON.parse(raw) as {
+          message?: string;
+          selectedSlug?: string;
+          selectedGroups?: string[];
+        };
+        if (draft.message) setMessage(draft.message);
+        if (draft.selectedSlug) setSelectedSlug(draft.selectedSlug);
+        if (draft.selectedGroups?.length) {
+          setSelectedGroups(new Set(draft.selectedGroups));
+        }
+        setDraftRestored(true);
+        setTimeout(() => setDraftRestored(false), 2000);
+      }
+    } catch {
+      // Ignore parse errors
+    }
+  }, []);
+
+  // Debounced save draft to localStorage
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      const hasContent = message || selectedSlug || selectedGroups.size > 0;
+      if (hasContent) {
+        localStorage.setItem(
+          DRAFT_KEY,
+          JSON.stringify({
+            message,
+            selectedSlug,
+            selectedGroups: Array.from(selectedGroups),
+          })
+        );
+      } else {
+        localStorage.removeItem(DRAFT_KEY);
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [message, selectedSlug, selectedGroups]);
 
   // Clean up sent timer on unmount
   React.useEffect(() => {
@@ -48,7 +94,7 @@ export default function TMABroadcastsPage() {
 
   React.useEffect(() => {
     Promise.all([
-      fetch("/api/groups").then((r) => r.json()).catch(() => ({ groups: [] })),
+      fetch("/api/groups").then((r) => r.ok ? r.json() : { groups: [] }).catch(() => ({ groups: [] })),
       fetch("/api/broadcasts?limit=5").then((r) => r.ok ? r.json() : { broadcasts: [] }).catch(() => ({ broadcasts: [] })),
     ]).then(([groupsData, historyData]) => {
       setGroups(groupsData.groups ?? []);
@@ -98,9 +144,19 @@ export default function TMABroadcastsPage() {
         setSent(true);
         setMessage("");
         setSelectedGroups(new Set());
+        localStorage.removeItem(DRAFT_KEY);
         if (sentTimerRef.current) clearTimeout(sentTimerRef.current);
         sentTimerRef.current = setTimeout(() => setSent(false), 3000);
+      } else {
+        const err = await res.json().catch(() => ({ error: "Broadcast failed" }));
+        // Use Telegram popup if available, otherwise alert
+        const tg = (window as unknown as { Telegram?: { WebApp?: { showPopup: (p: { message: string }) => void } } }).Telegram?.WebApp;
+        if (tg) {
+          tg.showPopup({ message: err.error || "Failed to send broadcast" });
+        }
       }
+    } catch {
+      // Network error — swallowed by finally
     } finally {
       setSending(false);
     }
@@ -122,6 +178,9 @@ export default function TMABroadcastsPage() {
       <div className="px-4 pt-4 pb-3">
         <h1 className="text-lg font-semibold text-foreground">Broadcasts</h1>
         <p className="text-xs text-muted-foreground">Send messages to TG groups</p>
+        {draftRestored && (
+          <p className="text-[10px] text-primary/70 mt-1 animate-pulse">Draft restored</p>
+        )}
       </div>
 
       {/* Message */}
