@@ -7,6 +7,7 @@ import { KanbanColumn } from "./kanban-column";
 import { DealHoverPreview } from "./deal-hover-preview";
 import { cn } from "@/lib/utils";
 import { Zap, Clock } from "lucide-react";
+import { usePrefetchDeal, useBatchPrefetchDeals } from "@/lib/pipeline/prefetch";
 
 type KanbanBoardProps = {
   stages: PipelineStage[];
@@ -45,6 +46,10 @@ export function KanbanBoard({
   const slamTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isDragging, setIsDragging] = React.useState(false);
   const [draggingDealName, setDraggingDealName] = React.useState<string | null>(null);
+
+  // Prefetch deal details on hover + batch prefetch first N on load
+  const prefetchDeal = usePrefetchDeal();
+  useBatchPrefetchDeals(filteredDeals);
 
   React.useEffect(() => {
     return () => { if (slamTimerRef.current) clearTimeout(slamTimerRef.current); };
@@ -192,7 +197,7 @@ export function KanbanBoard({
                 ripple={rippleStageId === stage.id}
                 conversionRate={conversionRates[stageIndex]}
                 sortByUrgency={sortByUrgency}
-                onHoverPreview={(deal, rect) => { setHoverDeal(deal); setHoverRect(rect); }}
+                onHoverPreview={(deal, rect) => { setHoverDeal(deal); setHoverRect(rect); prefetchDeal(deal.id); }}
                 onHoverEnd={() => { setHoverDeal(null); setHoverRect(null); }}
               />
             );

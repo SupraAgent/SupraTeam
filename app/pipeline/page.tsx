@@ -20,6 +20,9 @@ import Link from "next/link";
 import { toast } from "sonner";
 import type { Deal, PipelineStage, Contact, BoardType } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { isDesktop } from "@/lib/platform";
+import { getCacheStore } from "@/lib/cache";
+import { useCrmRealtime } from "@/lib/realtime/use-crm-realtime";
 
 export type PipelineFilters = {
   minValue: number | null;
@@ -228,6 +231,42 @@ export default function PipelinePage() {
     }
   }, [searchParams, router]);
 
+  // ── Desktop cache: instant load from SQLite, then sync from network ──
+  React.useEffect(() => {
+    if (!isDesktop) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const store = await getCacheStore();
+        const [cachedDeals, cachedContacts] = await Promise.all([
+          store.getAllDeals(),
+          store.getAllContacts(),
+        ]);
+        if (cancelled) return;
+        // Validate cached data has required fields before using
+        const validDeals = cachedDeals.filter(
+          (d): d is Deal & Record<string, unknown> =>
+            typeof d.id === "string" && typeof (d as Record<string, unknown>).deal_name === "string"
+        ) as unknown as Deal[];
+        if (validDeals.length > 0) {
+          setDeals(validDeals);
+          setLoading(false);
+        }
+        const validContacts = cachedContacts.filter(
+          (c): c is Contact & Record<string, unknown> =>
+            typeof c.id === "string" && typeof (c as Record<string, unknown>).name === "string"
+        ) as unknown as Contact[];
+        if (validContacts.length > 0) {
+          setContacts(validContacts);
+          contactsFetched.current = true;
+        }
+      } catch {
+        // Cache read failed — network fetch will handle it
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   const fetchData = React.useCallback(async () => {
     try {
       const [stagesRes, dealsRes, highlightsRes, unreadRes, teamRes] = await Promise.all([
@@ -250,6 +289,12 @@ export default function PipelinePage() {
         const data = await dealsRes.json();
         fetchedDeals = data.deals ?? [];
         setDeals(fetchedDeals);
+        // Write to desktop cache for next instant load
+        if (isDesktop) {
+          getCacheStore()
+            .then((store) => store.storeDeals(fetchedDeals as unknown as import("@/lib/cache").DealRecord[]))
+            .catch((err) => console.error("[desktop-cache] Failed to write deals:", err));
+        }
       }
       if (highlightsRes.ok) {
         const { highlighted_deal_ids, highlights: hlList } = await highlightsRes.json();
@@ -311,6 +356,47 @@ export default function PipelinePage() {
   React.useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // ── Realtime: update deals/contacts in-place when changes arrive via Supabase ──
+  useCrmRealtime({
+    onDealChange: React.useCallback(({ eventType, new: newDeal, old: oldDeal }: { eventType: string; new: Partial<Deal>; old: { id: string } }) => {
+      if (eventType === "DELETE") {
+        setDeals((prev) => prev.filter((d) => d.id !== oldDeal.id));
+      } else {
+        setDeals((prev) => {
+          const idx = prev.findIndex((d) => d.id === (newDeal.id ?? oldDeal.id));
+          if (idx >= 0) {
+            const updated = [...prev];
+            updated[idx] = { ...updated[idx], ...newDeal };
+            return updated;
+          }
+          // INSERT — append (it will be placed into the correct stage column by the Kanban)
+          if (eventType === "INSERT" && newDeal.id) {
+            return [...prev, newDeal as Deal];
+          }
+          return prev;
+        });
+      }
+    }, []),
+    onContactChange: React.useCallback(({ eventType, new: newContact, old: oldContact }: { eventType: string; new: Partial<Contact>; old: { id: string } }) => {
+      if (eventType === "DELETE") {
+        setContacts((prev) => prev.filter((c) => c.id !== oldContact.id));
+      } else {
+        setContacts((prev) => {
+          const idx = prev.findIndex((c) => c.id === (newContact.id ?? oldContact.id));
+          if (idx >= 0) {
+            const updated = [...prev];
+            updated[idx] = { ...updated[idx], ...newContact };
+            return updated;
+          }
+          if (eventType === "INSERT" && newContact.id) {
+            return [...prev, newContact as Contact];
+          }
+          return prev;
+        });
+      }
+    }, []),
+  });
 
   // Track active undo toasts and in-flight move requests per deal
   const undoToastIds = React.useRef<Map<string, string | number>>(new Map());

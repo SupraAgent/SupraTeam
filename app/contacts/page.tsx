@@ -15,6 +15,9 @@ import type { Contact, PipelineStage, Deal, LifecycleStage, DecisionMakerLevel, 
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { runEnrichmentPipeline } from "@/lib/enrichment/pipeline";
+import { isDesktop } from "@/lib/platform";
+import { getCacheStore } from "@/lib/cache";
+import { useCrmRealtime } from "@/lib/realtime/use-crm-realtime";
 
 type SortKey = "name" | "company" | "created_at" | "deals" | "quality_score";
 type SortDir = "asc" | "desc";
@@ -68,6 +71,42 @@ export default function ContactsPage() {
   const [enrichingIds, setEnrichingIds] = React.useState<Set<string>>(new Set());
   const [bulkEnriching, setBulkEnriching] = React.useState(false);
 
+  // ── Desktop cache: instant load from SQLite, then sync from network ──
+  React.useEffect(() => {
+    if (!isDesktop) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const store = await getCacheStore();
+        const [cachedContacts, cachedDeals] = await Promise.all([
+          store.getAllContacts(),
+          store.getAllDeals(),
+        ]);
+        if (cancelled) return;
+        // Validate cached data has required fields before using
+        const validContacts = cachedContacts.filter(
+          (c): c is Contact & Record<string, unknown> =>
+            typeof c.id === "string" && typeof (c as Record<string, unknown>).name === "string"
+        ) as unknown as Contact[];
+        if (validContacts.length > 0) {
+          setContacts(validContacts);
+          setTotalContacts(validContacts.length);
+          setLoading(false);
+        }
+        const validDeals = cachedDeals.filter(
+          (d): d is Deal & Record<string, unknown> =>
+            typeof d.id === "string" && typeof (d as Record<string, unknown>).deal_name === "string"
+        ) as unknown as Deal[];
+        if (validDeals.length > 0) {
+          setDeals(validDeals);
+        }
+      } catch {
+        // Cache read failed — network fetch will handle it
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   const fetchData = React.useCallback(async () => {
     try {
       const [contactsRes, stagesRes, dealsRes] = await Promise.all([
@@ -77,8 +116,15 @@ export default function ContactsPage() {
       ]);
       if (contactsRes.ok) {
         const data = await contactsRes.json();
-        setContacts(data.contacts ?? []);
+        const fetchedContacts = data.contacts ?? [];
+        setContacts(fetchedContacts);
         setTotalContacts(data.total ?? 0);
+        // Write to desktop cache for next instant load
+        if (isDesktop) {
+          getCacheStore()
+            .then((store) => store.storeContacts(fetchedContacts as unknown as import("@/lib/cache").ContactRecord[]))
+            .catch((err) => console.error("[desktop-cache] Failed to write contacts:", err));
+        }
       }
       if (stagesRes.ok) {
         const { stages } = await stagesRes.json();
@@ -86,7 +132,13 @@ export default function ContactsPage() {
       }
       if (dealsRes.ok) {
         const data = await dealsRes.json();
-        setDeals(data.deals ?? []);
+        const fetchedDeals = data.deals ?? [];
+        setDeals(fetchedDeals);
+        if (isDesktop) {
+          getCacheStore()
+            .then((store) => store.storeDeals(fetchedDeals as unknown as import("@/lib/cache").DealRecord[]))
+            .catch((err) => console.error("[desktop-cache] Failed to write deals:", err));
+        }
       }
     } finally {
       setLoading(false);
@@ -121,6 +173,46 @@ export default function ContactsPage() {
       .then((data) => setDupeGroups(data.groups ?? []))
       .catch(() => {});
   }, [fetchData]);
+
+  // ── Realtime: update contacts/deals in-place when changes arrive via Supabase ──
+  useCrmRealtime({
+    onContactChange: React.useCallback(({ eventType, new: newContact, old: oldContact }: { eventType: string; new: Partial<Contact>; old: { id: string } }) => {
+      if (eventType === "DELETE") {
+        setContacts((prev) => prev.filter((c) => c.id !== oldContact.id));
+      } else {
+        setContacts((prev) => {
+          const idx = prev.findIndex((c) => c.id === (newContact.id ?? oldContact.id));
+          if (idx >= 0) {
+            const updated = [...prev];
+            updated[idx] = { ...updated[idx], ...newContact };
+            return updated;
+          }
+          if (eventType === "INSERT" && newContact.id) {
+            return [...prev, newContact as Contact];
+          }
+          return prev;
+        });
+      }
+    }, []),
+    onDealChange: React.useCallback(({ eventType, new: newDeal, old: oldDeal }: { eventType: string; new: Partial<Deal>; old: { id: string } }) => {
+      if (eventType === "DELETE") {
+        setDeals((prev) => prev.filter((d) => d.id !== oldDeal.id));
+      } else {
+        setDeals((prev) => {
+          const idx = prev.findIndex((d) => d.id === (newDeal.id ?? oldDeal.id));
+          if (idx >= 0) {
+            const updated = [...prev];
+            updated[idx] = { ...updated[idx], ...newDeal };
+            return updated;
+          }
+          if (eventType === "INSERT" && newDeal.id) {
+            return [...prev, newDeal as Deal];
+          }
+          return prev;
+        });
+      }
+    }, []),
+  });
 
   // Deal counts per contact
   const dealCountMap = React.useMemo(() => {
