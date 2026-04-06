@@ -14,19 +14,20 @@ import type { KeyStore } from "./types";
 
 export type { KeyStore, KeyHandle } from "./types";
 
-let _instance: KeyStore | null = null;
+let _promise: Promise<KeyStore> | null = null;
 
-/** Get the keystore for the current platform. Cached after first call. */
-export async function getKeyStore(): Promise<KeyStore> {
-  if (_instance) return _instance;
+/** Get the keystore for the current platform. Concurrent-safe singleton. */
+export function getKeyStore(): Promise<KeyStore> {
+  if (_promise) return _promise;
 
-  if (isDesktop) {
-    const { tauriKeyStore } = await import("./tauri-keystore");
-    _instance = tauriKeyStore;
-  } else {
+  _promise = (async () => {
+    if (isDesktop) {
+      const { tauriKeyStore } = await import("./tauri-keystore");
+      return tauriKeyStore;
+    }
     const { browserKeyStore } = await import("./browser-keystore");
-    _instance = browserKeyStore;
-  }
+    return browserKeyStore;
+  })();
 
-  return _instance;
+  return _promise;
 }

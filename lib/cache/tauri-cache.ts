@@ -22,15 +22,7 @@ import type {
   MessageRecord,
   EmailThreadRecord,
 } from "./types";
-
-/** Call a Tauri command via the global __TAURI__ object. */
-async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const tauri = window.__TAURI__;
-  if (!tauri?.core?.invoke) {
-    throw new Error("Tauri runtime not available");
-  }
-  return tauri.core.invoke(cmd, args) as Promise<T>;
-}
+import { invoke } from "../platform/tauri-invoke";
 
 let initialized = false;
 
@@ -53,9 +45,17 @@ export const tauriCacheStore: CacheStore = {
 
     if (!entry) return null;
 
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(entry.data);
+    } catch {
+      // Corrupted cache entry — treat as miss
+      return null;
+    }
+
     const age = Date.now() - entry.timestamp;
     return {
-      data: JSON.parse(entry.data),
+      data: parsed,
       timestamp: entry.timestamp,
       isStale: age > maxAgeMs,
     };
@@ -130,7 +130,12 @@ export const tauriCacheStore: CacheStore = {
   async getDeal(id: string): Promise<DealRecord | null> {
     await init();
     const data = await invoke<string | null>("cache_get_deal", { id });
-    return data ? (JSON.parse(data) as DealRecord) : null;
+    if (!data) return null;
+    try {
+      return JSON.parse(data) as DealRecord;
+    } catch {
+      return null;
+    }
   },
 
   async getAllDeals(): Promise<DealRecord[]> {

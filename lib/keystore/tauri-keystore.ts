@@ -17,18 +17,10 @@
 "use client";
 
 import type { KeyStore, KeyHandle } from "./types";
+import { invoke } from "../platform/tauri-invoke";
 
 const IV_LENGTH = 12;
 const SERVICE_NAME = "supracrm";
-
-/** Call a Tauri command via the global __TAURI__ object. */
-async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const tauri = window.__TAURI__;
-  if (!tauri?.core?.invoke) {
-    throw new Error("Tauri runtime not available");
-  }
-  return tauri.core.invoke(cmd, args) as Promise<T>;
-}
 
 function toBase64(bytes: Uint8Array): string {
   let binary = "";
@@ -55,10 +47,14 @@ async function importKey(raw: Uint8Array): Promise<CryptoKey> {
 }
 
 export const tauriKeyStore: KeyStore = {
-  async setKey(id: string, key: KeyHandle): Promise<void> {
-    const raw = await crypto.subtle.exportKey("raw", key);
-    const b64 = toBase64(new Uint8Array(raw));
-    await invoke("keystore_set", { service: SERVICE_NAME, key: id, value: b64 });
+  async setKey(_id: string, _key: KeyHandle): Promise<void> {
+    // On Tauri, keys are generated via generateKey() which creates them in Rust
+    // and stores directly in the OS keychain. setKey() with an existing CryptoKey
+    // is not supported because browser-generated keys are non-extractable.
+    // Use generateKey() instead.
+    throw new Error(
+      "tauriKeyStore.setKey() is not supported. Use generateKey() to create and store keys."
+    );
   },
 
   async getKey(id: string): Promise<KeyHandle | null> {
@@ -76,16 +72,22 @@ export const tauriKeyStore: KeyStore = {
   },
 
   async clearAll(): Promise<void> {
-    await invoke("keystore_clear", { service: SERVICE_NAME });
+    // Collect all known key IDs to delete from keychain.
+    // Key IDs follow the pattern "tg-session-key-{userId}".
+    const allKeys = await invoke<string[]>("keystore_list_keys", {
+      service: SERVICE_NAME,
+    }).catch(() => [] as string[]);
+    await invoke("keystore_clear", { service: SERVICE_NAME, keyIds: allKeys });
   },
 
   async generateKey(id: string): Promise<KeyHandle> {
-    // Generate 256-bit random key material
-    const raw = crypto.getRandomValues(new Uint8Array(32));
-    const b64 = toBase64(raw);
-
-    // Store raw bytes in OS keychain
-    await invoke("keystore_set", { service: SERVICE_NAME, key: id, value: b64 });
+    // Generate key material in Rust — key bytes never exist as a JS string
+    // that can't be zeroed. Rust generates, stores in OS keychain, returns base64.
+    const b64 = await invoke<string>("keystore_generate", {
+      service: SERVICE_NAME,
+      key: id,
+    });
+    const raw = fromBase64(b64);
 
     // Import into WebCrypto as non-extractable for use in encrypt/decrypt
     return importKey(raw);

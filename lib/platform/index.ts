@@ -5,6 +5,8 @@
  * All platform-specific behavior should branch on these helpers — never on user-agent sniffing.
  */
 
+"use client";
+
 /** True when running inside the Tauri desktop shell. */
 export const isDesktop: boolean =
   typeof window !== "undefined" && "__TAURI__" in window;
@@ -30,13 +32,12 @@ export async function getPlatform(): Promise<Platform> {
     return _platform;
   }
 
-  // Use the Tauri global injected by withGlobalTauri: true
-  // rather than importing @tauri-apps/plugin-os (which breaks Next.js bundling)
+  // Tauri v2 OS plugin exposes platform() which may be sync or async depending
+  // on the plugin version. Use the invoke helper to call the Rust command directly
+  // which is always reliable.
   try {
-    const tauriOs = window.__TAURI__?.os as
-      | { platform?: () => string }
-      | undefined;
-    const os = tauriOs?.platform?.();
+    const { invoke } = await import("./tauri-invoke");
+    const os = await invoke<string>("plugin:os|platform");
     if (os === "macos") _platform = "macos";
     else if (os === "windows") _platform = "windows";
     else if (os === "linux") _platform = "linux";

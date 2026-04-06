@@ -82,13 +82,22 @@ export default function ContactsPage() {
           store.getAllDeals(),
         ]);
         if (cancelled) return;
-        if (cachedContacts.length > 0) {
-          setContacts(cachedContacts as unknown as Contact[]);
-          setTotalContacts(cachedContacts.length);
+        // Validate cached data has required fields before using
+        const validContacts = cachedContacts.filter(
+          (c): c is Contact & Record<string, unknown> =>
+            typeof c.id === "string" && typeof (c as Record<string, unknown>).name === "string"
+        ) as unknown as Contact[];
+        if (validContacts.length > 0) {
+          setContacts(validContacts);
+          setTotalContacts(validContacts.length);
           setLoading(false);
         }
-        if (cachedDeals.length > 0) {
-          setDeals(cachedDeals as unknown as Deal[]);
+        const validDeals = cachedDeals.filter(
+          (d): d is Deal & Record<string, unknown> =>
+            typeof d.id === "string" && typeof (d as Record<string, unknown>).deal_name === "string"
+        ) as unknown as Deal[];
+        if (validDeals.length > 0) {
+          setDeals(validDeals);
         }
       } catch {
         // Cache read failed — network fetch will handle it
@@ -113,7 +122,7 @@ export default function ContactsPage() {
         if (isDesktop) {
           getCacheStore()
             .then((store) => store.storeContacts(fetchedContacts as unknown as import("@/lib/cache").ContactRecord[]))
-            .catch(() => {});
+            .catch((err) => console.error("[desktop-cache] Failed to write contacts:", err));
         }
       }
       if (stagesRes.ok) {
@@ -127,7 +136,7 @@ export default function ContactsPage() {
         if (isDesktop) {
           getCacheStore()
             .then((store) => store.storeDeals(fetchedDeals as unknown as import("@/lib/cache").DealRecord[]))
-            .catch(() => {});
+            .catch((err) => console.error("[desktop-cache] Failed to write deals:", err));
         }
       }
     } finally {

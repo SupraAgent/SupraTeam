@@ -3,18 +3,18 @@ mod keystore;
 mod notifications;
 
 use cache::DbState;
-use std::sync::Mutex;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .manage(DbState(Mutex::new(None)))
+        .manage(DbState::new())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
             // Keystore
+            keystore::keystore_generate,
             keystore::keystore_set,
             keystore::keystore_get,
             keystore::keystore_delete,

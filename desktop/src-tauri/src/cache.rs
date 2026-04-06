@@ -9,7 +9,13 @@ use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use tauri::{command, State};
 
-pub struct DbState(pub Mutex<Option<Connection>>);
+pub struct DbState(Mutex<Option<Connection>>);
+
+impl DbState {
+    pub fn new() -> Self {
+        DbState(Mutex::new(None))
+    }
+}
 
 fn get_conn(state: &State<DbState>) -> Result<std::sync::MutexGuard<'_, Option<Connection>>, String> {
     state.0.lock().map_err(|e| e.to_string())
@@ -17,6 +23,10 @@ fn get_conn(state: &State<DbState>) -> Result<std::sync::MutexGuard<'_, Option<C
 
 fn conn_ref(guard: &Option<Connection>) -> Result<&Connection, String> {
     guard.as_ref().ok_or_else(|| "Database not initialized".to_string())
+}
+
+fn conn_mut(guard: &mut Option<Connection>) -> Result<&mut Connection, String> {
+    guard.as_mut().ok_or_else(|| "Database not initialized".to_string())
 }
 
 /// Initialize SQLite tables. Idempotent.
@@ -244,9 +254,9 @@ pub fn cache_store_deal(state: State<DbState>, id: String, data: String) -> Resu
 
 #[command]
 pub fn cache_store_deals(state: State<DbState>, deals: Vec<DealInput>) -> Result<(), String> {
-    let guard = get_conn(&state)?;
-    let conn = conn_ref(&guard)?;
-    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    let mut guard = get_conn(&state)?;
+    let conn = conn_mut(&mut guard)?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
     for deal in deals {
         tx.execute(
             "INSERT OR REPLACE INTO deals (id, data) VALUES (?1, ?2)",
@@ -310,9 +320,9 @@ pub fn cache_store_contacts(
     state: State<DbState>,
     contacts: Vec<ContactInput>,
 ) -> Result<(), String> {
-    let guard = get_conn(&state)?;
-    let conn = conn_ref(&guard)?;
-    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    let mut guard = get_conn(&state)?;
+    let conn = conn_mut(&mut guard)?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
     for contact in contacts {
         tx.execute(
             "INSERT OR REPLACE INTO contacts (id, data) VALUES (?1, ?2)",
@@ -357,9 +367,9 @@ pub fn cache_store_messages(
     chat_id: String,
     messages: Vec<MessageInput>,
 ) -> Result<(), String> {
-    let guard = get_conn(&state)?;
-    let conn = conn_ref(&guard)?;
-    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    let mut guard = get_conn(&state)?;
+    let conn = conn_mut(&mut guard)?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
     for msg in messages {
         tx.execute(
             "INSERT OR REPLACE INTO messages (id, chat_id, text, date, data) VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -410,9 +420,9 @@ pub fn cache_store_email_threads(
     folder: String,
     threads: Vec<EmailThreadInput>,
 ) -> Result<(), String> {
-    let guard = get_conn(&state)?;
-    let conn = conn_ref(&guard)?;
-    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    let mut guard = get_conn(&state)?;
+    let conn = conn_mut(&mut guard)?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
     for thread in threads {
         tx.execute(
             "INSERT OR REPLACE INTO email_threads (id, folder, subject, snippet, date, data) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",

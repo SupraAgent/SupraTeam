@@ -11,8 +11,6 @@ use tauri_plugin_notification::NotificationExt;
 pub struct NotificationPayload {
     pub title: String,
     pub body: String,
-    /// Optional: "telegram", "email", "deal", "system"
-    pub channel: Option<String>,
 }
 
 /// Send a native OS notification.

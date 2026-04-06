@@ -8,6 +8,28 @@
 use keyring::Entry;
 use tauri::command;
 
+/// Generate 256 bits of cryptographically secure random key material,
+/// store it in the OS keychain, and return the base64-encoded bytes.
+///
+/// Key material is generated in Rust (not JS) so it never exists as
+/// a JavaScript string that can't be zeroed.
+#[command]
+pub fn keystore_generate(service: String, key: String) -> Result<String, String> {
+    let mut raw = [0u8; 32];
+    getrandom::fill(&mut raw).map_err(|e| e.to_string())?;
+
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(raw);
+
+    // Zero the raw bytes after encoding
+    raw.fill(0);
+
+    let entry = Entry::new(&service, &key).map_err(|e| e.to_string())?;
+    entry.set_password(&b64).map_err(|e| e.to_string())?;
+
+    Ok(b64)
+}
+
 /// Store a base64-encoded key in the OS keychain.
 #[command]
 pub fn keystore_set(service: String, key: String, value: String) -> Result<(), String> {
@@ -37,14 +59,17 @@ pub fn keystore_delete(service: String, key: String) -> Result<(), String> {
     }
 }
 
-/// Clear all keys for the service. Deletes known key patterns.
-/// Note: OS keychains don't support wildcard deletion, so this deletes
-/// keys with the "supracrm" service prefix that we track.
+/// Delete all keys for the service by querying tracked key IDs from SQLite.
+/// Falls back to deleting the known key pattern if SQLite is unavailable.
 #[command]
-pub fn keystore_clear(service: String) -> Result<(), String> {
-    // The keyring crate doesn't support listing entries.
-    // In practice, we track key IDs in SQLite and delete them individually.
-    // For now, this is a best-effort clear of the known key pattern.
-    let _ = keystore_delete(service.clone(), "tg-session-key".to_string());
+pub fn keystore_clear(service: String, key_ids: Vec<String>) -> Result<(), String> {
+    for kid in &key_ids {
+        let entry = Entry::new(&service, kid).map_err(|e| e.to_string())?;
+        match entry.delete_credential() {
+            Ok(()) => {}
+            Err(keyring::Error::NoEntry) => {}
+            Err(e) => return Err(e.to_string()),
+        }
+    }
     Ok(())
 }

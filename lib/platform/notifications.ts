@@ -12,21 +12,11 @@
 "use client";
 
 import { isDesktop } from "./index";
+import { invoke } from "./tauri-invoke";
 
 interface NotifyOptions {
   title: string;
   body: string;
-  /** Category: "telegram" | "email" | "deal" | "system" */
-  channel?: string;
-}
-
-/** Call a Tauri command via the global __TAURI__ object. */
-async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const tauri = window.__TAURI__;
-  if (!tauri?.core?.invoke) {
-    throw new Error("Tauri runtime not available");
-  }
-  return tauri.core.invoke(cmd, args) as Promise<T>;
 }
 
 /** Send a notification using the best available method for the current platform. */
@@ -36,7 +26,6 @@ export async function notify(options: NotifyOptions): Promise<void> {
       payload: {
         title: options.title,
         body: options.body,
-        channel: options.channel ?? null,
       },
     });
     return;

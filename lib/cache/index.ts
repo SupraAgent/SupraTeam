@@ -22,19 +22,20 @@ export type {
   EmailThreadRecord,
 } from "./types";
 
-let _instance: CacheStore | null = null;
+let _promise: Promise<CacheStore> | null = null;
 
-/** Get the cache store for the current platform. Cached after first call. */
-export async function getCacheStore(): Promise<CacheStore> {
-  if (_instance) return _instance;
+/** Get the cache store for the current platform. Concurrent-safe singleton. */
+export function getCacheStore(): Promise<CacheStore> {
+  if (_promise) return _promise;
 
-  if (isDesktop) {
-    const { tauriCacheStore } = await import("./tauri-cache");
-    _instance = tauriCacheStore;
-  } else {
+  _promise = (async () => {
+    if (isDesktop) {
+      const { tauriCacheStore } = await import("./tauri-cache");
+      return tauriCacheStore;
+    }
     const { browserCacheStore } = await import("./browser-cache");
-    _instance = browserCacheStore;
-  }
+    return browserCacheStore;
+  })();
 
-  return _instance;
+  return _promise;
 }

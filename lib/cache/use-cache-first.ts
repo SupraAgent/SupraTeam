@@ -1,8 +1,8 @@
 /**
  * Cache-first data loading hook.
  *
- * Pattern: load from local cache instantly → render → fetch from network
- * in background → update state + cache. On web, the cache is IndexedDB
+ * Pattern: load from local cache instantly -> render -> fetch from network
+ * in background -> update state + cache. On web, the cache is IndexedDB
  * (limited). On desktop, it's SQLite (fast, durable, unlimited).
  *
  * This gives desktop users instant page loads while keeping the web
@@ -59,14 +59,14 @@ export function useCacheFirst<T>({
   readCacheRef.current = readCache;
   writeCacheRef.current = writeCache;
 
-  const mountedRef = React.useRef(true);
-  React.useEffect(() => {
-    mountedRef.current = true;
-    return () => { mountedRef.current = false; };
-  }, []);
+  // AbortController to cancel in-flight network fetches on re-render or unmount
+  const abortRef = React.useRef<AbortController | null>(null);
 
   const loadData = React.useCallback(async () => {
-    if (!mountedRef.current) return;
+    // Cancel any prior in-flight fetch
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     // Step 1: Try loading from cache (desktop gets instant data)
     if (shouldCache) {
@@ -74,7 +74,7 @@ export function useCacheFirst<T>({
         const { getCacheStore } = await import("./index");
         const store = await getCacheStore();
         const cached = await readCacheRef.current(store);
-        if (cached !== null && mountedRef.current) {
+        if (cached !== null && !controller.signal.aborted) {
           setData(cached);
           setLoading(false);
           setIsStale(true); // Mark as stale — network fetch will refresh
@@ -85,9 +85,10 @@ export function useCacheFirst<T>({
     }
 
     // Step 2: Fetch fresh data from network
+    if (controller.signal.aborted) return;
     try {
       const fresh = await fetchFnRef.current();
-      if (!mountedRef.current) return;
+      if (controller.signal.aborted) return;
 
       setData(fresh);
       setLoading(false);
@@ -105,14 +106,19 @@ export function useCacheFirst<T>({
       }
     } catch {
       // Network failed — if we had cached data, keep showing it
-      if (mountedRef.current) {
+      if (!controller.signal.aborted) {
         setLoading(false);
       }
     }
+  // shouldCache is derived from isDesktop (module constant), safe as dep
+  // cacheKey changes should trigger a reload with the new cache bucket
   }, [shouldCache, cacheKey]);
 
   React.useEffect(() => {
     loadData();
+    return () => {
+      abortRef.current?.abort();
+    };
   }, [loadData]);
 
   const refresh = React.useCallback(async () => {
