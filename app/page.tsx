@@ -7,7 +7,7 @@ import {
   MessageCircle, GitBranch, ExternalLink, UserPlus, Bell,
   AlertTriangle, Clock, TrendingUp, Zap, DollarSign, BarChart3, Pin,
   ChevronDown, ChevronRight, Radio, Send, Activity, Shield, Workflow,
-  Globe, ArrowRight, Video, Calendar, Users, Link2,
+  Globe, ArrowRight, Video, Calendar, Users, Link2, Mail,
 } from "lucide-react";
 import { SetupChecklist } from "@/components/onboarding/setup-checklist";
 import { LinkConversationWizard } from "@/components/onboarding/link-conversation-wizard";
@@ -116,7 +116,8 @@ export default function HomePage() {
   const [showLinkWizard, setShowLinkWizard] = React.useState(false);
 
   const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>({});
-  const [teamActivity, setTeamActivity] = React.useState<{ id: string; display_name: string; avatar_url: string | null; deals_moved: number; deals_created: number; notes_added: number; total_activities: number; last_activity_at: string | null; key_deals: { deal_name: string; stage_name: string; value: number | null }[] }[]>([]);
+  const [teamActivity, setTeamActivity] = React.useState<{ id: string; display_name: string; avatar_url: string | null; deals_moved: number; deals_created: number; notes_added: number; messages_sent: number; avg_response_ms: number | null; total_activities: number; last_activity_at: string | null; key_deals: { deal_name: string; stage_name: string; value: number | null }[] }[]>([]);
+  const [emailUrgency, setEmailUrgency] = React.useState<{ id: string; subject: string; from: string; snippet: string; received_at: string; urgency: string; urgency_score: number; reason: string; deal_name: string | null; deal_id: string | null }[]>([]);
   React.useEffect(() => {
     try {
       const stored = localStorage.getItem("dashboard_collapsed");
@@ -145,8 +146,9 @@ export default function HomePage() {
       fetch(`/api/dashboard/extras`, { signal }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
       fetch("/api/dashboard/activity?limit=30", { signal }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
       fetch("/api/stats/team/activity?hours=24", { signal }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      fetch("/api/email/urgency?limit=8", { signal }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
     ])
-      .then(([statsData, reminderData, analyticsData, highlightsData, extrasData, activityData, teamData]) => {
+      .then(([statsData, reminderData, analyticsData, highlightsData, extrasData, activityData, teamData, emailData]) => {
         if (signal.aborted) return;
         if (statsData) setStats(statsData);
         if (reminderData) setReminders(reminderData.reminders ?? []);
@@ -155,6 +157,7 @@ export default function HomePage() {
         if (extrasData) setExtras(extrasData);
         if (activityData) setActivityFeed(activityData.events ?? []);
         if (teamData) setTeamActivity(teamData.team ?? []);
+        if (emailData) setEmailUrgency(emailData.threads ?? []);
         setLastUpdated(new Date());
       })
       .catch(() => { /* aborted or network error */ })
@@ -750,6 +753,33 @@ export default function HomePage() {
         </Widget>
       )}
 
+      {/* ========== EMAIL URGENCY ========== */}
+      {emailUrgency.length > 0 && (
+        <Widget title="Email — Needs Attention" icon={Mail} iconColor="text-amber-400" subtitle={`${emailUrgency.length} thread${emailUrgency.length !== 1 ? "s" : ""}`} collapsible isCollapsed={collapsed["email_urgency"]} onToggle={() => toggleCollapse("email_urgency")}>
+          {emailUrgency.slice(0, 6).map((t) => {
+            const urgencyColors: Record<string, string> = { critical: "bg-red-400", high: "bg-orange-400", medium: "bg-yellow-400", low: "bg-white/20" };
+            return (
+              <Link key={t.id} href={`/email?thread=${t.id}`} className="flex items-start gap-2.5 py-2 border-b border-white/5 last:border-0 hover:bg-white/[0.02] rounded-lg px-1 -mx-1 transition">
+                <div className="mt-1.5 shrink-0">
+                  <span className={cn("block h-2 w-2 rounded-full", urgencyColors[t.urgency] ?? "bg-white/20")} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-foreground truncate">{t.subject}</span>
+                    {t.deal_name && (
+                      <span className="text-[9px] bg-primary/20 text-primary rounded px-1.5 py-0.5 shrink-0">{t.deal_name}</span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground truncate">{t.from}</p>
+                  <p className="text-[10px] text-muted-foreground/60 mt-0.5 italic truncate">{t.reason}</p>
+                </div>
+                <span className="text-[10px] text-muted-foreground/50 shrink-0 mt-0.5">{timeAgo(t.received_at)}</span>
+              </Link>
+            );
+          })}
+        </Widget>
+      )}
+
       {/* ========== TOP STAT CARDS — blended TG + Pipeline ========== */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <StatCard
@@ -1130,6 +1160,12 @@ export default function HomePage() {
                       {rep.deals_moved > 0 && <span className="text-[10px] text-purple-400">{rep.deals_moved} moved</span>}
                       {rep.deals_created > 0 && <span className="text-[10px] text-green-400">{rep.deals_created} created</span>}
                       {rep.notes_added > 0 && <span className="text-[10px] text-amber-400">{rep.notes_added} note{rep.notes_added !== 1 ? "s" : ""}</span>}
+                      {rep.messages_sent > 0 && <span className="text-[10px] text-blue-400">{rep.messages_sent} msg{rep.messages_sent !== 1 ? "s" : ""}</span>}
+                      {rep.avg_response_ms != null && (
+                        <span className={cn("text-[10px]", rep.avg_response_ms < 3600000 ? "text-green-400" : rep.avg_response_ms < 7200000 ? "text-yellow-400" : "text-red-400")}>
+                          avg {rep.avg_response_ms < 3600000 ? `${Math.round(rep.avg_response_ms / 60000)}m` : `${(rep.avg_response_ms / 3600000).toFixed(1)}h`} reply
+                        </span>
+                      )}
                     </div>
                     {rep.key_deals.length > 0 && (
                       <div className="mt-1 flex flex-wrap gap-1">

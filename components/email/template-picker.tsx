@@ -3,6 +3,40 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import type { EmailTemplate } from "@/lib/email/types";
+import { toast } from "sonner";
+
+const BD_EMAIL_STARTERS: { name: string; subject: string; body: string; variables: string[] }[] = [
+  {
+    name: "Partnership Intro",
+    subject: "Partnership Opportunity — {{company_name}}",
+    body: "Hi {{contact_name}},\n\nI'm reaching out from {{our_company}} regarding a potential partnership with {{company_name}}.\n\nWe've been following your work in the space and believe there's strong alignment between our ecosystems. I'd love to explore how we can collaborate.\n\nWould you have 20 minutes this week for an intro call?\n\nBest,\n{{sender_name}}",
+    variables: ["contact_name", "company_name", "our_company", "sender_name"],
+  },
+  {
+    name: "Follow-Up — No Reply",
+    subject: "Re: Partnership Opportunity — {{company_name}}",
+    body: "Hi {{contact_name}},\n\nJust following up on my previous message. I understand things get busy — wanted to bump this in case it got buried.\n\nHappy to work around your schedule if there's interest in connecting.\n\nBest,\n{{sender_name}}",
+    variables: ["contact_name", "company_name", "sender_name"],
+  },
+  {
+    name: "Meeting Confirmation",
+    subject: "Confirmed: {{meeting_topic}} — {{date}}",
+    body: "Hi {{contact_name}},\n\nConfirming our call on {{date}} at {{time}}.\n\nAgenda:\n- Intro & ecosystem overview\n- Integration discussion\n- Next steps\n\nMeeting link: {{meeting_link}}\n\nLooking forward to it.\n\nBest,\n{{sender_name}}",
+    variables: ["contact_name", "meeting_topic", "date", "time", "meeting_link", "sender_name"],
+  },
+  {
+    name: "Post-Call Summary",
+    subject: "Summary: {{meeting_topic}} — Next Steps",
+    body: "Hi {{contact_name}},\n\nGreat connecting today. Here's a quick recap:\n\n**Discussed:**\n- {{summary_point_1}}\n- {{summary_point_2}}\n\n**Next Steps:**\n- {{action_item_1}}\n- {{action_item_2}}\n\nLet me know if I missed anything. Happy to keep the momentum going.\n\nBest,\n{{sender_name}}",
+    variables: ["contact_name", "meeting_topic", "summary_point_1", "summary_point_2", "action_item_1", "action_item_2", "sender_name"],
+  },
+  {
+    name: "Proposal / Integration Brief",
+    subject: "Integration Proposal: {{our_company}} x {{company_name}}",
+    body: "Hi {{contact_name}},\n\nFollowing our conversation, I've put together a brief integration proposal.\n\n**Overview:** {{integration_summary}}\n\n**Timeline:** {{timeline}}\n\n**Resources Needed:** {{resources}}\n\nI've attached the full brief for your team's review. Happy to jump on a call to walk through any questions.\n\nBest,\n{{sender_name}}",
+    variables: ["contact_name", "company_name", "our_company", "integration_summary", "timeline", "resources", "sender_name"],
+  },
+];
 
 type TemplatePickerProps = {
   open: boolean;
@@ -88,9 +122,35 @@ export function TemplatePicker({ open, onClose, onSelect }: TemplatePickerProps)
                 {templates.length === 0 ? "No templates yet" : `No match for "${query}"`}
               </p>
               {templates.length === 0 && (
-                <p className="text-[10px] text-muted-foreground/50 mt-1">
-                  Create templates in Settings &gt; Email
-                </p>
+                <>
+                  <p className="text-[10px] text-muted-foreground/50 mt-1">
+                    Create templates in Settings &gt; Email
+                  </p>
+                  <button
+                    className="mt-3 text-xs text-primary hover:text-primary/80 font-medium"
+                    onClick={async () => {
+                      setLoading(true);
+                      try {
+                        for (const t of BD_EMAIL_STARTERS) {
+                          await fetch("/api/email/templates", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ name: t.name, subject: t.subject, body: t.body, variables: t.variables, board_type: "BD" }),
+                          });
+                        }
+                        const res = await fetch("/api/email/templates");
+                        if (res.ok) { const json = await res.json(); setTemplates(json.data ?? []); }
+                        toast.success(`Loaded ${BD_EMAIL_STARTERS.length} BD email templates`);
+                      } catch {
+                        toast.error("Failed to load templates");
+                      } finally {
+                        setLoading(false);
+                      }
+                    }}
+                  >
+                    Load BD Starter Templates
+                  </button>
+                </>
               )}
             </div>
           ) : (

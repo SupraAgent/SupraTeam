@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, Flame, ChevronRight, Zap, WifiOff, Plus, Users, MessageSquare } from "lucide-react";
+import { AlertTriangle, Flame, ChevronRight, Zap, WifiOff, Plus, Users, MessageSquare, Activity } from "lucide-react";
 import { BottomTabBar } from "@/components/tma/bottom-tab-bar";
 import { PullToRefresh } from "@/components/tma/pull-to-refresh";
 import { useTelegramWebApp } from "@/components/tma/use-telegram";
@@ -47,11 +47,24 @@ type Group = {
   last_message_at: string | null;
 };
 
+type RepActivity = {
+  id: string;
+  display_name: string;
+  avatar_url: string | null;
+  deals_moved: number;
+  deals_created: number;
+  notes_added: number;
+  messages_sent: number;
+  avg_response_ms: number | null;
+  total_activities: number;
+};
+
 export default function TMAHomePage() {
   const [deals, setDeals] = React.useState<Deal[]>([]);
   const [stats, setStats] = React.useState<Stats | null>(null);
   const [groups, setGroups] = React.useState<Group[]>([]);
   const [urgentHighlights, setUrgentHighlights] = React.useState<Highlight[]>([]);
+  const [teamActivity, setTeamActivity] = React.useState<RepActivity[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [fromCache, setFromCache] = React.useState<false | "cache" | "stale">(false);
 
@@ -76,11 +89,12 @@ export default function TMAHomePage() {
 
     // Fetch fresh data from network
     try {
-      const [dealsData, statsData, groupsData, highlightsData] = await Promise.all([
+      const [dealsData, statsData, groupsData, highlightsData, teamData] = await Promise.all([
         fetch("/api/deals").then((r) => r.ok ? r.json() : { deals: [] }).catch(() => ({ deals: [] })),
         fetch("/api/stats").then((r) => r.ok ? r.json() : null).catch(() => null),
         fetch("/api/groups").then((r) => r.ok ? r.json() : { groups: [] }).catch(() => ({ groups: [] })),
         fetch("/api/highlights").then((r) => r.ok ? r.json() : { highlights: [] }).catch(() => ({ highlights: [] })),
+        fetch("/api/stats/team/activity?hours=24").then((r) => r.ok ? r.json() : null).catch(() => null),
       ]);
 
       const parsedDeals: Deal[] = dealsData.deals ?? [];
@@ -111,6 +125,7 @@ export default function TMAHomePage() {
       setDeals(parsedDeals);
       setStats(parsedStats);
       setGroups(parsedGroups);
+      if (teamData?.team) setTeamActivity(teamData.team);
       setFromCache(false);
 
       // Cache the fresh data
@@ -322,6 +337,54 @@ export default function TMAHomePage() {
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Team Activity — managers only (API returns empty for non-leads) */}
+      {teamActivity.length > 0 && (
+        <div className="px-4 mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+              <Activity className="h-3 w-3" /> Team (24h)
+            </p>
+            <span className="text-[10px] text-muted-foreground">{teamActivity.length} rep{teamActivity.length !== 1 ? "s" : ""}</span>
+          </div>
+          <div className="space-y-1.5">
+            {teamActivity.slice(0, 6).map((rep) => (
+              <div
+                key={rep.id}
+                className="flex items-center gap-2.5 rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2.5"
+              >
+                <div className="h-7 w-7 rounded-full bg-white/10 flex items-center justify-center shrink-0 text-[11px] font-medium text-foreground overflow-hidden">
+                  {rep.avatar_url ? (
+                    <img src={rep.avatar_url} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    rep.display_name.charAt(0).toUpperCase()
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-foreground truncate">{rep.display_name}</p>
+                  <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                    {rep.deals_moved > 0 && <span className="text-[9px] text-purple-400">{rep.deals_moved} moved</span>}
+                    {rep.deals_created > 0 && <span className="text-[9px] text-green-400">{rep.deals_created} new</span>}
+                    {rep.messages_sent > 0 && <span className="text-[9px] text-blue-400">{rep.messages_sent} msg</span>}
+                    {rep.notes_added > 0 && <span className="text-[9px] text-amber-400">{rep.notes_added} note{rep.notes_added !== 1 ? "s" : ""}</span>}
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <span className="text-[10px] text-muted-foreground">{rep.total_activities}</span>
+                  {rep.avg_response_ms != null && (
+                    <p className={cn(
+                      "text-[9px]",
+                      rep.avg_response_ms < 3600000 ? "text-green-400" : rep.avg_response_ms < 7200000 ? "text-yellow-400" : "text-red-400"
+                    )}>
+                      {rep.avg_response_ms < 3600000 ? `${Math.round(rep.avg_response_ms / 60000)}m` : `${(rep.avg_response_ms / 3600000).toFixed(1)}h`} avg
+                    </p>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
