@@ -100,6 +100,8 @@ interface Deal {
   probability?: number | null;
   health_score?: number | null;
   ai_summary?: string | null;
+  awaiting_response_since?: string | null;
+  outcome?: string | null;
 }
 
 interface CannedResponse {
@@ -1374,7 +1376,7 @@ export default function InboxPage() {
                           {/* Response time SLA indicator from linked deal */}
                           {(() => {
                             const linkedDeal = chatDeals.find(
-                              (d) => d.awaiting_response_since && (!("outcome" in d) || !(d as Record<string, unknown>).outcome || (d as Record<string, unknown>).outcome === "open")
+                              (d) => d.awaiting_response_since && (!d.outcome || d.outcome === "open")
                             );
                             if (!linkedDeal?.awaiting_response_since) return null;
                             const sla = getResponseTimeSla(linkedDeal.awaiting_response_since);
@@ -1655,23 +1657,59 @@ export default function InboxPage() {
                   </div>
                 )}
 
-                {/* Deal suggestion banner */}
-                {(deals[selChatId] ?? []).length === 0 && (dealSuggestions[selChatId] ?? []).length > 0 && (
-                  <div className="mx-3 mt-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2">
-                    <p className="text-[11px] text-primary/80 mb-1">Link to a deal?</p>
-                    <div className="flex flex-wrap gap-1">
-                      {dealSuggestions[selChatId].map((s) => (
+                {/* Deal suggestion banner — prominent sticky banner */}
+                {(deals[selChatId] ?? []).length === 0
+                  && (dealSuggestions[selChatId] ?? []).length > 0
+                  && !dismissedSuggestions.has(selChatId) && (
+                  <div className="sticky top-0 z-10 border-b border-amber-500/20 bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-amber-500/10 px-4 py-2.5 backdrop-blur-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <div className="flex items-center justify-center h-6 w-6 rounded-full bg-amber-500/20 shrink-0">
+                          <Link2 className="h-3.5 w-3.5 text-amber-400" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {dealSuggestions[selChatId].slice(0, 1).map((s) => (
+                              <span key={s.id} className="flex items-center gap-1.5 text-sm font-medium text-foreground truncate">
+                                Link to: <span className="text-amber-300">{s.deal_name}</span>
+                                {s.stage_name && (
+                                  <span className="text-[10px] rounded px-1.5 py-0.5 bg-white/10 text-muted-foreground font-normal">{s.stage_name}</span>
+                                )}
+                              </span>
+                            ))}
+                          </div>
+                          <p className="text-[10px] text-muted-foreground/70 mt-0.5 truncate">
+                            {dealSuggestions[selChatId][0].match_reason}
+                            {dealSuggestions[selChatId].length > 1 && (
+                              <span className="text-primary/60 ml-1">+{dealSuggestions[selChatId].length - 1} more</span>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
                         <button
-                          key={s.id}
-                          onClick={() => quickLinkDeal(s.id)}
-                          className="inline-flex items-center gap-1 rounded-md border border-primary/20 bg-primary/10 px-2 py-1 text-[11px] text-primary hover:bg-primary/20 transition-colors"
-                          title={s.match_reason}
+                          onClick={() => quickLinkDeal(dealSuggestions[selChatId][0].id)}
+                          className="inline-flex items-center gap-1.5 rounded-md bg-amber-500/20 border border-amber-500/30 px-3 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-500/30 hover:border-amber-500/40 transition-colors"
                         >
-                          <Zap className="h-3 w-3 shrink-0" />
-                          {s.deal_name}
-                          {s.stage_name && <span className="text-primary/60">· {s.stage_name}</span>}
+                          <Zap className="h-3 w-3" />
+                          Link
                         </button>
-                      ))}
+                        {dealSuggestions[selChatId].length > 1 && (
+                          <button
+                            onClick={() => setLinkDealModal(true)}
+                            className="inline-flex items-center gap-1 rounded-md bg-white/5 border border-white/10 px-2 py-1.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-white/10 transition-colors"
+                          >
+                            See all
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setDismissedSuggestions((prev) => new Set(prev).add(selChatId))}
+                          className="h-6 w-6 flex items-center justify-center rounded-md text-muted-foreground/50 hover:text-muted-foreground hover:bg-white/5 transition-colors"
+                          title="Dismiss suggestion"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
