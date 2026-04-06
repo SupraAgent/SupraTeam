@@ -154,7 +154,7 @@ export function LinkConversationWizard({ open, onClose, onComplete }: LinkConver
 
   async function fetchStages() {
     try {
-      const res = await fetch("/api/pipeline/stages");
+      const res = await fetch("/api/pipeline");
       if (res.ok) {
         const json = await res.json();
         const stageList: PipelineStage[] = json.stages ?? json.data ?? [];

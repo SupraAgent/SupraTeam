@@ -763,23 +763,27 @@ export default function InboxPage() {
 
   async function bulkTag(tag: string | null, color: string | null) {
     const chatIds = Array.from(selectedChats);
-    const updates = chatIds.map((chatId) => {
+    const promises = chatIds.map((chatId) => {
       const conv = conversations.find((c) => c.chat_id === chatId);
-      if (conv) updateLabel(chatId, conv.group_name, { color_tag: tag, color_tag_color: color });
-      return conv;
+      if (conv) return updateLabel(chatId, conv.group_name, { color_tag: tag, color_tag_color: color });
+      return Promise.resolve();
     });
-    await Promise.allSettled(updates.filter(Boolean));
+    await Promise.allSettled(promises);
+    toast.success(`Tagged ${chatIds.length} conversation${chatIds.length !== 1 ? "s" : ""}`);
     setSelectedChats(new Set());
   }
 
   async function bulkPin() {
     const chatIds = Array.from(selectedChats);
-    const updates = chatIds.map((chatId) => {
+    const promises = chatIds.map((chatId) => {
       const conv = conversations.find((c) => c.chat_id === chatId);
-      if (conv) toggleLabel(chatId, conv.group_name, "is_pinned");
-      return conv;
+      if (conv) {
+        toggleLabel(chatId, conv.group_name, "is_pinned");
+      }
+      return Promise.resolve();
     });
-    await Promise.allSettled(updates.filter(Boolean));
+    await Promise.allSettled(promises);
+    toast.success(`Toggled pin on ${chatIds.length} conversation${chatIds.length !== 1 ? "s" : ""}`);
     setSelectedChats(new Set());
   }
 
@@ -788,17 +792,19 @@ export default function InboxPage() {
     await Promise.allSettled(
       chatIds.map((chatId) => handleStatusChange(chatId, "snoozed", until))
     );
+    toast.success(`Snoozed ${chatIds.length} conversation${chatIds.length !== 1 ? "s" : ""}`);
     setSelectedChats(new Set());
   }
 
   async function bulkArchive() {
     const chatIds = Array.from(selectedChats);
-    const updates = chatIds.map((chatId) => {
+    const promises = chatIds.map((chatId) => {
       const conv = conversations.find((c) => c.chat_id === chatId);
-      if (conv) updateLabel(chatId, conv.group_name, { is_archived: true });
-      return conv;
+      if (conv) return updateLabel(chatId, conv.group_name, { is_archived: true });
+      return Promise.resolve();
     });
-    await Promise.allSettled(updates.filter(Boolean));
+    await Promise.allSettled(promises);
+    toast.success(`Archived ${chatIds.length} conversation${chatIds.length !== 1 ? "s" : ""}`);
     setSelectedChats(new Set());
   }
 
@@ -1335,21 +1341,20 @@ export default function InboxPage() {
                       className="border-b border-white/5"
                     >
                       <div className="flex items-stretch">
-                        <label
+                        <div
                           className="flex items-center justify-center w-7 shrink-0 cursor-pointer hover:bg-white/5 transition-colors"
-                          onClick={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCheckboxToggle(conv.chat_id, convIndex, e.shiftKey);
+                          }}
                         >
                           <input
                             type="checkbox"
                             checked={selectedChats.has(conv.chat_id)}
-                            onChange={() => {/* handled by onClick */}}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleCheckboxToggle(conv.chat_id, convIndex, e.shiftKey);
-                            }}
-                            className="h-3 w-3 rounded border-white/20 bg-transparent accent-primary cursor-pointer"
+                            readOnly
+                            className="h-3 w-3 rounded border-white/20 bg-transparent accent-primary pointer-events-none"
                           />
-                        </label>
+                        </div>
                       <button
                         draggable
                         onDragStart={(e) => {

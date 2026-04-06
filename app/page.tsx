@@ -533,6 +533,25 @@ export default function HomePage() {
         );
       })()}
 
+      {/* ========== LINK CONVERSATION PROMPT ========== */}
+      {showLinkConversationPrompt && (
+        <button
+          onClick={() => setShowLinkWizard(true)}
+          className="w-full rounded-xl border border-primary/15 bg-primary/[0.04] p-4 flex items-center gap-3 hover:bg-primary/[0.07] transition-colors text-left group"
+        >
+          <div className="h-9 w-9 rounded-lg bg-primary/15 flex items-center justify-center shrink-0">
+            <Link2 className="h-4.5 w-4.5 text-primary" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-foreground">Link a conversation to a deal</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Connect Telegram conversations to your pipeline to track messages and activity in deal timelines.
+            </p>
+          </div>
+          <ArrowRight className="h-4 w-4 text-primary/50 group-hover:text-primary transition-colors shrink-0" />
+        </button>
+      )}
+
       {/* ========== TELEGRAM PULSE STATUS BAR ========== */}
       <div className="rounded-xl border border-white/10 bg-white/[0.035] px-4 py-3 flex items-center gap-4 flex-wrap">
         <div className="flex items-center gap-1.5">
