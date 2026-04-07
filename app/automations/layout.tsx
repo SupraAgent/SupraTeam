@@ -1,6 +1,4 @@
-import "@supra/loop-builder/styles.css";
-
-export default function Automations2Layout({
+export default function AutomationsLayout({
   children,
 }: {
   children: React.ReactNode;
