@@ -38,9 +38,9 @@ import {
   CalendarClock,
   Hourglass,
   Plus,
+  Link2,
 } from "lucide-react";
 import { cn, timeAgo } from "@/lib/utils";
-import { Link2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import { NukeProgressModal } from "@/components/telegram/nuke-progress-modal";
@@ -250,14 +250,17 @@ export default function InboxPage() {
   // Keyboard shortcut: Shift+M to advance the selected conversation's linked deal
   const dealsRef = React.useRef(deals);
   dealsRef.current = deals;
+  const advancingRef = React.useRef(false);
   React.useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       const chat = selectedChatRef.current;
       if (e.shiftKey && e.key === "M" && chat) {
         e.preventDefault();
+        if (advancingRef.current) return;
         const chatDeals = dealsRef.current[chat];
         const linkedDeal = chatDeals?.[0];
         if (linkedDeal) {
+          advancingRef.current = true;
           fetch(`/api/deals/${linkedDeal.id}/advance`, { method: "POST" })
             .then((r) => {
               if (r.ok) return r.json();
@@ -275,7 +278,8 @@ export default function InboxPage() {
               });
               fetchInboxRef.current();
             })
-            .catch(() => toast.error("Failed to advance deal"));
+            .catch(() => toast.error("Failed to advance deal"))
+            .finally(() => { advancingRef.current = false; });
         }
       }
     }
@@ -334,7 +338,10 @@ export default function InboxPage() {
 
   const fetchInbox = React.useCallback(async () => {
     try {
-      const params = selectedBotId ? `?bot_id=${selectedBotId}` : "";
+      const qp = new URLSearchParams();
+      if (selectedBotId) qp.set("bot_id", selectedBotId);
+      if (selectedAccountId) qp.set("tg_user_id", selectedAccountId);
+      const params = qp.toString() ? `?${qp.toString()}` : "";
       const results = await Promise.allSettled([
         fetch(`/api/inbox${params}`),
         fetch("/api/inbox/status"),
@@ -376,7 +383,7 @@ export default function InboxPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [selectedBotId]);
+  }, [selectedBotId, selectedAccountId]);
 
   const loadMore = React.useCallback(async () => {
     if (loadingMore || !hasMore || !nextCursor) return;
@@ -886,8 +893,12 @@ export default function InboxPage() {
       )
     : cannedResponses;
 
+  // Stable serialization of lastSeen to avoid recomputation on every chat selection
+  const lastSeenJson = React.useMemo(() => JSON.stringify(lastSeen), [lastSeen]);
+
   // Pre-compute per-conversation data so virtual row renders don't scan messages
   const convRowData = React.useMemo(() => {
+    const seenMap: Record<number, string> = JSON.parse(lastSeenJson);
     const map = new Map<number, {
       slaHours: number | null;
       slaLabel: string | null;
@@ -897,13 +908,14 @@ export default function InboxPage() {
       neverSeen: boolean;
       lastCustomerSentAt: string | null;
     }>();
+    const now = Date.now();
     for (const conv of filtered) {
       const lastCustomerMsg = conv.messages.find((m) => !m.is_from_bot);
-      const slaMs = lastCustomerMsg ? Date.now() - new Date(lastCustomerMsg.sent_at).getTime() : null;
+      const slaMs = lastCustomerMsg ? now - new Date(lastCustomerMsg.sent_at).getTime() : null;
       const slaHours = slaMs ? slaMs / 3600000 : null;
       const slaColor = slaHours === null ? null : slaHours < 1 ? "text-emerald-400" : slaHours < 4 ? "text-amber-400" : "text-red-400";
       const slaLabel = slaHours === null ? null : slaHours < 1 ? `${Math.round(slaHours * 60)}m` : `${Math.round(slaHours)}h`;
-      const seenAt = lastSeen[conv.chat_id];
+      const seenAt = seenMap[conv.chat_id];
       const neverSeen = !seenAt;
       const unreadCount = seenAt
         ? conv.messages.filter((m) => m.sent_at > seenAt).length +
@@ -916,7 +928,7 @@ export default function InboxPage() {
       });
     }
     return map;
-  }, [filtered, lastSeen]);
+  }, [filtered, lastSeenJson]);
 
   // Virtual scroll for conversation list
   const convListRef = React.useRef<HTMLDivElement>(null);

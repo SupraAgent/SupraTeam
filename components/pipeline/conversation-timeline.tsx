@@ -284,15 +284,17 @@ export function ConversationTimeline({ dealId, telegramChatId, telegramChatLink,
   }, [hasAnyChat, loading, pollNewMessages, dealId]);
 
   // Track scroll position to determine if user is at bottom
+  const newMessageCountRef = React.useRef(newMessageCount);
+  newMessageCountRef.current = newMessageCount;
   const handleScroll = React.useCallback(() => {
     if (!scrollRef.current) return;
     const el = scrollRef.current;
     const threshold = 60; // px from bottom
     isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
-    if (isAtBottomRef.current && newMessageCount > 0) {
+    if (isAtBottomRef.current && newMessageCountRef.current > 0) {
       setNewMessageCount(0);
     }
-  }, [newMessageCount]);
+  }, []);
 
   // Scroll to bottom on initial load
   React.useEffect(() => {

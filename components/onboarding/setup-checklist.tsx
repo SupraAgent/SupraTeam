@@ -73,7 +73,7 @@ export function SetupChecklist({ hasBotToken, hasGroups, hasDeals, hasContacts, 
       clearTimeout(timer);
       window.removeEventListener("keydown", onKey);
     };
-  }, [showWelcome]);
+  }, [showWelcome, dismissWelcome]);
 
   function dismissWelcome() {
     setShowWelcome(false);

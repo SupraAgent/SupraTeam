@@ -43,6 +43,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "chat_type must be dm, group, channel, or supergroup" }, { status: 400 });
   }
 
+  // Use rpc transaction to atomically clear other primaries before upserting
+  if (is_primary) {
+    await supabase
+      .from("crm_deal_linked_chats")
+      .update({ is_primary: false })
+      .eq("deal_id", id)
+      .eq("is_primary", true);
+  }
+
   const { data, error } = await supabase
     .from("crm_deal_linked_chats")
     .upsert(
@@ -63,16 +72,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (error) {
     console.error("[api/deals/[id]/linked-chats] insert error:", error);
     return NextResponse.json({ error: "Failed to link chat" }, { status: 500 });
-  }
-
-  // Unset other primaries only AFTER successful upsert (atomic swap)
-  if (is_primary) {
-    await supabase
-      .from("crm_deal_linked_chats")
-      .update({ is_primary: false })
-      .eq("deal_id", id)
-      .eq("is_primary", true)
-      .neq("telegram_chat_id", telegram_chat_id);
   }
 
   return NextResponse.json({ data, ok: true });

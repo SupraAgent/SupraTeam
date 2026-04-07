@@ -34,6 +34,9 @@ export async function GET(request: Request) {
 
   const profileMap = new Map(profiles.map((p) => [p.id, p]));
   const userIds = profiles.map((p) => p.id);
+  const teamTgIds = profiles
+    .map((p) => (p as unknown as { telegram_id: string | null }).telegram_id)
+    .filter((id): id is string => id != null);
 
   // Fetch activity data in parallel
   const [stageChanges, newDeals, notes, responseTimes, tgMessages] = await Promise.all([
@@ -67,11 +70,14 @@ export async function GET(request: Request) {
       .not("response_time_ms", "is", null)
       .gte("created_at", since),
 
-    // TG group messages sent by team members (via sender_telegram_id → profiles.telegram_id)
-    supabase
-      .from("tg_group_messages")
-      .select("sender_telegram_id, sent_at")
-      .gte("sent_at", since),
+    // TG group messages sent by team members (scoped to team telegram IDs)
+    teamTgIds.length > 0
+      ? supabase
+          .from("tg_group_messages")
+          .select("sender_telegram_id, sent_at")
+          .in("sender_telegram_id", teamTgIds)
+          .gte("sent_at", since)
+      : Promise.resolve({ data: [], error: null }),
   ]);
 
   // Aggregate per rep

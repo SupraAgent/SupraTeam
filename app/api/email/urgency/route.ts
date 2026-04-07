@@ -139,6 +139,7 @@ export async function GET(request: Request) {
           `${i + 1}. Subject: "${t.subject}" | From: ${t.from} | Snippet: "${t.snippet}" | Hours waiting: ${Math.round((Date.now() - new Date(t.received_at).getTime()) / 3600000)} | Deal: ${t.deal_name || "none"}`
         ).join("\n");
 
+        const aiAbort = AbortSignal.timeout(8000);
         const response = await client.messages.create({
           model: "claude-haiku-4-5-20251001",
           max_tokens: 500,
@@ -150,7 +151,7 @@ export async function GET(request: Request) {
 ${threadSummaries}
 </threads>`,
           }],
-        });
+        }, { signal: aiAbort });
 
         const text = response.content[0].type === "text" ? response.content[0].text : "";
         const jsonMatch = text.match(/\[[\s\S]*\]/);

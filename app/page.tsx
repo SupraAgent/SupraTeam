@@ -166,8 +166,9 @@ export default function HomePage() {
   }, [timeRange]);
 
   React.useEffect(() => {
+    const controller = new AbortController();
     const interval = setInterval(() => {
-      fetch("/api/dashboard/activity?limit=30")
+      fetch("/api/dashboard/activity?limit=30", { signal: controller.signal })
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
           if (data) {
@@ -175,9 +176,9 @@ export default function HomePage() {
             setLastUpdated(new Date());
           }
         })
-        .catch(() => { /* silent refresh failure */ });
+        .catch(() => { /* silent refresh failure or abort */ });
     }, 60000);
-    return () => clearInterval(interval);
+    return () => { clearInterval(interval); controller.abort(); };
   }, []);
 
   if (loading) {
@@ -355,9 +356,9 @@ export default function HomePage() {
           });
         }
 
-        // 4. Due reminders — compute once against a stable timestamp to avoid re-render flicker
-        const now = Date.now();
-        const dueReminders = reminders.filter((r) => new Date(r.due_at).getTime() <= now);
+        // 4. Due reminders — use lastUpdated as a stable timestamp to avoid re-render flicker
+        const stableNow = lastUpdated?.getTime() ?? Date.now();
+        const dueReminders = reminders.filter((r) => new Date(r.due_at).getTime() <= stableNow);
         if (dueReminders.length > 0 && actions.length < 3) {
           actions.push({
             key: "reminders",

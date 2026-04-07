@@ -142,7 +142,7 @@ export async function GET(request: Request) {
       .select("id, telegram_username")
       .not("telegram_username", "is", null)
       .neq("telegram_username", "")
-      .limit(100);
+      .limit(1000);
 
     const matchingContactIds: string[] = [];
     const contactUsernameMap = new Map<string, string>();

@@ -80,7 +80,7 @@ export function DealCard({
     e?.preventDefault();
     if (editingField) {
       const num = editValue === "" ? null : Number(editValue);
-      onInlineEdit(editingField, isNaN(num as number) ? null : num);
+      onInlineEdit(editingField, num !== null && isNaN(num) ? null : num);
       setEditingField(null);
     }
   }

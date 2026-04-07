@@ -255,8 +255,8 @@ export function DealDetailPanel({ deal, open, onClose, onDeleted, onUpdated, cac
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           deal_name: dealName,
-          value: value ? Number(value) : null,
-          probability: probability ? Number(probability) : null,
+          value: value !== "" ? Number(value) : null,
+          probability: probability !== "" ? Number(probability) : null,
           stage_id: stageId || null,
           board_type: boardType,
           telegram_chat_link: tgLink || null,
