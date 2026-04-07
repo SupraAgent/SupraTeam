@@ -13,7 +13,17 @@ import {
   ChevronUp,
   ChevronDown,
   Clock,
+  Sparkles,
 } from "lucide-react";
+
+const BD_MILESTONE_FIELDS: Omit<CustomField, "id" | "position">[] = [
+  { field_name: "sdk_integrated", label: "SDK Integrated", field_type: "dropdown", options: ["Not Started", "In Progress", "Complete"], required: false, board_type: "BD" },
+  { field_name: "testnet_deployed", label: "Testnet Deployed", field_type: "dropdown", options: ["Not Started", "In Progress", "Complete"], required: false, board_type: "BD" },
+  { field_name: "mainnet_live", label: "Mainnet Live", field_type: "dropdown", options: ["Not Started", "In Progress", "Complete"], required: false, board_type: "BD" },
+  { field_name: "audit_complete", label: "Audit Complete", field_type: "dropdown", options: ["Not Started", "In Progress", "Complete", "N/A"], required: false, board_type: "BD" },
+  { field_name: "docs_published", label: "Documentation Published", field_type: "dropdown", options: ["Not Started", "Draft", "Published"], required: false, board_type: "BD" },
+  { field_name: "partnership_type", label: "Partnership Type", field_type: "dropdown", options: ["Integration", "Co-Marketing", "Grant", "Investment", "Advisory", "Other"], required: false, board_type: null },
+];
 
 type Stage = {
   id?: string;
@@ -443,6 +453,19 @@ export default function PipelineSettingsPage() {
               No custom fields. The default deal form includes: Name, Board, Stage, Contact, and Value.
               <br />
               Add fields here to extend it.
+              <div className="mt-4">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setFields(BD_MILESTONE_FIELDS.map((f, i) => ({ ...f, position: i + 1 })));
+                    setFieldsMsg("BD milestone fields loaded — click Save to apply");
+                  }}
+                >
+                  <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+                  Load BD Milestone Fields
+                </Button>
+              </div>
             </div>
           )}
         </div>

@@ -712,6 +712,74 @@ export const BUILT_IN_TEMPLATES: FlowTemplate[] = [
     ],
   },
 
+  // ── BD ADVANCED templates (team manager workflows) ──
+  {
+    id: "bd-partner-onboarding",
+    name: "Partner Onboarding Pipeline",
+    description: "Automate partner onboarding: deal created → send welcome TG → create integration tasks → schedule kick-off → 7d check-in",
+    category: "crm",
+    isBuiltIn: true,
+    createdAt: "2026-04-06",
+    nodes: [
+      { id: "trigger", type: "triggerNode", position: { x: 0, y: 200 }, data: { label: "Deal Created", triggerType: "deal_created", config: {} } },
+      { id: "bd-check", type: "conditionNode", position: { x: 300, y: 200 }, data: { label: "Is BD Deal?", condition: "deal.board_type == 'BD'" } },
+      { id: "welcome", type: "actionNode", position: { x: 600, y: 100 }, data: { label: "Send Welcome Message", actionType: "send_telegram", config: { message: "🤝 Welcome {{contact_name}}! We're excited to kick off the partnership with {{company_name}}. Our team will be reaching out shortly to schedule a kick-off call." } } },
+      { id: "tasks", type: "actionNode", position: { x: 600, y: 250 }, data: { label: "Create Onboarding Tasks", actionType: "create_task", config: { tasks: ["Schedule kick-off call with {{contact_name}}", "Share integration docs", "Set up shared TG group", "Create integration timeline"] } } },
+      { id: "delay", type: "delayNode", position: { x: 900, y: 200 }, data: { label: "Wait 7 Days", duration: 604800 } },
+      { id: "checkin", type: "actionNode", position: { x: 1200, y: 200 }, data: { label: "Check-In Reminder", actionType: "send_telegram", config: { message: "📋 7-day check-in: How's the onboarding going for {{deal_name}}? Any blockers to flag?" } } },
+      { id: "note", type: "noteNode", position: { x: 0, y: 400 }, data: { label: "Partner Onboarding", content: "Full onboarding pipeline: welcome message → task creation → 7-day check-in. Ensures no partner falls through the cracks during setup." } },
+    ],
+    edges: [
+      { id: "e1", source: "trigger", target: "bd-check", type: "smoothstep", animated: true },
+      { id: "e2", source: "bd-check", target: "welcome", type: "smoothstep", animated: true, sourceHandle: "true", label: "BD" },
+      { id: "e3", source: "bd-check", target: "tasks", type: "smoothstep", animated: true, sourceHandle: "true" },
+      { id: "e4", source: "tasks", target: "delay", type: "smoothstep", animated: true },
+      { id: "e5", source: "delay", target: "checkin", type: "smoothstep", animated: true },
+    ],
+  },
+  {
+    id: "bd-milestone-tracker",
+    name: "Integration Milestone Tracker",
+    description: "Track integration progress: stage change → check milestone fields → notify team → update deal notes",
+    category: "crm",
+    isBuiltIn: true,
+    createdAt: "2026-04-06",
+    nodes: [
+      { id: "trigger", type: "triggerNode", position: { x: 0, y: 200 }, data: { label: "Deal Updated", triggerType: "deal_updated", config: {} } },
+      { id: "milestone-check", type: "conditionNode", position: { x: 300, y: 200 }, data: { label: "Milestone Changed?", condition: "deal.custom_fields.sdk_integrated == 'Complete' OR deal.custom_fields.testnet_deployed == 'Complete' OR deal.custom_fields.mainnet_live == 'Complete'" } },
+      { id: "notify-team", type: "actionNode", position: { x: 600, y: 100 }, data: { label: "Notify Team", actionType: "send_telegram", config: { message: "🎉 Milestone reached on {{deal_name}}!\n{{changed_field}}: {{new_value}}\n\nNext steps may be needed." } } },
+      { id: "add-note", type: "actionNode", position: { x: 600, y: 300 }, data: { label: "Log Milestone", actionType: "add_note", config: { text: "Milestone update: {{changed_field}} → {{new_value}}" } } },
+      { id: "note", type: "noteNode", position: { x: 0, y: 400 }, data: { label: "Milestone Tracker", content: "Watches for integration milestone field changes (SDK Integrated, Testnet Deployed, Mainnet Live) and notifies the team + logs to deal notes." } },
+    ],
+    edges: [
+      { id: "e1", source: "trigger", target: "milestone-check", type: "smoothstep", animated: true },
+      { id: "e2", source: "milestone-check", target: "notify-team", type: "smoothstep", animated: true, sourceHandle: "true", label: "milestone" },
+      { id: "e3", source: "milestone-check", target: "add-note", type: "smoothstep", animated: true, sourceHandle: "true" },
+    ],
+  },
+  {
+    id: "bd-deal-escalation",
+    name: "Deal Escalation to Manager",
+    description: "Auto-escalate high-value deals that stall: daily check → value > threshold → stale > 5 days → alert manager with AI summary",
+    category: "crm",
+    isBuiltIn: true,
+    createdAt: "2026-04-06",
+    nodes: [
+      { id: "trigger", type: "triggerNode", position: { x: 0, y: 200 }, data: { label: "Daily Check", triggerType: "scheduled", config: { cron: "0 9 * * 1-5", description: "Weekdays at 9am" } } },
+      { id: "filter", type: "conditionNode", position: { x: 300, y: 200 }, data: { label: "High-Value + Stale?", condition: "deal.value > 10000 AND deal.days_stale > 5 AND deal.outcome == null" } },
+      { id: "summarize", type: "llmNode", position: { x: 600, y: 200 }, data: { label: "AI Deal Summary", provider: "claude", model: "claude-haiku-4-5-20251001", systemPrompt: "Summarize this stalled deal for a manager: deal name, value, current stage, days since last activity, assigned rep, and a suggested next action. Keep under 100 words.", temperature: 0.3, maxTokens: 256 } },
+      { id: "escalate", type: "actionNode", position: { x: 900, y: 100 }, data: { label: "Alert Manager", actionType: "send_telegram", config: { message: "⚠️ ESCALATION: {{deal_name}} (${{value}}) has been stale for {{days_stale}} days.\n\nAssigned to: {{assigned_to}}\n\n{{ai_summary}}" } } },
+      { id: "task", type: "actionNode", position: { x: 900, y: 300 }, data: { label: "Create Review Task", actionType: "create_task", config: { title: "Review stalled deal: {{deal_name}}", priority: "high", assign_to: "manager" } } },
+      { id: "note", type: "noteNode", position: { x: 0, y: 400 }, data: { label: "Deal Escalation", content: "Manager workflow: auto-escalates high-value deals that haven't moved in 5+ days. Uses AI to summarize the situation and creates a review task." } },
+    ],
+    edges: [
+      { id: "e1", source: "trigger", target: "filter", type: "smoothstep", animated: true },
+      { id: "e2", source: "filter", target: "summarize", type: "smoothstep", animated: true, sourceHandle: "true", label: "needs attention" },
+      { id: "e3", source: "summarize", target: "escalate", type: "smoothstep", animated: true },
+      { id: "e4", source: "summarize", target: "task", type: "smoothstep", animated: true },
+    ],
+  },
+
   // ── TELEGRAM templates ──
   {
     id: "tg-new-member-welcome",
