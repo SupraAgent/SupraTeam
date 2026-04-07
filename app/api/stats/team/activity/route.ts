@@ -8,6 +8,8 @@ interface RepActivity {
   deals_moved: number;
   deals_created: number;
   notes_added: number;
+  messages_sent: number;
+  avg_response_ms: number | null;
   total_activities: number;
   last_activity_at: string | null;
   key_deals: { deal_name: string; stage_name: string; value: number | null }[];
@@ -25,7 +27,7 @@ export async function GET(request: Request) {
   // Get all team members
   const { data: profiles } = await supabase
     .from("profiles")
-    .select("id, display_name, avatar_url, crm_role")
+    .select("id, display_name, avatar_url, crm_role, telegram_id")
     .not("display_name", "is", null);
 
   if (!profiles?.length) return NextResponse.json({ team: [] });
@@ -34,7 +36,7 @@ export async function GET(request: Request) {
   const userIds = profiles.map((p) => p.id);
 
   // Fetch activity data in parallel
-  const [stageChanges, newDeals, notes] = await Promise.all([
+  const [stageChanges, newDeals, notes, responseTimes, tgMessages] = await Promise.all([
     // Stage changes by team members in the last N hours
     supabase
       .from("crm_deal_stage_history")
@@ -57,10 +59,30 @@ export async function GET(request: Request) {
       .select("id, deal_id, created_by, created_at")
       .in("created_by", userIds)
       .gte("created_at", since),
+
+    // Response times from highlights linked to deals assigned to team members
+    supabase
+      .from("crm_highlights")
+      .select("deal_id, response_time_ms, crm_deals!inner(assigned_to)")
+      .not("response_time_ms", "is", null)
+      .gte("created_at", since),
+
+    // TG group messages sent by team members (via sender_telegram_id → profiles.telegram_id)
+    supabase
+      .from("tg_group_messages")
+      .select("sender_telegram_id, sent_at")
+      .gte("sent_at", since),
   ]);
 
   // Aggregate per rep
   const repMap = new Map<string, RepActivity>();
+
+  // Build telegram_id → user_id lookup for TG message attribution
+  const tgIdToUserId = new Map<string, string>();
+  for (const p of profiles) {
+    const tgId = (p as unknown as { telegram_id: string | null }).telegram_id;
+    if (tgId) tgIdToUserId.set(String(tgId), p.id);
+  }
 
   function ensureRep(userId: string): RepActivity {
     if (!repMap.has(userId)) {
@@ -72,6 +94,8 @@ export async function GET(request: Request) {
         deals_moved: 0,
         deals_created: 0,
         notes_added: 0,
+        messages_sent: 0,
+        avg_response_ms: null,
         total_activities: 0,
         last_activity_at: null,
         key_deals: [],
@@ -125,6 +149,30 @@ export async function GET(request: Request) {
     if (!rep.last_activity_at || n.created_at > rep.last_activity_at) {
       rep.last_activity_at = n.created_at;
     }
+  }
+
+  // Aggregate response times per rep (via deal assignment)
+  const repResponseTimes = new Map<string, number[]>();
+  for (const h of responseTimes.data ?? []) {
+    const deal = h.crm_deals as unknown as { assigned_to: string | null } | null;
+    if (!deal?.assigned_to || !h.response_time_ms) continue;
+    if (!repResponseTimes.has(deal.assigned_to)) repResponseTimes.set(deal.assigned_to, []);
+    repResponseTimes.get(deal.assigned_to)!.push(Number(h.response_time_ms));
+  }
+  for (const [userId, times] of repResponseTimes) {
+    if (!profileMap.has(userId)) continue;
+    const rep = ensureRep(userId);
+    rep.avg_response_ms = Math.round(times.reduce((a, b) => a + b, 0) / times.length);
+  }
+
+  // Count TG messages sent per rep
+  for (const msg of tgMessages.data ?? []) {
+    if (!msg.sender_telegram_id) continue;
+    const userId = tgIdToUserId.get(String(msg.sender_telegram_id));
+    if (!userId) continue;
+    const rep = ensureRep(userId);
+    rep.messages_sent++;
+    rep.total_activities++;
   }
 
   const team = [...repMap.values()]
