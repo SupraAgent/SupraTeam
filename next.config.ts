@@ -3,7 +3,6 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   output: "standalone",
   reactStrictMode: true,
-  transpilePackages: ["@supra/loop-builder"],
   // GramJS uses Node.js modules that don't exist in browser.
   // Stub them out — GramJS auto-detects browser and uses WebSocket instead.
   turbopack: {
@@ -29,8 +28,6 @@ const nextConfig: NextConfig = {
       // Legacy route redirects — A2 builder is now the primary /automations
       { source: "/automations2", destination: "/automations", permanent: true },
       { source: "/automations2/:path*", destination: "/automations/:path*", permanent: true },
-      // Loop Builder → Automations redirect
-      { source: "/loop", destination: "/automations", permanent: true },
     ];
   },
   async headers() {
@@ -52,7 +49,7 @@ const nextConfig: NextConfig = {
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: blob: https://avatars.githubusercontent.com https://github.com https://t.me",
               "font-src 'self' data:",
-              "connect-src 'self' https://btpwumlhjphmoznsejxm.supabase.co wss://btpwumlhjphmoznsejxm.supabase.co https://api.anthropic.com wss://venus.web.telegram.org wss://flora.web.telegram.org wss://pluto.web.telegram.org wss://vesta.web.telegram.org wss://aurora.web.telegram.org",
+              "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.anthropic.com wss://venus.web.telegram.org wss://flora.web.telegram.org wss://pluto.web.telegram.org wss://vesta.web.telegram.org wss://aurora.web.telegram.org",
               "frame-ancestors 'none'",
               "base-uri 'self'",
               "form-action 'self'",

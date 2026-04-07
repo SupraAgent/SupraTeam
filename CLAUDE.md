@@ -210,8 +210,5 @@ Strategic thesis: win by being **the CRM that lives inside Telegram**, not anoth
 ## What NOT to Do
 
 - Don't install large component libraries (Material UI, Chakra, Ant Design)
-- Don't change the dark mode design system — extend it
 - Don't restructure base Supabase tables (profiles, user_tokens, auth.users)
-- Don't build the bot inside Next.js API routes — it runs as a separate process
 - Don't chase omnichannel (WhatsApp, SMS) — Telegram-first is the strategy
-- Don't over-architect — this is an internal tool for a small team
